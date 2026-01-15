@@ -1,5 +1,7 @@
 package com.lionotter.recipes.ui.screens.settings
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -43,6 +45,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -125,6 +128,7 @@ private fun ApiKeySection(
     onResetSaveState: () -> Unit
 ) {
     var passwordVisible by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
@@ -231,7 +235,10 @@ private fun ApiKeySection(
         }
 
         OutlinedButton(
-            onClick = { /* Open Anthropic console */ },
+            onClick = {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://platform.claude.com/settings/keys"))
+                context.startActivity(intent)
+            },
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Get an API Key from Anthropic")
