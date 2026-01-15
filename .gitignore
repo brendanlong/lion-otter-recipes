@@ -95,3 +95,6 @@ lint/tmp/
 # virtual machine crash logs
 hs_err_pid*
 replay_pid*
+
+# Other stuff
+*.hprof
