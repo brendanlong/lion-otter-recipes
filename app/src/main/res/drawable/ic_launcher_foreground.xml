@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Simple placeholder icon - Lion + Otter initials -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M34,44L34,64L38,64L38,48L46,64L50,64L50,44L46,44L46,60L38,44Z"/>
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,54A8,10 0,1 1,70 54A8,10 0,1 1,54 54Z"/>
+    <path
+        android:fillColor="#D4A03C"
+        android:pathData="M32,68L32,72L72,72L72,68Z"/>
+</vector>
