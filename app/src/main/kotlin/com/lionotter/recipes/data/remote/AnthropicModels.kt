@@ -3,13 +3,24 @@ package com.lionotter.recipes.data.remote
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
+/**
+ * Configuration for extended thinking capability.
+ */
+@Serializable
+data class ThinkingConfig(
+    val type: String = "enabled",
+    @SerialName("budget_tokens")
+    val budgetTokens: Int = 8000
+)
+
 @Serializable
 data class AnthropicRequest(
     val model: String,
     @SerialName("max_tokens")
     val maxTokens: Int,
     val messages: List<AnthropicMessage>,
-    val system: String? = null
+    val system: String? = null,
+    val thinking: ThinkingConfig? = null
 )
 
 @Serializable
@@ -33,7 +44,8 @@ data class AnthropicResponse(
 @Serializable
 data class AnthropicContent(
     val type: String,
-    val text: String
+    val text: String? = null,
+    val thinking: String? = null
 )
 
 @Serializable

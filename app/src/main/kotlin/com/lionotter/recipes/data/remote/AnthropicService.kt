@@ -32,13 +32,17 @@ class AnthropicService @Inject constructor(
         return try {
             val request = AnthropicRequest(
                 model = model,
-                maxTokens = 4096,
+                maxTokens = 16000,
                 system = SYSTEM_PROMPT,
                 messages = listOf(
                     AnthropicMessage(
                         role = "user",
                         content = "Parse this recipe webpage and extract the structured data:\n\n$html"
                     )
+                ),
+                thinking = ThinkingConfig(
+                    type = "enabled",
+                    budgetTokens = 8000
                 )
             )
 
@@ -62,7 +66,9 @@ class AnthropicService @Inject constructor(
             }
 
             val anthropicResponse = json.decodeFromString(AnthropicResponse.serializer(), responseBody)
-            val content = anthropicResponse.content.firstOrNull { it.type == "text" }?.text
+            // Find the text content block (skip thinking blocks)
+            val content = anthropicResponse.content
+                .firstOrNull { it.type == "text" && it.text != null }?.text
                 ?: return Result.failure(Exception("No text content in response"))
 
             // Extract JSON from the response (it might be wrapped in markdown code blocks)
@@ -129,24 +135,37 @@ For successful parsing, return:
         "ingredients": [
           {
             "name": "all-purpose flour",
-            "quantity": 2.0,
-            "unit": "cups",
             "notes": "sifted",
-            "alternates": []
+            "alternates": [],
+            "amounts": [
+              {"value": 2.0, "unit": "cups", "type": "volume", "isDefault": true},
+              {"value": 250.0, "unit": "grams", "type": "weight", "isDefault": false}
+            ]
+          },
+          {
+            "name": "eggs",
+            "notes": "room temperature",
+            "alternates": [],
+            "amounts": [
+              {"value": 3.0, "unit": "large", "type": "count", "isDefault": true}
+            ]
           },
           {
             "name": "kosher salt",
-            "quantity": 1.0,
-            "unit": "tsp",
             "notes": null,
             "alternates": [
               {
                 "name": "table salt",
-                "quantity": 0.5,
-                "unit": "tsp",
                 "notes": null,
-                "alternates": []
+                "alternates": [],
+                "amounts": [
+                  {"value": 0.5, "unit": "teaspoons", "type": "volume", "isDefault": true}
+                ]
               }
+            ],
+            "amounts": [
+              {"value": 1.0, "unit": "teaspoons", "type": "volume", "isDefault": true},
+              {"value": 6.0, "unit": "grams", "type": "weight", "isDefault": false}
             ]
           }
         ]
@@ -191,20 +210,25 @@ Return an error response when:
 Guidelines:
 - If the recipe has distinct sections (e.g., cake and frosting), create separate ingredientSections and instructionSections
 - If there's only one section, use null for the section name
+- IMPORTANT: For each ingredient, provide BOTH volume and weight measurements when possible:
+  * Use the "amounts" array to provide multiple measurement options
+  * Mark the original recipe measurement with "isDefault": true
+  * Provide approximate conversions to other measurement types (volume to weight or vice versa)
+  * Use your knowledge of common ingredient densities for conversions (e.g., flour ~125g/cup, sugar ~200g/cup, butter ~227g/cup)
+  * For items that are counted (eggs, onions, etc.), use "type": "count" and only include that measurement
+- IMPORTANT: Always spell out units fully (use "cups" not "c", "tablespoons" not "tbsp", "teaspoons" not "tsp", "grams" not "g", "ounces" not "oz", etc.)
 - Extract quantities as decimal numbers (e.g., 0.5 for 1/2, 0.25 for 1/4)
 - Include notes for ingredient modifications like "room temperature", "divided", etc.
 - For ingredient alternates/substitutes (indicated by "or" in the ingredient list):
   * Extract the first option as the main ingredient
   * Parse subsequent options (separated by "or") as alternates in the alternates array
-  * Apply the same quantity and unit parsing to each alternate
-  * Example: "1 tsp kosher salt or 1/2 tsp table salt" becomes:
-    - Main: {name: "kosher salt", quantity: 1.0, unit: "tsp", alternates: [...]}
-    - Alternate: {name: "table salt", quantity: 0.5, unit: "tsp", alternates: []}
+  * Apply the same amounts structure to each alternate
 - For ingredientReferences, include the specific quantity used in that step if mentioned
 - Generate relevant tags based on the recipe type, cuisine, dietary restrictions, etc.
 - Keep the story brief - just the essence of any background provided
 - Return null for fields that aren't present in the source
 - Always include the alternates array (empty array if no alternates)
+- Always include the amounts array (with at least one measurement)
 """.trimIndent()
     }
 }

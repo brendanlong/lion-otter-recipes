@@ -3,7 +3,41 @@ package com.lionotter.recipes.domain.model
 import com.lionotter.recipes.util.pluralize
 import com.lionotter.recipes.util.singularize
 import kotlinx.datetime.Instant
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+
+/**
+ * Represents the type of measurement for an ingredient amount.
+ */
+@Serializable
+enum class MeasurementType {
+    @SerialName("volume")
+    VOLUME,
+    @SerialName("weight")
+    WEIGHT,
+    @SerialName("count")
+    COUNT
+}
+
+/**
+ * Represents a single measurement amount with its unit and type.
+ */
+@Serializable
+data class Measurement(
+    val value: Double,
+    val unit: String,
+    val type: MeasurementType,
+    val isDefault: Boolean = false
+)
+
+/**
+ * User preference for how measurements should be displayed.
+ */
+enum class MeasurementPreference {
+    ORIGINAL,  // Show the default measurement from the recipe
+    VOLUME,    // Prefer volume measurements
+    WEIGHT     // Prefer weight measurements
+}
 
 @Serializable
 data class Recipe(
@@ -35,9 +69,72 @@ data class Ingredient(
     val quantity: Double? = null,
     val unit: String? = null,
     val notes: String? = null,
-    val alternates: List<Ingredient> = emptyList()
+    val alternates: List<Ingredient> = emptyList(),
+    val amounts: List<Measurement> = emptyList()
 ) {
-    fun format(scale: Double = 1.0): String {
+    /**
+     * Returns the measurement to display based on user preference.
+     * Falls back to original measurement if preferred type is not available.
+     */
+    fun getPreferredMeasurement(preference: MeasurementPreference): Measurement? {
+        if (amounts.isEmpty()) return null
+
+        return when (preference) {
+            MeasurementPreference.ORIGINAL -> amounts.find { it.isDefault } ?: amounts.firstOrNull()
+            MeasurementPreference.VOLUME -> amounts.find { it.type == MeasurementType.VOLUME }
+                ?: amounts.find { it.isDefault } ?: amounts.firstOrNull()
+            MeasurementPreference.WEIGHT -> amounts.find { it.type == MeasurementType.WEIGHT }
+                ?: amounts.find { it.isDefault } ?: amounts.firstOrNull()
+        }
+    }
+
+    /**
+     * Returns true if this ingredient has multiple measurement types available.
+     */
+    fun hasMultipleMeasurementTypes(): Boolean {
+        return amounts.map { it.type }.distinct().size > 1
+    }
+
+    /**
+     * Returns the available measurement types for this ingredient.
+     */
+    fun availableMeasurementTypes(): Set<MeasurementType> {
+        return amounts.map { it.type }.toSet()
+    }
+
+    /**
+     * Format the ingredient using the new structured amounts if available,
+     * otherwise fall back to legacy quantity/unit fields.
+     */
+    fun format(scale: Double = 1.0, preference: MeasurementPreference = MeasurementPreference.ORIGINAL): String {
+        val measurement = getPreferredMeasurement(preference)
+
+        return if (measurement != null) {
+            formatWithMeasurement(measurement, scale)
+        } else {
+            formatLegacy(scale)
+        }
+    }
+
+    private fun formatWithMeasurement(measurement: Measurement, scale: Double): String {
+        val scaledQty = measurement.value * scale
+        return buildString {
+            append(formatQuantity(scaledQty))
+            append(" ")
+            // Use 1 for singular (qty <= 1), 2 for plural (qty > 1)
+            val count = if (scaledQty > 1.0) 2 else 1
+            // Normalize to singular first, then pluralize based on count
+            append(measurement.unit.singularize().pluralize(count))
+            append(" ")
+            append(name)
+            notes?.let {
+                append(", ")
+                append(it)
+            }
+        }
+    }
+
+    private fun formatLegacy(scale: Double): String {
         val scaledQty = quantity?.let { it * scale }
         return buildString {
             scaledQty?.let {

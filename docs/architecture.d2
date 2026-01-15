@@ -117,10 +117,15 @@ app: {
       ingredient: Ingredient
       instruction: InstructionStep
       section: IngredientSection
+      measurement: Measurement
+      measurement_type: MeasurementType
+      measurement_pref: MeasurementPreference
 
       recipe -> section
       section -> ingredient
       ingredient -> ingredient: alternates
+      ingredient -> measurement: amounts
+      measurement -> measurement_type: type
       recipe -> instruction
     }
   }
@@ -173,7 +178,7 @@ app: {
 
       anthropic_svc: {
         label: AnthropicService
-        tooltip: Returns RecipeParseResponse (success with recipe or error message)
+        tooltip: Uses extended thinking to parse recipes with volume/weight measurement conversions
       }
       scraper: {
         label: WebScraperService
@@ -216,14 +221,16 @@ legend: {
   flow1: "1. User pastes URL"
   flow2: "2. Scraper fetches HTML"
   flow3: "3. Readability4J extracts content"
-  flow4: "4. Anthropic parses recipe (or returns error)"
-  flow5: "5. Repository saves to Room"
-  flow6: "6. UI observes Flow<Recipe>"
+  flow4: "4. Anthropic parses recipe with extended thinking"
+  flow5: "5. AI provides volume/weight measurement conversions"
+  flow6: "6. Repository saves to Room"
+  flow7: "7. UI observes Flow<Recipe>"
+  flow8: "8. User can toggle between Original/Volume/Weight display"
 
-  flow1 -> flow2 -> flow3 -> flow4 -> flow5 -> flow6
+  flow1 -> flow2 -> flow3 -> flow4 -> flow5 -> flow6 -> flow7 -> flow8
 
   note: {
-    label: "Step 4 can return a parse error with human-readable message if content is not a valid recipe"
+    label: "Step 4 uses extended thinking for accurate ingredient parsing and measurement conversions"
     style: {
       font-size: 12
       italic: true
