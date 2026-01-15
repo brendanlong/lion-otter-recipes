@@ -16,17 +16,27 @@ sealed class Screen(val route: String) {
     object RecipeDetail : Screen("recipes/{recipeId}") {
         fun createRoute(recipeId: String) = "recipes/$recipeId"
     }
-    object AddRecipe : Screen("add-recipe")
+    object AddRecipe : Screen("add-recipe?url={url}") {
+        fun createRoute(url: String? = null) =
+            if (url != null) "add-recipe?url=${url.replace("/", "%2F").replace(":", "%3A").replace("?", "%3F").replace("&", "%26").replace("=", "%3D")}"
+            else "add-recipe"
+    }
     object Settings : Screen("settings")
 }
 
 @Composable
-fun NavGraph() {
+fun NavGraph(sharedUrl: String? = null) {
     val navController = rememberNavController()
+
+    val startDestination = if (sharedUrl != null) {
+        Screen.AddRecipe.createRoute(sharedUrl)
+    } else {
+        Screen.RecipeList.route
+    }
 
     NavHost(
         navController = navController,
-        startDestination = Screen.RecipeList.route
+        startDestination = startDestination
     ) {
         composable(Screen.RecipeList.route) {
             RecipeListScreen(
@@ -53,8 +63,19 @@ fun NavGraph() {
             )
         }
 
-        composable(Screen.AddRecipe.route) {
+        composable(
+            route = Screen.AddRecipe.route,
+            arguments = listOf(
+                navArgument("url") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val sharedUrl = backStackEntry.arguments?.getString("url")
             AddRecipeScreen(
+                sharedUrl = sharedUrl,
                 onBackClick = { navController.popBackStack() },
                 onRecipeAdded = { recipeId ->
                     navController.popBackStack()

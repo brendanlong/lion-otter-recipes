@@ -47,11 +47,18 @@ fun AddRecipeScreen(
     onBackClick: () -> Unit,
     onRecipeAdded: (String) -> Unit,
     onNavigateToSettings: () -> Unit,
+    sharedUrl: String? = null,
     viewModel: AddRecipeViewModel = hiltViewModel()
 ) {
     val url by viewModel.url.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val hasApiKey by viewModel.hasApiKey.collectAsStateWithLifecycle()
+
+    LaunchedEffect(sharedUrl) {
+        if (sharedUrl != null) {
+            viewModel.onUrlChange(sharedUrl)
+        }
+    }
 
     LaunchedEffect(uiState) {
         if (uiState is AddRecipeUiState.Success) {
