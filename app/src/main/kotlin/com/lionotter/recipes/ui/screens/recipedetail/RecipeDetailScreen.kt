@@ -29,6 +29,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -50,6 +53,8 @@ import android.net.Uri
 import coil.compose.AsyncImage
 import com.lionotter.recipes.domain.model.IngredientSection
 import com.lionotter.recipes.domain.model.InstructionSection
+import com.lionotter.recipes.domain.model.MeasurementPreference
+import com.lionotter.recipes.domain.model.MeasurementType
 import com.lionotter.recipes.domain.model.Recipe
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -60,6 +65,9 @@ fun RecipeDetailScreen(
 ) {
     val recipe by viewModel.recipe.collectAsStateWithLifecycle()
     val scale by viewModel.scale.collectAsStateWithLifecycle()
+    val measurementPreference by viewModel.measurementPreference.collectAsStateWithLifecycle()
+    val hasMultipleMeasurementTypes by viewModel.hasMultipleMeasurementTypes.collectAsStateWithLifecycle()
+    val availableMeasurementTypes by viewModel.availableMeasurementTypes.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -95,6 +103,10 @@ fun RecipeDetailScreen(
                 scale = scale,
                 onScaleIncrement = viewModel::incrementScale,
                 onScaleDecrement = viewModel::decrementScale,
+                measurementPreference = measurementPreference,
+                onMeasurementPreferenceChange = viewModel::setMeasurementPreference,
+                showMeasurementToggle = hasMultipleMeasurementTypes,
+                availableMeasurementTypes = availableMeasurementTypes,
                 modifier = Modifier.padding(paddingValues)
             )
         }
@@ -108,6 +120,10 @@ private fun RecipeContent(
     scale: Double,
     onScaleIncrement: () -> Unit,
     onScaleDecrement: () -> Unit,
+    measurementPreference: MeasurementPreference,
+    onMeasurementPreferenceChange: (MeasurementPreference) -> Unit,
+    showMeasurementToggle: Boolean,
+    availableMeasurementTypes: Set<MeasurementType>,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -173,6 +189,16 @@ private fun RecipeContent(
                 onDecrement = onScaleDecrement
             )
 
+            // Measurement toggle (only shown if recipe has multiple measurement types)
+            if (showMeasurementToggle) {
+                Spacer(modifier = Modifier.height(16.dp))
+                MeasurementToggle(
+                    selectedPreference = measurementPreference,
+                    onPreferenceChange = onMeasurementPreferenceChange,
+                    availableMeasurementTypes = availableMeasurementTypes
+                )
+            }
+
             // Ingredients
             Spacer(modifier = Modifier.height(24.dp))
             Text(
@@ -182,7 +208,11 @@ private fun RecipeContent(
             )
             Spacer(modifier = Modifier.height(12.dp))
             recipe.ingredientSections.forEach { section ->
-                IngredientSectionContent(section = section, scale = scale)
+                IngredientSectionContent(
+                    section = section,
+                    scale = scale,
+                    measurementPreference = measurementPreference
+                )
             }
 
             // Instructions
@@ -304,10 +334,69 @@ private fun ScaleControl(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MeasurementToggle(
+    selectedPreference: MeasurementPreference,
+    onPreferenceChange: (MeasurementPreference) -> Unit,
+    availableMeasurementTypes: Set<MeasurementType>
+) {
+    // Determine which options to show based on available measurement types
+    val hasVolume = MeasurementType.VOLUME in availableMeasurementTypes
+    val hasWeight = MeasurementType.WEIGHT in availableMeasurementTypes
+
+    // Build the list of options to display
+    val options = buildList {
+        add(MeasurementPreference.ORIGINAL to "Original")
+        if (hasVolume) add(MeasurementPreference.VOLUME to "Volume")
+        if (hasWeight) add(MeasurementPreference.WEIGHT to "Weight")
+    }
+
+    // Only show toggle if there are at least 2 options (Original plus at least one conversion)
+    if (options.size < 2) return
+
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "Units",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            SingleChoiceSegmentedButtonRow(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                options.forEachIndexed { index, (preference, label) ->
+                    SegmentedButton(
+                        selected = selectedPreference == preference,
+                        onClick = { onPreferenceChange(preference) },
+                        shape = SegmentedButtonDefaults.itemShape(
+                            index = index,
+                            count = options.size
+                        )
+                    ) {
+                        Text(label)
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun IngredientSectionContent(
     section: IngredientSection,
-    scale: Double
+    scale: Double,
+    measurementPreference: MeasurementPreference
 ) {
     Column {
         section.name?.let { name ->
@@ -332,7 +421,7 @@ private fun IngredientSectionContent(
                     modifier = Modifier.padding(end = 8.dp)
                 )
                 Text(
-                    text = ingredient.format(scale),
+                    text = ingredient.format(scale, measurementPreference),
                     style = MaterialTheme.typography.bodyLarge
                 )
             }
@@ -351,7 +440,7 @@ private fun IngredientSectionContent(
                         modifier = Modifier.padding(end = 8.dp)
                     )
                     Text(
-                        text = alternate.format(scale),
+                        text = alternate.format(scale, measurementPreference),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
