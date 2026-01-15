@@ -1,5 +1,6 @@
 package com.lionotter.recipes
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -17,15 +18,27 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        val sharedUrl = extractSharedUrl(intent)
+
         setContent {
             LionOtterTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    NavGraph()
+                    NavGraph(sharedUrl = sharedUrl)
                 }
             }
+        }
+    }
+
+    private fun extractSharedUrl(intent: Intent?): String? {
+        return when (intent?.action) {
+            Intent.ACTION_SEND -> {
+                intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() }
+            }
+            else -> null
         }
     }
 }
