@@ -1,0 +1,216 @@
+# Lion+Otter Recipes - Architecture Diagram
+
+direction: down
+
+title: {
+  label: Lion+Otter Recipes Architecture
+  near: top-center
+  shape: text
+  style: {
+    font-size: 24
+    bold: true
+  }
+}
+
+# External Services
+external: {
+  label: External Services
+  style: {
+    fill: "#f0f0f0"
+    stroke: "#999"
+  }
+
+  anthropic: {
+    label: Anthropic API
+    shape: rectangle
+    style: {
+      fill: "#d4a03c"
+    }
+  }
+
+  web: {
+    label: Recipe Websites
+    shape: rectangle
+  }
+}
+
+# Android App
+app: {
+  label: Android App
+  style: {
+    fill: "#e0f2f7"
+    stroke: "#2a7b9b"
+    stroke-width: 2
+  }
+
+  # UI Layer
+  ui: {
+    label: UI Layer (Compose)
+    style: {
+      fill: "#fff3e0"
+      stroke: "#d4a03c"
+    }
+
+    screens: {
+      label: Screens
+      style: {
+        fill: "#ffffff"
+      }
+
+      list: RecipeListScreen
+      detail: RecipeDetailScreen
+      add: AddRecipeScreen
+      settings: SettingsScreen
+
+      list -> detail: tap recipe
+      list -> add: tap +
+      list -> settings: tap gear
+      add -> settings: no API key
+    }
+
+    viewmodels: {
+      label: ViewModels
+      style: {
+        fill: "#ffffff"
+      }
+
+      list_vm: RecipeListViewModel
+      detail_vm: RecipeDetailViewModel
+      add_vm: AddRecipeViewModel
+      settings_vm: SettingsViewModel
+    }
+
+    screens.list -> viewmodels.list_vm
+    screens.detail -> viewmodels.detail_vm
+    screens.add -> viewmodels.add_vm
+    screens.settings -> viewmodels.settings_vm
+  }
+
+  # Domain Layer
+  domain: {
+    label: Domain Layer
+    style: {
+      fill: "#e8f5e9"
+      stroke: "#4caf50"
+    }
+
+    usecases: {
+      label: Use Cases
+      style: {
+        fill: "#ffffff"
+      }
+
+      import: ImportRecipeUseCase
+      get_all: GetRecipesUseCase
+      get_one: GetRecipeByIdUseCase
+      delete: DeleteRecipeUseCase
+      tags: GetTagsUseCase
+    }
+
+    models: {
+      label: Domain Models
+      style: {
+        fill: "#ffffff"
+      }
+
+      recipe: Recipe
+      ingredient: Ingredient
+      instruction: InstructionStep
+      section: IngredientSection
+
+      recipe -> section
+      section -> ingredient
+      recipe -> instruction
+    }
+  }
+
+  # Data Layer
+  data: {
+    label: Data Layer
+    style: {
+      fill: "#e3f2fd"
+      stroke: "#2196f3"
+    }
+
+    repository: {
+      label: Repository
+      style: {
+        fill: "#ffffff"
+      }
+
+      repo: RecipeRepository
+    }
+
+    local: {
+      label: Local Storage
+      style: {
+        fill: "#ffffff"
+      }
+
+      room: {
+        label: Room Database
+        shape: cylinder
+      }
+      datastore: {
+        label: DataStore
+        shape: cylinder
+      }
+      dao: RecipeDao
+      entity: RecipeEntity
+      settings: SettingsDataStore
+
+      dao -> room
+      entity -> room
+      settings -> datastore
+    }
+
+    remote: {
+      label: Remote Services
+      style: {
+        fill: "#ffffff"
+      }
+
+      anthropic_svc: AnthropicService
+      scraper: WebScraperService
+    }
+
+    repository.repo -> local.dao
+    repository.repo -> local.settings
+  }
+
+  # DI
+  di: {
+    label: Hilt DI
+    style: {
+      fill: "#fce4ec"
+      stroke: "#e91e63"
+    }
+
+    app_module: AppModule
+    db_module: DatabaseModule
+    net_module: NetworkModule
+  }
+
+  # Connections within app
+  ui.viewmodels -> domain.usecases: invoke
+  domain.usecases -> data.repository: access data
+  data.remote.scraper -> external.web: fetch HTML
+  data.remote.anthropic_svc -> external.anthropic: parse recipe
+}
+
+# Data Flow Legend
+legend: {
+  label: Data Flow
+  near: bottom-center
+  style: {
+    fill: "#f5f5f5"
+  }
+
+  flow1: "1. User pastes URL"
+  flow2: "2. Scraper fetches HTML"
+  flow3: "3. Anthropic parses recipe"
+  flow4: "4. Repository saves to Room"
+  flow5: "5. UI observes Flow<Recipe>"
+
+  flow1 -> flow2 -> flow3 -> flow4 -> flow5
+}
