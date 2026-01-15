@@ -171,7 +171,10 @@ app: {
         fill: "#ffffff"
       }
 
-      anthropic_svc: AnthropicService
+      anthropic_svc: {
+        label: AnthropicService
+        tooltip: Returns RecipeParseResponse (success with recipe or error message)
+      }
       scraper: {
         label: WebScraperService
         tooltip: Uses Readability4J to extract article content
@@ -213,9 +216,17 @@ legend: {
   flow1: "1. User pastes URL"
   flow2: "2. Scraper fetches HTML"
   flow3: "3. Readability4J extracts content"
-  flow4: "4. Anthropic parses recipe"
+  flow4: "4. Anthropic parses recipe (or returns error)"
   flow5: "5. Repository saves to Room"
   flow6: "6. UI observes Flow<Recipe>"
 
   flow1 -> flow2 -> flow3 -> flow4 -> flow5 -> flow6
+
+  note: {
+    label: "Step 4 can return a parse error with human-readable message if content is not a valid recipe"
+    style: {
+      font-size: 12
+      italic: true
+    }
+  }
 }

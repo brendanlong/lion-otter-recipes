@@ -13,6 +13,12 @@ import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Exception thrown when the AI cannot parse the recipe content.
+ * Contains a human-readable error message from the AI.
+ */
+class RecipeParseException(message: String) : Exception(message)
+
 @Singleton
 class AnthropicService @Inject constructor(
     private val httpClient: HttpClient,
@@ -62,7 +68,16 @@ class AnthropicService @Inject constructor(
             // Extract JSON from the response (it might be wrapped in markdown code blocks)
             val jsonContent = extractJson(content)
 
-            val recipeResult = json.decodeFromString(RecipeParseResult.serializer(), jsonContent)
+            val parseResponse = json.decodeFromString(RecipeParseResponse.serializer(), jsonContent)
+
+            if (!parseResponse.success) {
+                val errorMessage = parseResponse.error ?: "Failed to parse recipe"
+                return Result.failure(RecipeParseException(errorMessage))
+            }
+
+            val recipeResult = parseResponse.recipe
+                ?: return Result.failure(RecipeParseException("No recipe data in response"))
+
             Result.success(recipeResult)
         } catch (e: Exception) {
             Result.failure(e)
@@ -96,65 +111,82 @@ class AnthropicService @Inject constructor(
         private val SYSTEM_PROMPT = """
 You are a recipe parser. Extract structured recipe data from HTML content and return it as JSON.
 
-Return ONLY valid JSON (no markdown, no explanations) with this exact structure:
+Return ONLY valid JSON (no markdown, no explanations). Your response must always be wrapped in a success/error structure.
+
+For successful parsing, return:
 {
-  "name": "Recipe Name",
-  "story": "Brief summary of the recipe's story/background (1-2 sentences, or null if none)",
-  "servings": 4,
-  "prepTime": "15 minutes",
-  "cookTime": "30 minutes",
-  "totalTime": "45 minutes",
-  "ingredientSections": [
-    {
-      "name": "For the cake",
-      "ingredients": [
-        {
-          "name": "all-purpose flour",
-          "quantity": 2.0,
-          "unit": "cups",
-          "notes": "sifted",
-          "alternates": []
-        },
-        {
-          "name": "kosher salt",
-          "quantity": 1.0,
-          "unit": "tsp",
-          "notes": null,
-          "alternates": [
-            {
-              "name": "table salt",
-              "quantity": 0.5,
-              "unit": "tsp",
-              "notes": null,
-              "alternates": []
-            }
-          ]
-        }
-      ]
-    }
-  ],
-  "instructionSections": [
-    {
-      "name": "Make the cake",
-      "steps": [
-        {
-          "stepNumber": 1,
-          "instruction": "Preheat oven to 350°F.",
-          "ingredientReferences": []
-        },
-        {
-          "stepNumber": 2,
-          "instruction": "Mix the flour with sugar.",
-          "ingredientReferences": [
-            {"ingredientName": "all-purpose flour", "quantity": 2.0, "unit": "cups"},
-            {"ingredientName": "sugar", "quantity": 1.0, "unit": "cup"}
-          ]
-        }
-      ]
-    }
-  ],
-  "tags": ["dessert", "cake", "baking"]
+  "success": true,
+  "recipe": {
+    "name": "Recipe Name",
+    "story": "Brief summary of the recipe's story/background (1-2 sentences, or null if none)",
+    "servings": 4,
+    "prepTime": "15 minutes",
+    "cookTime": "30 minutes",
+    "totalTime": "45 minutes",
+    "ingredientSections": [
+      {
+        "name": "For the cake",
+        "ingredients": [
+          {
+            "name": "all-purpose flour",
+            "quantity": 2.0,
+            "unit": "cups",
+            "notes": "sifted",
+            "alternates": []
+          },
+          {
+            "name": "kosher salt",
+            "quantity": 1.0,
+            "unit": "tsp",
+            "notes": null,
+            "alternates": [
+              {
+                "name": "table salt",
+                "quantity": 0.5,
+                "unit": "tsp",
+                "notes": null,
+                "alternates": []
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "instructionSections": [
+      {
+        "name": "Make the cake",
+        "steps": [
+          {
+            "stepNumber": 1,
+            "instruction": "Preheat oven to 350°F.",
+            "ingredientReferences": []
+          },
+          {
+            "stepNumber": 2,
+            "instruction": "Mix the flour with sugar.",
+            "ingredientReferences": [
+              {"ingredientName": "all-purpose flour", "quantity": 2.0, "unit": "cups"},
+              {"ingredientName": "sugar", "quantity": 1.0, "unit": "cup"}
+            ]
+          }
+        ]
+      }
+    ],
+    "tags": ["dessert", "cake", "baking"]
+  }
 }
+
+If you cannot parse the content as a recipe, return an error response:
+{
+  "success": false,
+  "error": "Human-readable explanation of why parsing failed"
+}
+
+Return an error response when:
+- The page does not contain a recipe (e.g., it's a blog post, article, or other non-recipe content)
+- The content is too incomplete to extract a meaningful recipe (missing ingredients or instructions)
+- The content is garbled, corrupted, or not in a readable format
+- You cannot confidently identify the recipe name, ingredients, or instructions
 
 Guidelines:
 - If the recipe has distinct sections (e.g., cake and frosting), create separate ingredientSections and instructionSections
