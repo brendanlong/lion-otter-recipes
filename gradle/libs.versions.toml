@@ -16,6 +16,7 @@ navigationCompose = "2.8.5"
 coil = "2.7.0"
 ksp = "2.1.0-1.0.29"
 readability4j = "1.0.8"
+jsoup = "1.18.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -61,6 +62,9 @@ coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coi
 
 # Readability
 readability4j = { group = "net.dankito.readability4j", name = "readability4j", version.ref = "readability4j" }
+
+# HTML parsing
+jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
 
 # Testing
 junit = { group = "junit", name = "junit", version = "4.13.2" }

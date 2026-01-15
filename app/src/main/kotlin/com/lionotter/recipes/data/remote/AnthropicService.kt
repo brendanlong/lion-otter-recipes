@@ -153,8 +153,7 @@ Return ONLY valid JSON (no markdown, no explanations) with this exact structure:
       ]
     }
   ],
-  "tags": ["dessert", "cake", "baking"],
-  "imageUrl": "https://example.com/image.jpg"
+  "tags": ["dessert", "cake", "baking"]
 }
 
 Guidelines:
@@ -171,7 +170,6 @@ Guidelines:
     - Alternate: {name: "table salt", quantity: 0.5, unit: "tsp", alternates: []}
 - For ingredientReferences, include the specific quantity used in that step if mentioned
 - Generate relevant tags based on the recipe type, cuisine, dietary restrictions, etc.
-- Extract the main image URL if available
 - Keep the story brief - just the essence of any background provided
 - Return null for fields that aren't present in the source
 - Always include the alternates array (empty array if no alternates)
