@@ -66,8 +66,6 @@ data class IngredientSection(
 @Serializable
 data class Ingredient(
     val name: String,
-    val quantity: Double? = null,
-    val unit: String? = null,
     val notes: String? = null,
     val alternates: List<Ingredient> = emptyList(),
     val amounts: List<Measurement> = emptyList()
@@ -103,20 +101,12 @@ data class Ingredient(
     }
 
     /**
-     * Format the ingredient using the new structured amounts if available,
-     * otherwise fall back to legacy quantity/unit fields.
+     * Format the ingredient for display.
      */
     fun format(scale: Double = 1.0, preference: MeasurementPreference = MeasurementPreference.ORIGINAL): String {
         val measurement = getPreferredMeasurement(preference)
+            ?: return name + (notes?.let { ", $it" } ?: "")
 
-        return if (measurement != null) {
-            formatWithMeasurement(measurement, scale)
-        } else {
-            formatLegacy(scale)
-        }
-    }
-
-    private fun formatWithMeasurement(measurement: Measurement, scale: Double): String {
         val scaledQty = measurement.value * scale
         return buildString {
             append(formatQuantity(scaledQty))
@@ -126,28 +116,6 @@ data class Ingredient(
             // Normalize to singular first, then pluralize based on count
             append(measurement.unit.singularize().pluralize(count))
             append(" ")
-            append(name)
-            notes?.let {
-                append(", ")
-                append(it)
-            }
-        }
-    }
-
-    private fun formatLegacy(scale: Double): String {
-        val scaledQty = quantity?.let { it * scale }
-        return buildString {
-            scaledQty?.let {
-                append(formatQuantity(it))
-                append(" ")
-            }
-            unit?.let {
-                // Use 1 for singular (qty <= 1), 2 for plural (qty > 1)
-                val count = if ((scaledQty ?: 1.0) > 1.0) 2 else 1
-                // Normalize to singular first, then pluralize based on count
-                append(it.singularize().pluralize(count))
-                append(" ")
-            }
             append(name)
             notes?.let {
                 append(", ")
