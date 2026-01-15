@@ -1,3 +1,4 @@
 - Commit after finishing fixes or features
 - Prefer to amend if fixing the current commit
 - ALWAYS check the current commit before amending
+- Reference @docs/architecture.d2 and keep it up to date with any changes

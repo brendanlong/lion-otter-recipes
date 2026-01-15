@@ -22,3 +22,5 @@
 # Ktor
 -keep class io.ktor.** { *; }
 -keepclassmembers class io.ktor.** { *; }
+-dontwarn java.lang.management.ManagementFactory
+-dontwarn java.lang.management.RuntimeMXBean
