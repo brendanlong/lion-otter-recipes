@@ -97,6 +97,9 @@ dependencies {
     // Readability (content extraction)
     implementation(libs.readability4j)
 
+    // HTML parsing
+    implementation(libs.jsoup)
+
     // Testing
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

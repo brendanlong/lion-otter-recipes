@@ -71,7 +71,7 @@ class ImportRecipeUseCase @Inject constructor(
             ingredientSections = parsed.ingredientSections,
             instructionSections = parsed.instructionSections,
             tags = parsed.tags,
-            imageUrl = parsed.imageUrl,
+            imageUrl = page.imageUrl,
             createdAt = now,
             updatedAt = now
         )
