@@ -137,4 +137,64 @@ class IngredientTest {
         // 1 cup * 0.5 = 0.5 cup = 1/2 cup
         assertEquals("1/2 cup sugar", ingredient.format(scale = 0.5))
     }
+
+    @Test
+    fun `format with alternates`() {
+        val alternate = Ingredient(
+            name = "table salt",
+            quantity = 0.5,
+            unit = "tsp",
+            notes = null,
+            alternates = emptyList()
+        )
+        val ingredient = Ingredient(
+            name = "kosher salt",
+            quantity = 1.0,
+            unit = "tsp",
+            notes = null,
+            alternates = listOf(alternate)
+        )
+        assertEquals("1 tsp kosher salt", ingredient.format())
+    }
+
+    @Test
+    fun `alternate formats correctly with scaling`() {
+        val alternate = Ingredient(
+            name = "table salt",
+            quantity = 0.5,
+            unit = "tsp",
+            notes = null,
+            alternates = emptyList()
+        )
+        assertEquals("1 tsp table salt", alternate.format(scale = 2.0))
+    }
+
+    @Test
+    fun `ingredient with multiple alternates`() {
+        val alternates = listOf(
+            Ingredient(
+                name = "table salt",
+                quantity = 0.5,
+                unit = "tsp",
+                notes = null,
+                alternates = emptyList()
+            ),
+            Ingredient(
+                name = "sea salt",
+                quantity = 0.75,
+                unit = "tsp",
+                notes = null,
+                alternates = emptyList()
+            )
+        )
+        val ingredient = Ingredient(
+            name = "kosher salt",
+            quantity = 1.0,
+            unit = "tsp",
+            notes = null,
+            alternates = alternates
+        )
+        assertEquals("1 tsp kosher salt", ingredient.format())
+        assertEquals(2, ingredient.alternates.size)
+    }
 }

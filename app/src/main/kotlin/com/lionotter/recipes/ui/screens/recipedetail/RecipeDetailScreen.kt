@@ -327,6 +327,27 @@ private fun IngredientSectionContent(
                     style = MaterialTheme.typography.bodyLarge
                 )
             }
+
+            // Display alternates
+            ingredient.alternates.forEach { alternate ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 2.dp, horizontal = 24.dp)
+                ) {
+                    Text(
+                        text = "or",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                    Text(
+                        text = alternate.format(scale),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
         }
 
         if (section.name != null) {
