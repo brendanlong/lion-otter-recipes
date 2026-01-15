@@ -1,5 +1,7 @@
 package com.lionotter.recipes.domain.model
 
+import com.lionotter.recipes.util.pluralize
+import com.lionotter.recipes.util.singularize
 import kotlinx.datetime.Instant
 import kotlinx.serialization.Serializable
 
@@ -42,7 +44,10 @@ data class Ingredient(
                 append(" ")
             }
             unit?.let {
-                append(pluralizeUnit(it, scaledQty ?: 1.0))
+                // Use 1 for singular (qty <= 1), 2 for plural (qty > 1)
+                val count = if ((scaledQty ?: 1.0) > 1.0) 2 else 1
+                // Normalize to singular first, then pluralize based on count
+                append(it.singularize().pluralize(count))
                 append(" ")
             }
             append(name)
@@ -51,33 +56,6 @@ data class Ingredient(
                 append(it)
             }
         }
-    }
-
-    private fun pluralizeUnit(unit: String, quantity: Double): String {
-        if (quantity <= 1.0) return unit
-
-        val lowerUnit = unit.lowercase()
-
-        // Check if already plural (common cooking units)
-        val pluralForms = setOf(
-            "cups", "tablespoons", "teaspoons", "ounces", "pounds",
-            "grams", "kilograms", "liters", "milliliters", "cloves",
-            "slices", "pieces", "leaves", "loaves", "halves", "cans"
-        )
-        if (lowerUnit in pluralForms) return unit
-
-        val irregularPlurals = mapOf(
-            "leaf" to "leaves",
-            "loaf" to "loaves",
-            "half" to "halves"
-        )
-
-        return irregularPlurals[lowerUnit]
-            ?: if (unit.endsWith("sh") || unit.endsWith("ch")) {
-                "${unit}es"
-            } else {
-                "${unit}s"
-            }
     }
 
     private fun formatQuantity(qty: Double): String {
