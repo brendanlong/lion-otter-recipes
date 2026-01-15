@@ -34,7 +34,8 @@ data class Ingredient(
     val name: String,
     val quantity: Double? = null,
     val unit: String? = null,
-    val notes: String? = null
+    val notes: String? = null,
+    val alternates: List<Ingredient> = emptyList()
 ) {
     fun format(scale: Double = 1.0): String {
         val scaledQty = quantity?.let { it * scale }
