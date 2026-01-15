@@ -171,7 +171,10 @@ app: {
       }
 
       anthropic_svc: AnthropicService
-      scraper: WebScraperService
+      scraper: {
+        label: WebScraperService
+        tooltip: Uses Readability4J to extract article content
+      }
     }
 
     repository.repo -> local.dao
@@ -208,9 +211,10 @@ legend: {
 
   flow1: "1. User pastes URL"
   flow2: "2. Scraper fetches HTML"
-  flow3: "3. Anthropic parses recipe"
-  flow4: "4. Repository saves to Room"
-  flow5: "5. UI observes Flow<Recipe>"
+  flow3: "3. Readability4J extracts content"
+  flow4: "4. Anthropic parses recipe"
+  flow5: "5. Repository saves to Room"
+  flow6: "6. UI observes Flow<Recipe>"
 
-  flow1 -> flow2 -> flow3 -> flow4 -> flow5
+  flow1 -> flow2 -> flow3 -> flow4 -> flow5 -> flow6
 }

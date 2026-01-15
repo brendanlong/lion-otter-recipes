@@ -94,6 +94,9 @@ dependencies {
     // Coil
     implementation(libs.coil.compose)
 
+    // Readability (content extraction)
+    implementation(libs.readability4j)
+
     // Testing
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

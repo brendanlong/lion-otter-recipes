@@ -41,17 +41,17 @@ class ImportRecipeUseCase @Inject constructor(
 
         val model = settingsDataStore.aiModel.first()
 
-        // Fetch HTML
+        // Fetch and extract page content
         onProgress(ImportProgress.FetchingPage)
-        val htmlResult = webScraperService.fetchHtml(url)
-        if (htmlResult.isFailure) {
-            return ImportResult.Error("Failed to fetch page: ${htmlResult.exceptionOrNull()?.message}")
+        val pageResult = webScraperService.fetchPage(url)
+        if (pageResult.isFailure) {
+            return ImportResult.Error("Failed to fetch page: ${pageResult.exceptionOrNull()?.message}")
         }
-        val html = htmlResult.getOrThrow()
+        val page = pageResult.getOrThrow()
 
-        // Parse with AI
+        // Parse with AI (using extracted content to reduce token usage)
         onProgress(ImportProgress.ParsingRecipe)
-        val parseResult = anthropicService.parseRecipe(html, apiKey, model)
+        val parseResult = anthropicService.parseRecipe(page.extractedContent, apiKey, model)
         if (parseResult.isFailure) {
             return ImportResult.Error("Failed to parse recipe: ${parseResult.exceptionOrNull()?.message}")
         }
@@ -76,9 +76,9 @@ class ImportRecipeUseCase @Inject constructor(
             updatedAt = now
         )
 
-        // Save to database
+        // Save to database (keep original HTML for potential re-parsing)
         onProgress(ImportProgress.SavingRecipe)
-        recipeRepository.saveRecipe(recipe, originalHtml = html)
+        recipeRepository.saveRecipe(recipe, originalHtml = page.originalHtml)
 
         onProgress(ImportProgress.Complete(ImportResult.Success(recipe)))
         return ImportResult.Success(recipe)

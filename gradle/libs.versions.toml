@@ -15,6 +15,7 @@ datastore = "1.1.1"
 navigationCompose = "2.8.5"
 coil = "2.7.0"
 ksp = "2.1.0-1.0.29"
+readability4j = "1.0.8"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -57,6 +58,9 @@ datastore-preferences = { group = "androidx.datastore", name = "datastore-prefer
 
 # Coil
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
+
+# Readability
+readability4j = { group = "net.dankito.readability4j", name = "readability4j", version.ref = "readability4j" }
 
 # Testing
 junit = { group = "junit", name = "junit", version = "4.13.2" }
