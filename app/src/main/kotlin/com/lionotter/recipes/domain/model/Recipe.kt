@@ -164,7 +164,8 @@ data class InstructionSection(
 data class InstructionStep(
     val stepNumber: Int,
     val instruction: String,
-    val ingredientReferences: List<IngredientReference> = emptyList()
+    val ingredientReferences: List<IngredientReference> = emptyList(),
+    val ingredients: List<Ingredient> = emptyList()
 )
 
 @Serializable

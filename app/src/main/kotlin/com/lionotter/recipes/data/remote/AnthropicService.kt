@@ -177,15 +177,36 @@ For successful parsing, return:
         "steps": [
           {
             "stepNumber": 1,
-            "instruction": "Preheat oven to 350°F.",
-            "ingredientReferences": []
+            "instruction": "Preheat oven.",
+            "ingredientReferences": [],
+            "ingredients": []
           },
           {
             "stepNumber": 2,
-            "instruction": "Mix the flour with sugar.",
+            "instruction": "Mix together.",
             "ingredientReferences": [
               {"ingredientName": "all-purpose flour", "quantity": 2.0, "unit": "cups"},
               {"ingredientName": "sugar", "quantity": 1.0, "unit": "cup"}
+            ],
+            "ingredients": [
+              {
+                "name": "all-purpose flour",
+                "notes": "sifted",
+                "alternates": [],
+                "amounts": [
+                  {"value": 2.0, "unit": "cups", "type": "volume", "isDefault": true},
+                  {"value": 250.0, "unit": "grams", "type": "weight", "isDefault": false}
+                ]
+              },
+              {
+                "name": "sugar",
+                "notes": null,
+                "alternates": [],
+                "amounts": [
+                  {"value": 1.0, "unit": "cup", "type": "volume", "isDefault": true},
+                  {"value": 200.0, "unit": "grams", "type": "weight", "isDefault": false}
+                ]
+              }
             ]
           }
         ]
@@ -224,11 +245,18 @@ Guidelines:
   * Parse subsequent options (separated by "or") as alternates in the alternates array
   * Apply the same amounts structure to each alternate
 - For ingredientReferences, include the specific quantity used in that step if mentioned
+- IMPORTANT: For each instruction step, extract the ingredients used in that step:
+  * Populate the "ingredients" array with only the ingredients used in that step
+  * Include the same full ingredient data structure (name, amounts with volume/weight options, notes, alternates) as the top-level ingredients
+  * If an ingredient is used in multiple steps, include it in each step's ingredients array
+  * Rephrase the instruction text to remove quantity mentions since they'll be displayed separately from the ingredient list
+  * Example: "Add 2 cups flour" becomes "Add flour", with quantities shown in the ingredients array
 - Generate relevant tags based on the recipe type, cuisine, dietary restrictions, etc.
 - Keep the story brief - just the essence of any background provided
 - Return null for fields that aren't present in the source
 - Always include the alternates array (empty array if no alternates)
 - Always include the amounts array (with at least one measurement)
+- Always include the ingredients array for each step (empty array if no ingredients used in that step)
 """.trimIndent()
     }
 }

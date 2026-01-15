@@ -224,7 +224,11 @@ private fun RecipeContent(
             )
             Spacer(modifier = Modifier.height(12.dp))
             recipe.instructionSections.forEach { section ->
-                InstructionSectionContent(section = section)
+                InstructionSectionContent(
+                    section = section,
+                    scale = scale,
+                    measurementPreference = measurementPreference
+                )
             }
 
             // Source
@@ -455,7 +459,11 @@ private fun IngredientSectionContent(
 }
 
 @Composable
-private fun InstructionSectionContent(section: InstructionSection) {
+private fun InstructionSectionContent(
+    section: InstructionSection,
+    scale: Double,
+    measurementPreference: MeasurementPreference
+) {
     Column {
         section.name?.let { name ->
             Text(
@@ -468,29 +476,82 @@ private fun InstructionSectionContent(section: InstructionSection) {
         }
 
         section.steps.forEach { step ->
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 8.dp)
             ) {
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primary
-                    ),
-                    modifier = Modifier.padding(end = 12.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth()
                 ) {
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primary
+                        ),
+                        modifier = Modifier.padding(end = 12.dp)
+                    ) {
+                        Text(
+                            text = "${step.stepNumber}",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
                     Text(
-                        text = "${step.stepNumber}",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        text = step.instruction,
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.weight(1f)
                     )
                 }
-                Text(
-                    text = step.instruction,
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.weight(1f)
-                )
+
+                // Display step-level ingredients if present
+                if (step.ingredients.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 40.dp, top = 8.dp)
+                    ) {
+                        step.ingredients.forEach { ingredient ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = "•",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.padding(end = 8.dp)
+                                )
+                                Text(
+                                    text = ingredient.format(scale, measurementPreference),
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+
+                            // Display alternates for step ingredients
+                            ingredient.alternates.forEach { alternate ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 2.dp, horizontal = 24.dp)
+                                ) {
+                                    Text(
+                                        text = "or",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.outline,
+                                        modifier = Modifier.padding(end = 8.dp)
+                                    )
+                                    Text(
+                                        text = alternate.format(scale, measurementPreference),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
