@@ -160,13 +160,15 @@ For successful parsing, return:
                 "alternates": [],
                 "amounts": [
                   {"value": 0.5, "unit": "teaspoons", "type": "volume", "isDefault": true}
-                ]
+                ],
+                "optional": false
               }
             ],
             "amounts": [
               {"value": 1.0, "unit": "teaspoons", "type": "volume", "isDefault": true},
               {"value": 6.0, "unit": "grams", "type": "weight", "isDefault": false}
-            ]
+            ],
+            "optional": false
           }
         ]
       }
@@ -179,7 +181,8 @@ For successful parsing, return:
             "stepNumber": 1,
             "instruction": "Preheat oven.",
             "ingredientReferences": [],
-            "ingredients": []
+            "ingredients": [],
+            "optional": false
           },
           {
             "stepNumber": 2,
@@ -188,6 +191,7 @@ For successful parsing, return:
               {"ingredientName": "all-purpose flour", "quantity": 2.0, "unit": "cups"},
               {"ingredientName": "sugar", "quantity": 1.0, "unit": "cup"}
             ],
+            "optional": false,
             "ingredients": [
               {
                 "name": "all-purpose flour",
@@ -196,7 +200,8 @@ For successful parsing, return:
                 "amounts": [
                   {"value": 2.0, "unit": "cups", "type": "volume", "isDefault": true},
                   {"value": 250.0, "unit": "grams", "type": "weight", "isDefault": false}
-                ]
+                ],
+                "optional": false
               },
               {
                 "name": "sugar",
@@ -205,7 +210,8 @@ For successful parsing, return:
                 "amounts": [
                   {"value": 1.0, "unit": "cup", "type": "volume", "isDefault": true},
                   {"value": 200.0, "unit": "grams", "type": "weight", "isDefault": false}
-                ]
+                ],
+                "optional": false
               }
             ]
           }
@@ -251,12 +257,18 @@ Guidelines:
   * If an ingredient is used in multiple steps, include it in each step's ingredients array
   * Rephrase the instruction text to remove quantity mentions since they'll be displayed separately from the ingredient list
   * Example: "Add 2 cups flour" becomes "Add flour", with quantities shown in the ingredients array
+- IMPORTANT: Mark ingredients and steps as optional when appropriate:
+  * Set "optional": true for ingredients that are clearly marked as optional in the recipe (e.g., "optional garnish", "if desired", "for garnish")
+  * Set "optional": true for instruction steps that are purely decorative or enhancement steps (e.g., "Garnish with fresh herbs if desired")
+  * Set "optional": false for all ingredients and steps that are essential to the recipe
 - Generate relevant tags based on the recipe type, cuisine, dietary restrictions, etc.
 - Keep the story brief - just the essence of any background provided
 - Return null for fields that aren't present in the source
 - Always include the alternates array (empty array if no alternates)
 - Always include the amounts array (with at least one measurement)
 - Always include the ingredients array for each step (empty array if no ingredients used in that step)
+- Always include the optional field for ingredients (default to false if not specified)
+- Always include the optional field for steps (default to false if not specified)
 """.trimIndent()
     }
 }

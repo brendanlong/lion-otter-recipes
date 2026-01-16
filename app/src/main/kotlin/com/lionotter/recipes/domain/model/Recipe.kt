@@ -68,7 +68,8 @@ data class Ingredient(
     val name: String,
     val notes: String? = null,
     val alternates: List<Ingredient> = emptyList(),
-    val amounts: List<Measurement> = emptyList()
+    val amounts: List<Measurement> = emptyList(),
+    val optional: Boolean = false
 ) {
     /**
      * Returns the measurement to display based on user preference.
@@ -165,7 +166,8 @@ data class InstructionStep(
     val stepNumber: Int,
     val instruction: String,
     val ingredientReferences: List<IngredientReference> = emptyList(),
-    val ingredients: List<Ingredient> = emptyList()
+    val ingredients: List<Ingredient> = emptyList(),
+    val optional: Boolean = false
 )
 
 @Serializable

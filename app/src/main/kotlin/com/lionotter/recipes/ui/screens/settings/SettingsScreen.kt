@@ -259,8 +259,8 @@ private fun ModelSelectionSection(
 
     val models = listOf(
         "claude-opus-4-5-20251101" to "Claude Opus 4.5 (Best quality)",
-        "claude-sonnet-4-20250514" to "Claude Sonnet 4 (Balanced)",
-        "claude-3-5-haiku-20241022" to "Claude 3.5 Haiku (Fastest)"
+        "claude-sonnet-4-5-20250612" to "Claude Sonnet 4.5 (Balanced)",
+        "claude-haiku-4-5-20250612" to "Claude Haiku 4.5 (Fastest)"
     )
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

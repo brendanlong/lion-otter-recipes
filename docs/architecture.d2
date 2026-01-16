@@ -114,8 +114,14 @@ app: {
       }
 
       recipe: Recipe
-      ingredient: Ingredient
-      instruction: InstructionStep
+      ingredient: {
+        label: Ingredient
+        tooltip: "Fields: name, notes, alternates, amounts, optional"
+      }
+      instruction: {
+        label: InstructionStep
+        tooltip: "Fields: stepNumber, instruction, ingredients, optional"
+      }
       section: IngredientSection
       measurement: Measurement
       measurement_type: MeasurementType
@@ -179,7 +185,7 @@ app: {
 
       anthropic_svc: {
         label: AnthropicService
-        tooltip: Uses extended thinking to parse recipes with volume/weight conversions and step-level ingredient extraction
+        tooltip: "Uses extended thinking to parse recipes with volume/weight conversions, step-level ingredient extraction, and optional field detection. Supports Opus 4.5, Sonnet 4.5, and Haiku 4.5"
       }
       scraper: {
         label: WebScraperService
@@ -231,7 +237,7 @@ legend: {
   flow1 -> flow2 -> flow3 -> flow4 -> flow5 -> flow6 -> flow7 -> flow8
 
   note: {
-    label: "Step 4 uses extended thinking for accurate ingredient parsing, measurement conversions, and step-level ingredient extraction"
+    label: "Step 4 uses extended thinking for accurate ingredient parsing, measurement conversions, step-level ingredient extraction, and optional field detection. Supports multiple AI models: Opus 4.5 (best quality), Sonnet 4.5 (balanced), Haiku 4.5 (fastest)"
     style: {
       font-size: 12
       italic: true
