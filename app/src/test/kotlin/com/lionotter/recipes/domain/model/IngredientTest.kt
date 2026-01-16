@@ -54,6 +54,18 @@ class IngredientTest {
     }
 
     @Test
+    fun `format with null value in measurement (to taste)`() {
+        val ingredient = Ingredient(
+            name = "salt",
+            amounts = listOf(
+                Measurement(value = null, unit = "to taste", type = MeasurementType.VOLUME, isDefault = true)
+            ),
+            notes = "to taste"
+        )
+        assertEquals("salt, to taste", ingredient.format())
+    }
+
+    @Test
     fun `format with scaling`() {
         val ingredient = Ingredient(
             name = "butter",
