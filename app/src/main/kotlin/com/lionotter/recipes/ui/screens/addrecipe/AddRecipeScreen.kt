@@ -10,11 +10,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Warning
@@ -31,6 +31,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -42,7 +43,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.lionotter.recipes.domain.usecase.ImportRecipeUseCase
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -106,7 +106,10 @@ fun AddRecipeScreen(
                     )
                 }
                 is AddRecipeUiState.Loading -> {
-                    LoadingContent(progress = state.progress)
+                    LoadingContent(
+                        progress = state.progress,
+                        onCancelClick = viewModel::cancelImport
+                    )
                 }
                 is AddRecipeUiState.NoApiKey -> {
                     NoApiKeyContent(onNavigateToSettings = onNavigateToSettings)
@@ -219,21 +222,26 @@ private fun IdleContent(
 }
 
 @Composable
-private fun LoadingContent(progress: ImportRecipeUseCase.ImportProgress) {
+private fun LoadingContent(
+    progress: ImportProgress,
+    onCancelClick: () -> Unit
+) {
     Column(
         modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         val (icon, message) = when (progress) {
-            is ImportRecipeUseCase.ImportProgress.FetchingPage ->
+            is ImportProgress.Queued ->
+                Icons.Default.HourglassEmpty to "Preparing import..."
+            is ImportProgress.Starting ->
+                Icons.Default.Cloud to "Starting..."
+            is ImportProgress.FetchingPage ->
                 Icons.Default.CloudDownload to "Fetching recipe page..."
-            is ImportRecipeUseCase.ImportProgress.ParsingRecipe ->
+            is ImportProgress.ParsingRecipe ->
                 Icons.Default.Psychology to "AI is analyzing the recipe..."
-            is ImportRecipeUseCase.ImportProgress.SavingRecipe ->
+            is ImportProgress.SavingRecipe ->
                 Icons.Default.Save to "Saving recipe..."
-            is ImportRecipeUseCase.ImportProgress.Complete ->
-                Icons.Default.Cloud to "Complete!"
         }
 
         Icon(
@@ -255,7 +263,7 @@ private fun LoadingContent(progress: ImportRecipeUseCase.ImportProgress) {
             textAlign = TextAlign.Center
         )
 
-        if (progress is ImportRecipeUseCase.ImportProgress.ParsingRecipe) {
+        if (progress is ImportProgress.ParsingRecipe) {
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = "This may take a moment...",
@@ -263,6 +271,28 @@ private fun LoadingContent(progress: ImportRecipeUseCase.ImportProgress) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
             )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        ) {
+            Text(
+                text = "You can leave this screen. You'll be notified when the import is complete.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(16.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        TextButton(onClick = onCancelClick) {
+            Text("Cancel Import")
         }
     }
 }

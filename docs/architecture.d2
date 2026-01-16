@@ -86,6 +86,41 @@ app: {
     screens.settings -> viewmodels.settings_vm
   }
 
+  # Background Processing Layer
+  background: {
+    label: Background Processing
+    style: {
+      fill: "#f3e5f5"
+      stroke: "#9c27b0"
+    }
+
+    worker: {
+      label: WorkManager
+      style: {
+        fill: "#ffffff"
+      }
+
+      import_worker: {
+        label: RecipeImportWorker
+        tooltip: "CoroutineWorker that handles recipe import in background. Survives app closure and shows progress notifications."
+      }
+    }
+
+    notification: {
+      label: Notifications
+      style: {
+        fill: "#ffffff"
+      }
+
+      helper: {
+        label: ImportNotificationHelper
+        tooltip: "Manages notification channel and shows progress/success/error notifications for recipe imports"
+      }
+    }
+
+    worker.import_worker -> notification.helper: notify progress
+  }
+
   # Domain Layer
   domain: {
     label: Domain Layer
@@ -208,10 +243,12 @@ app: {
     app_module: AppModule
     db_module: DatabaseModule
     net_module: NetworkModule
+    worker_module: WorkerModule
   }
 
   # Connections within app
-  ui.viewmodels -> domain.usecases: invoke
+  ui.viewmodels.add_vm -> background.worker: enqueue work
+  background.worker.import_worker -> domain.usecases.import: execute
   domain.usecases -> data.repository: access data
   data.remote.scraper -> external.web: fetch HTML
   data.remote.anthropic_svc -> external.anthropic: parse recipe
@@ -219,25 +256,25 @@ app: {
 
 # Data Flow Legend
 legend: {
-  label: Data Flow
+  label: Data Flow (Background Import)
   near: bottom-center
   style: {
     fill: "#f5f5f5"
   }
 
-  flow1: "1. User pastes URL"
-  flow2: "2. Scraper fetches HTML"
-  flow3: "3. Readability4J extracts content"
-  flow4: "4. Anthropic parses recipe with extended thinking"
-  flow5: "5. AI provides volume/weight measurement conversions"
+  flow1: "1. User pastes URL and taps Import"
+  flow2: "2. ViewModel enqueues WorkManager job"
+  flow3: "3. RecipeImportWorker runs as foreground service"
+  flow4: "4. Notification shows import progress"
+  flow5: "5. Scraper fetches HTML, Anthropic parses recipe"
   flow6: "6. Repository saves to Room"
-  flow7: "7. UI observes Flow<Recipe>"
-  flow8: "8. User can toggle between Original/Volume/Weight display"
+  flow7: "7. Success notification shown (tap to view recipe)"
+  flow8: "8. User can close app during import - work continues"
 
   flow1 -> flow2 -> flow3 -> flow4 -> flow5 -> flow6 -> flow7 -> flow8
 
   note: {
-    label: "Step 4 uses extended thinking for accurate ingredient parsing, measurement conversions, step-level ingredient extraction, and optional field detection. Supports multiple AI models: Opus 4.5 (best quality), Sonnet 4.5 (balanced), Haiku 4.5 (fastest)"
+    label: "Import runs in background via WorkManager. User can leave the app and will receive a notification when complete. Supports multiple AI models: Opus 4.5 (best quality), Sonnet 4.5 (balanced), Haiku 4.5 (fastest)"
     style: {
       font-size: 12
       italic: true

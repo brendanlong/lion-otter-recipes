@@ -2,8 +2,12 @@ package com.lionotter.recipes.ui.screens.addrecipe
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import com.lionotter.recipes.data.local.SettingsDataStore
-import com.lionotter.recipes.domain.usecase.ImportRecipeUseCase
+import com.lionotter.recipes.worker.RecipeImportWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -16,9 +20,13 @@ import javax.inject.Inject
 
 @HiltViewModel
 class AddRecipeViewModel @Inject constructor(
-    private val importRecipeUseCase: ImportRecipeUseCase,
+    private val workManager: WorkManager,
     settingsDataStore: SettingsDataStore
 ) : ViewModel() {
+
+    companion object {
+        const val WORK_NAME = "recipe_import"
+    }
 
     private val _url = MutableStateFlow("")
     val url: StateFlow<String> = _url.asStateFlow()
@@ -33,6 +41,65 @@ class AddRecipeViewModel @Inject constructor(
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = false
         )
+
+    init {
+        // Observe any ongoing import work
+        observeWorkStatus()
+    }
+
+    private fun observeWorkStatus() {
+        viewModelScope.launch {
+            workManager.getWorkInfosForUniqueWorkFlow(WORK_NAME)
+                .collect { workInfos ->
+                    val workInfo = workInfos.firstOrNull()
+                    if (workInfo != null) {
+                        handleWorkInfo(workInfo)
+                    }
+                }
+        }
+    }
+
+    private fun handleWorkInfo(workInfo: WorkInfo) {
+        when (workInfo.state) {
+            WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> {
+                _uiState.value = AddRecipeUiState.Loading(ImportProgress.Queued)
+            }
+            WorkInfo.State.RUNNING -> {
+                val progress = workInfo.progress.getString(RecipeImportWorker.KEY_PROGRESS)
+                val importProgress = when (progress) {
+                    RecipeImportWorker.PROGRESS_FETCHING -> ImportProgress.FetchingPage
+                    RecipeImportWorker.PROGRESS_PARSING -> ImportProgress.ParsingRecipe
+                    RecipeImportWorker.PROGRESS_SAVING -> ImportProgress.SavingRecipe
+                    else -> ImportProgress.Starting
+                }
+                _uiState.value = AddRecipeUiState.Loading(importProgress)
+            }
+            WorkInfo.State.SUCCEEDED -> {
+                val recipeId = workInfo.outputData.getString(RecipeImportWorker.KEY_RECIPE_ID)
+                if (recipeId != null) {
+                    _uiState.value = AddRecipeUiState.Success(recipeId)
+                }
+                // Prune completed work
+                workManager.pruneWork()
+            }
+            WorkInfo.State.FAILED -> {
+                val resultType = workInfo.outputData.getString(RecipeImportWorker.KEY_RESULT_TYPE)
+                val errorMessage = workInfo.outputData.getString(RecipeImportWorker.KEY_ERROR_MESSAGE)
+                    ?: "Unknown error"
+
+                _uiState.value = when (resultType) {
+                    RecipeImportWorker.RESULT_NO_API_KEY -> AddRecipeUiState.NoApiKey
+                    else -> AddRecipeUiState.Error(errorMessage)
+                }
+                // Prune completed work
+                workManager.pruneWork()
+            }
+            WorkInfo.State.CANCELLED -> {
+                _uiState.value = AddRecipeUiState.Idle
+                workManager.pruneWork()
+            }
+        }
+    }
 
     fun onUrlChange(url: String) {
         _url.value = url
@@ -50,28 +117,23 @@ class AddRecipeViewModel @Inject constructor(
             return
         }
 
-        viewModelScope.launch {
-            _uiState.value = AddRecipeUiState.Loading(ImportRecipeUseCase.ImportProgress.FetchingPage)
+        // Enqueue the work
+        val workRequest = OneTimeWorkRequestBuilder<RecipeImportWorker>()
+            .setInputData(RecipeImportWorker.createInputData(currentUrl))
+            .build()
 
-            val result = importRecipeUseCase.execute(
-                url = currentUrl,
-                onProgress = { progress ->
-                    _uiState.value = AddRecipeUiState.Loading(progress)
-                }
-            )
+        workManager.enqueueUniqueWork(
+            WORK_NAME,
+            ExistingWorkPolicy.REPLACE,
+            workRequest
+        )
 
-            _uiState.value = when (result) {
-                is ImportRecipeUseCase.ImportResult.Success -> {
-                    AddRecipeUiState.Success(result.recipe.id)
-                }
-                is ImportRecipeUseCase.ImportResult.Error -> {
-                    AddRecipeUiState.Error(result.message)
-                }
-                ImportRecipeUseCase.ImportResult.NoApiKey -> {
-                    AddRecipeUiState.NoApiKey
-                }
-            }
-        }
+        _uiState.value = AddRecipeUiState.Loading(ImportProgress.Queued)
+    }
+
+    fun cancelImport() {
+        workManager.cancelUniqueWork(WORK_NAME)
+        _uiState.value = AddRecipeUiState.Idle
     }
 
     fun resetState() {
@@ -79,9 +141,17 @@ class AddRecipeViewModel @Inject constructor(
     }
 }
 
+sealed class ImportProgress {
+    object Queued : ImportProgress()
+    object Starting : ImportProgress()
+    object FetchingPage : ImportProgress()
+    object ParsingRecipe : ImportProgress()
+    object SavingRecipe : ImportProgress()
+}
+
 sealed class AddRecipeUiState {
     object Idle : AddRecipeUiState()
-    data class Loading(val progress: ImportRecipeUseCase.ImportProgress) : AddRecipeUiState()
+    data class Loading(val progress: ImportProgress) : AddRecipeUiState()
     data class Success(val recipeId: String) : AddRecipeUiState()
     data class Error(val message: String) : AddRecipeUiState()
     object NoApiKey : AddRecipeUiState()
