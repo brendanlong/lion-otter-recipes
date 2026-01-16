@@ -112,7 +112,7 @@ class AnthropicService @Inject constructor(
     companion object {
         private const val ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
         private const val ANTHROPIC_VERSION = "2023-06-01"
-        const val DEFAULT_MODEL = "claude-opus-4-5-20251101"
+        const val DEFAULT_MODEL = "claude-opus-4-5"
 
         private val SYSTEM_PROMPT = """
 You are a recipe parser. Extract structured recipe data from HTML content and return it as JSON.

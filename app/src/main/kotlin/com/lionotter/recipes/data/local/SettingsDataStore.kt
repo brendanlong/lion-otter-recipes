@@ -28,7 +28,7 @@ class SettingsDataStore @Inject constructor(
     }
 
     val aiModel: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[Keys.AI_MODEL] ?: "claude-opus-4-5-20251101"
+        preferences[Keys.AI_MODEL] ?: "claude-opus-4-5"
     }
 
     suspend fun setAnthropicApiKey(apiKey: String) {
