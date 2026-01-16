@@ -34,6 +34,17 @@ fun NavGraph(sharedUrl: String? = null) {
         Screen.RecipeList.route
     }
 
+    // Helper to navigate back, falling back to RecipeList if back stack is empty.
+    // This handles the case when the app is launched via share intent (AddRecipe is
+    // the start destination) or after importing a recipe from share intent flow.
+    val navigateBack: () -> Unit = {
+        if (!navController.popBackStack()) {
+            navController.navigate(Screen.RecipeList.route) {
+                popUpTo(0) { inclusive = true }
+            }
+        }
+    }
+
     NavHost(
         navController = navController,
         startDestination = startDestination
@@ -59,7 +70,7 @@ fun NavGraph(sharedUrl: String? = null) {
             )
         ) {
             RecipeDetailScreen(
-                onBackClick = { navController.popBackStack() }
+                onBackClick = navigateBack
             )
         }
 
@@ -73,12 +84,16 @@ fun NavGraph(sharedUrl: String? = null) {
                 }
             )
         ) { backStackEntry ->
-            val sharedUrl = backStackEntry.arguments?.getString("url")
+            val urlArg = backStackEntry.arguments?.getString("url")
             AddRecipeScreen(
-                sharedUrl = sharedUrl,
-                onBackClick = { navController.popBackStack() },
+                sharedUrl = urlArg,
+                onBackClick = navigateBack,
                 onRecipeAdded = { recipeId ->
-                    navController.popBackStack()
+                    // Clear back stack and set up proper navigation: RecipeList -> RecipeDetail
+                    // This ensures back from RecipeDetail always goes to RecipeList
+                    navController.navigate(Screen.RecipeList.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
                     navController.navigate(Screen.RecipeDetail.createRoute(recipeId))
                 },
                 onNavigateToSettings = {
@@ -89,7 +104,7 @@ fun NavGraph(sharedUrl: String? = null) {
 
         composable(Screen.Settings.route) {
             SettingsScreen(
-                onBackClick = { navController.popBackStack() }
+                onBackClick = navigateBack
             )
         }
     }
