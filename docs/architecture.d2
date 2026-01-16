@@ -127,6 +127,7 @@ app: {
       ingredient -> measurement: amounts
       measurement -> measurement_type: type
       recipe -> instruction
+      instruction -> ingredient: step ingredients
     }
   }
 
@@ -178,7 +179,7 @@ app: {
 
       anthropic_svc: {
         label: AnthropicService
-        tooltip: Uses extended thinking to parse recipes with volume/weight measurement conversions
+        tooltip: Uses extended thinking to parse recipes with volume/weight conversions and step-level ingredient extraction
       }
       scraper: {
         label: WebScraperService
@@ -230,7 +231,7 @@ legend: {
   flow1 -> flow2 -> flow3 -> flow4 -> flow5 -> flow6 -> flow7 -> flow8
 
   note: {
-    label: "Step 4 uses extended thinking for accurate ingredient parsing and measurement conversions"
+    label: "Step 4 uses extended thinking for accurate ingredient parsing, measurement conversions, and step-level ingredient extraction"
     style: {
       font-size: 12
       italic: true
