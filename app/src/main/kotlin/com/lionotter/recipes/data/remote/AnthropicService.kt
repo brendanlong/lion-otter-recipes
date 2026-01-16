@@ -243,6 +243,7 @@ Guidelines:
   * Provide approximate conversions to other measurement types (volume to weight or vice versa)
   * Use your knowledge of common ingredient densities for conversions (e.g., flour ~125g/cup, sugar ~200g/cup, butter ~227g/cup)
   * For items that are counted (eggs, onions, etc.), use "type": "count" and only include that measurement
+  * For ingredients marked "to taste", "as needed", or similar non-quantifiable amounts: leave the "amounts" array EMPTY and put the phrase in the "notes" field instead (e.g., notes: "to taste")
 - IMPORTANT: Always spell out units fully (use "cups" not "c", "tablespoons" not "tbsp", "teaspoons" not "tsp", "grams" not "g", "ounces" not "oz", etc.)
 - Extract quantities as decimal numbers (e.g., 0.5 for 1/2, 0.25 for 1/4)
 - Include notes for ingredient modifications like "room temperature", "divided", etc.
@@ -265,7 +266,7 @@ Guidelines:
 - Keep the story brief - just the essence of any background provided
 - Return null for fields that aren't present in the source
 - Always include the alternates array (empty array if no alternates)
-- Always include the amounts array (with at least one measurement)
+- Always include the amounts array (with at least one measurement, or empty if the ingredient is "to taste", "as needed", etc.)
 - Always include the ingredients array for each step (empty array if no ingredients used in that step)
 - Always include the optional field for ingredients (default to false if not specified)
 - Always include the optional field for steps (default to false if not specified)

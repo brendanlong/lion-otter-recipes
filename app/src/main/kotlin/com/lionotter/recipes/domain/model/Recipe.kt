@@ -24,7 +24,7 @@ enum class MeasurementType {
  */
 @Serializable
 data class Measurement(
-    val value: Double,
+    val value: Double?,
     val unit: String,
     val type: MeasurementType,
     val isDefault: Boolean = false
@@ -108,7 +108,8 @@ data class Ingredient(
         val measurement = getPreferredMeasurement(preference)
             ?: return name + (notes?.let { ", $it" } ?: "")
 
-        val scaledQty = measurement.value * scale
+        val value = measurement.value ?: return name + (notes?.let { ", $it" } ?: "")
+        val scaledQty = value * scale
         return buildString {
             append(formatQuantity(scaledQty))
             append(" ")
