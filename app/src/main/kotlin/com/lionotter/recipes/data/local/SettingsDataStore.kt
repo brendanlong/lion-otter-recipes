@@ -9,6 +9,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import com.lionotter.recipes.data.remote.AnthropicService
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -28,7 +29,7 @@ class SettingsDataStore @Inject constructor(
     }
 
     val aiModel: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[Keys.AI_MODEL] ?: "claude-opus-4-5"
+        preferences[Keys.AI_MODEL] ?: AnthropicService.DEFAULT_MODEL
     }
 
     suspend fun setAnthropicApiKey(apiKey: String) {
