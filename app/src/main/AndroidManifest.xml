@@ -41,6 +41,12 @@
                 android:value="androidx.startup"
                 tools:node="remove" />
         </provider>
+
+        <!-- WorkManager foreground service with dataSync type for recipe imports -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
     </application>
 
 </manifest>
