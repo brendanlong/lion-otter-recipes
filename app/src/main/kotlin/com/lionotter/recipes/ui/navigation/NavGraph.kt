@@ -1,15 +1,18 @@
 package com.lionotter.recipes.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.lionotter.recipes.SharedIntentViewModel
 import com.lionotter.recipes.ui.screens.addrecipe.AddRecipeScreen
 import com.lionotter.recipes.ui.screens.recipedetail.RecipeDetailScreen
 import com.lionotter.recipes.ui.screens.recipelist.RecipeListScreen
 import com.lionotter.recipes.ui.screens.settings.SettingsScreen
+import kotlinx.coroutines.flow.collectLatest
 
 sealed class Screen(val route: String) {
     object RecipeList : Screen("recipes")
@@ -25,13 +28,26 @@ sealed class Screen(val route: String) {
 }
 
 @Composable
-fun NavGraph(sharedUrl: String? = null, recipeId: String? = null) {
+fun NavGraph(
+    sharedIntentViewModel: SharedIntentViewModel? = null,
+    initialSharedUrl: String? = null,
+    recipeId: String? = null
+) {
     val navController = rememberNavController()
 
     val startDestination = when {
         recipeId != null -> Screen.RecipeDetail.createRoute(recipeId)
-        sharedUrl != null -> Screen.AddRecipe.createRoute(sharedUrl)
+        initialSharedUrl != null -> Screen.AddRecipe.createRoute(initialSharedUrl)
         else -> Screen.RecipeList.route
+    }
+
+    // Handle shared URL changes while app is running
+    LaunchedEffect(sharedIntentViewModel) {
+        sharedIntentViewModel?.sharedUrl?.collectLatest { url ->
+            if (url != null) {
+                navController.navigate(Screen.AddRecipe.createRoute(url))
+            }
+        }
     }
 
     // Helper to navigate back, falling back to RecipeList if back stack is empty.
