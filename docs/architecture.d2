@@ -80,10 +80,24 @@ app: {
       settings_vm: SettingsViewModel
     }
 
+    state: {
+      label: UI State
+      style: {
+        fill: "#ffffff"
+      }
+
+      in_progress_mgr: {
+        label: InProgressRecipeManager
+        tooltip: "Tracks recipes currently being imported, shows them in recipe list while import is in progress"
+      }
+    }
+
     screens.list -> viewmodels.list_vm
     screens.detail -> viewmodels.detail_vm
     screens.add -> viewmodels.add_vm
     screens.settings -> viewmodels.settings_vm
+    viewmodels.list_vm -> state.in_progress_mgr: observes
+    viewmodels.add_vm -> state.in_progress_mgr: updates
   }
 
   # Background Processing Layer

@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
@@ -43,6 +44,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
@@ -50,7 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
-import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.ui.state.RecipeListItem
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -164,12 +166,21 @@ fun RecipeListScreen(
                     items(
                         items = recipes,
                         key = { it.id }
-                    ) { recipe ->
-                        SwipeableRecipeCard(
-                            recipe = recipe,
-                            onClick = { onRecipeClick(recipe.id) },
-                            onDelete = { viewModel.deleteRecipe(recipe.id) }
-                        )
+                    ) { item ->
+                        when (item) {
+                            is RecipeListItem.Saved -> {
+                                SwipeableRecipeCard(
+                                    recipe = item.recipe,
+                                    onClick = { onRecipeClick(item.id) },
+                                    onDelete = { viewModel.deleteRecipe(item.id) }
+                                )
+                            }
+                            is RecipeListItem.InProgress -> {
+                                InProgressRecipeCard(
+                                    name = item.name
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -320,5 +331,48 @@ private fun TagChip(tag: String) {
             color = MaterialTheme.colorScheme.onSecondaryContainer,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
         )
+    }
+}
+
+@Composable
+private fun InProgressRecipeCard(name: String) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .alpha(0.6f),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Loading indicator
+            CircularProgressIndicator(
+                modifier = Modifier
+                    .size(40.dp)
+                    .padding(end = 12.dp),
+                strokeWidth = 2.dp
+            )
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = name,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Importing...",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 }
