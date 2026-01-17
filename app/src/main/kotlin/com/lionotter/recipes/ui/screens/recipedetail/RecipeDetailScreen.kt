@@ -1,5 +1,6 @@
 package com.lionotter.recipes.ui.screens.recipedetail
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -73,6 +74,7 @@ fun RecipeDetailScreen(
     val availableMeasurementTypes by viewModel.availableMeasurementTypes.collectAsStateWithLifecycle()
     val usedInstructionIngredients by viewModel.usedInstructionIngredients.collectAsStateWithLifecycle()
     val globalIngredientUsage by viewModel.globalIngredientUsage.collectAsStateWithLifecycle()
+    val highlightedInstructionStep by viewModel.highlightedInstructionStep.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -115,6 +117,8 @@ fun RecipeDetailScreen(
                 usedInstructionIngredients = usedInstructionIngredients,
                 globalIngredientUsage = globalIngredientUsage,
                 onToggleInstructionIngredient = viewModel::toggleInstructionIngredientUsed,
+                highlightedInstructionStep = highlightedInstructionStep,
+                onToggleHighlightedInstruction = viewModel::toggleHighlightedInstructionStep,
                 modifier = Modifier.padding(paddingValues)
             )
         }
@@ -135,6 +139,8 @@ private fun RecipeContent(
     usedInstructionIngredients: Set<InstructionIngredientKey>,
     globalIngredientUsage: Map<String, IngredientUsageStatus>,
     onToggleInstructionIngredient: (Int, Int, Int) -> Unit,
+    highlightedInstructionStep: HighlightedInstructionStep?,
+    onToggleHighlightedInstruction: (Int, Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -242,7 +248,9 @@ private fun RecipeContent(
                     scale = scale,
                     measurementPreference = measurementPreference,
                     usedInstructionIngredients = usedInstructionIngredients,
-                    onToggleIngredient = onToggleInstructionIngredient
+                    onToggleIngredient = onToggleInstructionIngredient,
+                    highlightedInstructionStep = highlightedInstructionStep,
+                    onToggleHighlightedInstruction = onToggleHighlightedInstruction
                 )
             }
 
@@ -555,7 +563,9 @@ private fun InstructionSectionContent(
     scale: Double,
     measurementPreference: MeasurementPreference,
     usedInstructionIngredients: Set<InstructionIngredientKey>,
-    onToggleIngredient: (Int, Int, Int) -> Unit
+    onToggleIngredient: (Int, Int, Int) -> Unit,
+    highlightedInstructionStep: HighlightedInstructionStep?,
+    onToggleHighlightedInstruction: (Int, Int) -> Unit
 ) {
     Column {
         section.name?.let { name ->
@@ -569,31 +579,55 @@ private fun InstructionSectionContent(
         }
 
         section.steps.forEachIndexed { stepIndex, step ->
+            val isHighlighted = highlightedInstructionStep?.sectionIndex == sectionIndex &&
+                                highlightedInstructionStep?.stepIndex == stepIndex
+
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 8.dp)
+                    .clickable { onToggleHighlightedInstruction(sectionIndex, stepIndex) }
+                    .then(
+                        if (isHighlighted) {
+                            Modifier
+                                .clip(MaterialTheme.shapes.medium)
+                                .background(MaterialTheme.colorScheme.tertiaryContainer)
+                        } else {
+                            Modifier
+                        }
+                    )
+                    .padding(horizontal = 8.dp, vertical = 8.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Card(
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primary
+                            containerColor = if (isHighlighted)
+                                MaterialTheme.colorScheme.secondaryContainer
+                            else
+                                MaterialTheme.colorScheme.primary
                         ),
                         modifier = Modifier.padding(end = 12.dp)
                     ) {
                         Text(
                             text = "${step.stepNumber}",
                             style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onPrimary,
+                            color = if (isHighlighted)
+                                MaterialTheme.colorScheme.onSecondaryContainer
+                            else
+                                MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                         )
                     }
                     Text(
                         text = step.instruction,
                         style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        color = if (isHighlighted)
+                            MaterialTheme.colorScheme.onSurface
+                        else
+                            MaterialTheme.colorScheme.onSurface
                     )
                 }
 
