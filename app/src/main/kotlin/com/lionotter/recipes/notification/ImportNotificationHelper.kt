@@ -1,17 +1,13 @@
 package com.lionotter.recipes.notification
 
-import android.Manifest
 import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import androidx.core.content.ContextCompat
 import com.lionotter.recipes.MainActivity
 import com.lionotter.recipes.R
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -34,6 +30,8 @@ class ImportNotificationHelper @Inject constructor(
         const val EXTRA_RECIPE_ID = "recipe_id"
     }
 
+    private val notificationManager = NotificationManagerCompat.from(context)
+
     fun createNotificationChannel() {
         val channel = NotificationChannel(
             CHANNEL_ID,
@@ -42,24 +40,13 @@ class ImportNotificationHelper @Inject constructor(
         ).apply {
             description = CHANNEL_DESCRIPTION
         }
-        val notificationManager = context.getSystemService(NotificationManager::class.java)
-        notificationManager.createNotificationChannel(channel)
-    }
-
-    fun hasNotificationPermission(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-        } else {
-            true
-        }
+        val systemNotificationManager = context.getSystemService(NotificationManager::class.java)
+        systemNotificationManager.createNotificationChannel(channel)
     }
 
     @SuppressLint("MissingPermission")
     fun showProgressNotification(progress: String) {
-        if (!hasNotificationPermission()) return
+        if (!notificationManager.areNotificationsEnabled()) return
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
@@ -70,15 +57,14 @@ class ImportNotificationHelper @Inject constructor(
             .setProgress(0, 0, true)
             .build()
 
-        NotificationManagerCompat.from(context).notify(NOTIFICATION_ID_PROGRESS, notification)
+        notificationManager.notify(NOTIFICATION_ID_PROGRESS, notification)
     }
 
     @SuppressLint("MissingPermission")
     fun showSuccessNotification(recipeName: String, recipeId: String) {
-        if (!hasNotificationPermission()) return
+        if (!notificationManager.areNotificationsEnabled()) return
 
-        // Cancel progress notification
-        NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID_PROGRESS)
+        notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -100,15 +86,14 @@ class ImportNotificationHelper @Inject constructor(
             .setContentIntent(pendingIntent)
             .build()
 
-        NotificationManagerCompat.from(context).notify(NOTIFICATION_ID_COMPLETE, notification)
+        notificationManager.notify(NOTIFICATION_ID_COMPLETE, notification)
     }
 
     @SuppressLint("MissingPermission")
     fun showErrorNotification(errorMessage: String) {
-        if (!hasNotificationPermission()) return
+        if (!notificationManager.areNotificationsEnabled()) return
 
-        // Cancel progress notification
-        NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID_PROGRESS)
+        notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
@@ -118,10 +103,10 @@ class ImportNotificationHelper @Inject constructor(
             .setAutoCancel(true)
             .build()
 
-        NotificationManagerCompat.from(context).notify(NOTIFICATION_ID_ERROR, notification)
+        notificationManager.notify(NOTIFICATION_ID_ERROR, notification)
     }
 
     fun cancelProgressNotification() {
-        NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID_PROGRESS)
+        notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
     }
 }
