@@ -44,6 +44,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -56,6 +57,8 @@ import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.MeasurementPreference
 import com.lionotter.recipes.domain.model.MeasurementType
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.util.pluralize
+import com.lionotter.recipes.util.singularize
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,6 +71,8 @@ fun RecipeDetailScreen(
     val measurementPreference by viewModel.measurementPreference.collectAsStateWithLifecycle()
     val hasMultipleMeasurementTypes by viewModel.hasMultipleMeasurementTypes.collectAsStateWithLifecycle()
     val availableMeasurementTypes by viewModel.availableMeasurementTypes.collectAsStateWithLifecycle()
+    val usedInstructionIngredients by viewModel.usedInstructionIngredients.collectAsStateWithLifecycle()
+    val globalIngredientUsage by viewModel.globalIngredientUsage.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -107,6 +112,9 @@ fun RecipeDetailScreen(
                 onMeasurementPreferenceChange = viewModel::setMeasurementPreference,
                 showMeasurementToggle = hasMultipleMeasurementTypes,
                 availableMeasurementTypes = availableMeasurementTypes,
+                usedInstructionIngredients = usedInstructionIngredients,
+                globalIngredientUsage = globalIngredientUsage,
+                onToggleInstructionIngredient = viewModel::toggleInstructionIngredientUsed,
                 modifier = Modifier.padding(paddingValues)
             )
         }
@@ -124,6 +132,9 @@ private fun RecipeContent(
     onMeasurementPreferenceChange: (MeasurementPreference) -> Unit,
     showMeasurementToggle: Boolean,
     availableMeasurementTypes: Set<MeasurementType>,
+    usedInstructionIngredients: Set<InstructionIngredientKey>,
+    globalIngredientUsage: Map<String, IngredientUsageStatus>,
+    onToggleInstructionIngredient: (Int, Int, Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -211,7 +222,8 @@ private fun RecipeContent(
                 IngredientSectionContent(
                     section = section,
                     scale = scale,
-                    measurementPreference = measurementPreference
+                    measurementPreference = measurementPreference,
+                    globalIngredientUsage = globalIngredientUsage
                 )
             }
 
@@ -223,11 +235,14 @@ private fun RecipeContent(
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.height(12.dp))
-            recipe.instructionSections.forEach { section ->
+            recipe.instructionSections.forEachIndexed { sectionIndex, section ->
                 InstructionSectionContent(
                     section = section,
+                    sectionIndex = sectionIndex,
                     scale = scale,
-                    measurementPreference = measurementPreference
+                    measurementPreference = measurementPreference,
+                    usedInstructionIngredients = usedInstructionIngredients,
+                    onToggleIngredient = onToggleInstructionIngredient
                 )
             }
 
@@ -400,7 +415,8 @@ private fun MeasurementToggle(
 private fun IngredientSectionContent(
     section: IngredientSection,
     scale: Double,
-    measurementPreference: MeasurementPreference
+    measurementPreference: MeasurementPreference,
+    globalIngredientUsage: Map<String, IngredientUsageStatus>
 ) {
     Column {
         section.name?.let { name ->
@@ -414,6 +430,10 @@ private fun IngredientSectionContent(
         }
 
         section.ingredients.forEach { ingredient ->
+            val usage = globalIngredientUsage[ingredient.name.lowercase()]
+            val isFullyUsed = usage?.isFullyUsed == true
+            val hasPartialUsage = usage != null && usage.usedAmount > 0 && !isFullyUsed
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -422,16 +442,33 @@ private fun IngredientSectionContent(
                 Text(
                     text = "•",
                     style = MaterialTheme.typography.bodyLarge,
+                    color = if (isFullyUsed) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.padding(end = 8.dp)
                 )
-                Text(
-                    text = ingredient.format(scale, measurementPreference),
-                    style = MaterialTheme.typography.bodyLarge
-                )
+                Column {
+                    Text(
+                        text = ingredient.format(scale, measurementPreference),
+                        style = MaterialTheme.typography.bodyLarge,
+                        textDecoration = if (isFullyUsed) TextDecoration.LineThrough else TextDecoration.None,
+                        color = if (isFullyUsed) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface
+                    )
+                    // Show remaining amount if partially used
+                    if (hasPartialUsage && usage?.remainingAmount != null && usage.remainingAmount > 0) {
+                        Text(
+                            text = formatRemainingAmount(usage.remainingAmount, usage.unit),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                }
             }
 
             // Display alternates
             ingredient.alternates.forEach { alternate ->
+                val altUsage = globalIngredientUsage[alternate.name.lowercase()]
+                val altIsFullyUsed = altUsage?.isFullyUsed == true
+                val altHasPartialUsage = altUsage != null && altUsage.usedAmount > 0 && !altIsFullyUsed
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -443,11 +480,22 @@ private fun IngredientSectionContent(
                         color = MaterialTheme.colorScheme.outline,
                         modifier = Modifier.padding(end = 8.dp)
                     )
-                    Text(
-                        text = alternate.format(scale, measurementPreference),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Column {
+                        Text(
+                            text = alternate.format(scale, measurementPreference),
+                            style = MaterialTheme.typography.bodyMedium,
+                            textDecoration = if (altIsFullyUsed) TextDecoration.LineThrough else TextDecoration.None,
+                            color = if (altIsFullyUsed) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        // Show remaining amount if partially used
+                        if (altHasPartialUsage && altUsage?.remainingAmount != null && altUsage.remainingAmount > 0) {
+                            Text(
+                                text = formatRemainingAmount(altUsage.remainingAmount, altUsage.unit),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -458,11 +506,56 @@ private fun IngredientSectionContent(
     }
 }
 
+/**
+ * Formats the remaining amount for display (e.g., "1/2 cup left").
+ */
+private fun formatRemainingAmount(amount: Double, unit: String?): String {
+    val formattedAmount = formatQuantity(amount)
+    return if (unit != null) {
+        val count = if (amount > 1.0) 2 else 1
+        val pluralizedUnit = unit.singularize().pluralize(count)
+        "$formattedAmount $pluralizedUnit left"
+    } else {
+        "$formattedAmount left"
+    }
+}
+
+private fun formatQuantity(qty: Double): String {
+    return if (qty == qty.toLong().toDouble()) {
+        qty.toLong().toString()
+    } else {
+        val fractions = mapOf(
+            0.25 to "1/4",
+            0.33 to "1/3",
+            0.5 to "1/2",
+            0.66 to "2/3",
+            0.75 to "3/4"
+        )
+        val whole = qty.toLong()
+        val decimal = qty - whole
+
+        val fraction = fractions.entries.minByOrNull {
+            kotlin.math.abs(it.key - decimal)
+        }?.takeIf {
+            kotlin.math.abs(it.key - decimal) < 0.05
+        }?.value
+
+        when {
+            fraction != null && whole > 0 -> "$whole $fraction"
+            fraction != null -> fraction
+            else -> "%.2f".format(qty).trimEnd('0').trimEnd('.')
+        }
+    }
+}
+
 @Composable
 private fun InstructionSectionContent(
     section: InstructionSection,
+    sectionIndex: Int,
     scale: Double,
-    measurementPreference: MeasurementPreference
+    measurementPreference: MeasurementPreference,
+    usedInstructionIngredients: Set<InstructionIngredientKey>,
+    onToggleIngredient: (Int, Int, Int) -> Unit
 ) {
     Column {
         section.name?.let { name ->
@@ -475,7 +568,7 @@ private fun InstructionSectionContent(
             )
         }
 
-        section.steps.forEach { step ->
+        section.steps.forEachIndexed { stepIndex, step ->
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -511,30 +604,40 @@ private fun InstructionSectionContent(
                             .fillMaxWidth()
                             .padding(start = 40.dp, top = 8.dp)
                     ) {
-                        step.ingredients.forEach { ingredient ->
+                        step.ingredients.forEachIndexed { ingredientIndex, ingredient ->
+                            val ingredientKey = createInstructionIngredientKey(sectionIndex, stepIndex, ingredientIndex)
+                            val isUsed = ingredientKey in usedInstructionIngredients
+
+                            // Main ingredient row - clickable
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
+                                    .clickable { onToggleIngredient(sectionIndex, stepIndex, ingredientIndex) }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "•",
+                                    text = if (isUsed) "✓" else "•",
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.secondary,
+                                    color = if (isUsed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
                                     modifier = Modifier.padding(end = 8.dp)
                                 )
                                 Text(
                                     text = ingredient.format(scale, measurementPreference),
-                                    style = MaterialTheme.typography.bodyMedium
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    textDecoration = if (isUsed) TextDecoration.LineThrough else TextDecoration.None,
+                                    color = if (isUsed) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface
                                 )
                             }
 
-                            // Display alternates for step ingredients
+                            // Display alternates for step ingredients - also clickable (same toggle)
                             ingredient.alternates.forEach { alternate ->
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(vertical = 2.dp, horizontal = 24.dp)
+                                        .clickable { onToggleIngredient(sectionIndex, stepIndex, ingredientIndex) }
+                                        .padding(vertical = 2.dp, horizontal = 24.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
                                         text = "or",
@@ -545,7 +648,8 @@ private fun InstructionSectionContent(
                                     Text(
                                         text = alternate.format(scale, measurementPreference),
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        textDecoration = if (isUsed) TextDecoration.LineThrough else TextDecoration.None,
+                                        color = if (isUsed) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
