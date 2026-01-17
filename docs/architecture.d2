@@ -32,6 +32,14 @@ external: {
     label: Recipe Websites
     shape: rectangle
   }
+
+  google_drive: {
+    label: Google Drive
+    shape: rectangle
+    style: {
+      fill: "#4285f4"
+    }
+  }
 }
 
 # Android App
@@ -78,6 +86,10 @@ app: {
       detail_vm: RecipeDetailViewModel
       add_vm: AddRecipeViewModel
       settings_vm: SettingsViewModel
+      drive_vm: {
+        label: GoogleDriveViewModel
+        tooltip: "Manages Google Drive sign-in state, folder navigation, and export/import operations"
+      }
     }
 
     state: {
@@ -93,9 +105,11 @@ app: {
     }
 
     screens.list -> viewmodels.list_vm
+    screens.list -> viewmodels.drive_vm: export/import menu
     screens.detail -> viewmodels.detail_vm
     screens.add -> viewmodels.add_vm
     screens.settings -> viewmodels.settings_vm
+    screens.settings -> viewmodels.drive_vm: sign in/out
     viewmodels.list_vm -> state.in_progress_mgr: observes
     viewmodels.add_vm -> state.in_progress_mgr: updates
   }
@@ -116,7 +130,15 @@ app: {
 
       import_worker: {
         label: RecipeImportWorker
-        tooltip: "CoroutineWorker that handles recipe import in background. Survives app closure and shows progress notifications."
+        tooltip: "CoroutineWorker that handles recipe import in background. Survives app closure and shows progress notifications. Supports queue of multiple imports."
+      }
+      export_worker: {
+        label: GoogleDriveExportWorker
+        tooltip: "Exports all recipes to Google Drive. Creates folder per recipe with JSON, HTML, and Markdown files."
+      }
+      drive_import_worker: {
+        label: GoogleDriveImportWorker
+        tooltip: "Imports recipes from Google Drive. Tries JSON first, falls back to HTML parsing via AI."
       }
     }
 
@@ -128,11 +150,13 @@ app: {
 
       helper: {
         label: ImportNotificationHelper
-        tooltip: "Manages notification channel and shows progress/success/error notifications for recipe imports"
+        tooltip: "Manages notification channel and shows progress/success/error notifications for recipe imports and Google Drive operations"
       }
     }
 
     worker.import_worker -> notification.helper: notify progress
+    worker.export_worker -> notification.helper: notify progress
+    worker.drive_import_worker -> notification.helper: notify progress
   }
 
   # Domain Layer
@@ -150,10 +174,34 @@ app: {
       }
 
       import: ImportRecipeUseCase
+      parse_html: {
+        label: ParseHtmlUseCase
+        tooltip: "Reusable helper for parsing HTML via AI. Used by both URL import and Google Drive HTML fallback."
+      }
+      export_drive: {
+        label: ExportToGoogleDriveUseCase
+        tooltip: "Exports recipes to Google Drive with JSON, HTML, and Markdown files per recipe folder."
+      }
+      import_drive: {
+        label: ImportFromGoogleDriveUseCase
+        tooltip: "Imports from Drive: tries JSON first, falls back to HTML parsing. Reuses ParseHtmlUseCase."
+      }
       get_all: GetRecipesUseCase
       get_one: GetRecipeByIdUseCase
       delete: DeleteRecipeUseCase
       tags: GetTagsUseCase
+    }
+
+    util: {
+      label: Utilities
+      style: {
+        fill: "#ffffff"
+      }
+
+      markdown: {
+        label: RecipeMarkdownFormatter
+        tooltip: "Converts Recipe to human-readable Markdown format for export"
+      }
     }
 
     models: {
@@ -184,6 +232,10 @@ app: {
       recipe -> instruction
       instruction -> ingredient: step ingredients
     }
+
+    usecases.import -> usecases.parse_html: uses
+    usecases.import_drive -> usecases.parse_html: HTML fallback
+    usecases.export_drive -> util.markdown: format
   }
 
   # Data Layer
@@ -240,6 +292,10 @@ app: {
         label: WebScraperService
         tooltip: Uses Readability4J to extract article content
       }
+      google_drive_svc: {
+        label: GoogleDriveService
+        tooltip: "Handles Google Sign-In, folder operations, and file upload/download for Drive integration"
+      }
     }
 
     repository.repo -> local.dao
@@ -262,33 +318,55 @@ app: {
 
   # Connections within app
   ui.viewmodels.add_vm -> background.worker: enqueue work
+  ui.viewmodels.drive_vm -> background.worker.export_worker: export
+  ui.viewmodels.drive_vm -> background.worker.drive_import_worker: import
   background.worker.import_worker -> domain.usecases.import: execute
+  background.worker.export_worker -> domain.usecases.export_drive: execute
+  background.worker.drive_import_worker -> domain.usecases.import_drive: execute
   domain.usecases -> data.repository: access data
   data.remote.scraper -> external.web: fetch HTML
   data.remote.anthropic_svc -> external.anthropic: parse recipe
+  data.remote.google_drive_svc -> external.google_drive: sync files
 }
 
 # Data Flow Legend
 legend: {
-  label: Data Flow (Background Import)
+  label: Data Flow
   near: bottom-center
   style: {
     fill: "#f5f5f5"
   }
 
+  import_flow: {
+    label: "URL Import Flow"
+    style: {
+      font-size: 14
+      bold: true
+    }
+  }
   flow1: "1. User pastes URL and taps Import"
   flow2: "2. ViewModel enqueues WorkManager job"
   flow3: "3. RecipeImportWorker runs as foreground service"
-  flow4: "4. Notification shows import progress"
-  flow5: "5. Scraper fetches HTML, Anthropic parses recipe"
-  flow6: "6. Repository saves to Room"
-  flow7: "7. Success notification shown (tap to view recipe)"
-  flow8: "8. User can close app during import - work continues"
+  flow4: "4. Scraper fetches HTML, AI parses recipe"
+  flow5: "5. Repository saves to Room"
 
-  flow1 -> flow2 -> flow3 -> flow4 -> flow5 -> flow6 -> flow7 -> flow8
+  flow1 -> flow2 -> flow3 -> flow4 -> flow5
+
+  drive_flow: {
+    label: "Google Drive Flow"
+    style: {
+      font-size: 14
+      bold: true
+    }
+  }
+  drive1: "Export: Creates folder per recipe (JSON + HTML + Markdown)"
+  drive2: "Import: Reads JSON directly, falls back to HTML via AI"
+  drive3: "Supports queued batch operations in background"
+
+  drive1 -> drive2 -> drive3
 
   note: {
-    label: "Import runs in background via WorkManager. User can leave the app and will receive a notification when complete. Supports multiple AI models: Opus 4.5 (best quality), Sonnet 4.5 (balanced), Haiku 4.5 (fastest)"
+    label: "Import runs in background via WorkManager. Supports multiple concurrent imports. Google Drive export/import runs in background with progress notifications."
     style: {
       font-size: 12
       italic: true

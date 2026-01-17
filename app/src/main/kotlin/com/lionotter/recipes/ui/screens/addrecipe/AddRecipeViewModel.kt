@@ -2,7 +2,6 @@ package com.lionotter.recipes.ui.screens.addrecipe
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -27,11 +26,9 @@ class AddRecipeViewModel @Inject constructor(
     settingsDataStore: SettingsDataStore
 ) : ViewModel() {
 
-    companion object {
-        const val WORK_NAME = "recipe_import"
-    }
-
+    // Track the current import started from this screen
     private var currentImportId: String? = null
+    private var currentWorkId: UUID? = null
 
     private val _url = MutableStateFlow("")
     val url: StateFlow<String> = _url.asStateFlow()
@@ -48,17 +45,46 @@ class AddRecipeViewModel @Inject constructor(
         )
 
     init {
-        // Observe any ongoing import work
+        // Observe any ongoing import work by tag
         observeWorkStatus()
     }
 
     private fun observeWorkStatus() {
         viewModelScope.launch {
-            workManager.getWorkInfosForUniqueWorkFlow(WORK_NAME)
+            workManager.getWorkInfosByTagFlow(RecipeImportWorker.TAG_RECIPE_IMPORT)
                 .collect { workInfos ->
-                    val workInfo = workInfos.firstOrNull()
-                    if (workInfo != null) {
-                        handleWorkInfo(workInfo)
+                    // Find the work info for our current import
+                    val currentWorkInfo = currentWorkId?.let { workId ->
+                        workInfos.find { it.id == workId }
+                    }
+                    if (currentWorkInfo != null) {
+                        handleWorkInfo(currentWorkInfo)
+                    }
+
+                    // Update in-progress recipes for all running imports
+                    workInfos.forEach { workInfo ->
+                        val importId = workInfo.progress.getString(RecipeImportWorker.KEY_IMPORT_ID)
+                            ?: workInfo.outputData.getString(RecipeImportWorker.KEY_IMPORT_ID)
+
+                        when (workInfo.state) {
+                            WorkInfo.State.RUNNING -> {
+                                val recipeName = workInfo.progress.getString(RecipeImportWorker.KEY_RECIPE_NAME)
+                                if (recipeName != null && importId != null) {
+                                    inProgressRecipeManager.updateRecipeName(importId, recipeName)
+                                }
+                            }
+                            WorkInfo.State.SUCCEEDED -> {
+                                if (importId != null) {
+                                    inProgressRecipeManager.removeInProgressRecipe(importId)
+                                }
+                            }
+                            WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> {
+                                if (importId != null) {
+                                    inProgressRecipeManager.removeInProgressRecipe(importId)
+                                }
+                            }
+                            else -> {}
+                        }
                     }
                 }
         }
@@ -96,6 +122,7 @@ class AddRecipeViewModel @Inject constructor(
                     }
                 }
                 currentImportId = null
+                currentWorkId = null
                 // Prune completed work
                 workManager.pruneWork()
             }
@@ -113,6 +140,7 @@ class AddRecipeViewModel @Inject constructor(
                     inProgressRecipeManager.removeInProgressRecipe(currentImportId!!)
                 }
                 currentImportId = null
+                currentWorkId = null
                 // Prune completed work
                 workManager.pruneWork()
             }
@@ -122,6 +150,7 @@ class AddRecipeViewModel @Inject constructor(
                     inProgressRecipeManager.removeInProgressRecipe(currentImportId!!)
                 }
                 currentImportId = null
+                currentWorkId = null
                 workManager.pruneWork()
             }
         }
@@ -147,26 +176,25 @@ class AddRecipeViewModel @Inject constructor(
         currentImportId = UUID.randomUUID().toString()
         inProgressRecipeManager.addInProgressRecipe(currentImportId!!, "Importing recipe...")
 
-        // Enqueue the work
+        // Enqueue the work with a tag for tracking multiple concurrent imports
         val workRequest = OneTimeWorkRequestBuilder<RecipeImportWorker>()
-            .setInputData(RecipeImportWorker.createInputData(currentUrl))
+            .setInputData(RecipeImportWorker.createInputData(currentUrl, currentImportId!!))
+            .addTag(RecipeImportWorker.TAG_RECIPE_IMPORT)
             .build()
 
-        workManager.enqueueUniqueWork(
-            WORK_NAME,
-            ExistingWorkPolicy.REPLACE,
-            workRequest
-        )
+        currentWorkId = workRequest.id
+        workManager.enqueue(workRequest)
 
         _uiState.value = AddRecipeUiState.Loading(ImportProgress.Queued)
     }
 
     fun cancelImport() {
-        workManager.cancelUniqueWork(WORK_NAME)
+        currentWorkId?.let { workManager.cancelWorkById(it) }
         if (currentImportId != null) {
             inProgressRecipeManager.removeInProgressRecipe(currentImportId!!)
         }
         currentImportId = null
+        currentWorkId = null
         _uiState.value = AddRecipeUiState.Idle
     }
 

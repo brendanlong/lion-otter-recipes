@@ -1,19 +1,14 @@
 package com.lionotter.recipes.domain.usecase
 
 import com.lionotter.recipes.data.local.SettingsDataStore
-import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.remote.WebScraperService
-import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
 import kotlinx.coroutines.flow.first
-import kotlinx.datetime.Clock
-import java.util.UUID
 import javax.inject.Inject
 
 class ImportRecipeUseCase @Inject constructor(
     private val webScraperService: WebScraperService,
-    private val anthropicService: AnthropicService,
-    private val recipeRepository: RecipeRepository,
+    private val parseHtmlUseCase: ParseHtmlUseCase,
     private val settingsDataStore: SettingsDataStore
 ) {
     sealed class ImportResult {
@@ -34,15 +29,13 @@ class ImportRecipeUseCase @Inject constructor(
         url: String,
         onProgress: suspend (ImportProgress) -> Unit = {}
     ): ImportResult {
-        // Check for API key
+        // Check for API key early
         val apiKey = settingsDataStore.anthropicApiKey.first()
         if (apiKey.isNullOrBlank()) {
             return ImportResult.NoApiKey
         }
 
-        val model = settingsDataStore.aiModel.first()
-
-        // Fetch and extract page content
+        // Fetch page content
         onProgress(ImportProgress.FetchingPage)
         val pageResult = webScraperService.fetchPage(url)
         if (pageResult.isFailure) {
@@ -50,41 +43,44 @@ class ImportRecipeUseCase @Inject constructor(
         }
         val page = pageResult.getOrThrow()
 
-        // Parse with AI (using extracted content to reduce token usage)
-        onProgress(ImportProgress.ParsingRecipe)
-        val parseResult = anthropicService.parseRecipe(page.extractedContent, apiKey, model)
-        if (parseResult.isFailure) {
-            return ImportResult.Error("Failed to parse recipe: ${parseResult.exceptionOrNull()?.message}")
-        }
-        val parsed = parseResult.getOrThrow()
-
-        // Notify that recipe name is available
-        onProgress(ImportProgress.RecipeNameAvailable(parsed.name))
-
-        // Create Recipe
-        val now = Clock.System.now()
-        val recipe = Recipe(
-            id = UUID.randomUUID().toString(),
-            name = parsed.name,
+        // Use ParseHtmlUseCase to parse the HTML content
+        val parseResult = parseHtmlUseCase.execute(
+            html = page.originalHtml,
             sourceUrl = url,
-            story = parsed.story,
-            servings = parsed.servings,
-            prepTime = parsed.prepTime,
-            cookTime = parsed.cookTime,
-            totalTime = parsed.totalTime,
-            ingredientSections = parsed.ingredientSections,
-            instructionSections = parsed.instructionSections,
-            tags = parsed.tags,
             imageUrl = page.imageUrl,
-            createdAt = now,
-            updatedAt = now
+            saveRecipe = true,
+            onProgress = { progress ->
+                when (progress) {
+                    is ParseHtmlUseCase.ParseProgress.ExtractingContent -> {
+                        // Already past fetching
+                    }
+                    is ParseHtmlUseCase.ParseProgress.ParsingRecipe -> {
+                        onProgress(ImportProgress.ParsingRecipe)
+                    }
+                    is ParseHtmlUseCase.ParseProgress.RecipeNameAvailable -> {
+                        onProgress(ImportProgress.RecipeNameAvailable(progress.name))
+                    }
+                    is ParseHtmlUseCase.ParseProgress.SavingRecipe -> {
+                        onProgress(ImportProgress.SavingRecipe)
+                    }
+                    is ParseHtmlUseCase.ParseProgress.Complete -> {
+                        // Will be handled by the return value
+                    }
+                }
+            }
         )
 
-        // Save to database (keep original HTML for potential re-parsing)
-        onProgress(ImportProgress.SavingRecipe)
-        recipeRepository.saveRecipe(recipe, originalHtml = page.originalHtml)
-
-        onProgress(ImportProgress.Complete(ImportResult.Success(recipe)))
-        return ImportResult.Success(recipe)
+        return when (parseResult) {
+            is ParseHtmlUseCase.ParseResult.Success -> {
+                onProgress(ImportProgress.Complete(ImportResult.Success(parseResult.recipe)))
+                ImportResult.Success(parseResult.recipe)
+            }
+            is ParseHtmlUseCase.ParseResult.Error -> {
+                ImportResult.Error(parseResult.message)
+            }
+            ParseHtmlUseCase.ParseResult.NoApiKey -> {
+                ImportResult.NoApiKey
+            }
+        }
     }
 }

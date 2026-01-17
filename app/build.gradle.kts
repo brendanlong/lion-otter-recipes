@@ -56,6 +56,14 @@ android {
     lint {
         checkReleaseBuilds = false
     }
+
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "META-INF/DEPENDENCIES"
+            excludes += "META-INF/INDEX.LIST"
+        }
+    }
 }
 
 dependencies {
@@ -113,6 +121,13 @@ dependencies {
 
     // HTML parsing
     implementation(libs.jsoup)
+
+    // Google Drive
+    implementation(libs.play.services.auth)
+    implementation(libs.google.api.client)
+    implementation(libs.google.drive.api) {
+        exclude(group = "org.apache.httpcomponents")
+    }
 
     // Testing
     testImplementation(libs.junit)

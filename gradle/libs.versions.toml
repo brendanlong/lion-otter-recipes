@@ -19,6 +19,9 @@ coil = "2.7.0"
 ksp = "2.1.0-1.0.29"
 readability4j = "1.0.8"
 jsoup = "1.18.1"
+playServicesAuth = "21.2.0"
+googleApiClient = "2.7.0"
+googleDriveApi = "v3-rev20241206-2.0.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -72,6 +75,11 @@ readability4j = { group = "net.dankito.readability4j", name = "readability4j", v
 
 # HTML parsing
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
+
+# Google Drive
+play-services-auth = { group = "com.google.android.gms", name = "play-services-auth", version.ref = "playServicesAuth" }
+google-api-client = { group = "com.google.api-client", name = "google-api-client-android", version.ref = "googleApiClient" }
+google-drive-api = { group = "com.google.apis", name = "google-api-services-drive", version.ref = "googleDriveApi" }
 
 # Testing
 junit = { group = "junit", name = "junit", version = "4.13.2" }

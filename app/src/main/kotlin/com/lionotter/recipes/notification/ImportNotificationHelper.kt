@@ -109,4 +109,67 @@ class ImportNotificationHelper @Inject constructor(
     fun cancelProgressNotification() {
         notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
     }
+
+    @SuppressLint("MissingPermission")
+    fun showExportSuccessNotification(exportedCount: Int, failedCount: Int) {
+        if (!notificationManager.areNotificationsEnabled()) return
+
+        notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
+
+        val message = if (failedCount > 0) {
+            "Exported $exportedCount recipes ($failedCount failed)"
+        } else {
+            "Exported $exportedCount recipes to Google Drive"
+        }
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Export Complete")
+            .setContentText(message)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .build()
+
+        notificationManager.notify(NOTIFICATION_ID_COMPLETE, notification)
+    }
+
+    @SuppressLint("MissingPermission")
+    fun showExportErrorNotification(errorMessage: String) {
+        if (!notificationManager.areNotificationsEnabled()) return
+
+        notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Export Failed")
+            .setContentText(errorMessage)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .build()
+
+        notificationManager.notify(NOTIFICATION_ID_ERROR, notification)
+    }
+
+    @SuppressLint("MissingPermission")
+    fun showImportFromDriveSuccessNotification(importedCount: Int, failedCount: Int) {
+        if (!notificationManager.areNotificationsEnabled()) return
+
+        notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
+
+        val message = if (failedCount > 0) {
+            "Imported $importedCount recipes ($failedCount failed)"
+        } else {
+            "Imported $importedCount recipes from Google Drive"
+        }
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Import Complete")
+            .setContentText(message)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .build()
+
+        notificationManager.notify(NOTIFICATION_ID_COMPLETE, notification)
+    }
 }
