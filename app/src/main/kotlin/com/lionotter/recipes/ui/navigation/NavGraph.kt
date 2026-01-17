@@ -25,13 +25,13 @@ sealed class Screen(val route: String) {
 }
 
 @Composable
-fun NavGraph(sharedUrl: String? = null) {
+fun NavGraph(sharedUrl: String? = null, recipeId: String? = null) {
     val navController = rememberNavController()
 
-    val startDestination = if (sharedUrl != null) {
-        Screen.AddRecipe.createRoute(sharedUrl)
-    } else {
-        Screen.RecipeList.route
+    val startDestination = when {
+        recipeId != null -> Screen.RecipeDetail.createRoute(recipeId)
+        sharedUrl != null -> Screen.AddRecipe.createRoute(sharedUrl)
+        else -> Screen.RecipeList.route
     }
 
     // Helper to navigate back, falling back to RecipeList if back stack is empty.
