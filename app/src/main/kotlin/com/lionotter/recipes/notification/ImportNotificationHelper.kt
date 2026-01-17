@@ -1,6 +1,7 @@
 package com.lionotter.recipes.notification
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -56,6 +57,7 @@ class ImportNotificationHelper @Inject constructor(
         }
     }
 
+    @SuppressLint("MissingPermission")
     fun showProgressNotification(progress: String) {
         if (!hasNotificationPermission()) return
 
@@ -71,6 +73,7 @@ class ImportNotificationHelper @Inject constructor(
         NotificationManagerCompat.from(context).notify(NOTIFICATION_ID_PROGRESS, notification)
     }
 
+    @SuppressLint("MissingPermission")
     fun showSuccessNotification(recipeName: String, recipeId: String) {
         if (!hasNotificationPermission()) return
 
@@ -100,6 +103,7 @@ class ImportNotificationHelper @Inject constructor(
         NotificationManagerCompat.from(context).notify(NOTIFICATION_ID_COMPLETE, notification)
     }
 
+    @SuppressLint("MissingPermission")
     fun showErrorNotification(errorMessage: String) {
         if (!hasNotificationPermission()) return
 
