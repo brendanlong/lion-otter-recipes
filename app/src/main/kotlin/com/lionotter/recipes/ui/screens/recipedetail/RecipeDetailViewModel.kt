@@ -38,6 +38,14 @@ typealias InstructionIngredientKey = String
 fun createInstructionIngredientKey(sectionIndex: Int, stepIndex: Int, ingredientIndex: Int): InstructionIngredientKey =
     "$sectionIndex-$stepIndex-$ingredientIndex"
 
+/**
+ * Represents the location of a highlighted instruction step.
+ */
+data class HighlightedInstructionStep(
+    val sectionIndex: Int,
+    val stepIndex: Int
+)
+
 @HiltViewModel
 class RecipeDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
@@ -66,6 +74,12 @@ class RecipeDetailViewModel @Inject constructor(
      */
     private val _usedInstructionIngredients = MutableStateFlow<Set<InstructionIngredientKey>>(emptySet())
     val usedInstructionIngredients: StateFlow<Set<InstructionIngredientKey>> = _usedInstructionIngredients.asStateFlow()
+
+    /**
+     * Tracks which instruction step is currently highlighted.
+     */
+    private val _highlightedInstructionStep = MutableStateFlow<HighlightedInstructionStep?>(null)
+    val highlightedInstructionStep: StateFlow<HighlightedInstructionStep?> = _highlightedInstructionStep.asStateFlow()
 
     /**
      * Returns true if the recipe has ingredients with multiple measurement types available.
@@ -231,5 +245,19 @@ class RecipeDetailViewModel @Inject constructor(
      */
     fun resetIngredientUsage() {
         _usedInstructionIngredients.value = emptySet()
+    }
+
+    /**
+     * Toggles the highlighted instruction step.
+     * If the step is already highlighted, clears the highlight.
+     * Otherwise, sets this step as highlighted.
+     */
+    fun toggleHighlightedInstructionStep(sectionIndex: Int, stepIndex: Int) {
+        val newStep = HighlightedInstructionStep(sectionIndex, stepIndex)
+        _highlightedInstructionStep.value = if (_highlightedInstructionStep.value == newStep) {
+            null
+        } else {
+            newStep
+        }
     }
 }
