@@ -7,6 +7,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.lionotter.recipes.data.local.SettingsDataStore
+import com.lionotter.recipes.ui.state.InProgressRecipeManager
 import com.lionotter.recipes.worker.RecipeImportWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,17 +17,21 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.util.UUID
 import javax.inject.Inject
 
 @HiltViewModel
 class AddRecipeViewModel @Inject constructor(
     private val workManager: WorkManager,
+    private val inProgressRecipeManager: InProgressRecipeManager,
     settingsDataStore: SettingsDataStore
 ) : ViewModel() {
 
     companion object {
         const val WORK_NAME = "recipe_import"
     }
+
+    private var currentImportId: String? = null
 
     private val _url = MutableStateFlow("")
     val url: StateFlow<String> = _url.asStateFlow()
@@ -66,6 +71,8 @@ class AddRecipeViewModel @Inject constructor(
             }
             WorkInfo.State.RUNNING -> {
                 val progress = workInfo.progress.getString(RecipeImportWorker.KEY_PROGRESS)
+                val recipeName = workInfo.progress.getString(RecipeImportWorker.KEY_RECIPE_NAME)
+
                 val importProgress = when (progress) {
                     RecipeImportWorker.PROGRESS_FETCHING -> ImportProgress.FetchingPage
                     RecipeImportWorker.PROGRESS_PARSING -> ImportProgress.ParsingRecipe
@@ -73,12 +80,22 @@ class AddRecipeViewModel @Inject constructor(
                     else -> ImportProgress.Starting
                 }
                 _uiState.value = AddRecipeUiState.Loading(importProgress)
+
+                // If we have a recipe name, update the in-progress state
+                if (recipeName != null && currentImportId != null) {
+                    inProgressRecipeManager.updateRecipeName(currentImportId!!, recipeName)
+                }
             }
             WorkInfo.State.SUCCEEDED -> {
                 val recipeId = workInfo.outputData.getString(RecipeImportWorker.KEY_RECIPE_ID)
                 if (recipeId != null) {
                     _uiState.value = AddRecipeUiState.Success(recipeId)
+                    // Remove from in-progress once completed
+                    if (currentImportId != null) {
+                        inProgressRecipeManager.removeInProgressRecipe(currentImportId!!)
+                    }
                 }
+                currentImportId = null
                 // Prune completed work
                 workManager.pruneWork()
             }
@@ -91,11 +108,20 @@ class AddRecipeViewModel @Inject constructor(
                     RecipeImportWorker.RESULT_NO_API_KEY -> AddRecipeUiState.NoApiKey
                     else -> AddRecipeUiState.Error(errorMessage)
                 }
+                // Remove from in-progress on failure
+                if (currentImportId != null) {
+                    inProgressRecipeManager.removeInProgressRecipe(currentImportId!!)
+                }
+                currentImportId = null
                 // Prune completed work
                 workManager.pruneWork()
             }
             WorkInfo.State.CANCELLED -> {
                 _uiState.value = AddRecipeUiState.Idle
+                if (currentImportId != null) {
+                    inProgressRecipeManager.removeInProgressRecipe(currentImportId!!)
+                }
+                currentImportId = null
                 workManager.pruneWork()
             }
         }
@@ -117,6 +143,10 @@ class AddRecipeViewModel @Inject constructor(
             return
         }
 
+        // Generate ID for tracking this import in the recipe list
+        currentImportId = UUID.randomUUID().toString()
+        inProgressRecipeManager.addInProgressRecipe(currentImportId!!, "Importing recipe...")
+
         // Enqueue the work
         val workRequest = OneTimeWorkRequestBuilder<RecipeImportWorker>()
             .setInputData(RecipeImportWorker.createInputData(currentUrl))
@@ -133,6 +163,10 @@ class AddRecipeViewModel @Inject constructor(
 
     fun cancelImport() {
         workManager.cancelUniqueWork(WORK_NAME)
+        if (currentImportId != null) {
+            inProgressRecipeManager.removeInProgressRecipe(currentImportId!!)
+        }
+        currentImportId = null
         _uiState.value = AddRecipeUiState.Idle
     }
 

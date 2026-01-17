@@ -68,6 +68,13 @@ class RecipeImportWorker @AssistedInject constructor(
                         setProgress(workDataOf(KEY_PROGRESS to PROGRESS_PARSING))
                         "AI is analyzing the recipe..."
                     }
+                    is ImportRecipeUseCase.ImportProgress.RecipeNameAvailable -> {
+                        setProgress(workDataOf(
+                            KEY_PROGRESS to PROGRESS_PARSING,
+                            KEY_RECIPE_NAME to progress.name
+                        ))
+                        "AI is analyzing the recipe..."
+                    }
                     is ImportRecipeUseCase.ImportProgress.SavingRecipe -> {
                         setProgress(workDataOf(KEY_PROGRESS to PROGRESS_SAVING))
                         "Saving recipe..."

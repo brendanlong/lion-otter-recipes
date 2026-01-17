@@ -25,6 +25,7 @@ class ImportRecipeUseCase @Inject constructor(
     sealed class ImportProgress {
         object FetchingPage : ImportProgress()
         object ParsingRecipe : ImportProgress()
+        data class RecipeNameAvailable(val name: String) : ImportProgress()
         object SavingRecipe : ImportProgress()
         data class Complete(val result: ImportResult) : ImportProgress()
     }
@@ -56,6 +57,9 @@ class ImportRecipeUseCase @Inject constructor(
             return ImportResult.Error("Failed to parse recipe: ${parseResult.exceptionOrNull()?.message}")
         }
         val parsed = parseResult.getOrThrow()
+
+        // Notify that recipe name is available
+        onProgress(ImportProgress.RecipeNameAvailable(parsed.name))
 
         // Create Recipe
         val now = Clock.System.now()
