@@ -20,6 +20,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         val sharedUrl = extractSharedUrl(intent)
+        val recipeId = extractRecipeId(intent)
 
         setContent {
             LionOtterTheme {
@@ -27,10 +28,15 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    NavGraph(sharedUrl = sharedUrl)
+                    NavGraph(sharedUrl = sharedUrl, recipeId = recipeId)
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
     }
 
     private fun extractSharedUrl(intent: Intent?): String? {
@@ -40,5 +46,9 @@ class MainActivity : ComponentActivity() {
             }
             else -> null
         }
+    }
+
+    private fun extractRecipeId(intent: Intent?): String? {
+        return intent?.getStringExtra("recipe_id")
     }
 }
