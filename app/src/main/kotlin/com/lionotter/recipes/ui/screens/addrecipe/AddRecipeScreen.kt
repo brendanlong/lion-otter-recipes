@@ -1,5 +1,9 @@
 package com.lionotter.recipes.ui.screens.addrecipe
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -66,6 +70,18 @@ fun AddRecipeScreen(
     LaunchedEffect(uiState) {
         if (uiState is AddRecipeUiState.Success) {
             onRecipeAdded((uiState as AddRecipeUiState.Success).recipeId)
+        }
+    }
+
+    // Request notification permission on Android 13+ (API 33+)
+    // This is contextually relevant since we notify users when imports complete
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { /* Permission result handled by system */ }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 
