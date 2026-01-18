@@ -11,6 +11,15 @@ android {
     namespace = "com.lionotter.recipes"
     compileSdk = 35
 
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file(System.getenv("DEBUG_KEYSTORE_PATH") ?: "${System.getProperty("user.home")}/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     defaultConfig {
         applicationId = "com.lionotter.recipes"
         minSdk = 26
