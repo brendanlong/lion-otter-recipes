@@ -31,6 +31,12 @@ class GoogleDriveViewModel @Inject constructor(
     private val _folders = MutableStateFlow<List<DriveFolder>>(emptyList())
     val folders: StateFlow<List<DriveFolder>> = _folders.asStateFlow()
 
+    private val _folderNavigationStack = MutableStateFlow<List<DriveFolder>>(emptyList())
+    val folderNavigationStack: StateFlow<List<DriveFolder>> = _folderNavigationStack.asStateFlow()
+
+    private val _isLoadingFolders = MutableStateFlow(false)
+    val isLoadingFolders: StateFlow<Boolean> = _isLoadingFolders.asStateFlow()
+
     private val _operationState = MutableStateFlow<OperationState>(OperationState.Idle)
     val operationState: StateFlow<OperationState> = _operationState.asStateFlow()
 
@@ -103,14 +109,49 @@ class GoogleDriveViewModel @Inject constructor(
 
     fun loadFolders(parentFolderId: String? = null) {
         viewModelScope.launch {
+            _isLoadingFolders.value = true
             val result = googleDriveService.listFolders(parentFolderId)
             result.onSuccess { folders ->
                 _folders.value = folders
             }.onFailure { error ->
                 _operationState.value = OperationState.Error("Failed to load folders: ${error.message}")
             }
+            _isLoadingFolders.value = false
         }
     }
+
+    /**
+     * Navigate into a folder. Adds the folder to the navigation stack and loads its contents.
+     */
+    fun navigateToFolder(folder: DriveFolder) {
+        _folderNavigationStack.value = _folderNavigationStack.value + folder
+        loadFolders(folder.id)
+    }
+
+    /**
+     * Navigate back to the parent folder.
+     */
+    fun navigateBack() {
+        val stack = _folderNavigationStack.value
+        if (stack.isNotEmpty()) {
+            _folderNavigationStack.value = stack.dropLast(1)
+            val parentId = _folderNavigationStack.value.lastOrNull()?.id
+            loadFolders(parentId)
+        }
+    }
+
+    /**
+     * Reset folder navigation to root.
+     */
+    fun resetFolderNavigation() {
+        _folderNavigationStack.value = emptyList()
+        loadFolders(null)
+    }
+
+    /**
+     * Get the current folder ID (null if at root).
+     */
+    fun getCurrentFolderId(): String? = _folderNavigationStack.value.lastOrNull()?.id
 
     fun exportToGoogleDrive(parentFolderId: String? = null) {
         if (_uiState.value !is GoogleDriveUiState.SignedIn) {

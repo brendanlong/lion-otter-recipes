@@ -158,12 +158,8 @@ class GoogleDriveService @Inject constructor(
             try {
                 val drive = requireDriveService()
 
-                val query = buildString {
-                    append("mimeType = '$MIME_TYPE_FOLDER' and trashed = false")
-                    if (parentFolderId != null) {
-                        append(" and '$parentFolderId' in parents")
-                    }
-                }
+                val parentId = parentFolderId ?: "root"
+                val query = "mimeType = '$MIME_TYPE_FOLDER' and trashed = false and '$parentId' in parents"
 
                 val result = drive.files().list()
                     .setQ(query)
