@@ -148,7 +148,7 @@ class ImportFromGoogleDriveUseCase @Inject constructor(
         if (jsonFile != null) {
             // Try to load from JSON
             val jsonResult = tryImportFromJson(jsonFile)
-            if (jsonResult is SingleImportResult.Success) {
+            if (jsonResult is SingleImportResult.Success || jsonResult is SingleImportResult.Skipped) {
                 return jsonResult
             }
             // If JSON import failed, fall through to HTML fallback
