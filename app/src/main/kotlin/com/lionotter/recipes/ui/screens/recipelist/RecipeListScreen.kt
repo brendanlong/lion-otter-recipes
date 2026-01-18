@@ -1,6 +1,8 @@
 package com.lionotter.recipes.ui.screens.recipelist
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -66,12 +68,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.lionotter.recipes.data.remote.DriveFolder
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.ui.components.DeleteConfirmationDialog
 import com.lionotter.recipes.ui.screens.googledrive.GoogleDriveUiState
 import com.lionotter.recipes.ui.screens.googledrive.GoogleDriveViewModel
 import com.lionotter.recipes.ui.screens.googledrive.OperationState
 import com.lionotter.recipes.ui.state.RecipeListItem
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun RecipeListScreen(
     onRecipeClick: (String) -> Unit,
@@ -125,6 +128,21 @@ fun RecipeListScreen(
             }
             else -> {}
         }
+    }
+
+    // State for delete confirmation dialog
+    var recipeToDelete by remember { mutableStateOf<Recipe?>(null) }
+
+    // Delete confirmation dialog
+    recipeToDelete?.let { recipe ->
+        DeleteConfirmationDialog(
+            recipeName = recipe.name,
+            onConfirm = {
+                viewModel.deleteRecipe(recipe.id)
+                recipeToDelete = null
+            },
+            onDismiss = { recipeToDelete = null }
+        )
     }
 
     Scaffold(
@@ -316,7 +334,7 @@ fun RecipeListScreen(
                                 SwipeableRecipeCard(
                                     recipe = item.recipe,
                                     onClick = { onRecipeClick(item.id) },
-                                    onDelete = { viewModel.deleteRecipe(item.id) }
+                                    onDeleteRequest = { recipeToDelete = item.recipe }
                                 )
                             }
                             is RecipeListItem.InProgress -> {
@@ -447,18 +465,19 @@ private fun FolderPickerDialog(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 private fun SwipeableRecipeCard(
     recipe: Recipe,
     onClick: () -> Unit,
-    onDelete: () -> Unit
+    onDeleteRequest: () -> Unit
 ) {
+    var showMenu by remember { mutableStateOf(false) }
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             if (value == SwipeToDismissBoxValue.EndToStart) {
-                onDelete()
-                true
+                onDeleteRequest()
+                false // Don't dismiss - wait for confirmation
             } else {
                 false
             }
@@ -483,95 +502,132 @@ private fun SwipeableRecipeCard(
         },
         enableDismissFromStartToEnd = false
     ) {
-        RecipeCard(recipe = recipe, onClick = onClick)
+        RecipeCard(
+            recipe = recipe,
+            onClick = onClick,
+            onLongClick = { showMenu = true },
+            showMenu = showMenu,
+            onDismissMenu = { showMenu = false },
+            onDeleteRequest = onDeleteRequest
+        )
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 private fun RecipeCard(
     recipe: Recipe,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    showMenu: Boolean,
+    onDismissMenu: () -> Unit,
+    onDeleteRequest: () -> Unit
 ) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Row(
+    Box {
+        Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp)
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick
+                ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
-            // Recipe image
-            if (recipe.imageUrl != null) {
-                AsyncImage(
-                    model = recipe.imageUrl,
-                    contentDescription = recipe.name,
-                    modifier = Modifier
-                        .size(80.dp)
-                        .clip(MaterialTheme.shapes.small),
-                    contentScale = ContentScale.Crop
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp)
+            ) {
+                // Recipe image
+                if (recipe.imageUrl != null) {
+                    AsyncImage(
+                        model = recipe.imageUrl,
+                        contentDescription = recipe.name,
+                        modifier = Modifier
+                            .size(80.dp)
+                            .clip(MaterialTheme.shapes.small),
+                        contentScale = ContentScale.Crop
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                }
 
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = recipe.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = recipe.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
 
-                if (recipe.totalTime != null || recipe.servings != null) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row {
-                        recipe.totalTime?.let {
-                            Text(
-                                text = it,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                    if (recipe.totalTime != null || recipe.servings != null) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row {
+                            recipe.totalTime?.let {
+                                Text(
+                                    text = it,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            if (recipe.totalTime != null && recipe.servings != null) {
+                                Text(
+                                    text = " • ",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            recipe.servings?.let {
+                                Text(
+                                    text = "$it servings",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
-                        if (recipe.totalTime != null && recipe.servings != null) {
-                            Text(
-                                text = " • ",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        recipe.servings?.let {
-                            Text(
-                                text = "$it servings",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                    }
+
+                    if (recipe.tags.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            recipe.tags.take(3).forEach { tag ->
+                                TagChip(tag = tag)
+                            }
+                            if (recipe.tags.size > 3) {
+                                Text(
+                                    text = "+${recipe.tags.size - 3}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 4.dp)
+                                )
+                            }
                         }
                     }
                 }
-
-                if (recipe.tags.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        recipe.tags.take(3).forEach { tag ->
-                            TagChip(tag = tag)
-                        }
-                        if (recipe.tags.size > 3) {
-                            Text(
-                                text = "+${recipe.tags.size - 3}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 4.dp)
-                            )
-                        }
-                    }
-                }
             }
+        }
+
+        // Long-press context menu
+        DropdownMenu(
+            expanded = showMenu,
+            onDismissRequest = onDismissMenu
+        ) {
+            DropdownMenuItem(
+                text = { Text("Delete") },
+                onClick = {
+                    onDismissMenu()
+                    onDeleteRequest()
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
+            )
         }
     }
 }
