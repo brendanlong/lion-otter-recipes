@@ -20,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -38,7 +39,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,6 +63,7 @@ import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.MeasurementPreference
 import com.lionotter.recipes.domain.model.MeasurementType
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.ui.components.DeleteConfirmationDialog
 import com.lionotter.recipes.util.pluralize
 import com.lionotter.recipes.util.singularize
 
@@ -76,6 +82,27 @@ fun RecipeDetailScreen(
     val globalIngredientUsage by viewModel.globalIngredientUsage.collectAsStateWithLifecycle()
     val highlightedInstructionStep by viewModel.highlightedInstructionStep.collectAsStateWithLifecycle()
 
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
+    // Navigate back after recipe is deleted
+    LaunchedEffect(Unit) {
+        viewModel.recipeDeleted.collect {
+            onBackClick()
+        }
+    }
+
+    // Delete confirmation dialog
+    if (showDeleteDialog && recipe != null) {
+        DeleteConfirmationDialog(
+            recipeName = recipe!!.name,
+            onConfirm = {
+                showDeleteDialog = false
+                viewModel.deleteRecipe()
+            },
+            onDismiss = { showDeleteDialog = false }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -86,6 +113,16 @@ fun RecipeDetailScreen(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back"
                         )
+                    }
+                },
+                actions = {
+                    if (recipe != null) {
+                        IconButton(onClick = { showDeleteDialog = true }) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Delete recipe"
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(

@@ -7,15 +7,20 @@ import com.lionotter.recipes.domain.model.Ingredient
 import com.lionotter.recipes.domain.model.MeasurementPreference
 import com.lionotter.recipes.domain.model.MeasurementType
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.usecase.DeleteRecipeUseCase
 import com.lionotter.recipes.domain.usecase.GetRecipeByIdUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
@@ -49,11 +54,15 @@ data class HighlightedInstructionStep(
 @HiltViewModel
 class RecipeDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    getRecipeByIdUseCase: GetRecipeByIdUseCase
+    getRecipeByIdUseCase: GetRecipeByIdUseCase,
+    private val deleteRecipeUseCase: DeleteRecipeUseCase
 ) : ViewModel() {
 
     private val recipeId: String = savedStateHandle.get<String>("recipeId")
         ?: throw IllegalArgumentException("Recipe ID is required")
+
+    private val _recipeDeleted = MutableSharedFlow<Unit>()
+    val recipeDeleted: SharedFlow<Unit> = _recipeDeleted.asSharedFlow()
 
     val recipe: StateFlow<Recipe?> = getRecipeByIdUseCase.execute(recipeId)
         .stateIn(
@@ -258,6 +267,16 @@ class RecipeDetailViewModel @Inject constructor(
             null
         } else {
             newStep
+        }
+    }
+
+    /**
+     * Deletes the current recipe and emits an event when complete.
+     */
+    fun deleteRecipe() {
+        viewModelScope.launch {
+            deleteRecipeUseCase.execute(recipeId)
+            _recipeDeleted.emit(Unit)
         }
     }
 }
