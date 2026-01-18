@@ -13,6 +13,9 @@ interface RecipeDao {
     @Query("SELECT * FROM recipes ORDER BY updatedAt DESC")
     fun getAllRecipes(): Flow<List<RecipeEntity>>
 
+    @Query("SELECT * FROM recipes ORDER BY updatedAt DESC")
+    suspend fun getAllRecipesOnce(): List<RecipeEntity>
+
     @Query("SELECT * FROM recipes WHERE id = :id")
     suspend fun getRecipeById(id: String): RecipeEntity?
 

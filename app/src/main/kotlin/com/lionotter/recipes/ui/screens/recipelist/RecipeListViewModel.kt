@@ -32,8 +32,8 @@ class RecipeListViewModel @Inject constructor(
     private val _selectedTag = MutableStateFlow<String?>(null)
     val selectedTag: StateFlow<String?> = _selectedTag.asStateFlow()
 
-    private val _availableTags = MutableStateFlow<Set<String>>(emptySet())
-    val availableTags: StateFlow<Set<String>> = _availableTags.asStateFlow()
+    private val _availableTags = MutableStateFlow<List<String>>(emptyList())
+    val availableTags: StateFlow<List<String>> = _availableTags.asStateFlow()
 
     val recipes: StateFlow<List<RecipeListItem>> = combine(
         getRecipesUseCase.execute(),

@@ -78,6 +78,21 @@ class RecipeRepository @Inject constructor(
         }.toSet()
     }
 
+    /**
+     * Get all recipes with their tags for tag ranking algorithms.
+     * Returns a list of pairs: (recipeId, list of tags for that recipe)
+     */
+    suspend fun getAllRecipesWithTags(): List<Pair<String, List<String>>> {
+        return recipeDao.getAllRecipesOnce().map { entity ->
+            val tags: List<String> = try {
+                json.decodeFromString(entity.tagsJson)
+            } catch (e: Exception) {
+                emptyList()
+            }
+            entity.id to tags
+        }
+    }
+
     private fun entityToRecipe(entity: RecipeEntity): Recipe {
         val ingredientSections: List<IngredientSection> = try {
             json.decodeFromString(entity.ingredientSectionsJson)

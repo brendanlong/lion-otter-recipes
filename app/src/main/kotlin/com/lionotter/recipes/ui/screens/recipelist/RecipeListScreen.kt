@@ -300,7 +300,7 @@ fun RecipeListScreen(
                         .padding(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    availableTags.sorted().forEach { tag ->
+                    availableTags.forEach { tag ->
                         FilterChip(
                             selected = selectedTag == tag,
                             onClick = { viewModel.onTagSelected(tag) },
