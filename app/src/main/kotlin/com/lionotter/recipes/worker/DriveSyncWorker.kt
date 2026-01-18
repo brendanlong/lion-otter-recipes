@@ -129,6 +129,9 @@ class DriveSyncWorker @AssistedInject constructor(
         val errors = mutableListOf<String>()
 
         try {
+            // 0. Queue any recipes that aren't synced yet (catches recipes from before sync was enabled)
+            syncManager.queueUnsyncedRecipes()
+
             // 1. Process pending upload operations
             val pendingOps = syncManager.getPendingOperations()
             val uploadOps = pendingOps.filter { it.operationType == SyncOperationType.UPLOAD }
@@ -155,6 +158,9 @@ class DriveSyncWorker @AssistedInject constructor(
                     }
                 }
 
+                // Mark as in progress to prevent duplicate operations
+                syncManager.markOperationInProgress(operation.id)
+
                 when (val result = syncManager.executeUpload(operation)) {
                     is DriveSyncManager.UploadResult.Success -> {
                         uploadedCount++
@@ -174,26 +180,62 @@ class DriveSyncWorker @AssistedInject constructor(
                 }
             }
 
-            // 2. Process remote changes
+            // 2. Process remote changes (including auto-import)
+            var importedCount = 0
+            var skippedCount = 0
+            var syncNotConfigured = false
             when (val changeResult = syncManager.processRemoteChanges()) {
                 is DriveSyncManager.ChangeProcessingResult.Success -> {
+                    importedCount = changeResult.imported
+                    skippedCount = changeResult.skippedDuplicates
                     if (changeResult.conflicts > 0) {
                         Log.d(TAG, "Detected ${changeResult.conflicts} conflicts from remote changes")
+                    }
+                    if (importedCount > 0) {
+                        Log.d(TAG, "Auto-imported $importedCount recipes from Drive")
                     }
                 }
                 is DriveSyncManager.ChangeProcessingResult.Error -> {
                     Log.e(TAG, "Error processing changes: ${changeResult.message}")
-                    errors.add("Change detection: ${changeResult.message}")
+                    errors.add(changeResult.message)
+                    failedCount++
                 }
-                else -> {
-                    // NotConfigured or Initialized are fine
+                is DriveSyncManager.ChangeProcessingResult.NotConfigured -> {
+                    Log.d(TAG, "Sync not configured")
+                    syncNotConfigured = true
+                }
+                is DriveSyncManager.ChangeProcessingResult.Initialized -> {
+                    Log.d(TAG, "Sync initialized, will process changes on next run")
                 }
             }
 
             // 3. Clean up completed operations
             syncManager.cleanupOperations()
 
-            Log.d(TAG, "Sync complete: uploaded=$uploadedCount, failed=$failedCount")
+            Log.d(TAG, "Sync complete: uploaded=$uploadedCount, imported=$importedCount, skipped=$skippedCount, failed=$failedCount, errors=${errors.size}")
+
+            // Show appropriate notification based on results
+            when {
+                syncNotConfigured -> {
+                    // Don't show notification - sync isn't configured
+                    return Result.success(
+                        workDataOf(KEY_RESULT_TYPE to RESULT_NOT_CONFIGURED)
+                    )
+                }
+                errors.isNotEmpty() -> {
+                    // Show error notification with the first error message
+                    notificationHelper.showSyncErrorNotification(errors.first())
+                }
+                else -> {
+                    // Show completion notification with all stats
+                    notificationHelper.showSyncCompleteNotification(
+                        uploadedCount = uploadedCount,
+                        importedCount = importedCount,
+                        skippedCount = skippedCount,
+                        failedCount = failedCount
+                    )
+                }
+            }
 
             return Result.success(
                 workDataOf(
@@ -205,6 +247,7 @@ class DriveSyncWorker @AssistedInject constructor(
 
         } catch (e: Exception) {
             Log.e(TAG, "Sync failed with exception", e)
+            notificationHelper.showSyncErrorNotification(e.message ?: "Unknown error")
             return Result.failure(
                 workDataOf(
                     KEY_RESULT_TYPE to RESULT_ERROR,

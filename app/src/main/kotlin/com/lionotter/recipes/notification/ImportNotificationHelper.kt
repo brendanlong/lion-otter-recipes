@@ -174,6 +174,41 @@ class ImportNotificationHelper @Inject constructor(
     }
 
     @SuppressLint("MissingPermission")
+    fun showSyncCompleteNotification(
+        uploadedCount: Int,
+        importedCount: Int,
+        skippedCount: Int,
+        failedCount: Int
+    ) {
+        if (!notificationManager.areNotificationsEnabled()) return
+
+        notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
+
+        // Only show notification if something actually happened
+        if (uploadedCount == 0 && importedCount == 0 && failedCount == 0) {
+            return // Silent sync with no changes
+        }
+
+        val parts = mutableListOf<String>()
+        if (uploadedCount > 0) parts.add("$uploadedCount uploaded")
+        if (importedCount > 0) parts.add("$importedCount imported")
+        if (skippedCount > 0) parts.add("$skippedCount skipped")
+        if (failedCount > 0) parts.add("$failedCount failed")
+
+        val message = parts.joinToString(", ")
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Sync Complete")
+            .setContentText(message)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .build()
+
+        notificationManager.notify(NOTIFICATION_ID_COMPLETE, notification)
+    }
+
+    @SuppressLint("MissingPermission")
     fun showSyncConflictNotification(conflictCount: Int) {
         if (!notificationManager.areNotificationsEnabled()) return
 
@@ -186,5 +221,22 @@ class ImportNotificationHelper @Inject constructor(
             .build()
 
         notificationManager.notify(NOTIFICATION_ID_COMPLETE, notification)
+    }
+
+    @SuppressLint("MissingPermission")
+    fun showSyncErrorNotification(errorMessage: String) {
+        if (!notificationManager.areNotificationsEnabled()) return
+
+        notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Sync Failed")
+            .setContentText(errorMessage)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .build()
+
+        notificationManager.notify(NOTIFICATION_ID_ERROR, notification)
     }
 }

@@ -94,10 +94,45 @@ class DriveSyncManager @Inject constructor(
             )
         }
 
+        // Queue uploads for all existing recipes that aren't already synced
+        queueUnsyncedRecipes()
+
         // Initialize the changes page token for incremental sync
         if (currentState?.changesPageToken == null) {
             initializeChangesToken()
         }
+    }
+
+    /**
+     * Queue uploads for all existing recipes that don't have sync records.
+     * Called when sync is first enabled to upload existing recipes,
+     * and also during each sync to catch any recipes that might have been missed.
+     *
+     * @return The number of recipes queued for upload
+     */
+    suspend fun queueUnsyncedRecipes(): Int {
+        val allRecipes = recipeDao.getAllRecipesOnce()
+        val syncedRecipeIds = syncedRecipeDao.getAll().map { it.localRecipeId }.toSet()
+
+        // Also exclude recipes that already have pending uploads
+        val pendingUploadIds = pendingOperationDao.getPendingOperations()
+            .filter { it.operationType == SyncOperationType.UPLOAD }
+            .mapNotNull { it.localRecipeId }
+            .toSet()
+
+        var queuedCount = 0
+        for (recipe in allRecipes) {
+            if (recipe.id !in syncedRecipeIds && recipe.id !in pendingUploadIds) {
+                // This recipe isn't synced yet and doesn't have a pending upload, queue it
+                queueUpload(recipe.id)
+                queuedCount++
+            }
+        }
+
+        if (queuedCount > 0) {
+            Log.d(TAG, "Queued $queuedCount unsynced recipes for upload")
+        }
+        return queuedCount
     }
 
     /**
@@ -193,6 +228,13 @@ class DriveSyncManager @Inject constructor(
     // ========== Execute Operations ==========
 
     /**
+     * Mark an operation as in progress to prevent duplicate operations.
+     */
+    suspend fun markOperationInProgress(operationId: Long) {
+        pendingOperationDao.updateStatus(operationId, OperationStatus.IN_PROGRESS)
+    }
+
+    /**
      * Execute a pending upload operation.
      */
     suspend fun executeUpload(operation: PendingSyncOperationEntity): UploadResult {
@@ -229,9 +271,25 @@ class DriveSyncManager @Inject constructor(
         syncFolderId: String
     ): UploadResult {
         try {
-            // Create folder for this recipe
+            // Double-check that we haven't already synced this recipe (race condition protection)
+            val existingSyncRecord = syncedRecipeDao.getByRecipeId(recipe.id)
+            if (existingSyncRecord != null) {
+                Log.d(TAG, "Recipe already synced (race condition avoided): ${recipe.name}")
+                pendingOperationDao.updateStatus(operation.id, OperationStatus.COMPLETED)
+                return UploadResult.Success(DriveFileMetadata(
+                    id = existingSyncRecord.driveJsonFileId,
+                    name = GoogleDriveService.RECIPE_JSON_FILENAME,
+                    mimeType = MIME_TYPE_JSON,
+                    version = existingSyncRecord.driveVersion,
+                    modifiedTime = existingSyncRecord.driveModifiedTime,
+                    md5Checksum = existingSyncRecord.driveMd5Checksum,
+                    parents = listOf(existingSyncRecord.driveFolderId)
+                ))
+            }
+
+            // Find or create folder for this recipe (uses appProperties for idempotency)
             val folderName = sanitizeFolderName(recipe.name)
-            val folderResult = googleDriveService.createFolder(folderName, syncFolderId)
+            val folderResult = googleDriveService.findOrCreateRecipeFolder(folderName, recipe.id, syncFolderId)
             if (folderResult.isFailure) {
                 return UploadResult.Error("Failed to create folder: ${folderResult.exceptionOrNull()?.message}")
             }
@@ -512,10 +570,15 @@ class DriveSyncManager @Inject constructor(
         // Update token
         syncStateDao.updateChangesToken(newToken, System.currentTimeMillis())
 
+        // Scan for and auto-import new recipes from Drive
+        val (imported, skipped) = scanForNewRecipes()
+
         return ChangeProcessingResult.Success(
             newRecipes = newRecipes,
             conflicts = conflicts,
-            deletedOnDrive = deletedOnDrive
+            deletedOnDrive = deletedOnDrive,
+            imported = imported,
+            skippedDuplicates = skipped
         )
     }
 
@@ -574,6 +637,142 @@ class DriveSyncManager @Inject constructor(
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse remote recipe", e)
         }
+    }
+
+    // ========== Auto-Import ==========
+
+    /**
+     * Scan the sync folder for new recipes that were uploaded from elsewhere.
+     * Downloads recipe.json, checks for duplicates, and imports new recipes.
+     *
+     * @return Pair of (imported count, skipped count)
+     */
+    private suspend fun scanForNewRecipes(): Pair<Int, Int> {
+        val syncState = syncStateDao.get()
+        val syncFolderId = syncState?.syncFolderId ?: return Pair(0, 0)
+
+        var importedCount = 0
+        var skippedCount = 0
+
+        // List all subfolders (recipe folders) in the sync folder
+        val foldersResult = googleDriveService.listFolders(syncFolderId)
+        if (foldersResult.isFailure) {
+            Log.e(TAG, "Failed to list recipe folders: ${foldersResult.exceptionOrNull()?.message}")
+            return Pair(0, 0)
+        }
+
+        val recipeFolders = foldersResult.getOrThrow()
+
+        for (folder in recipeFolders) {
+            // Check if we already track a recipe from this folder
+            val existingSyncedRecipe = syncedRecipeDao.getByDriveFolderId(folder.id)
+            if (existingSyncedRecipe != null) {
+                continue // Already tracking this folder
+            }
+
+            // Check if this folder contains a recipe.json
+            val recipeJsonFile = googleDriveService.findFileInFolder(folder.id, GoogleDriveService.RECIPE_JSON_FILENAME)
+            if (recipeJsonFile == null) {
+                continue // Not a recipe folder
+            }
+
+            // Download and try to import
+            val result = importRecipeFromDrive(folder.id, recipeJsonFile.id)
+            when (result) {
+                is ImportResult.Success -> {
+                    importedCount++
+                    Log.d(TAG, "Imported recipe from Drive: ${result.recipe.name}")
+                }
+                is ImportResult.Skipped -> {
+                    skippedCount++
+                    Log.d(TAG, "Skipped duplicate recipe in folder: ${folder.name}")
+                }
+                is ImportResult.Error -> {
+                    Log.e(TAG, "Failed to import recipe from ${folder.name}: ${result.message}")
+                }
+            }
+        }
+
+        return Pair(importedCount, skippedCount)
+    }
+
+    /**
+     * Import a single recipe from Drive.
+     * Checks for duplicates by recipe ID before importing.
+     */
+    private suspend fun importRecipeFromDrive(
+        driveFolderId: String,
+        driveFileId: String
+    ): ImportResult {
+        // Download recipe.json
+        val contentResult = googleDriveService.downloadTextFile(driveFileId)
+        if (contentResult.isFailure) {
+            return ImportResult.Error("Failed to download: ${contentResult.exceptionOrNull()?.message}")
+        }
+
+        // Parse the recipe
+        val recipe: Recipe = try {
+            json.decodeFromString(contentResult.getOrThrow())
+        } catch (e: Exception) {
+            return ImportResult.Error("Failed to parse recipe: ${e.message}")
+        }
+
+        // Check for duplicate - does a recipe with this ID already exist?
+        val existingRecipe = recipeDao.getRecipeById(recipe.id)
+        if (existingRecipe != null) {
+            // Already have this recipe locally - create sync record to link them
+            // but don't overwrite local data
+            val metadataResult = googleDriveService.getFileMetadata(driveFileId)
+            if (metadataResult.isSuccess) {
+                val metadata = metadataResult.getOrThrow()
+                syncedRecipeDao.insert(
+                    SyncedRecipeEntity(
+                        localRecipeId = recipe.id,
+                        driveFolderId = driveFolderId,
+                        driveJsonFileId = driveFileId,
+                        driveVersion = metadata.version,
+                        driveModifiedTime = metadata.modifiedTime,
+                        driveMd5Checksum = metadata.md5Checksum ?: "",
+                        lastSyncedAt = System.currentTimeMillis(),
+                        localModifiedAt = existingRecipe.updatedAt,
+                        syncStatus = SyncStatus.SYNCED
+                    )
+                )
+            }
+            return ImportResult.Skipped
+        }
+
+        // New recipe - save it directly to DAO to avoid triggering sync callback
+        // (since it's already on Drive, we don't need to upload it again)
+        val entity = com.lionotter.recipes.data.local.RecipeEntity.fromRecipe(
+            recipe = recipe,
+            ingredientSectionsJson = json.encodeToString(recipe.ingredientSections),
+            instructionSectionsJson = json.encodeToString(recipe.instructionSections),
+            tagsJson = json.encodeToString(recipe.tags),
+            originalHtml = null // We don't have original HTML from Drive import
+        )
+        recipeDao.insertRecipe(entity)
+
+        // Create sync record
+        val metadataResult = googleDriveService.getFileMetadata(driveFileId)
+        if (metadataResult.isSuccess) {
+            val metadata = metadataResult.getOrThrow()
+            syncedRecipeDao.insert(
+                SyncedRecipeEntity(
+                    localRecipeId = recipe.id,
+                    driveFolderId = driveFolderId,
+                    driveJsonFileId = driveFileId,
+                    driveVersion = metadata.version,
+                    driveModifiedTime = metadata.modifiedTime,
+                    driveMd5Checksum = metadata.md5Checksum ?: "",
+                    lastSyncedAt = System.currentTimeMillis(),
+                    localModifiedAt = recipe.updatedAt.toEpochMilliseconds(),
+                    syncStatus = SyncStatus.SYNCED
+                )
+            )
+        }
+
+        return ImportResult.Success(recipe)
     }
 
     // ========== Utilities ==========
@@ -635,8 +834,19 @@ class DriveSyncManager @Inject constructor(
         data class Success(
             val newRecipes: Int,
             val conflicts: Int,
-            val deletedOnDrive: Int
+            val deletedOnDrive: Int,
+            val imported: Int = 0,
+            val skippedDuplicates: Int = 0
         ) : ChangeProcessingResult()
         data class Error(val message: String) : ChangeProcessingResult()
+    }
+
+    /**
+     * Result of importing a single recipe from Drive.
+     */
+    sealed class ImportResult {
+        data class Success(val recipe: Recipe) : ImportResult()
+        object Skipped : ImportResult() // Already exists locally
+        data class Error(val message: String) : ImportResult()
     }
 }

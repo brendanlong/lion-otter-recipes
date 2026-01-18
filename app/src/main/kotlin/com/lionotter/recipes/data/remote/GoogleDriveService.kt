@@ -229,6 +229,57 @@ class GoogleDriveService @Inject constructor(
     }
 
     /**
+     * Find or create a recipe folder using appProperties for idempotency.
+     * Uses the recipe ID as a unique identifier to prevent duplicate folders
+     * even if multiple sync operations run concurrently.
+     */
+    suspend fun findOrCreateRecipeFolder(
+        name: String,
+        recipeId: String,
+        parentFolderId: String
+    ): Result<DriveFolder> = withContext(Dispatchers.IO) {
+        try {
+            val drive = requireDriveService()
+
+            // Query for existing folder with this recipeId in appProperties
+            val query = "mimeType = '$MIME_TYPE_FOLDER' and " +
+                "'$parentFolderId' in parents and " +
+                "appProperties has { key='recipeId' and value='${recipeId.replace("'", "\\'")}' } and " +
+                "trashed = false"
+
+            val existingResult = drive.files().list()
+                .setQ(query)
+                .setSpaces("drive")
+                .setFields("files(id, name)")
+                .setPageSize(1)
+                .execute()
+
+            val existingFolder = existingResult.files?.firstOrNull()
+            if (existingFolder != null) {
+                return@withContext Result.success(
+                    DriveFolder(id = existingFolder.id, name = existingFolder.name)
+                )
+            }
+
+            // Create new folder with appProperties
+            val fileMetadata = File().apply {
+                this.name = name
+                this.mimeType = MIME_TYPE_FOLDER
+                this.parents = listOf(parentFolderId)
+                this.appProperties = mapOf("recipeId" to recipeId)
+            }
+
+            val folder = drive.files().create(fileMetadata)
+                .setFields("id, name")
+                .execute()
+
+            Result.success(DriveFolder(id = folder.id, name = folder.name))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Upload a text file to Drive.
      */
     suspend fun uploadTextFile(

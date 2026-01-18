@@ -1,12 +1,14 @@
 package com.lionotter.recipes.ui.screens.settings
 
-import android.app.Activity
 import android.content.Intent
-import android.net.Uri
+import androidx.core.net.toUri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,6 +16,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -22,8 +27,14 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.SyncDisabled
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -41,6 +52,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -56,13 +68,16 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.common.api.ApiException
+import com.lionotter.recipes.data.remote.DriveFolder
 import com.lionotter.recipes.ui.screens.googledrive.GoogleDriveUiState
 import com.lionotter.recipes.ui.screens.googledrive.GoogleDriveViewModel
+import com.lionotter.recipes.ui.screens.googledrive.SyncStatusState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -76,6 +91,12 @@ fun SettingsScreen(
     val aiModel by viewModel.aiModel.collectAsStateWithLifecycle()
     val saveState by viewModel.saveState.collectAsStateWithLifecycle()
     val driveUiState by googleDriveViewModel.uiState.collectAsStateWithLifecycle()
+    val syncStatus by googleDriveViewModel.syncStatus.collectAsStateWithLifecycle()
+    val folders by googleDriveViewModel.folders.collectAsStateWithLifecycle()
+    val folderNavigationStack by googleDriveViewModel.folderNavigationStack.collectAsStateWithLifecycle()
+    val isLoadingFolders by googleDriveViewModel.isLoadingFolders.collectAsStateWithLifecycle()
+
+    var showFolderPicker by remember { mutableStateOf(false) }
 
     // Google Sign-In launcher - always try to get the account, don't check result code
     val signInLauncher = rememberLauncherForActivityResult(
@@ -96,6 +117,28 @@ fun SettingsScreen(
             }
             googleDriveViewModel.handleSignInError(errorMessage)
         }
+    }
+
+    // Folder picker dialog
+    if (showFolderPicker) {
+        SyncFolderPickerDialog(
+            folders = folders,
+            navigationStack = folderNavigationStack,
+            isLoading = isLoadingFolders,
+            onFolderSelected = { folder ->
+                showFolderPicker = false
+                if (folder != null) {
+                    googleDriveViewModel.enableSync(folder)
+                }
+            },
+            onDismiss = { showFolderPicker = false },
+            onNavigateToFolder = { folder ->
+                googleDriveViewModel.navigateToFolder(folder)
+            },
+            onNavigateBack = {
+                googleDriveViewModel.navigateBack()
+            }
+        )
     }
 
     Scaffold(
@@ -149,10 +192,17 @@ fun SettingsScreen(
             // Google Drive Section
             GoogleDriveSection(
                 uiState = driveUiState,
+                syncStatus = syncStatus,
                 onSignInClick = {
                     signInLauncher.launch(googleDriveViewModel.getSignInIntent())
                 },
-                onSignOutClick = googleDriveViewModel::signOut
+                onSignOutClick = googleDriveViewModel::signOut,
+                onConfigureSyncClick = {
+                    googleDriveViewModel.resetFolderNavigation()
+                    showFolderPicker = true
+                },
+                onDisableSyncClick = googleDriveViewModel::disableSync,
+                onManualSyncClick = googleDriveViewModel::triggerManualSync
             )
 
             HorizontalDivider()
@@ -283,7 +333,7 @@ private fun ApiKeySection(
 
         OutlinedButton(
             onClick = {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://platform.claude.com/settings/keys"))
+                val intent = Intent(Intent.ACTION_VIEW, "https://platform.claude.com/settings/keys".toUri())
                 context.startActivity(intent)
             },
             modifier = Modifier.fillMaxWidth()
@@ -354,17 +404,21 @@ private fun ModelSelectionSection(
 @Composable
 private fun GoogleDriveSection(
     uiState: GoogleDriveUiState,
+    syncStatus: SyncStatusState,
     onSignInClick: () -> Unit,
-    onSignOutClick: () -> Unit
+    onSignOutClick: () -> Unit,
+    onConfigureSyncClick: () -> Unit,
+    onDisableSyncClick: () -> Unit,
+    onManualSyncClick: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
-            text = "Google Drive",
+            text = "Google Drive Sync",
             style = MaterialTheme.typography.titleMedium
         )
 
         Text(
-            text = "Connect to Google Drive to export and import your recipes. Export creates a folder for each recipe containing JSON, HTML, and Markdown files.",
+            text = "Enable continuous sync to automatically backup your recipes to Google Drive. Recipes from other devices will be auto-imported.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -393,6 +447,7 @@ private fun GoogleDriveSection(
             }
 
             is GoogleDriveUiState.SignedIn -> {
+                // Account info card
                 Card(
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.primaryContainer
@@ -413,7 +468,7 @@ private fun GoogleDriveSection(
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                                 Text(
-                                    text = "  Connected to Google Drive",
+                                    text = "  Connected",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer
                                 )
@@ -430,11 +485,121 @@ private fun GoogleDriveSection(
                     }
                 }
 
-                Text(
-                    text = "Use the menu on the recipe list to export or import recipes.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                // Sync status card
+                if (syncStatus.isEnabled) {
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Sync,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.secondary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Sync enabled",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Folder,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = syncStatus.syncFolderName ?: "Unknown folder",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                                )
+                            }
+                            if (syncStatus.pendingOperations > 0) {
+                                Text(
+                                    text = "${syncStatus.pendingOperations} pending sync operations",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                                )
+                            }
+                            if (syncStatus.lastError != null) {
+                                Text(
+                                    text = "Last error: ${syncStatus.lastError}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = onManualSyncClick,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Sync Now")
+                                }
+                                OutlinedButton(
+                                    onClick = onDisableSyncClick,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Disable")
+                                }
+                            }
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = onConfigureSyncClick,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Change Sync Folder")
+                    }
+                } else {
+                    // Sync not configured
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SyncDisabled,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Sync not configured",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Button(
+                        onClick = onConfigureSyncClick,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Enable Sync")
+                    }
+                }
             }
 
             is GoogleDriveUiState.SignedOut -> {
@@ -522,4 +687,195 @@ private fun AboutSection() {
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
+}
+
+@Composable
+private fun SyncFolderPickerDialog(
+    folders: List<DriveFolder>,
+    navigationStack: List<DriveFolder>,
+    isLoading: Boolean,
+    onFolderSelected: (DriveFolder?) -> Unit,
+    onDismiss: () -> Unit,
+    onNavigateToFolder: (DriveFolder) -> Unit,
+    onNavigateBack: () -> Unit
+) {
+    val currentFolder = navigationStack.lastOrNull()
+    val isAtRoot = navigationStack.isEmpty()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(text = "Select Sync Folder")
+        },
+        text = {
+            Column {
+                // Current path breadcrumb
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FolderOpen,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isAtRoot) "My Drive" else navigationStack.joinToString(" / ") { it.name },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "Navigate to a folder where your recipes will be synced. Each recipe creates a subfolder.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Folder list with back button
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(280.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    )
+                ) {
+                    if (isLoading) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(32.dp))
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            // Back button (if not at root)
+                            if (!isAtRoot) {
+                                item(key = "back") {
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { onNavigateBack() },
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.surface
+                                        )
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Folder,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Text(
+                                                text = "..",
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (folders.isEmpty() && !isLoading) {
+                                item(key = "empty") {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(16.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "No subfolders",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+
+                            items(folders, key = { it.id }) { folder ->
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onNavigateToFolder(folder) },
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surface
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Folder,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Text(
+                                            text = folder.name,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            modifier = Modifier.weight(1f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Default.KeyboardArrowRight,
+                                            contentDescription = "Open folder",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    // Create a DriveFolder for the current location
+                    val selectedFolder = if (isAtRoot) {
+                        // If at root, we need to let user know they need to select a folder
+                        // For simplicity, we'll create a folder object representing root
+                        null
+                    } else {
+                        currentFolder
+                    }
+                    onFolderSelected(selectedFolder)
+                },
+                enabled = !isLoading && !isAtRoot
+            ) {
+                Text(if (isAtRoot) "Select a folder" else "Sync Here")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }

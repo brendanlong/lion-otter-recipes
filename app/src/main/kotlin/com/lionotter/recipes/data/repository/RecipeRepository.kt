@@ -6,6 +6,7 @@ import com.lionotter.recipes.data.sync.DriveSyncManager
 import com.lionotter.recipes.domain.model.IngredientSection
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.Recipe
+import dagger.Lazy
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
@@ -27,8 +28,11 @@ interface SyncTrigger {
 class RecipeRepository @Inject constructor(
     private val recipeDao: RecipeDao,
     private val json: Json,
-    private val syncManager: DriveSyncManager
+    // Use Lazy to break the dependency cycle with DriveSyncManager
+    private val syncManagerLazy: Lazy<DriveSyncManager>
 ) {
+    private val syncManager: DriveSyncManager get() = syncManagerLazy.get()
+
     /**
      * Optional sync trigger. Set this to receive callbacks when
      * sync operations should be triggered.

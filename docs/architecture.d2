@@ -169,7 +169,7 @@ app: {
 
     manager: {
       label: DriveSyncManager
-      tooltip: "Coordinates all sync operations. Queues uploads/deletes, executes operations with version checking, processes remote changes, handles conflicts."
+      tooltip: "Coordinates all sync operations. Queues uploads/deletes, executes operations with version checking, auto-imports new recipes with duplicate detection, handles conflicts."
       style: {
         fill: "#ffffff"
       }
@@ -403,13 +403,13 @@ legend: {
   drive1: "1. User enables sync and selects a Drive folder"
   drive2: "2. Recipe save/delete queues sync operation"
   drive3: "3. DriveSyncWorker processes pending operations"
-  drive4: "4. Version checking prevents overwrite conflicts"
-  drive5: "5. changes.list detects external modifications"
+  drive4: "4. Auto-imports new recipes with duplicate detection"
+  drive5: "5. Version checking prevents conflicts"
 
   drive1 -> drive2 -> drive3 -> drive4 -> drive5
 
   note: {
-    label: "Sync is local-first: local changes are source of truth. Deletes check file version before executing to prevent deleting externally modified files. Conflicts are flagged for user resolution."
+    label: "Sync is local-first: local changes are source of truth. New recipes from other devices are auto-imported (duplicates skipped by ID). Deletes check file version before executing."
     style: {
       font-size: 12
       italic: true
