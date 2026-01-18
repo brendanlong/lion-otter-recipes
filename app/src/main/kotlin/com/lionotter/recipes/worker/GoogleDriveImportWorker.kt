@@ -99,7 +99,8 @@ class GoogleDriveImportWorker @AssistedInject constructor(
             is ImportFromGoogleDriveUseCase.ImportResult.Success -> {
                 notificationHelper.showImportFromDriveSuccessNotification(
                     importedCount = result.importedCount,
-                    failedCount = result.failedCount
+                    failedCount = result.failedCount,
+                    skippedCount = result.skippedCount
                 )
                 Result.success(
                     workDataOf(

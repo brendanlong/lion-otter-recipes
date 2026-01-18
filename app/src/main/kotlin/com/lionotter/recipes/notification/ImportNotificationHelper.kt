@@ -151,15 +151,21 @@ class ImportNotificationHelper @Inject constructor(
     }
 
     @SuppressLint("MissingPermission")
-    fun showImportFromDriveSuccessNotification(importedCount: Int, failedCount: Int) {
+    fun showImportFromDriveSuccessNotification(importedCount: Int, failedCount: Int, skippedCount: Int = 0) {
         if (!notificationManager.areNotificationsEnabled()) return
 
         notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
 
-        val message = if (failedCount > 0) {
-            "Imported $importedCount recipes ($failedCount failed)"
-        } else {
-            "Imported $importedCount recipes from Google Drive"
+        val message = buildString {
+            append("Imported $importedCount recipes")
+            if (skippedCount > 0 || failedCount > 0) {
+                append(" (")
+                val parts = mutableListOf<String>()
+                if (skippedCount > 0) parts.add("$skippedCount skipped")
+                if (failedCount > 0) parts.add("$failedCount failed")
+                append(parts.joinToString(", "))
+                append(")")
+            }
         }
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
