@@ -24,7 +24,10 @@ class RecipeImportWorker @AssistedInject constructor(
 ) : CoroutineWorker(context, workerParams) {
 
     companion object {
+        const val TAG_RECIPE_IMPORT = "recipe_import"
+
         const val KEY_URL = "url"
+        const val KEY_IMPORT_ID = "import_id"
         const val KEY_RECIPE_ID = "recipe_id"
         const val KEY_RECIPE_NAME = "recipe_name"
         const val KEY_ERROR_MESSAGE = "error_message"
@@ -39,8 +42,11 @@ class RecipeImportWorker @AssistedInject constructor(
         const val PROGRESS_PARSING = "parsing"
         const val PROGRESS_SAVING = "saving"
 
-        fun createInputData(url: String): Data {
-            return workDataOf(KEY_URL to url)
+        fun createInputData(url: String, importId: String): Data {
+            return workDataOf(
+                KEY_URL to url,
+                KEY_IMPORT_ID to importId
+            )
         }
     }
 
@@ -52,6 +58,7 @@ class RecipeImportWorker @AssistedInject constructor(
                     KEY_ERROR_MESSAGE to "No URL provided"
                 )
             )
+        val importId = inputData.getString(KEY_IMPORT_ID) ?: id.toString()
 
         // Set as foreground service for long-running work
         setForeground(createForegroundInfo("Starting import..."))
@@ -61,22 +68,32 @@ class RecipeImportWorker @AssistedInject constructor(
             onProgress = { progress ->
                 val progressMessage = when (progress) {
                     is ImportRecipeUseCase.ImportProgress.FetchingPage -> {
-                        setProgress(workDataOf(KEY_PROGRESS to PROGRESS_FETCHING))
+                        setProgress(workDataOf(
+                            KEY_IMPORT_ID to importId,
+                            KEY_PROGRESS to PROGRESS_FETCHING
+                        ))
                         "Fetching recipe page..."
                     }
                     is ImportRecipeUseCase.ImportProgress.ParsingRecipe -> {
-                        setProgress(workDataOf(KEY_PROGRESS to PROGRESS_PARSING))
+                        setProgress(workDataOf(
+                            KEY_IMPORT_ID to importId,
+                            KEY_PROGRESS to PROGRESS_PARSING
+                        ))
                         "AI is analyzing the recipe..."
                     }
                     is ImportRecipeUseCase.ImportProgress.RecipeNameAvailable -> {
                         setProgress(workDataOf(
+                            KEY_IMPORT_ID to importId,
                             KEY_PROGRESS to PROGRESS_PARSING,
                             KEY_RECIPE_NAME to progress.name
                         ))
                         "AI is analyzing the recipe..."
                     }
                     is ImportRecipeUseCase.ImportProgress.SavingRecipe -> {
-                        setProgress(workDataOf(KEY_PROGRESS to PROGRESS_SAVING))
+                        setProgress(workDataOf(
+                            KEY_IMPORT_ID to importId,
+                            KEY_PROGRESS to PROGRESS_SAVING
+                        ))
                         "Saving recipe..."
                     }
                     is ImportRecipeUseCase.ImportProgress.Complete -> "Complete!"
@@ -93,6 +110,7 @@ class RecipeImportWorker @AssistedInject constructor(
                 )
                 Result.success(
                     workDataOf(
+                        KEY_IMPORT_ID to importId,
                         KEY_RESULT_TYPE to RESULT_SUCCESS,
                         KEY_RECIPE_ID to result.recipe.id,
                         KEY_RECIPE_NAME to result.recipe.name
@@ -103,6 +121,7 @@ class RecipeImportWorker @AssistedInject constructor(
                 notificationHelper.showErrorNotification(result.message)
                 Result.failure(
                     workDataOf(
+                        KEY_IMPORT_ID to importId,
                         KEY_RESULT_TYPE to RESULT_ERROR,
                         KEY_ERROR_MESSAGE to result.message
                     )
@@ -112,6 +131,7 @@ class RecipeImportWorker @AssistedInject constructor(
                 notificationHelper.cancelProgressNotification()
                 Result.failure(
                     workDataOf(
+                        KEY_IMPORT_ID to importId,
                         KEY_RESULT_TYPE to RESULT_NO_API_KEY,
                         KEY_ERROR_MESSAGE to "API key not configured"
                     )

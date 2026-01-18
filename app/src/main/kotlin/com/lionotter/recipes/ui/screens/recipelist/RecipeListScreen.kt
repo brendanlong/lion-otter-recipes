@@ -19,12 +19,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
@@ -33,15 +39,21 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -52,7 +64,11 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.lionotter.recipes.data.remote.DriveFolder
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.ui.screens.googledrive.GoogleDriveUiState
+import com.lionotter.recipes.ui.screens.googledrive.GoogleDriveViewModel
+import com.lionotter.recipes.ui.screens.googledrive.OperationState
 import com.lionotter.recipes.ui.state.RecipeListItem
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -61,12 +77,55 @@ fun RecipeListScreen(
     onRecipeClick: (String) -> Unit,
     onAddRecipeClick: () -> Unit,
     onSettingsClick: () -> Unit,
-    viewModel: RecipeListViewModel = hiltViewModel()
+    viewModel: RecipeListViewModel = hiltViewModel(),
+    googleDriveViewModel: GoogleDriveViewModel = hiltViewModel()
 ) {
     val recipes by viewModel.recipes.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val selectedTag by viewModel.selectedTag.collectAsStateWithLifecycle()
     val availableTags by viewModel.availableTags.collectAsStateWithLifecycle()
+    val driveUiState by googleDriveViewModel.uiState.collectAsStateWithLifecycle()
+    val operationState by googleDriveViewModel.operationState.collectAsStateWithLifecycle()
+    val folders by googleDriveViewModel.folders.collectAsStateWithLifecycle()
+
+    var showMenu by remember { mutableStateOf(false) }
+    var showFolderPicker by remember { mutableStateOf(false) }
+    var folderPickerMode by remember { mutableStateOf(FolderPickerMode.EXPORT) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // Refresh sign-in status when screen becomes visible (e.g., after returning from Settings)
+    LaunchedEffect(Unit) {
+        googleDriveViewModel.refreshSignInStatus()
+    }
+
+    // Show snackbar for operation results
+    LaunchedEffect(operationState) {
+        when (val state = operationState) {
+            is OperationState.ExportComplete -> {
+                val message = if (state.failedCount > 0) {
+                    "Exported ${state.exportedCount} recipes (${state.failedCount} failed)"
+                } else {
+                    "Exported ${state.exportedCount} recipes to Google Drive"
+                }
+                snackbarHostState.showSnackbar(message)
+                googleDriveViewModel.resetOperationState()
+            }
+            is OperationState.ImportComplete -> {
+                val message = if (state.failedCount > 0) {
+                    "Imported ${state.importedCount} recipes (${state.failedCount} failed)"
+                } else {
+                    "Imported ${state.importedCount} recipes from Google Drive"
+                }
+                snackbarHostState.showSnackbar(message)
+                googleDriveViewModel.resetOperationState()
+            }
+            is OperationState.Error -> {
+                snackbarHostState.showSnackbar(state.message)
+                googleDriveViewModel.resetOperationState()
+            }
+            else -> {}
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -77,6 +136,59 @@ fun RecipeListScreen(
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                 ),
                 actions = {
+                    // Menu for Google Drive operations
+                    Box {
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "More options"
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            val isSignedIn = driveUiState is GoogleDriveUiState.SignedIn
+                            val isOperating = operationState is OperationState.Exporting ||
+                                    operationState is OperationState.Importing
+
+                            DropdownMenuItem(
+                                text = { Text("Export to Google Drive") },
+                                onClick = {
+                                    showMenu = false
+                                    if (isSignedIn) {
+                                        folderPickerMode = FolderPickerMode.EXPORT
+                                        showFolderPicker = true
+                                        googleDriveViewModel.loadFolders()
+                                    } else {
+                                        onSettingsClick()
+                                    }
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.CloudUpload, contentDescription = null)
+                                },
+                                enabled = !isOperating
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Import from Google Drive") },
+                                onClick = {
+                                    showMenu = false
+                                    if (isSignedIn) {
+                                        folderPickerMode = FolderPickerMode.IMPORT
+                                        showFolderPicker = true
+                                        googleDriveViewModel.loadFolders()
+                                    } else {
+                                        onSettingsClick()
+                                    }
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.CloudDownload, contentDescription = null)
+                                },
+                                enabled = !isOperating
+                            )
+                        }
+                    }
+
                     IconButton(onClick = onSettingsClick) {
                         Icon(
                             imageVector = Icons.Default.Settings,
@@ -96,13 +208,44 @@ fun RecipeListScreen(
                     contentDescription = "Add recipe"
                 )
             }
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
+            // Show progress indicator when exporting/importing
+            if (operationState is OperationState.Exporting ||
+                operationState is OperationState.Importing) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        Text(
+                            text = if (operationState is OperationState.Exporting) {
+                                "  Exporting to Google Drive..."
+                            } else {
+                                "  Importing from Google Drive..."
+                            },
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+            }
+
             // Search bar
             OutlinedTextField(
                 value = searchQuery,
@@ -187,6 +330,121 @@ fun RecipeListScreen(
             }
         }
     }
+
+    // Folder picker dialog
+    if (showFolderPicker) {
+        FolderPickerDialog(
+            mode = folderPickerMode,
+            folders = folders,
+            onFolderSelected = { folder ->
+                showFolderPicker = false
+                when (folderPickerMode) {
+                    FolderPickerMode.EXPORT -> googleDriveViewModel.exportToGoogleDrive(folder?.id)
+                    FolderPickerMode.IMPORT -> folder?.let { googleDriveViewModel.importFromGoogleDrive(it.id) }
+                }
+            },
+            onDismiss = { showFolderPicker = false },
+            onNavigateToFolder = { folder ->
+                googleDriveViewModel.loadFolders(folder.id)
+            }
+        )
+    }
+}
+
+enum class FolderPickerMode {
+    EXPORT, IMPORT
+}
+
+@Composable
+private fun FolderPickerDialog(
+    mode: FolderPickerMode,
+    folders: List<DriveFolder>,
+    onFolderSelected: (DriveFolder?) -> Unit,
+    onDismiss: () -> Unit,
+    onNavigateToFolder: (DriveFolder) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = when (mode) {
+                    FolderPickerMode.EXPORT -> "Export to Google Drive"
+                    FolderPickerMode.IMPORT -> "Select folder to import from"
+                }
+            )
+        },
+        text = {
+            Column {
+                Text(
+                    text = when (mode) {
+                        FolderPickerMode.EXPORT -> "Select a folder to export your recipes, or export to Drive root."
+                        FolderPickerMode.IMPORT -> "Select the folder containing your recipe exports."
+                    },
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                if (folders.isEmpty()) {
+                    Text(
+                        text = "No folders found",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.height(200.dp)
+                    ) {
+                        items(folders) { folder ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .clickable {
+                                        if (mode == FolderPickerMode.IMPORT) {
+                                            onFolderSelected(folder)
+                                        } else {
+                                            onNavigateToFolder(folder)
+                                        }
+                                    },
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = folder.name,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    if (mode == FolderPickerMode.EXPORT) {
+                                        TextButton(onClick = { onFolderSelected(folder) }) {
+                                            Text("Select")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (mode == FolderPickerMode.EXPORT) {
+                TextButton(onClick = { onFolderSelected(null) }) {
+                    Text("Export to Root")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)

@@ -33,6 +33,13 @@ class RecipeRepository @Inject constructor(
         return recipeDao.getRecipeById(id)?.let { entityToRecipe(it) }
     }
 
+    /**
+     * Get the original HTML content for a recipe.
+     */
+    suspend fun getOriginalHtml(id: String): String? {
+        return recipeDao.getRecipeById(id)?.originalHtml
+    }
+
     fun getRecipesByTag(tag: String): Flow<List<Recipe>> {
         return recipeDao.getRecipesByTag(tag).map { entities ->
             entities.map { entity -> entityToRecipe(entity) }
