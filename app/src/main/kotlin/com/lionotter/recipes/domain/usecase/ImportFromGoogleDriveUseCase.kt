@@ -5,9 +5,7 @@ import com.lionotter.recipes.data.remote.DriveFolder
 import com.lionotter.recipes.data.remote.GoogleDriveService
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
-import kotlinx.datetime.Instant
 import kotlinx.serialization.json.Json
-import java.util.UUID
 import javax.inject.Inject
 
 /**
@@ -180,9 +178,14 @@ class ImportFromGoogleDriveUseCase @Inject constructor(
             val jsonContent = contentResult.getOrThrow()
             val recipe = json.decodeFromString<Recipe>(jsonContent)
 
-            // Generate new ID to avoid conflicts with existing recipes
+            // Check if recipe with this ID already exists locally
+            val existingRecipe = recipeRepository.getRecipeByIdOnce(recipe.id)
+            if (existingRecipe != null) {
+                return SingleImportResult.Skipped("Recipe already exists: ${recipe.name}")
+            }
+
+            // Use original ID from JSON to maintain consistency across export/import cycles
             val importedRecipe = recipe.copy(
-                id = UUID.randomUUID().toString(),
                 updatedAt = kotlinx.datetime.Clock.System.now()
             )
 
