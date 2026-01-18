@@ -204,7 +204,8 @@ class GoogleDriveViewModel @Inject constructor(
             WorkInfo.State.SUCCEEDED -> {
                 val imported = workInfo.outputData.getInt(GoogleDriveImportWorker.KEY_IMPORTED_COUNT, 0)
                 val failed = workInfo.outputData.getInt(GoogleDriveImportWorker.KEY_FAILED_COUNT, 0)
-                _operationState.value = OperationState.ImportComplete(imported, failed)
+                val skipped = workInfo.outputData.getInt(GoogleDriveImportWorker.KEY_SKIPPED_COUNT, 0)
+                _operationState.value = OperationState.ImportComplete(imported, failed, skipped)
                 currentWorkId = null
                 workManager.pruneWork()
             }
@@ -245,6 +246,6 @@ sealed class OperationState {
     object Exporting : OperationState()
     object Importing : OperationState()
     data class ExportComplete(val exportedCount: Int, val failedCount: Int) : OperationState()
-    data class ImportComplete(val importedCount: Int, val failedCount: Int) : OperationState()
+    data class ImportComplete(val importedCount: Int, val failedCount: Int, val skippedCount: Int) : OperationState()
     data class Error(val message: String) : OperationState()
 }

@@ -114,10 +114,16 @@ fun RecipeListScreen(
                 googleDriveViewModel.resetOperationState()
             }
             is OperationState.ImportComplete -> {
-                val message = if (state.failedCount > 0) {
-                    "Imported ${state.importedCount} recipes (${state.failedCount} failed)"
-                } else {
-                    "Imported ${state.importedCount} recipes from Google Drive"
+                val message = buildString {
+                    append("Imported ${state.importedCount} recipes")
+                    if (state.skippedCount > 0 || state.failedCount > 0) {
+                        append(" (")
+                        val parts = mutableListOf<String>()
+                        if (state.skippedCount > 0) parts.add("${state.skippedCount} skipped")
+                        if (state.failedCount > 0) parts.add("${state.failedCount} failed")
+                        append(parts.joinToString(", "))
+                        append(")")
+                    }
                 }
                 snackbarHostState.showSnackbar(message)
                 googleDriveViewModel.resetOperationState()
