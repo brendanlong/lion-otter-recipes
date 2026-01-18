@@ -22,6 +22,9 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -87,6 +90,8 @@ fun RecipeListScreen(
     val driveUiState by googleDriveViewModel.uiState.collectAsStateWithLifecycle()
     val operationState by googleDriveViewModel.operationState.collectAsStateWithLifecycle()
     val folders by googleDriveViewModel.folders.collectAsStateWithLifecycle()
+    val folderNavigationStack by googleDriveViewModel.folderNavigationStack.collectAsStateWithLifecycle()
+    val isLoadingFolders by googleDriveViewModel.isLoadingFolders.collectAsStateWithLifecycle()
 
     var showMenu by remember { mutableStateOf(false) }
     var showFolderPicker by remember { mutableStateOf(false) }
@@ -159,7 +164,7 @@ fun RecipeListScreen(
                                     if (isSignedIn) {
                                         folderPickerMode = FolderPickerMode.EXPORT
                                         showFolderPicker = true
-                                        googleDriveViewModel.loadFolders()
+                                        googleDriveViewModel.resetFolderNavigation()
                                     } else {
                                         onSettingsClick()
                                     }
@@ -176,7 +181,7 @@ fun RecipeListScreen(
                                     if (isSignedIn) {
                                         folderPickerMode = FolderPickerMode.IMPORT
                                         showFolderPicker = true
-                                        googleDriveViewModel.loadFolders()
+                                        googleDriveViewModel.resetFolderNavigation()
                                     } else {
                                         onSettingsClick()
                                     }
@@ -336,16 +341,21 @@ fun RecipeListScreen(
         FolderPickerDialog(
             mode = folderPickerMode,
             folders = folders,
-            onFolderSelected = { folder ->
+            navigationStack = folderNavigationStack,
+            isLoading = isLoadingFolders,
+            onFolderSelected = { folderId ->
                 showFolderPicker = false
                 when (folderPickerMode) {
-                    FolderPickerMode.EXPORT -> googleDriveViewModel.exportToGoogleDrive(folder?.id)
-                    FolderPickerMode.IMPORT -> folder?.let { googleDriveViewModel.importFromGoogleDrive(it.id) }
+                    FolderPickerMode.EXPORT -> googleDriveViewModel.exportToGoogleDrive(folderId)
+                    FolderPickerMode.IMPORT -> folderId?.let { googleDriveViewModel.importFromGoogleDrive(it) }
                 }
             },
             onDismiss = { showFolderPicker = false },
             onNavigateToFolder = { folder ->
-                googleDriveViewModel.loadFolders(folder.id)
+                googleDriveViewModel.navigateToFolder(folder)
+            },
+            onNavigateBack = {
+                googleDriveViewModel.navigateBack()
             }
         )
     }
@@ -359,71 +369,168 @@ enum class FolderPickerMode {
 private fun FolderPickerDialog(
     mode: FolderPickerMode,
     folders: List<DriveFolder>,
-    onFolderSelected: (DriveFolder?) -> Unit,
+    navigationStack: List<DriveFolder>,
+    isLoading: Boolean,
+    onFolderSelected: (String?) -> Unit,
     onDismiss: () -> Unit,
-    onNavigateToFolder: (DriveFolder) -> Unit
+    onNavigateToFolder: (DriveFolder) -> Unit,
+    onNavigateBack: () -> Unit
 ) {
+    val currentFolder = navigationStack.lastOrNull()
+    val isAtRoot = navigationStack.isEmpty()
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
                 text = when (mode) {
                     FolderPickerMode.EXPORT -> "Export to Google Drive"
-                    FolderPickerMode.IMPORT -> "Select folder to import from"
+                    FolderPickerMode.IMPORT -> "Import from Google Drive"
                 }
             )
         },
         text = {
             Column {
+                // Current path breadcrumb
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FolderOpen,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isAtRoot) "My Drive" else navigationStack.joinToString(" / ") { it.name },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
                 Text(
                     text = when (mode) {
-                        FolderPickerMode.EXPORT -> "Select a folder to export your recipes, or export to Drive root."
-                        FolderPickerMode.IMPORT -> "Select the folder containing your recipe exports."
+                        FolderPickerMode.EXPORT -> "Navigate to a folder and tap \"Export Here\" to export your recipes."
+                        FolderPickerMode.IMPORT -> "Navigate to the folder containing your recipe exports and tap \"Import from Here\"."
                     },
-                    style = MaterialTheme.typography.bodyMedium
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(modifier = Modifier.height(16.dp))
 
-                if (folders.isEmpty()) {
-                    Text(
-                        text = "No folders found",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Folder list with back button
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(280.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                     )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.height(200.dp)
-                    ) {
-                        items(folders) { folder ->
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                                    .clickable {
-                                        if (mode == FolderPickerMode.IMPORT) {
-                                            onFolderSelected(folder)
-                                        } else {
-                                            onNavigateToFolder(folder)
+                ) {
+                    if (isLoading) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(32.dp))
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            // Back button (if not at root)
+                            if (!isAtRoot) {
+                                item(key = "back") {
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { onNavigateBack() },
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.surface
+                                        )
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Folder,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Text(
+                                                text = "..",
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
                                         }
-                                    },
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                                )
-                            ) {
-                                Row(
+                                    }
+                                }
+                            }
+
+                            if (folders.isEmpty() && !isLoading) {
+                                item(key = "empty") {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(16.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "No subfolders",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+
+                            items(folders, key = { it.id }) { folder ->
+                                Card(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = folder.name,
-                                        modifier = Modifier.weight(1f)
+                                        .clickable { onNavigateToFolder(folder) },
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surface
                                     )
-                                    if (mode == FolderPickerMode.EXPORT) {
-                                        TextButton(onClick = { onFolderSelected(folder) }) {
-                                            Text("Select")
-                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Folder,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Text(
+                                            text = folder.name,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            modifier = Modifier.weight(1f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Default.KeyboardArrowRight,
+                                            contentDescription = "Open folder",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     }
                                 }
                             }
@@ -433,10 +540,16 @@ private fun FolderPickerDialog(
             }
         },
         confirmButton = {
-            if (mode == FolderPickerMode.EXPORT) {
-                TextButton(onClick = { onFolderSelected(null) }) {
-                    Text("Export to Root")
-                }
+            TextButton(
+                onClick = { onFolderSelected(currentFolder?.id) },
+                enabled = !isLoading
+            ) {
+                Text(
+                    when (mode) {
+                        FolderPickerMode.EXPORT -> if (isAtRoot) "Export to Root" else "Export Here"
+                        FolderPickerMode.IMPORT -> if (isAtRoot) "Import from Root" else "Import from Here"
+                    }
+                )
             }
         },
         dismissButton = {
