@@ -39,6 +39,28 @@ data class DriveFile(
 )
 
 /**
+ * Detailed file metadata including version info for sync operations.
+ */
+data class DriveFileMetadata(
+    val id: String,
+    val name: String,
+    val mimeType: String,
+    val version: Long,
+    val modifiedTime: Long, // epoch milliseconds
+    val md5Checksum: String?,
+    val parents: List<String>
+)
+
+/**
+ * Represents a change from the Drive changes.list API.
+ */
+data class DriveChange(
+    val fileId: String,
+    val removed: Boolean,
+    val file: DriveFileMetadata?
+)
+
+/**
  * Service for interacting with Google Drive API.
  * Handles authentication, folder operations, and file uploads/downloads.
  */
@@ -377,4 +399,239 @@ class GoogleDriveService @Inject constructor(
             Result.failure(e)
         }
     }
+
+    // ========== Sync-related methods ==========
+
+    /**
+     * Get detailed file metadata including version info.
+     * Used for conflict detection and safe delete operations.
+     */
+    suspend fun getFileMetadata(fileId: String): Result<DriveFileMetadata> =
+        withContext(Dispatchers.IO) {
+            try {
+                val drive = requireDriveService()
+
+                val file = drive.files().get(fileId)
+                    .setFields("id, name, mimeType, version, modifiedTime, md5Checksum, parents")
+                    .execute()
+
+                Result.success(
+                    DriveFileMetadata(
+                        id = file.id,
+                        name = file.name,
+                        mimeType = file.mimeType ?: "",
+                        version = file.version ?: 0L,
+                        modifiedTime = file.modifiedTime?.value ?: 0L,
+                        md5Checksum = file.md5Checksum,
+                        parents = file.parents ?: emptyList()
+                    )
+                )
+            } catch (e: com.google.api.client.googleapis.json.GoogleJsonResponseException) {
+                if (e.statusCode == 404) {
+                    Result.failure(FileNotFoundException("File not found: $fileId"))
+                } else {
+                    Result.failure(e)
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+
+    /**
+     * Get the starting page token for the changes.list API.
+     * Call this once when first setting up sync, then use listChanges with the token.
+     */
+    suspend fun getStartPageToken(): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val drive = requireDriveService()
+
+            val response = drive.changes().getStartPageToken()
+                .execute()
+
+            Result.success(response.startPageToken)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * List changes since the given page token.
+     * Returns the changes and a new page token for the next call.
+     *
+     * @param pageToken The token from a previous call or from getStartPageToken
+     * @param syncFolderId Optional folder ID to filter changes to (checks if file is in this folder)
+     * @return Pair of (list of changes, new page token)
+     */
+    suspend fun listChanges(
+        pageToken: String,
+        syncFolderId: String? = null
+    ): Result<Pair<List<DriveChange>, String>> = withContext(Dispatchers.IO) {
+        try {
+            val drive = requireDriveService()
+
+            val allChanges = mutableListOf<DriveChange>()
+            var currentToken = pageToken
+            var newPageToken: String
+
+            do {
+                val response = drive.changes().list(currentToken)
+                    .setSpaces("drive")
+                    .setFields("nextPageToken, newStartPageToken, changes(fileId, removed, file(id, name, mimeType, version, modifiedTime, md5Checksum, parents))")
+                    .setPageSize(100)
+                    .execute()
+
+                val changes = response.changes?.mapNotNull { change ->
+                    val file = change.file
+                    val fileMetadata = if (file != null && !change.removed) {
+                        DriveFileMetadata(
+                            id = file.id,
+                            name = file.name,
+                            mimeType = file.mimeType ?: "",
+                            version = file.version ?: 0L,
+                            modifiedTime = file.modifiedTime?.value ?: 0L,
+                            md5Checksum = file.md5Checksum,
+                            parents = file.parents ?: emptyList()
+                        )
+                    } else null
+
+                    // If syncFolderId is specified, filter to only files in that folder
+                    if (syncFolderId != null && fileMetadata != null) {
+                        if (!fileMetadata.parents.contains(syncFolderId)) {
+                            return@mapNotNull null
+                        }
+                    }
+
+                    DriveChange(
+                        fileId = change.fileId,
+                        removed = change.removed ?: false,
+                        file = fileMetadata
+                    )
+                } ?: emptyList()
+
+                allChanges.addAll(changes)
+
+                // Check for next page or get the new start token
+                currentToken = response.nextPageToken ?: ""
+                newPageToken = response.newStartPageToken ?: currentToken
+
+            } while (response.nextPageToken != null)
+
+            Result.success(Pair(allChanges, newPageToken))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Update an existing file's content.
+     * Returns the updated file metadata including new version info.
+     */
+    suspend fun updateFile(
+        fileId: String,
+        content: String,
+        mimeType: String
+    ): Result<DriveFileMetadata> = withContext(Dispatchers.IO) {
+        try {
+            val drive = requireDriveService()
+
+            val mediaContent = ByteArrayContent(mimeType, content.toByteArray(Charsets.UTF_8))
+
+            val file = drive.files().update(fileId, null, mediaContent)
+                .setFields("id, name, mimeType, version, modifiedTime, md5Checksum, parents")
+                .execute()
+
+            Result.success(
+                DriveFileMetadata(
+                    id = file.id,
+                    name = file.name,
+                    mimeType = file.mimeType ?: "",
+                    version = file.version ?: 0L,
+                    modifiedTime = file.modifiedTime?.value ?: 0L,
+                    md5Checksum = file.md5Checksum,
+                    parents = file.parents ?: emptyList()
+                )
+            )
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Upload a text file and return detailed metadata including version info.
+     */
+    suspend fun uploadTextFileWithMetadata(
+        fileName: String,
+        content: String,
+        mimeType: String,
+        parentFolderId: String
+    ): Result<DriveFileMetadata> = withContext(Dispatchers.IO) {
+        try {
+            val drive = requireDriveService()
+
+            val fileMetadata = File().apply {
+                name = fileName
+                parents = listOf(parentFolderId)
+            }
+
+            val mediaContent = ByteArrayContent(mimeType, content.toByteArray(Charsets.UTF_8))
+
+            val file = drive.files().create(fileMetadata, mediaContent)
+                .setFields("id, name, mimeType, version, modifiedTime, md5Checksum, parents")
+                .execute()
+
+            Result.success(
+                DriveFileMetadata(
+                    id = file.id,
+                    name = file.name,
+                    mimeType = file.mimeType ?: "",
+                    version = file.version ?: 0L,
+                    modifiedTime = file.modifiedTime?.value ?: 0L,
+                    md5Checksum = file.md5Checksum,
+                    parents = file.parents ?: emptyList()
+                )
+            )
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Delete a file or folder from Drive.
+     */
+    suspend fun deleteFile(fileId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val drive = requireDriveService()
+            drive.files().delete(fileId).execute()
+            Result.success(Unit)
+        } catch (e: com.google.api.client.googleapis.json.GoogleJsonResponseException) {
+            if (e.statusCode == 404) {
+                // File already deleted, treat as success
+                Result.success(Unit)
+            } else {
+                Result.failure(e)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Check if a file exists (not trashed).
+     */
+    suspend fun fileExists(fileId: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val drive = requireDriveService()
+            val file = drive.files().get(fileId)
+                .setFields("id, trashed")
+                .execute()
+            file.trashed != true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Exception thrown when a file is not found.
+     */
+    class FileNotFoundException(message: String) : Exception(message)
 }

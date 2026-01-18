@@ -88,7 +88,7 @@ app: {
       settings_vm: SettingsViewModel
       drive_vm: {
         label: GoogleDriveViewModel
-        tooltip: "Manages Google Drive sign-in state, folder navigation, and export/import operations"
+        tooltip: "Manages Google Drive sign-in state, folder navigation, and continuous sync configuration"
       }
     }
 
@@ -105,11 +105,11 @@ app: {
     }
 
     screens.list -> viewmodels.list_vm
-    screens.list -> viewmodels.drive_vm: export/import menu
+    screens.list -> viewmodels.drive_vm: sync menu
     screens.detail -> viewmodels.detail_vm
     screens.add -> viewmodels.add_vm
     screens.settings -> viewmodels.settings_vm
-    screens.settings -> viewmodels.drive_vm: sign in/out
+    screens.settings -> viewmodels.drive_vm: sign in/out, sync config
     viewmodels.list_vm -> state.in_progress_mgr: observes
     viewmodels.add_vm -> state.in_progress_mgr: updates
   }
@@ -132,13 +132,13 @@ app: {
         label: RecipeImportWorker
         tooltip: "CoroutineWorker that handles recipe import in background. Survives app closure and shows progress notifications. Supports queue of multiple imports."
       }
-      export_worker: {
-        label: GoogleDriveExportWorker
-        tooltip: "Exports all recipes to Google Drive. Creates folder per recipe with JSON, HTML, and Markdown files."
+      sync_worker: {
+        label: DriveSyncWorker
+        tooltip: "Handles continuous sync with Google Drive. Runs on startup, after recipe changes, and periodically. Processes uploads and detects remote changes via changes.list API."
       }
-      drive_import_worker: {
-        label: GoogleDriveImportWorker
-        tooltip: "Imports recipes from Google Drive. Tries JSON first, falls back to HTML parsing via AI."
+      delete_worker: {
+        label: DriveDeleteWorker
+        tooltip: "Handles version-safe deletes from Google Drive. Checks file version before deleting to prevent deleting externally modified files."
       }
     }
 
@@ -150,13 +150,54 @@ app: {
 
       helper: {
         label: ImportNotificationHelper
-        tooltip: "Manages notification channel and shows progress/success/error notifications for recipe imports and Google Drive operations"
+        tooltip: "Manages notification channel and shows progress/success/error notifications for recipe imports and sync operations"
       }
     }
 
     worker.import_worker -> notification.helper: notify progress
-    worker.export_worker -> notification.helper: notify progress
-    worker.drive_import_worker -> notification.helper: notify progress
+    worker.sync_worker -> notification.helper: notify sync status
+    worker.delete_worker -> notification.helper: notify progress
+  }
+
+  # Sync Layer
+  sync: {
+    label: Sync Layer
+    style: {
+      fill: "#e1f5fe"
+      stroke: "#03a9f4"
+    }
+
+    manager: {
+      label: DriveSyncManager
+      tooltip: "Coordinates all sync operations. Queues uploads/deletes, executes operations with version checking, processes remote changes, handles conflicts."
+      style: {
+        fill: "#ffffff"
+      }
+    }
+
+    state: {
+      label: Sync State
+      style: {
+        fill: "#ffffff"
+      }
+
+      synced_recipe: {
+        label: SyncedRecipeEntity
+        tooltip: "Tracks sync relationship: local recipe ID <-> Drive folder/file IDs, version info for conflict detection"
+      }
+      sync_state: {
+        label: SyncStateEntity
+        tooltip: "Global sync config: enabled flag, sync folder, changes.list page token for incremental sync"
+      }
+      pending_ops: {
+        label: PendingSyncOperationEntity
+        tooltip: "Queue of pending operations with retry tracking and version info for safe deletes"
+      }
+    }
+
+    manager -> state.synced_recipe
+    manager -> state.sync_state
+    manager -> state.pending_ops
   }
 
   # Domain Layer
@@ -176,15 +217,7 @@ app: {
       import: ImportRecipeUseCase
       parse_html: {
         label: ParseHtmlUseCase
-        tooltip: "Reusable helper for parsing HTML via AI. Used by both URL import and Google Drive HTML fallback."
-      }
-      export_drive: {
-        label: ExportToGoogleDriveUseCase
-        tooltip: "Exports recipes to Google Drive with JSON, HTML, and Markdown files per recipe folder."
-      }
-      import_drive: {
-        label: ImportFromGoogleDriveUseCase
-        tooltip: "Imports from Drive: tries JSON first, falls back to HTML parsing. Reuses ParseHtmlUseCase."
+        tooltip: "Reusable helper for parsing HTML via AI. Used by URL import."
       }
       get_all: GetRecipesUseCase
       get_one: GetRecipeByIdUseCase
@@ -234,8 +267,6 @@ app: {
     }
 
     usecases.import -> usecases.parse_html: uses
-    usecases.import_drive -> usecases.parse_html: HTML fallback
-    usecases.export_drive -> util.markdown: format
   }
 
   # Data Layer
@@ -252,7 +283,10 @@ app: {
         fill: "#ffffff"
       }
 
-      repo: RecipeRepository
+      repo: {
+        label: RecipeRepository
+        tooltip: "Central data access. Triggers sync operations on save/delete via SyncTrigger callback."
+      }
     }
 
     local: {
@@ -272,9 +306,14 @@ app: {
       dao: RecipeDao
       entity: RecipeEntity
       settings: SettingsDataStore
+      sync_daos: {
+        label: Sync DAOs
+        tooltip: "SyncedRecipeDao, SyncStateDao, PendingSyncOperationDao"
+      }
 
       dao -> room
       entity -> room
+      sync_daos -> room
       settings -> datastore
     }
 
@@ -294,7 +333,7 @@ app: {
       }
       google_drive_svc: {
         label: GoogleDriveService
-        tooltip: "Handles Google Sign-In, folder operations, and file upload/download for Drive integration"
+        tooltip: "Handles Google Sign-In, folder operations, file upload/download, and changes.list API for sync"
       }
     }
 
@@ -318,11 +357,13 @@ app: {
 
   # Connections within app
   ui.viewmodels.add_vm -> background.worker: enqueue work
-  ui.viewmodels.drive_vm -> background.worker.export_worker: export
-  ui.viewmodels.drive_vm -> background.worker.drive_import_worker: import
+  ui.viewmodels.drive_vm -> sync.manager: configure sync
   background.worker.import_worker -> domain.usecases.import: execute
-  background.worker.export_worker -> domain.usecases.export_drive: execute
-  background.worker.drive_import_worker -> domain.usecases.import_drive: execute
+  background.worker.sync_worker -> sync.manager: execute operations
+  background.worker.delete_worker -> sync.manager: execute deletes
+  sync.manager -> data.repository.repo: access recipes
+  sync.manager -> data.remote.google_drive_svc: upload/download/delete
+  data.repository.repo -> sync.manager: queue sync
   domain.usecases -> data.repository: access data
   data.remote.scraper -> external.web: fetch HTML
   data.remote.anthropic_svc -> external.anthropic: parse recipe
@@ -348,25 +389,27 @@ legend: {
   flow2: "2. ViewModel enqueues WorkManager job"
   flow3: "3. RecipeImportWorker runs as foreground service"
   flow4: "4. Scraper fetches HTML, AI parses recipe"
-  flow5: "5. Repository saves to Room"
+  flow5: "5. Repository saves to Room, triggers sync"
 
   flow1 -> flow2 -> flow3 -> flow4 -> flow5
 
   drive_flow: {
-    label: "Google Drive Flow"
+    label: "Google Drive Continuous Sync"
     style: {
       font-size: 14
       bold: true
     }
   }
-  drive1: "Export: Creates folder per recipe (JSON + HTML + Markdown)"
-  drive2: "Import: Reads JSON directly, falls back to HTML via AI"
-  drive3: "Supports queued batch operations in background"
+  drive1: "1. User enables sync and selects a Drive folder"
+  drive2: "2. Recipe save/delete queues sync operation"
+  drive3: "3. DriveSyncWorker processes pending operations"
+  drive4: "4. Version checking prevents overwrite conflicts"
+  drive5: "5. changes.list detects external modifications"
 
-  drive1 -> drive2 -> drive3
+  drive1 -> drive2 -> drive3 -> drive4 -> drive5
 
   note: {
-    label: "Import runs in background via WorkManager. Supports multiple concurrent imports. Google Drive export/import runs in background with progress notifications."
+    label: "Sync is local-first: local changes are source of truth. Deletes check file version before executing to prevent deleting externally modified files. Conflicts are flagged for user resolution."
     style: {
       font-size: 12
       italic: true

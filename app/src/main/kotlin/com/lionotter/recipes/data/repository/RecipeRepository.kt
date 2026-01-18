@@ -2,6 +2,7 @@ package com.lionotter.recipes.data.repository
 
 import com.lionotter.recipes.data.local.RecipeDao
 import com.lionotter.recipes.data.local.RecipeEntity
+import com.lionotter.recipes.data.sync.DriveSyncManager
 import com.lionotter.recipes.domain.model.IngredientSection
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.Recipe
@@ -12,11 +13,28 @@ import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Callback interface for triggering sync after repository operations.
+ * This allows the repository to signal when sync work should be triggered
+ * without directly depending on WorkManager.
+ */
+interface SyncTrigger {
+    fun triggerUploadSync()
+    fun triggerDeleteSync(operationId: Long)
+}
+
 @Singleton
 class RecipeRepository @Inject constructor(
     private val recipeDao: RecipeDao,
-    private val json: Json
+    private val json: Json,
+    private val syncManager: DriveSyncManager
 ) {
+    /**
+     * Optional sync trigger. Set this to receive callbacks when
+     * sync operations should be triggered.
+     */
+    var syncTrigger: SyncTrigger? = null
+
     fun getAllRecipes(): Flow<List<Recipe>> {
         return recipeDao.getAllRecipes().map { entities ->
             entities.map { entity -> entityToRecipe(entity) }
@@ -52,6 +70,9 @@ class RecipeRepository @Inject constructor(
         }
     }
 
+    /**
+     * Save a recipe and queue it for sync to Google Drive.
+     */
     suspend fun saveRecipe(recipe: Recipe, originalHtml: String? = null) {
         val entity = RecipeEntity.fromRecipe(
             recipe = recipe,
@@ -61,10 +82,32 @@ class RecipeRepository @Inject constructor(
             originalHtml = originalHtml
         )
         recipeDao.insertRecipe(entity)
+
+        // Queue for sync
+        syncManager.queueUpload(recipe.id)
+        syncTrigger?.triggerUploadSync()
     }
 
+    /**
+     * Delete a recipe and queue deletion from Google Drive.
+     */
     suspend fun deleteRecipe(id: String) {
+        // Queue delete BEFORE removing from local DB (we need the sync record)
+        val wasQueued = syncManager.queueDelete(id)
+
+        // Now delete locally
         recipeDao.deleteRecipeById(id)
+
+        // Trigger delete sync if we queued an operation
+        if (wasQueued) {
+            // Get the operation ID from pending operations
+            val pendingOps = syncManager.getPendingOperations()
+            val deleteOp = pendingOps.find {
+                it.localRecipeId == id &&
+                it.operationType == com.lionotter.recipes.data.local.sync.SyncOperationType.DELETE
+            }
+            deleteOp?.let { syncTrigger?.triggerDeleteSync(it.id) }
+        }
     }
 
     suspend fun getAllTags(): Set<String> {

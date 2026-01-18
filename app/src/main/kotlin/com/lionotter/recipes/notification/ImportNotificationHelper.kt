@@ -151,27 +151,36 @@ class ImportNotificationHelper @Inject constructor(
     }
 
     @SuppressLint("MissingPermission")
-    fun showImportFromDriveSuccessNotification(importedCount: Int, failedCount: Int, skippedCount: Int = 0) {
+    fun showSyncSuccessNotification(uploadedCount: Int, failedCount: Int) {
         if (!notificationManager.areNotificationsEnabled()) return
 
         notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
 
-        val message = buildString {
-            append("Imported $importedCount recipes")
-            if (skippedCount > 0 || failedCount > 0) {
-                append(" (")
-                val parts = mutableListOf<String>()
-                if (skippedCount > 0) parts.add("$skippedCount skipped")
-                if (failedCount > 0) parts.add("$failedCount failed")
-                append(parts.joinToString(", "))
-                append(")")
-            }
+        val message = when {
+            uploadedCount == 0 && failedCount == 0 -> "All recipes are synced"
+            failedCount > 0 -> "Synced $uploadedCount recipes ($failedCount failed)"
+            else -> "Synced $uploadedCount recipes to Google Drive"
         }
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Import Complete")
+            .setContentTitle("Sync Complete")
             .setContentText(message)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .build()
+
+        notificationManager.notify(NOTIFICATION_ID_COMPLETE, notification)
+    }
+
+    @SuppressLint("MissingPermission")
+    fun showSyncConflictNotification(conflictCount: Int) {
+        if (!notificationManager.areNotificationsEnabled()) return
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Sync Conflicts")
+            .setContentText("$conflictCount recipes have conflicts that need resolution")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .build()

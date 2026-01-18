@@ -3,25 +3,26 @@ package com.lionotter.recipes.ui.screens.googledrive
 import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.lionotter.recipes.data.remote.DriveFolder
 import com.lionotter.recipes.data.remote.GoogleDriveService
-import com.lionotter.recipes.worker.GoogleDriveExportWorker
-import com.lionotter.recipes.worker.GoogleDriveImportWorker
+import com.lionotter.recipes.data.sync.DriveSyncManager
+import com.lionotter.recipes.worker.DriveSyncWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.util.UUID
 import javax.inject.Inject
 
 @HiltViewModel
 class GoogleDriveViewModel @Inject constructor(
     private val googleDriveService: GoogleDriveService,
+    private val syncManager: DriveSyncManager,
     private val workManager: WorkManager
 ) : ViewModel() {
 
@@ -40,11 +41,31 @@ class GoogleDriveViewModel @Inject constructor(
     private val _operationState = MutableStateFlow<OperationState>(OperationState.Idle)
     val operationState: StateFlow<OperationState> = _operationState.asStateFlow()
 
-    private var currentWorkId: UUID? = null
+    /**
+     * Combined sync status showing current sync configuration and state.
+     */
+    val syncStatus: StateFlow<SyncStatusState> = combine(
+        syncManager.syncState,
+        syncManager.pendingOperationCount,
+        syncManager.conflictCount
+    ) { syncState, pendingCount, conflictCount ->
+        SyncStatusState(
+            isEnabled = syncState?.syncEnabled == true,
+            syncFolderName = syncState?.syncFolderName,
+            syncFolderId = syncState?.syncFolderId,
+            pendingOperations = pendingCount,
+            conflicts = conflictCount,
+            lastSyncAt = syncState?.lastFullSyncAt,
+            lastError = syncState?.lastSyncError
+        )
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        SyncStatusState()
+    )
 
     init {
         checkSignInStatus()
-        observeWorkStatus()
     }
 
     private fun checkSignInStatus() {
@@ -90,6 +111,10 @@ class GoogleDriveViewModel @Inject constructor(
 
     fun signOut() {
         viewModelScope.launch {
+            // Disable sync when signing out
+            syncManager.disableSync()
+            DriveSyncWorker.cancelPeriodicSync(workManager)
+
             googleDriveService.signOut()
             _uiState.value = GoogleDriveUiState.SignedOut
             _folders.value = emptyList()
@@ -153,111 +178,81 @@ class GoogleDriveViewModel @Inject constructor(
      */
     fun getCurrentFolderId(): String? = _folderNavigationStack.value.lastOrNull()?.id
 
-    fun exportToGoogleDrive(parentFolderId: String? = null) {
+    // ========== Sync Configuration ==========
+
+    /**
+     * Enable sync with the specified folder.
+     * All recipes will be continuously synced to this folder.
+     */
+    fun enableSync(folder: DriveFolder) {
         if (_uiState.value !is GoogleDriveUiState.SignedIn) {
             _operationState.value = OperationState.Error("Please sign in to Google Drive first")
             return
         }
 
-        val workRequest = OneTimeWorkRequestBuilder<GoogleDriveExportWorker>()
-            .setInputData(GoogleDriveExportWorker.createInputData(parentFolderId))
-            .addTag(GoogleDriveExportWorker.TAG_DRIVE_EXPORT)
-            .build()
+        viewModelScope.launch {
+            syncManager.enableSync(folder.id, folder.name)
 
-        currentWorkId = workRequest.id
-        workManager.enqueue(workRequest)
-        _operationState.value = OperationState.Exporting
+            // Schedule periodic sync and trigger immediate sync
+            DriveSyncWorker.schedulePeriodicSync(workManager)
+            DriveSyncWorker.triggerSync(workManager)
+
+            _operationState.value = OperationState.SyncEnabled(folder.name)
+        }
     }
 
-    fun importFromGoogleDrive(folderId: String) {
+    /**
+     * Disable sync.
+     */
+    fun disableSync() {
+        viewModelScope.launch {
+            syncManager.disableSync()
+            DriveSyncWorker.cancelPeriodicSync(workManager)
+            _operationState.value = OperationState.SyncDisabled
+        }
+    }
+
+    /**
+     * Trigger a manual sync.
+     */
+    fun triggerManualSync() {
         if (_uiState.value !is GoogleDriveUiState.SignedIn) {
             _operationState.value = OperationState.Error("Please sign in to Google Drive first")
             return
         }
 
-        val workRequest = OneTimeWorkRequestBuilder<GoogleDriveImportWorker>()
-            .setInputData(GoogleDriveImportWorker.createInputData(folderId))
-            .addTag(GoogleDriveImportWorker.TAG_DRIVE_IMPORT)
-            .build()
-
-        currentWorkId = workRequest.id
-        workManager.enqueue(workRequest)
-        _operationState.value = OperationState.Importing
+        DriveSyncWorker.triggerSync(workManager)
+        _operationState.value = OperationState.Syncing
     }
 
-    private fun observeWorkStatus() {
-        // Observe export work
+    /**
+     * Get conflicts for resolution.
+     */
+    fun getConflicts() {
         viewModelScope.launch {
-            workManager.getWorkInfosByTagFlow(GoogleDriveExportWorker.TAG_DRIVE_EXPORT)
-                .collect { workInfos ->
-                    val workInfo = currentWorkId?.let { id ->
-                        workInfos.find { it.id == id }
-                    }
-                    workInfo?.let { handleExportWorkInfo(it) }
-                }
+            val conflicts = syncManager.getConflicts()
+            if (conflicts.isNotEmpty()) {
+                _operationState.value = OperationState.HasConflicts(conflicts.size)
+            }
         }
+    }
 
-        // Observe import work
+    /**
+     * Resolve a conflict by keeping the local version.
+     */
+    fun resolveConflictKeepLocal(recipeId: String) {
         viewModelScope.launch {
-            workManager.getWorkInfosByTagFlow(GoogleDriveImportWorker.TAG_DRIVE_IMPORT)
-                .collect { workInfos ->
-                    val workInfo = currentWorkId?.let { id ->
-                        workInfos.find { it.id == id }
-                    }
-                    workInfo?.let { handleImportWorkInfo(it) }
-                }
+            syncManager.resolveConflictKeepLocal(recipeId)
+            DriveSyncWorker.triggerSync(workManager)
         }
     }
 
-    private fun handleExportWorkInfo(workInfo: WorkInfo) {
-        when (workInfo.state) {
-            WorkInfo.State.RUNNING -> {
-                val current = workInfo.progress.getInt(GoogleDriveExportWorker.KEY_CURRENT, 0)
-                val total = workInfo.progress.getInt(GoogleDriveExportWorker.KEY_TOTAL, 0)
-                val recipeName = workInfo.progress.getString(GoogleDriveExportWorker.KEY_RECIPE_NAME)
-                _operationState.value = OperationState.Exporting
-            }
-            WorkInfo.State.SUCCEEDED -> {
-                val exported = workInfo.outputData.getInt(GoogleDriveExportWorker.KEY_EXPORTED_COUNT, 0)
-                val failed = workInfo.outputData.getInt(GoogleDriveExportWorker.KEY_FAILED_COUNT, 0)
-                _operationState.value = OperationState.ExportComplete(exported, failed)
-                currentWorkId = null
-                workManager.pruneWork()
-            }
-            WorkInfo.State.FAILED -> {
-                val error = workInfo.outputData.getString(GoogleDriveExportWorker.KEY_ERROR_MESSAGE)
-                    ?: "Export failed"
-                _operationState.value = OperationState.Error(error)
-                currentWorkId = null
-                workManager.pruneWork()
-            }
-            else -> {}
-        }
-    }
-
-    private fun handleImportWorkInfo(workInfo: WorkInfo) {
-        when (workInfo.state) {
-            WorkInfo.State.RUNNING -> {
-                val current = workInfo.progress.getInt(GoogleDriveImportWorker.KEY_CURRENT, 0)
-                val total = workInfo.progress.getInt(GoogleDriveImportWorker.KEY_TOTAL, 0)
-                _operationState.value = OperationState.Importing
-            }
-            WorkInfo.State.SUCCEEDED -> {
-                val imported = workInfo.outputData.getInt(GoogleDriveImportWorker.KEY_IMPORTED_COUNT, 0)
-                val failed = workInfo.outputData.getInt(GoogleDriveImportWorker.KEY_FAILED_COUNT, 0)
-                val skipped = workInfo.outputData.getInt(GoogleDriveImportWorker.KEY_SKIPPED_COUNT, 0)
-                _operationState.value = OperationState.ImportComplete(imported, failed, skipped)
-                currentWorkId = null
-                workManager.pruneWork()
-            }
-            WorkInfo.State.FAILED -> {
-                val error = workInfo.outputData.getString(GoogleDriveImportWorker.KEY_ERROR_MESSAGE)
-                    ?: "Import failed"
-                _operationState.value = OperationState.Error(error)
-                currentWorkId = null
-                workManager.pruneWork()
-            }
-            else -> {}
+    /**
+     * Resolve a conflict by keeping the remote version.
+     */
+    fun resolveConflictKeepRemote(recipeId: String) {
+        viewModelScope.launch {
+            syncManager.resolveConflictKeepRemote(recipeId)
         }
     }
 
@@ -284,9 +279,22 @@ sealed class GoogleDriveUiState {
 
 sealed class OperationState {
     object Idle : OperationState()
-    object Exporting : OperationState()
-    object Importing : OperationState()
-    data class ExportComplete(val exportedCount: Int, val failedCount: Int) : OperationState()
-    data class ImportComplete(val importedCount: Int, val failedCount: Int, val skippedCount: Int) : OperationState()
+    object Syncing : OperationState()
+    data class SyncEnabled(val folderName: String) : OperationState()
+    object SyncDisabled : OperationState()
+    data class HasConflicts(val count: Int) : OperationState()
     data class Error(val message: String) : OperationState()
 }
+
+/**
+ * Current sync status for display in the UI.
+ */
+data class SyncStatusState(
+    val isEnabled: Boolean = false,
+    val syncFolderName: String? = null,
+    val syncFolderId: String? = null,
+    val pendingOperations: Int = 0,
+    val conflicts: Int = 0,
+    val lastSyncAt: Long? = null,
+    val lastError: String? = null
+)
