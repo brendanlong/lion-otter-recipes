@@ -24,7 +24,9 @@ object DatabaseModule {
             context,
             RecipeDatabase::class.java,
             "recipes.db"
-        ).build()
+        )
+            .addMigrations(RecipeDatabase.MIGRATION_1_2)
+            .build()
     }
 
     @Provides

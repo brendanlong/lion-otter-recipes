@@ -210,7 +210,10 @@ app: {
         fill: "#ffffff"
       }
 
-      recipe: Recipe
+      recipe: {
+        label: Recipe
+        tooltip: "Fields: id, name, sourceUrl, story, servings, times, ingredients, instructions, tags, imageUrl, timestamps, isFavorite"
+      }
       ingredient: {
         label: Ingredient
         tooltip: "Fields: name, notes, alternates, amounts, optional"
@@ -372,4 +375,17 @@ legend: {
       italic: true
     }
   }
+
+  favorites: {
+    label: "Favorites Feature"
+    style: {
+      font-size: 14
+      bold: true
+    }
+  }
+  fav1: "Recipes can be starred/favorited from list or detail view"
+  fav2: "Favorites are sorted first in the recipe list"
+  fav3: "Re-sorting only occurs on filter/tag/search changes to avoid jarring UI"
+
+  fav1 -> fav2 -> fav3
 }

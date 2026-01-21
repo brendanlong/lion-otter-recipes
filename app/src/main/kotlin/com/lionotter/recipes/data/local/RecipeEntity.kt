@@ -24,7 +24,8 @@ data class RecipeEntity(
     val imageUrl: String?,
     val originalHtml: String?,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    val isFavorite: Boolean = false
 ) {
     fun toRecipe(
         ingredientSections: List<IngredientSection>,
@@ -45,7 +46,8 @@ data class RecipeEntity(
             tags = tags,
             imageUrl = imageUrl,
             createdAt = Instant.fromEpochMilliseconds(createdAt),
-            updatedAt = Instant.fromEpochMilliseconds(updatedAt)
+            updatedAt = Instant.fromEpochMilliseconds(updatedAt),
+            isFavorite = isFavorite
         )
     }
 
@@ -72,7 +74,8 @@ data class RecipeEntity(
                 imageUrl = recipe.imageUrl,
                 originalHtml = originalHtml,
                 createdAt = recipe.createdAt.toEpochMilliseconds(),
-                updatedAt = recipe.updatedAt.toEpochMilliseconds()
+                updatedAt = recipe.updatedAt.toEpochMilliseconds(),
+                isFavorite = recipe.isFavorite
             )
         }
     }

@@ -67,6 +67,10 @@ class RecipeRepository @Inject constructor(
         recipeDao.deleteRecipeById(id)
     }
 
+    suspend fun setFavorite(id: String, isFavorite: Boolean) {
+        recipeDao.setFavorite(id, isFavorite)
+    }
+
     suspend fun getAllTags(): Set<String> {
         val allTagsJson = recipeDao.getAllTagsJson()
         return allTagsJson.flatMap { tagsJson ->

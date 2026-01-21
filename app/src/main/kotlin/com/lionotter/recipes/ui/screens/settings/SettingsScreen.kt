@@ -3,6 +3,7 @@ package com.lionotter.recipes.ui.screens.settings
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import androidx.core.net.toUri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -283,7 +284,7 @@ private fun ApiKeySection(
 
         OutlinedButton(
             onClick = {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://platform.claude.com/settings/keys"))
+                val intent = Intent(Intent.ACTION_VIEW, "https://platform.claude.com/settings/keys".toUri())
                 context.startActivity(intent)
             },
             modifier = Modifier.fillMaxWidth()
