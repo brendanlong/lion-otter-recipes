@@ -108,6 +108,13 @@ fun RecipeListScreen(
         googleDriveViewModel.refreshSignInStatus()
     }
 
+    // Show snackbar for repository errors (e.g., corrupted recipe data)
+    LaunchedEffect(Unit) {
+        viewModel.repositoryErrors.collect { error ->
+            snackbarHostState.showSnackbar(error)
+        }
+    }
+
     // Show snackbar for operation results
     LaunchedEffect(operationState) {
         when (val state = operationState) {

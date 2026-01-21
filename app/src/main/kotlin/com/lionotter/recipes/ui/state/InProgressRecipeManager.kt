@@ -32,6 +32,7 @@ class InProgressRecipeManager @Inject constructor() {
     }
 
     fun removeInProgressRecipe(id: String) {
+        if (!_inProgressRecipes.value.containsKey(id)) return
         val updated = _inProgressRecipes.value.toMutableMap()
         updated.remove(id)
         _inProgressRecipes.value = updated

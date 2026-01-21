@@ -88,6 +88,8 @@ google-drive-api = { group = "com.google.apis", name = "google-api-services-driv
 # Testing
 junit = { group = "junit", name = "junit", version = "4.13.2" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version = "1.9.0" }
+mockk = { group = "io.mockk", name = "mockk", version = "1.13.13" }
+turbine = { group = "app.cash.turbine", name = "turbine", version = "1.2.0" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

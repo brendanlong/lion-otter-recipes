@@ -44,13 +44,10 @@ class SettingsViewModel @Inject constructor(
 
     fun saveApiKey() {
         val key = _apiKeyInput.value.trim()
-        if (key.isBlank()) {
-            _saveState.value = SaveState.Error("API key cannot be empty")
-            return
-        }
 
-        if (!key.startsWith("sk-ant-")) {
-            _saveState.value = SaveState.Error("Invalid API key format. Should start with 'sk-ant-'")
+        val validationError = AnthropicService.validateApiKey(key)
+        if (validationError != null) {
+            _saveState.value = SaveState.Error(validationError)
             return
         }
 

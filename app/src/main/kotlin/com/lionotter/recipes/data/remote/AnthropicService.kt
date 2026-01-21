@@ -113,6 +113,25 @@ class AnthropicService @Inject constructor(
         private const val ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
         private const val ANTHROPIC_VERSION = "2023-06-01"
         const val DEFAULT_MODEL = "claude-opus-4-5"
+        private const val API_KEY_PREFIX = "sk-ant-"
+
+        /**
+         * Validates an Anthropic API key format.
+         * Returns null if valid, or an error message if invalid.
+         */
+        fun validateApiKey(apiKey: String): String? {
+            val trimmed = apiKey.trim()
+            return when {
+                trimmed.isBlank() -> "API key cannot be empty"
+                !trimmed.startsWith(API_KEY_PREFIX) -> "Invalid API key format. Should start with '$API_KEY_PREFIX'"
+                else -> null
+            }
+        }
+
+        /**
+         * Returns true if the API key has a valid format.
+         */
+        fun isValidApiKey(apiKey: String): Boolean = validateApiKey(apiKey) == null
 
         private val SYSTEM_PROMPT = """
 You are a recipe parser. Extract structured recipe data from HTML content and return it as JSON.
