@@ -60,8 +60,12 @@ class RecipeDetailViewModel @Inject constructor(
     private val recipeRepository: RecipeRepository
 ) : ViewModel() {
 
-    private val recipeId: String = savedStateHandle.get<String>("recipeId")
-        ?: throw IllegalArgumentException("Recipe ID is required")
+    private val recipeId: String
+
+    init {
+        recipeId = savedStateHandle.get<String>("recipeId")
+            ?: throw IllegalArgumentException("RecipeDetailViewModel requires a 'recipeId' argument in SavedStateHandle")
+    }
 
     private val _recipeDeleted = MutableSharedFlow<Unit>()
     val recipeDeleted: SharedFlow<Unit> = _recipeDeleted.asSharedFlow()
@@ -69,7 +73,7 @@ class RecipeDetailViewModel @Inject constructor(
     val recipe: StateFlow<Recipe?> = getRecipeByIdUseCase.execute(recipeId)
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = SharingStarted.Eagerly,
             initialValue = null
         )
 
@@ -106,7 +110,7 @@ class RecipeDetailViewModel @Inject constructor(
         }
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = SharingStarted.Eagerly,
             initialValue = false
         )
 
@@ -123,7 +127,7 @@ class RecipeDetailViewModel @Inject constructor(
         }
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = SharingStarted.Eagerly,
             initialValue = emptySet()
         )
 
