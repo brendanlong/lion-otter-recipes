@@ -2,13 +2,15 @@ package com.lionotter.recipes.ui.screens.recipelist
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import com.lionotter.recipes.data.repository.RecipeRepository
-import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.usecase.DeleteRecipeUseCase
 import com.lionotter.recipes.domain.usecase.GetRecipesUseCase
 import com.lionotter.recipes.domain.usecase.GetTagsUseCase
 import com.lionotter.recipes.ui.state.InProgressRecipeManager
 import com.lionotter.recipes.ui.state.RecipeListItem
+import com.lionotter.recipes.worker.RecipeImportWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -25,7 +27,8 @@ class RecipeListViewModel @Inject constructor(
     private val getTagsUseCase: GetTagsUseCase,
     private val deleteRecipeUseCase: DeleteRecipeUseCase,
     private val inProgressRecipeManager: InProgressRecipeManager,
-    private val recipeRepository: RecipeRepository
+    private val recipeRepository: RecipeRepository,
+    private val workManager: WorkManager
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -110,6 +113,55 @@ class RecipeListViewModel @Inject constructor(
     )
 
     init {
+        loadTags()
+        observeImportWorkStatus()
+    }
+
+    /**
+     * Observe recipe import work status to clean up in-progress recipes and refresh tags.
+     * This ensures proper cleanup even if the AddRecipeScreen is no longer active.
+     */
+    private fun observeImportWorkStatus() {
+        viewModelScope.launch {
+            workManager.getWorkInfosByTagFlow(RecipeImportWorker.TAG_RECIPE_IMPORT)
+                .collect { workInfos ->
+                    workInfos.forEach { workInfo ->
+                        val importId = workInfo.progress.getString(RecipeImportWorker.KEY_IMPORT_ID)
+                            ?: workInfo.outputData.getString(RecipeImportWorker.KEY_IMPORT_ID)
+
+                        when (workInfo.state) {
+                            WorkInfo.State.RUNNING -> {
+                                // Update in-progress recipe name if available
+                                val recipeName = workInfo.progress.getString(RecipeImportWorker.KEY_RECIPE_NAME)
+                                if (recipeName != null && importId != null) {
+                                    inProgressRecipeManager.updateRecipeName(importId, recipeName)
+                                }
+                            }
+                            WorkInfo.State.SUCCEEDED -> {
+                                // Remove from in-progress and refresh tags
+                                if (importId != null) {
+                                    inProgressRecipeManager.removeInProgressRecipe(importId)
+                                }
+                                loadTags()
+                            }
+                            WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> {
+                                // Remove from in-progress
+                                if (importId != null) {
+                                    inProgressRecipeManager.removeInProgressRecipe(importId)
+                                }
+                            }
+                            else -> {}
+                        }
+                    }
+                }
+        }
+    }
+
+    /**
+     * Refresh the available tags. Call this after recipes are imported
+     * to ensure the tag filter reflects newly added recipes.
+     */
+    fun refreshTags() {
         loadTags()
     }
 
