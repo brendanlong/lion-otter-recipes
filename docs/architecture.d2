@@ -272,13 +272,25 @@ app: {
         label: DataStore
         shape: cylinder
       }
+      encrypted_prefs: {
+        label: EncryptedSharedPreferences
+        shape: cylinder
+        tooltip: "AES256-GCM encrypted storage for sensitive data like API keys"
+        style: {
+          fill: "#c8e6c9"
+        }
+      }
       dao: RecipeDao
       entity: RecipeEntity
-      settings: SettingsDataStore
+      settings: {
+        label: SettingsDataStore
+        tooltip: "Uses EncryptedSharedPreferences for API key, DataStore for non-sensitive settings"
+      }
 
       dao -> room
       entity -> room
-      settings -> datastore
+      settings -> datastore: non-sensitive settings
+      settings -> encrypted_prefs: API key
     }
 
     remote: {
