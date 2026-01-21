@@ -2,6 +2,7 @@ package com.lionotter.recipes.ui.screens.recipelist
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.usecase.DeleteRecipeUseCase
 import com.lionotter.recipes.domain.usecase.GetRecipesUseCase
@@ -23,7 +24,8 @@ class RecipeListViewModel @Inject constructor(
     private val getRecipesUseCase: GetRecipesUseCase,
     private val getTagsUseCase: GetTagsUseCase,
     private val deleteRecipeUseCase: DeleteRecipeUseCase,
-    private val inProgressRecipeManager: InProgressRecipeManager
+    private val inProgressRecipeManager: InProgressRecipeManager,
+    private val recipeRepository: RecipeRepository
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -35,12 +37,21 @@ class RecipeListViewModel @Inject constructor(
     private val _availableTags = MutableStateFlow<List<String>>(emptyList())
     val availableTags: StateFlow<List<String>> = _availableTags.asStateFlow()
 
+    // Counter that increments when we want to re-sort (tag change, search change, etc.)
+    // This triggers a new sort order snapshot
+    private val _sortTrigger = MutableStateFlow(0)
+
+    // Cache the last sorted order of recipe IDs to maintain stable positions
+    // when favorites change without triggering a re-sort
+    private var lastSortedIds: List<String> = emptyList()
+
     val recipes: StateFlow<List<RecipeListItem>> = combine(
         getRecipesUseCase.execute(),
         inProgressRecipeManager.inProgressRecipes,
         _searchQuery,
-        _selectedTag
-    ) { allRecipes, inProgressRecipes, query, tag ->
+        _selectedTag,
+        _sortTrigger
+    ) { allRecipes, inProgressRecipes, query, tag, sortTrigger ->
         // Combine in-progress recipes and saved recipes
         val items = mutableListOf<RecipeListItem>()
 
@@ -55,7 +66,7 @@ class RecipeListViewModel @Inject constructor(
         }
 
         // Filter by search and tag
-        items.filter { item ->
+        val filteredItems = items.filter { item ->
             val matchesSearch = query.isBlank() ||
                 item.name.contains(query, ignoreCase = true) ||
                 (item is RecipeListItem.Saved && item.recipe.tags.any { it.contains(query, ignoreCase = true) })
@@ -64,6 +75,33 @@ class RecipeListViewModel @Inject constructor(
                 (item is RecipeListItem.Saved && item.recipe.tags.any { it.equals(tag, ignoreCase = true) })
 
             matchesSearch && matchesTag
+        }
+
+        // Get current filtered IDs
+        val currentIds = filteredItems.map { it.id }.toSet()
+
+        // Check if we should re-sort:
+        // - sortTrigger changed (search/tag filter changed)
+        // - IDs changed (new recipes added/removed)
+        val lastIds = lastSortedIds.toSet()
+        val shouldResort = currentIds != lastIds
+
+        if (shouldResort) {
+            // Re-sort: favorites first, then by updatedAt (already sorted by DAO)
+            val sorted = filteredItems.sortedWith(
+                compareByDescending<RecipeListItem> {
+                    when (it) {
+                        is RecipeListItem.InProgress -> true // In-progress always first
+                        is RecipeListItem.Saved -> it.recipe.isFavorite
+                    }
+                }
+            )
+            lastSortedIds = sorted.map { it.id }
+            sorted
+        } else {
+            // Maintain current order but update recipe data (for favorite status display)
+            val itemsById = filteredItems.associateBy { it.id }
+            lastSortedIds.mapNotNull { id -> itemsById[id] }
         }
     }.stateIn(
         scope = viewModelScope,
@@ -83,10 +121,23 @@ class RecipeListViewModel @Inject constructor(
 
     fun onSearchQueryChange(query: String) {
         _searchQuery.value = query
+        _sortTrigger.value++ // Trigger re-sort on search change
     }
 
     fun onTagSelected(tag: String?) {
         _selectedTag.value = if (_selectedTag.value == tag) null else tag
+        _sortTrigger.value++ // Trigger re-sort on tag change
+    }
+
+    fun toggleFavorite(recipeId: String) {
+        viewModelScope.launch {
+            val item = recipes.value.find { it.id == recipeId }
+            if (item is RecipeListItem.Saved) {
+                val newFavorite = !item.recipe.isFavorite
+                recipeRepository.setFavorite(recipeId, newFavorite)
+                // Don't increment sortTrigger - maintain current position
+            }
+        }
     }
 
     fun deleteRecipe(recipeId: String) {

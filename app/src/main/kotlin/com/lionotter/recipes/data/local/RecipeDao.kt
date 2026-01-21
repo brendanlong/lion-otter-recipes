@@ -42,4 +42,7 @@ interface RecipeDao {
 
     @Query("SELECT DISTINCT tagsJson FROM recipes")
     suspend fun getAllTagsJson(): List<String>
+
+    @Query("UPDATE recipes SET isFavorite = :isFavorite WHERE id = :id")
+    suspend fun setFavorite(id: String, isFavorite: Boolean)
 }

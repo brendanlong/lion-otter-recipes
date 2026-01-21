@@ -54,7 +54,8 @@ data class Recipe(
     val tags: List<String> = emptyList(),
     val imageUrl: String? = null,
     val createdAt: Instant,
-    val updatedAt: Instant
+    val updatedAt: Instant,
+    val isFavorite: Boolean = false
 )
 
 @Serializable

@@ -30,6 +30,8 @@ import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -345,7 +347,8 @@ fun RecipeListScreen(
                                 SwipeableRecipeCard(
                                     recipe = item.recipe,
                                     onClick = { onRecipeClick(item.id) },
-                                    onDeleteRequest = { recipeToDelete = item.recipe }
+                                    onDeleteRequest = { recipeToDelete = item.recipe },
+                                    onFavoriteClick = { viewModel.toggleFavorite(item.id) }
                                 )
                             }
                             is RecipeListItem.InProgress -> {
@@ -589,7 +592,8 @@ private fun FolderPickerDialog(
 private fun SwipeableRecipeCard(
     recipe: Recipe,
     onClick: () -> Unit,
-    onDeleteRequest: () -> Unit
+    onDeleteRequest: () -> Unit,
+    onFavoriteClick: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val dismissState = rememberSwipeToDismissBoxState(
@@ -627,7 +631,8 @@ private fun SwipeableRecipeCard(
             onLongClick = { showMenu = true },
             showMenu = showMenu,
             onDismissMenu = { showMenu = false },
-            onDeleteRequest = onDeleteRequest
+            onDeleteRequest = onDeleteRequest,
+            onFavoriteClick = onFavoriteClick
         )
     }
 }
@@ -640,7 +645,8 @@ private fun RecipeCard(
     onLongClick: () -> Unit,
     showMenu: Boolean,
     onDismissMenu: () -> Unit,
-    onDeleteRequest: () -> Unit
+    onDeleteRequest: () -> Unit,
+    onFavoriteClick: () -> Unit
 ) {
     Box {
         Card(
@@ -724,6 +730,18 @@ private fun RecipeCard(
                             }
                         }
                     }
+                }
+
+                // Favorite button
+                IconButton(
+                    onClick = onFavoriteClick,
+                    modifier = Modifier.align(Alignment.Top)
+                ) {
+                    Icon(
+                        imageVector = if (recipe.isFavorite) Icons.Filled.Star else Icons.Outlined.StarOutline,
+                        contentDescription = if (recipe.isFavorite) "Remove from favorites" else "Add to favorites",
+                        tint = if (recipe.isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }

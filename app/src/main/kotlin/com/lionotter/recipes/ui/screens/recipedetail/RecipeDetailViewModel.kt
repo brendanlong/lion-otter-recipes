@@ -3,6 +3,7 @@ package com.lionotter.recipes.ui.screens.recipedetail
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.Ingredient
 import com.lionotter.recipes.domain.model.MeasurementPreference
 import com.lionotter.recipes.domain.model.MeasurementType
@@ -55,7 +56,8 @@ data class HighlightedInstructionStep(
 class RecipeDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     getRecipeByIdUseCase: GetRecipeByIdUseCase,
-    private val deleteRecipeUseCase: DeleteRecipeUseCase
+    private val deleteRecipeUseCase: DeleteRecipeUseCase,
+    private val recipeRepository: RecipeRepository
 ) : ViewModel() {
 
     private val recipeId: String = savedStateHandle.get<String>("recipeId")
@@ -267,6 +269,16 @@ class RecipeDetailViewModel @Inject constructor(
             null
         } else {
             newStep
+        }
+    }
+
+    /**
+     * Toggles the favorite status of the current recipe.
+     */
+    fun toggleFavorite() {
+        viewModelScope.launch {
+            val currentRecipe = recipe.value ?: return@launch
+            recipeRepository.setFavorite(recipeId, !currentRecipe.isFavorite)
         }
     }
 
