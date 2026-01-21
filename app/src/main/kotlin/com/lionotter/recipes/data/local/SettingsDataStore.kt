@@ -1,14 +1,21 @@
 package com.lionotter.recipes.data.local
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import com.lionotter.recipes.data.remote.AnthropicService
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -20,27 +27,48 @@ class SettingsDataStore @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     private object Keys {
-        val ANTHROPIC_API_KEY = stringPreferencesKey("anthropic_api_key")
         val AI_MODEL = stringPreferencesKey("ai_model")
+        const val ENCRYPTED_API_KEY = "anthropic_api_key"
     }
 
-    val anthropicApiKey: Flow<String?> = context.dataStore.data.map { preferences ->
-        preferences[Keys.ANTHROPIC_API_KEY]
+    private val encryptedPrefs: SharedPreferences by lazy {
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+
+        EncryptedSharedPreferences.create(
+            context,
+            "secure_settings",
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
     }
+
+    private val _anthropicApiKey = MutableStateFlow<String?>(null)
+
+    init {
+        // Load the API key from encrypted storage on initialization
+        _anthropicApiKey.value = encryptedPrefs.getString(Keys.ENCRYPTED_API_KEY, null)
+    }
+
+    val anthropicApiKey: Flow<String?> = _anthropicApiKey.asStateFlow()
 
     val aiModel: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[Keys.AI_MODEL] ?: AnthropicService.DEFAULT_MODEL
     }
 
     suspend fun setAnthropicApiKey(apiKey: String) {
-        context.dataStore.edit { preferences ->
-            preferences[Keys.ANTHROPIC_API_KEY] = apiKey
+        withContext(Dispatchers.IO) {
+            encryptedPrefs.edit().putString(Keys.ENCRYPTED_API_KEY, apiKey).apply()
+            _anthropicApiKey.value = apiKey
         }
     }
 
     suspend fun clearAnthropicApiKey() {
-        context.dataStore.edit { preferences ->
-            preferences.remove(Keys.ANTHROPIC_API_KEY)
+        withContext(Dispatchers.IO) {
+            encryptedPrefs.edit().remove(Keys.ENCRYPTED_API_KEY).apply()
+            _anthropicApiKey.value = null
         }
     }
 

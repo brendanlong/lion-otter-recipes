@@ -113,6 +113,9 @@ dependencies {
     // DataStore
     implementation(libs.datastore.preferences)
 
+    // Security
+    implementation(libs.security.crypto)
+
     // Coil
     implementation(libs.coil.compose)
 
