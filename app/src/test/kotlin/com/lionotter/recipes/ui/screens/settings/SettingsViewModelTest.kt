@@ -31,6 +31,7 @@ class SettingsViewModelTest {
 
     private val apiKeyFlow = MutableStateFlow<String?>(null)
     private val aiModelFlow = MutableStateFlow(AnthropicService.DEFAULT_MODEL)
+    private val keepScreenOnFlow = MutableStateFlow(true)
 
     @Before
     fun setup() {
@@ -38,6 +39,7 @@ class SettingsViewModelTest {
         settingsDataStore = mockk()
         every { settingsDataStore.anthropicApiKey } returns apiKeyFlow
         every { settingsDataStore.aiModel } returns aiModelFlow
+        every { settingsDataStore.keepScreenOn } returns keepScreenOnFlow
         viewModel = SettingsViewModel(settingsDataStore)
     }
 

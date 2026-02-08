@@ -3,6 +3,7 @@ package com.lionotter.recipes.ui.screens.recipedetail
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.Ingredient
 import com.lionotter.recipes.domain.model.MeasurementPreference
@@ -57,7 +58,8 @@ class RecipeDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     getRecipeByIdUseCase: GetRecipeByIdUseCase,
     private val deleteRecipeUseCase: DeleteRecipeUseCase,
-    private val recipeRepository: RecipeRepository
+    private val recipeRepository: RecipeRepository,
+    settingsDataStore: SettingsDataStore
 ) : ViewModel() {
 
     private val recipeId: String
@@ -75,6 +77,13 @@ class RecipeDetailViewModel @Inject constructor(
             scope = viewModelScope,
             started = SharingStarted.Eagerly,
             initialValue = null
+        )
+
+    val keepScreenOn: StateFlow<Boolean> = settingsDataStore.keepScreenOn
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = true
         )
 
     private val _scale = MutableStateFlow(1.0)

@@ -41,6 +41,7 @@ import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -75,6 +76,7 @@ fun SettingsScreen(
     val apiKey by viewModel.apiKey.collectAsStateWithLifecycle()
     val apiKeyInput by viewModel.apiKeyInput.collectAsStateWithLifecycle()
     val aiModel by viewModel.aiModel.collectAsStateWithLifecycle()
+    val keepScreenOn by viewModel.keepScreenOn.collectAsStateWithLifecycle()
     val saveState by viewModel.saveState.collectAsStateWithLifecycle()
     val driveUiState by googleDriveViewModel.uiState.collectAsStateWithLifecycle()
 
@@ -143,6 +145,14 @@ fun SettingsScreen(
             ModelSelectionSection(
                 currentModel = aiModel,
                 onModelChange = viewModel::setAiModel
+            )
+
+            HorizontalDivider()
+
+            // Display Section
+            DisplaySection(
+                keepScreenOn = keepScreenOn,
+                onKeepScreenOnChange = viewModel::setKeepScreenOn
             )
 
             HorizontalDivider()
@@ -348,6 +358,41 @@ private fun ModelSelectionSection(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun DisplaySection(
+    keepScreenOn: Boolean,
+    onKeepScreenOnChange: (Boolean) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            text = "Display",
+            style = MaterialTheme.typography.titleMedium
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Keep screen on",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Text(
+                    text = "Prevent the screen from turning off while viewing a recipe.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = keepScreenOn,
+                onCheckedChange = onKeepScreenOnChange
+            )
         }
     }
 }

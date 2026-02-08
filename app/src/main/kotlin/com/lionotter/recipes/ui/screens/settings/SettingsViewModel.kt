@@ -32,6 +32,13 @@ class SettingsViewModel @Inject constructor(
             initialValue = AnthropicService.DEFAULT_MODEL
         )
 
+    val keepScreenOn: StateFlow<Boolean> = settingsDataStore.keepScreenOn
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = true
+        )
+
     private val _apiKeyInput = MutableStateFlow("")
     val apiKeyInput: StateFlow<String> = _apiKeyInput.asStateFlow()
 
@@ -72,6 +79,12 @@ class SettingsViewModel @Inject constructor(
     fun setAiModel(model: String) {
         viewModelScope.launch {
             settingsDataStore.setAiModel(model)
+        }
+    }
+
+    fun setKeepScreenOn(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsDataStore.setKeepScreenOn(enabled)
         }
     }
 
