@@ -41,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -84,6 +86,16 @@ fun RecipeDetailScreen(
     val usedInstructionIngredients by viewModel.usedInstructionIngredients.collectAsStateWithLifecycle()
     val globalIngredientUsage by viewModel.globalIngredientUsage.collectAsStateWithLifecycle()
     val highlightedInstructionStep by viewModel.highlightedInstructionStep.collectAsStateWithLifecycle()
+    val keepScreenOn by viewModel.keepScreenOn.collectAsStateWithLifecycle()
+
+    // Keep screen on while viewing a recipe if the setting is enabled
+    val view = LocalView.current
+    DisposableEffect(keepScreenOn) {
+        view.keepScreenOn = keepScreenOn
+        onDispose {
+            view.keepScreenOn = false
+        }
+    }
 
     var showDeleteDialog by remember { mutableStateOf(false) }
 

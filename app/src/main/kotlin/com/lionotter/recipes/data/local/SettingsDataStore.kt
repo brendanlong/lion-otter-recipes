@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -28,6 +29,7 @@ class SettingsDataStore @Inject constructor(
 ) {
     private object Keys {
         val AI_MODEL = stringPreferencesKey("ai_model")
+        val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
         const val ENCRYPTED_API_KEY = "anthropic_api_key"
     }
 
@@ -58,6 +60,10 @@ class SettingsDataStore @Inject constructor(
         preferences[Keys.AI_MODEL] ?: AnthropicService.DEFAULT_MODEL
     }
 
+    val keepScreenOn: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[Keys.KEEP_SCREEN_ON] ?: true
+    }
+
     suspend fun setAnthropicApiKey(apiKey: String) {
         withContext(Dispatchers.IO) {
             encryptedPrefs.edit().putString(Keys.ENCRYPTED_API_KEY, apiKey).apply()
@@ -75,6 +81,12 @@ class SettingsDataStore @Inject constructor(
     suspend fun setAiModel(model: String) {
         context.dataStore.edit { preferences ->
             preferences[Keys.AI_MODEL] = model
+        }
+    }
+
+    suspend fun setKeepScreenOn(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[Keys.KEEP_SCREEN_ON] = enabled
         }
     }
 }

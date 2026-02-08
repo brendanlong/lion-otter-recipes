@@ -284,7 +284,7 @@ app: {
       entity: RecipeEntity
       settings: {
         label: SettingsDataStore
-        tooltip: "Uses EncryptedSharedPreferences for API key, DataStore for non-sensitive settings"
+        tooltip: "Uses EncryptedSharedPreferences for API key, DataStore for non-sensitive settings (AI model, keep screen on)"
       }
 
       dao -> room
@@ -332,6 +332,7 @@ app: {
   }
 
   # Connections within app
+  ui.viewmodels.detail_vm -> data.local.settings: keep screen on
   ui.viewmodels.add_vm -> background.worker: enqueue work
   ui.viewmodels.drive_vm -> background.worker.export_worker: export
   ui.viewmodels.drive_vm -> background.worker.drive_import_worker: import

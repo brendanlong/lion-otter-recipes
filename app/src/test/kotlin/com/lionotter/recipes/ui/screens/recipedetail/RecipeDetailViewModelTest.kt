@@ -2,6 +2,7 @@ package com.lionotter.recipes.ui.screens.recipedetail
 
 import androidx.lifecycle.SavedStateHandle
 import app.cash.turbine.test
+import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.Ingredient
 import com.lionotter.recipes.domain.model.IngredientSection
@@ -42,6 +43,7 @@ class RecipeDetailViewModelTest {
     private lateinit var getRecipeByIdUseCase: GetRecipeByIdUseCase
     private lateinit var deleteRecipeUseCase: DeleteRecipeUseCase
     private lateinit var recipeRepository: RecipeRepository
+    private lateinit var settingsDataStore: SettingsDataStore
     private lateinit var viewModel: RecipeDetailViewModel
     private val testDispatcher = StandardTestDispatcher()
 
@@ -74,9 +76,11 @@ class RecipeDetailViewModelTest {
         getRecipeByIdUseCase = mockk()
         deleteRecipeUseCase = mockk()
         recipeRepository = mockk()
+        settingsDataStore = mockk()
 
         // Default mock setup
         every { getRecipeByIdUseCase.execute("recipe-1") } returns flowOf(createTestRecipe())
+        every { settingsDataStore.keepScreenOn } returns flowOf(true)
     }
 
     @After
@@ -89,7 +93,8 @@ class RecipeDetailViewModelTest {
             savedStateHandle = savedStateHandle,
             getRecipeByIdUseCase = getRecipeByIdUseCase,
             deleteRecipeUseCase = deleteRecipeUseCase,
-            recipeRepository = recipeRepository
+            recipeRepository = recipeRepository,
+            settingsDataStore = settingsDataStore
         )
     }
 
