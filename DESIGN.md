@@ -181,12 +181,11 @@ Orchestrates the full import flow:
 
 Reports progress via callback for UI updates.
 
-#### GetRecipesUseCase / GetRecipeByIdUseCase
+#### GetTagsUseCase
 
-Simple data access with filtering:
-- All recipes (sorted by update time)
-- By tag
-- By search query
+Uses a greedy set cover algorithm to select the top 10 tags that maximize recipe coverage. This is the kind of business logic that justifies a use case class.
+
+Simple CRUD operations (get all recipes, get by ID, delete) are handled by injecting `RecipeRepository` directly into ViewModels, since they don't require any orchestration or business logic beyond the repository call.
 
 ## UI Layer
 
@@ -241,10 +240,10 @@ Example pattern:
 ```kotlin
 @HiltViewModel
 class RecipeListViewModel @Inject constructor(
-    private val getRecipesUseCase: GetRecipesUseCase
+    private val recipeRepository: RecipeRepository
 ) : ViewModel() {
 
-    val recipes: StateFlow<List<Recipe>> = getRecipesUseCase.execute()
+    val recipes: StateFlow<List<Recipe>> = recipeRepository.getAllRecipes()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 }
 ```
@@ -309,9 +308,6 @@ RecipeListScreen renders
        │
        ▼
 RecipeListViewModel.recipes (StateFlow)
-       │
-       ▼
-GetRecipesUseCase.execute()
        │
        ▼
 RecipeRepository.getAllRecipes()
