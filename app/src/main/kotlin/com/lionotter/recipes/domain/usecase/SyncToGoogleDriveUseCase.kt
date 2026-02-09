@@ -6,10 +6,9 @@ import com.lionotter.recipes.data.remote.DriveFolder
 import com.lionotter.recipes.data.remote.GoogleDriveService
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
-import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
+import com.lionotter.recipes.domain.util.RecipeSerializer
 import kotlinx.coroutines.flow.first
 import kotlinx.datetime.Clock
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
 
@@ -29,6 +28,7 @@ class SyncToGoogleDriveUseCase @Inject constructor(
     private val googleDriveService: GoogleDriveService,
     private val recipeRepository: RecipeRepository,
     private val settingsDataStore: SettingsDataStore,
+    private val recipeSerializer: RecipeSerializer,
     private val json: Json
 ) {
     companion object {
@@ -124,7 +124,7 @@ class SyncToGoogleDriveUseCase @Inject constructor(
         for (folder in remoteFolders) {
             val jsonFile = googleDriveService.findFileInFolder(
                 folderId = folder.id,
-                fileName = GoogleDriveService.RECIPE_JSON_FILENAME
+                fileName = RecipeSerializer.RECIPE_JSON_FILENAME
             ) ?: continue
 
             try {
@@ -229,36 +229,35 @@ class SyncToGoogleDriveUseCase @Inject constructor(
 
     private suspend fun uploadRecipe(recipe: Recipe, parentFolderId: String): Boolean {
         return try {
-            val folderName = sanitizeFolderName(recipe.name)
-            val folderResult = googleDriveService.createFolder(folderName, parentFolderId)
+            val originalHtml = recipeRepository.getOriginalHtml(recipe.id)
+            val files = recipeSerializer.serializeRecipe(recipe, originalHtml)
+
+            val folderResult = googleDriveService.createFolder(files.folderName, parentFolderId)
             if (folderResult.isFailure) return false
 
             val recipeFolder = folderResult.getOrThrow()
 
             // Upload recipe.json
-            val recipeJson = json.encodeToString(recipe)
             val jsonResult = googleDriveService.uploadJsonFile(
-                fileName = GoogleDriveService.RECIPE_JSON_FILENAME,
-                content = recipeJson,
+                fileName = RecipeSerializer.RECIPE_JSON_FILENAME,
+                content = files.recipeJson,
                 parentFolderId = recipeFolder.id
             )
             if (jsonResult.isFailure) return false
 
             // Upload original.html (optional)
-            val originalHtml = recipeRepository.getOriginalHtml(recipe.id)
-            if (originalHtml != null) {
+            if (files.originalHtml != null) {
                 googleDriveService.uploadHtmlFile(
-                    fileName = GoogleDriveService.RECIPE_HTML_FILENAME,
-                    content = originalHtml,
+                    fileName = RecipeSerializer.RECIPE_HTML_FILENAME,
+                    content = files.originalHtml,
                     parentFolderId = recipeFolder.id
                 )
             }
 
             // Upload recipe.md
-            val markdown = RecipeMarkdownFormatter.format(recipe)
             googleDriveService.uploadMarkdownFile(
-                fileName = GoogleDriveService.RECIPE_MARKDOWN_FILENAME,
-                content = markdown,
+                fileName = RecipeSerializer.RECIPE_MARKDOWN_FILENAME,
+                content = files.recipeMarkdown,
                 parentFolderId = recipeFolder.id
             )
 
@@ -271,24 +270,24 @@ class SyncToGoogleDriveUseCase @Inject constructor(
 
     private suspend fun updateRemoteRecipe(recipe: Recipe, remoteFolder: DriveFolder): Boolean {
         return try {
+            val files = recipeSerializer.serializeRecipe(recipe, null)
+
             // Find and update recipe.json
             val jsonFile = googleDriveService.findFileInFolder(
                 folderId = remoteFolder.id,
-                fileName = GoogleDriveService.RECIPE_JSON_FILENAME
+                fileName = RecipeSerializer.RECIPE_JSON_FILENAME
             )
-
-            val recipeJson = json.encodeToString(recipe)
 
             if (jsonFile != null) {
                 googleDriveService.updateTextFile(
                     fileId = jsonFile.id,
-                    content = recipeJson,
+                    content = files.recipeJson,
                     mimeType = "application/json"
                 )
             } else {
                 googleDriveService.uploadJsonFile(
-                    fileName = GoogleDriveService.RECIPE_JSON_FILENAME,
-                    content = recipeJson,
+                    fileName = RecipeSerializer.RECIPE_JSON_FILENAME,
+                    content = files.recipeJson,
                     parentFolderId = remoteFolder.id
                 )
             }
@@ -296,20 +295,19 @@ class SyncToGoogleDriveUseCase @Inject constructor(
             // Update recipe.md
             val mdFile = googleDriveService.findFileInFolder(
                 folderId = remoteFolder.id,
-                fileName = GoogleDriveService.RECIPE_MARKDOWN_FILENAME
+                fileName = RecipeSerializer.RECIPE_MARKDOWN_FILENAME
             )
-            val markdown = RecipeMarkdownFormatter.format(recipe)
 
             if (mdFile != null) {
                 googleDriveService.updateTextFile(
                     fileId = mdFile.id,
-                    content = markdown,
+                    content = files.recipeMarkdown,
                     mimeType = "text/markdown"
                 )
             } else {
                 googleDriveService.uploadMarkdownFile(
-                    fileName = GoogleDriveService.RECIPE_MARKDOWN_FILENAME,
-                    content = markdown,
+                    fileName = RecipeSerializer.RECIPE_MARKDOWN_FILENAME,
+                    content = files.recipeMarkdown,
                     parentFolderId = remoteFolder.id
                 )
             }
@@ -319,14 +317,5 @@ class SyncToGoogleDriveUseCase @Inject constructor(
             Log.w(TAG, "Failed to update remote recipe ${recipe.name}", e)
             false
         }
-    }
-
-    private fun sanitizeFolderName(name: String): String {
-        return name
-            .replace(Regex("[/\\\\:*?\"<>|]"), "_")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-            .take(100)
-            .ifEmpty { "Untitled Recipe" }
     }
 }

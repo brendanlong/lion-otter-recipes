@@ -197,6 +197,52 @@ class RecipeNotificationHelper @Inject constructor(
     }
 
     @SuppressLint("MissingPermission")
+    fun showZipExportSuccessNotification(exportedCount: Int, failedCount: Int) {
+        if (!notificationManager.areNotificationsEnabled()) return
+
+        notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
+
+        val message = if (failedCount > 0) {
+            "Exported $exportedCount recipes ($failedCount failed)"
+        } else {
+            "Exported $exportedCount recipes to ZIP file"
+        }
+
+        val notification = baseNotification()
+            .setContentTitle("Export Complete")
+            .setContentText(message)
+            .build()
+
+        notificationManager.notify(NOTIFICATION_ID_COMPLETE, notification)
+    }
+
+    @SuppressLint("MissingPermission")
+    fun showZipImportSuccessNotification(importedCount: Int, failedCount: Int, skippedCount: Int = 0) {
+        if (!notificationManager.areNotificationsEnabled()) return
+
+        notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
+
+        val message = buildString {
+            append("Imported $importedCount recipes")
+            if (skippedCount > 0 || failedCount > 0) {
+                append(" (")
+                val parts = mutableListOf<String>()
+                if (skippedCount > 0) parts.add("$skippedCount skipped")
+                if (failedCount > 0) parts.add("$failedCount failed")
+                append(parts.joinToString(", "))
+                append(")")
+            }
+        }
+
+        val notification = baseNotification()
+            .setContentTitle("Import Complete")
+            .setContentText(message)
+            .build()
+
+        notificationManager.notify(NOTIFICATION_ID_COMPLETE, notification)
+    }
+
+    @SuppressLint("MissingPermission")
     fun showPaprikaImportSuccessNotification(importedCount: Int, failedCount: Int) {
         if (!notificationManager.areNotificationsEnabled()) return
 

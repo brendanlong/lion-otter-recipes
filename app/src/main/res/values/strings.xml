@@ -152,6 +152,17 @@
     <string name="skipped_count">%1$d skipped</string>
     <string name="failed_count">%1$d failed</string>
 
+    <!-- Zip Export/Import -->
+    <string name="backup_restore">Backup &amp; Restore</string>
+    <string name="backup_restore_description">Export your recipes to a ZIP file for backup, or import recipes from a previously exported ZIP file.</string>
+    <string name="export_to_zip">Export to ZIP</string>
+    <string name="import_from_zip">Import from ZIP</string>
+    <string name="exporting_recipes">Exporting recipes\u2026</string>
+    <string name="importing_recipes">Importing recipes\u2026</string>
+    <string name="zip_exported_recipes">Exported %1$d recipes to ZIP file</string>
+    <string name="zip_exported_recipes_with_failures">Exported %1$d recipes (%2$d failed)</string>
+    <string name="zip_imported_recipes">Imported %1$d recipes from ZIP file</string>
+
     <!-- Paprika Import -->
     <string name="import_from_paprika">Import from Paprika</string>
     <string name="reading_paprika_export">Reading Paprika export\u2026</string>

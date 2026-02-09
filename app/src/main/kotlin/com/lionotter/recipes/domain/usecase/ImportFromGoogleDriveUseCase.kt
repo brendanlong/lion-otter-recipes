@@ -5,6 +5,7 @@ import com.lionotter.recipes.data.remote.DriveFolder
 import com.lionotter.recipes.data.remote.GoogleDriveService
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.util.RecipeSerializer
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
 
@@ -142,7 +143,7 @@ class ImportFromGoogleDriveUseCase @Inject constructor(
         // Try to find recipe.json first
         val jsonFile = googleDriveService.findFileInFolder(
             folderId = folder.id,
-            fileName = GoogleDriveService.RECIPE_JSON_FILENAME
+            fileName = RecipeSerializer.RECIPE_JSON_FILENAME
         )
 
         if (jsonFile != null) {
@@ -157,7 +158,7 @@ class ImportFromGoogleDriveUseCase @Inject constructor(
         // Try HTML fallback
         val htmlFile = googleDriveService.findFileInFolder(
             folderId = folder.id,
-            fileName = GoogleDriveService.RECIPE_HTML_FILENAME
+            fileName = RecipeSerializer.RECIPE_HTML_FILENAME
         )
 
         if (htmlFile != null) {
