@@ -61,10 +61,13 @@ import android.net.Uri
 import androidx.core.net.toUri
 import coil.compose.AsyncImage
 import com.lionotter.recipes.domain.model.IngredientSection
+import com.lionotter.recipes.domain.model.IngredientUsageStatus
+import com.lionotter.recipes.domain.model.InstructionIngredientKey
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.MeasurementPreference
 import com.lionotter.recipes.domain.model.MeasurementType
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.model.createInstructionIngredientKey
 import com.lionotter.recipes.ui.components.DeleteConfirmationDialog
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.util.pluralize

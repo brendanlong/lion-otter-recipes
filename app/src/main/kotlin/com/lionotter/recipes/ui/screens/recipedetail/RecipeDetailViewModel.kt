@@ -5,10 +5,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.repository.RecipeRepository
-import com.lionotter.recipes.domain.model.Ingredient
+import com.lionotter.recipes.domain.model.IngredientUsageStatus
+import com.lionotter.recipes.domain.model.InstructionIngredientKey
 import com.lionotter.recipes.domain.model.MeasurementPreference
 import com.lionotter.recipes.domain.model.MeasurementType
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.model.createInstructionIngredientKey
+import com.lionotter.recipes.domain.usecase.CalculateIngredientUsageUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,26 +27,6 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * Represents the usage status of a global ingredient based on instruction step usage.
- */
-data class IngredientUsageStatus(
-    val totalAmount: Double?,
-    val usedAmount: Double,
-    val unit: String?,
-    val isFullyUsed: Boolean,
-    val remainingAmount: Double?
-)
-
-/**
- * Key to uniquely identify an ingredient in an instruction step.
- * Format: "sectionIndex-stepIndex-ingredientIndex"
- */
-typealias InstructionIngredientKey = String
-
-fun createInstructionIngredientKey(sectionIndex: Int, stepIndex: Int, ingredientIndex: Int): InstructionIngredientKey =
-    "$sectionIndex-$stepIndex-$ingredientIndex"
-
-/**
  * Represents the location of a highlighted instruction step.
  */
 data class HighlightedInstructionStep(
@@ -55,7 +38,8 @@ data class HighlightedInstructionStep(
 class RecipeDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val recipeRepository: RecipeRepository,
-    settingsDataStore: SettingsDataStore
+    settingsDataStore: SettingsDataStore,
+    private val calculateIngredientUsage: CalculateIngredientUsageUseCase
 ) : ViewModel() {
 
     private val recipeId: String
@@ -186,79 +170,12 @@ class RecipeDetailViewModel @Inject constructor(
         _measurementPreference
     ) { recipe, usedKeys, scale, preference ->
         if (recipe == null) return@combine emptyMap()
-
-        // Build a map of global ingredient totals
-        val globalTotals = mutableMapOf<String, Pair<Double?, String?>>()
-        recipe.ingredientSections.forEach { section ->
-            section.ingredients.forEach { ingredient ->
-                val key = ingredient.name.lowercase()
-                val measurement = ingredient.getPreferredMeasurement(preference)
-                val value = measurement?.value?.let { it * scale }
-                globalTotals[key] = Pair(value, measurement?.unit)
-
-                // Also include alternates as separate entries
-                ingredient.alternates.forEach { alt ->
-                    val altKey = alt.name.lowercase()
-                    val altMeasurement = alt.getPreferredMeasurement(preference)
-                    val altValue = altMeasurement?.value?.let { it * scale }
-                    globalTotals[altKey] = Pair(altValue, altMeasurement?.unit)
-                }
-            }
-        }
-
-        // Sum used amounts from instruction ingredients
-        val usedAmounts = mutableMapOf<String, Double>()
-        recipe.instructionSections.forEachIndexed { sectionIndex, section ->
-            section.steps.forEachIndexed { stepIndex, step ->
-                step.ingredients.forEachIndexed { ingredientIndex, ingredient ->
-                    val stepKey = createInstructionIngredientKey(sectionIndex, stepIndex, ingredientIndex)
-                    if (stepKey in usedKeys) {
-                        // Add this ingredient's amount to used total
-                        addIngredientUsage(ingredient, usedAmounts, scale, preference)
-                        // Also add all alternates
-                        ingredient.alternates.forEach { alt ->
-                            addIngredientUsage(alt, usedAmounts, scale, preference)
-                        }
-                    }
-                }
-            }
-        }
-
-        // Build the result map
-        globalTotals.mapValues { (key, totalPair) ->
-            val (total, unit) = totalPair
-            val used = usedAmounts[key] ?: 0.0
-            val remaining = total?.let { it - used }
-            val isFullyUsed = when {
-                total == null -> used > 0 // For count-less ingredients, any usage means fully used
-                total <= 0 -> used > 0
-                else -> used >= total
-            }
-            IngredientUsageStatus(
-                totalAmount = total,
-                usedAmount = used,
-                unit = unit,
-                isFullyUsed = isFullyUsed,
-                remainingAmount = remaining?.coerceAtLeast(0.0)
-            )
-        }
+        calculateIngredientUsage.execute(recipe, usedKeys, scale, preference)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyMap()
     )
-
-    private fun addIngredientUsage(
-        ingredient: Ingredient,
-        usedAmounts: MutableMap<String, Double>,
-        scale: Double,
-        preference: MeasurementPreference
-    ) {
-        val key = ingredient.name.lowercase()
-        val measurement = ingredient.getPreferredMeasurement(preference)
-        val amount = measurement?.value?.let { it * scale } ?: 0.0
-        usedAmounts[key] = (usedAmounts[key] ?: 0.0) + amount
-    }
 
     /**
      * Resets all ingredient usage tracking.
