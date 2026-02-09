@@ -23,6 +23,10 @@ jsoup = "1.18.1"
 playServicesAuth = "21.2.0"
 googleApiClient = "2.7.0"
 googleDriveApi = "v3-rev20241206-2.0.0"
+benchmarkMacroJunit4 = "1.4.1"
+profileinstaller = "1.4.1"
+uiautomator = "2.3.0"
+androidxTestExtJunit = "1.2.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -85,6 +89,12 @@ play-services-auth = { group = "com.google.android.gms", name = "play-services-a
 google-api-client = { group = "com.google.api-client", name = "google-api-client-android", version.ref = "googleApiClient" }
 google-drive-api = { group = "com.google.apis", name = "google-api-services-drive", version.ref = "googleDriveApi" }
 
+# Baseline Profile
+androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchmark-macro-junit4", version.ref = "benchmarkMacroJunit4" }
+androidx-profileinstaller = { group = "androidx.profileinstaller", name = "profileinstaller", version.ref = "profileinstaller" }
+androidx-uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "uiautomator" }
+androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExtJunit" }
+
 # Testing
 junit = { group = "junit", name = "junit", version = "4.13.2" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version = "1.9.0" }
@@ -93,6 +103,8 @@ turbine = { group = "app.cash.turbine", name = "turbine", version = "1.2.0" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
+android-test = { id = "com.android.test", version.ref = "agp" }
+baselineprofile = { id = "androidx.baselineprofile", version.ref = "benchmarkMacroJunit4" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }

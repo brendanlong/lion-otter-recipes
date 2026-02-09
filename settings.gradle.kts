@@ -34,3 +34,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "LionOtterRecipes"
 include(":app")
+include(":baselineprofile")
