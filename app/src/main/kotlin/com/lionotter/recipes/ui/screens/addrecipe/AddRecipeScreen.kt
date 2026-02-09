@@ -185,7 +185,7 @@ private fun IdleContent(
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.Error,
-                        contentDescription = null,
+                        contentDescription = "Error",
                         tint = MaterialTheme.colorScheme.onErrorContainer,
                         modifier = Modifier.size(24.dp)
                     )
@@ -262,7 +262,7 @@ private fun LoadingContent(
 
         Icon(
             imageVector = icon,
-            contentDescription = null,
+            contentDescription = message,
             modifier = Modifier.size(64.dp),
             tint = MaterialTheme.colorScheme.primary
         )
@@ -322,7 +322,7 @@ private fun NoApiKeyContent(onNavigateToSettings: () -> Unit) {
     ) {
         Icon(
             imageVector = Icons.Default.Warning,
-            contentDescription = null,
+            contentDescription = "Warning",
             modifier = Modifier.size(64.dp),
             tint = MaterialTheme.colorScheme.error
         )

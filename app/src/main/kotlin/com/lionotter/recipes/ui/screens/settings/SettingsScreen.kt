@@ -216,7 +216,7 @@ private fun ApiKeySection(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 imageVector = Icons.Default.Check,
-                                contentDescription = null,
+                                contentDescription = "API key configured",
                                 tint = MaterialTheme.colorScheme.primary
                             )
                             Text(
@@ -455,7 +455,7 @@ private fun GoogleDriveSection(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
                                     imageVector = Icons.Default.Cloud,
-                                    contentDescription = null,
+                                    contentDescription = "Connected to Google Drive",
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                                 Text(
@@ -497,7 +497,7 @@ private fun GoogleDriveSection(
                     ) {
                         Icon(
                             imageVector = Icons.Default.CloudOff,
-                            contentDescription = null,
+                            contentDescription = "Not connected to Google Drive",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
