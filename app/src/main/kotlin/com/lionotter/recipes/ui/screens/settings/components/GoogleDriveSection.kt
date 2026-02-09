@@ -165,11 +165,6 @@ fun GoogleDriveSection(
                     }
                 }
 
-                Text(
-                    text = stringResource(R.string.google_drive_usage_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
 
             is GoogleDriveUiState.SignedOut -> {

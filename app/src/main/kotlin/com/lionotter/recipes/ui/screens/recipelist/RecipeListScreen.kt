@@ -15,13 +15,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.CloudUpload
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
@@ -49,12 +44,7 @@ import com.lionotter.recipes.R
 import com.lionotter.recipes.data.repository.RepositoryError
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.ui.components.DeleteConfirmationDialog
-import com.lionotter.recipes.ui.components.ProgressCard
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
-import com.lionotter.recipes.ui.screens.googledrive.GoogleDriveUiState
-import com.lionotter.recipes.ui.screens.googledrive.GoogleDriveViewModel
-import com.lionotter.recipes.ui.screens.googledrive.OperationState
-import com.lionotter.recipes.ui.screens.recipelist.components.FolderPickerDialog
 import com.lionotter.recipes.ui.screens.recipelist.components.InProgressRecipeCard
 import com.lionotter.recipes.ui.screens.recipelist.components.SwipeableRecipeCard
 import com.lionotter.recipes.ui.state.RecipeListItem
@@ -65,28 +55,14 @@ fun RecipeListScreen(
     onRecipeClick: (String) -> Unit,
     onAddRecipeClick: () -> Unit,
     onSettingsClick: () -> Unit,
-    viewModel: RecipeListViewModel = hiltViewModel(),
-    googleDriveViewModel: GoogleDriveViewModel = hiltViewModel()
+    viewModel: RecipeListViewModel = hiltViewModel()
 ) {
     val recipes by viewModel.recipes.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val selectedTag by viewModel.selectedTag.collectAsStateWithLifecycle()
     val availableTags by viewModel.availableTags.collectAsStateWithLifecycle()
-    val driveUiState by googleDriveViewModel.uiState.collectAsStateWithLifecycle()
-    val operationState by googleDriveViewModel.operationState.collectAsStateWithLifecycle()
-    val folders by googleDriveViewModel.folders.collectAsStateWithLifecycle()
-    val folderNavigationStack by googleDriveViewModel.folderNavigationStack.collectAsStateWithLifecycle()
-    val isLoadingFolders by googleDriveViewModel.isLoadingFolders.collectAsStateWithLifecycle()
 
-    var showMenu by remember { mutableStateOf(false) }
-    var showFolderPicker by remember { mutableStateOf(false) }
-    var folderPickerMode by remember { mutableStateOf(FolderPickerMode.EXPORT) }
     val snackbarHostState = remember { SnackbarHostState() }
-
-    // Refresh sign-in status when screen becomes visible (e.g., after returning from Settings)
-    LaunchedEffect(Unit) {
-        googleDriveViewModel.refreshSignInStatus()
-    }
 
     // Show snackbar for repository errors (e.g., corrupted recipe data)
     LaunchedEffect(Unit) {
@@ -96,41 +72,6 @@ fun RecipeListScreen(
                     "Some data for recipe '${error.recipeName}' could not be loaded. The recipe may appear incomplete."
             }
             snackbarHostState.showSnackbar(message)
-        }
-    }
-
-    // Show snackbar for operation results
-    LaunchedEffect(operationState) {
-        when (val state = operationState) {
-            is OperationState.ExportComplete -> {
-                val message = if (state.failedCount > 0) {
-                    "Exported ${state.exportedCount} recipes (${state.failedCount} failed)"
-                } else {
-                    "Exported ${state.exportedCount} recipes to Google Drive"
-                }
-                snackbarHostState.showSnackbar(message)
-                googleDriveViewModel.resetOperationState()
-            }
-            is OperationState.ImportComplete -> {
-                val message = buildString {
-                    append("Imported ${state.importedCount} recipes")
-                    if (state.skippedCount > 0 || state.failedCount > 0) {
-                        append(" (")
-                        val parts = mutableListOf<String>()
-                        if (state.skippedCount > 0) parts.add("${state.skippedCount} skipped")
-                        if (state.failedCount > 0) parts.add("${state.failedCount} failed")
-                        append(parts.joinToString(", "))
-                        append(")")
-                    }
-                }
-                snackbarHostState.showSnackbar(message)
-                googleDriveViewModel.resetOperationState()
-            }
-            is OperationState.Error -> {
-                snackbarHostState.showSnackbar(state.message)
-                googleDriveViewModel.resetOperationState()
-            }
-            else -> {}
         }
     }
 
@@ -154,59 +95,6 @@ fun RecipeListScreen(
             RecipeTopAppBar(
                 title = stringResource(R.string.app_name),
                 actions = {
-                    // Menu for Google Drive operations
-                    Box {
-                        IconButton(onClick = { showMenu = true }) {
-                            Icon(
-                                imageVector = Icons.Default.MoreVert,
-                                contentDescription = stringResource(R.string.more_options)
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = showMenu,
-                            onDismissRequest = { showMenu = false }
-                        ) {
-                            val isSignedIn = driveUiState is GoogleDriveUiState.SignedIn
-                            val isOperating = operationState is OperationState.Exporting ||
-                                    operationState is OperationState.Importing
-
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.export_to_google_drive)) },
-                                onClick = {
-                                    showMenu = false
-                                    if (isSignedIn) {
-                                        folderPickerMode = FolderPickerMode.EXPORT
-                                        showFolderPicker = true
-                                        googleDriveViewModel.resetFolderNavigation()
-                                    } else {
-                                        onSettingsClick()
-                                    }
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Default.CloudUpload, contentDescription = null)
-                                },
-                                enabled = !isOperating
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.import_from_google_drive)) },
-                                onClick = {
-                                    showMenu = false
-                                    if (isSignedIn) {
-                                        folderPickerMode = FolderPickerMode.IMPORT
-                                        showFolderPicker = true
-                                        googleDriveViewModel.resetFolderNavigation()
-                                    } else {
-                                        onSettingsClick()
-                                    }
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Default.CloudDownload, contentDescription = null)
-                                },
-                                enabled = !isOperating
-                            )
-                        }
-                    }
-
                     IconButton(onClick = onSettingsClick) {
                         Icon(
                             imageVector = Icons.Default.Settings,
@@ -234,19 +122,6 @@ fun RecipeListScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Show progress indicator when exporting/importing
-            if (operationState is OperationState.Exporting ||
-                operationState is OperationState.Importing) {
-                ProgressCard(
-                    message = if (operationState is OperationState.Exporting) {
-                        stringResource(R.string.exporting_to_google_drive)
-                    } else {
-                        stringResource(R.string.importing_from_google_drive)
-                    },
-                    modifier = Modifier.padding(16.dp)
-                )
-            }
-
             // Search bar
             OutlinedTextField(
                 value = searchQuery,
@@ -332,32 +207,4 @@ fun RecipeListScreen(
             }
         }
     }
-
-    // Folder picker dialog
-    if (showFolderPicker) {
-        FolderPickerDialog(
-            mode = folderPickerMode,
-            folders = folders,
-            navigationStack = folderNavigationStack,
-            isLoading = isLoadingFolders,
-            onFolderSelected = { folderId ->
-                showFolderPicker = false
-                when (folderPickerMode) {
-                    FolderPickerMode.EXPORT -> googleDriveViewModel.exportToGoogleDrive(folderId)
-                    FolderPickerMode.IMPORT -> folderId?.let { googleDriveViewModel.importFromGoogleDrive(it) }
-                }
-            },
-            onDismiss = { showFolderPicker = false },
-            onNavigateToFolder = { folder ->
-                googleDriveViewModel.navigateToFolder(folder)
-            },
-            onNavigateBack = {
-                googleDriveViewModel.navigateBack()
-            }
-        )
-    }
-}
-
-enum class FolderPickerMode {
-    EXPORT, IMPORT
 }
