@@ -1,9 +1,7 @@
 package com.lionotter.recipes.domain.usecase
 
-import com.lionotter.recipes.data.repository.RecipeRepository
-import io.mockk.coEvery
-import io.mockk.mockk
-import kotlinx.coroutines.test.runTest
+import com.lionotter.recipes.domain.model.Recipe
+import kotlinx.datetime.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -11,85 +9,89 @@ import org.junit.Test
 
 class GetTagsUseCaseTest {
 
-    private lateinit var recipeRepository: RecipeRepository
     private lateinit var getTagsUseCase: GetTagsUseCase
+
+    private val now = Instant.fromEpochMilliseconds(0)
+
+    private fun recipe(id: String, tags: List<String>) = Recipe(
+        id = id,
+        name = "Recipe $id",
+        tags = tags,
+        createdAt = now,
+        updatedAt = now
+    )
 
     @Before
     fun setup() {
-        recipeRepository = mockk()
-        getTagsUseCase = GetTagsUseCase(recipeRepository)
+        getTagsUseCase = GetTagsUseCase()
     }
 
     @Test
-    fun `returns empty list when no recipes exist`() = runTest {
-        coEvery { recipeRepository.getAllRecipesWithTags() } returns emptyList()
-
-        val result = getTagsUseCase.execute()
+    fun `returns empty list when no recipes exist`() {
+        val result = getTagsUseCase.execute(emptyList())
 
         assertTrue(result.isEmpty())
     }
 
     @Test
-    fun `returns all tags when fewer than 10 tags exist`() = runTest {
-        coEvery { recipeRepository.getAllRecipesWithTags() } returns listOf(
-            "recipe-1" to listOf("dinner", "easy"),
-            "recipe-2" to listOf("dinner", "italian"),
-            "recipe-3" to listOf("dessert", "quick")
+    fun `returns all tags when fewer than 10 tags exist`() {
+        val recipes = listOf(
+            recipe("recipe-1", listOf("dinner", "easy")),
+            recipe("recipe-2", listOf("dinner", "italian")),
+            recipe("recipe-3", listOf("dessert", "quick"))
         )
 
-        val result = getTagsUseCase.execute()
+        val result = getTagsUseCase.execute(recipes)
 
         assertEquals(5, result.size)
         assertTrue(result.containsAll(listOf("dinner", "easy", "italian", "dessert", "quick")))
     }
 
     @Test
-    fun `returns tags sorted by recipe count when fewer than 10`() = runTest {
-        coEvery { recipeRepository.getAllRecipesWithTags() } returns listOf(
-            "recipe-1" to listOf("dinner", "easy"),
-            "recipe-2" to listOf("dinner", "italian"),
-            "recipe-3" to listOf("dinner", "quick"),
-            "recipe-4" to listOf("easy", "quick")
+    fun `returns tags sorted by recipe count when fewer than 10`() {
+        val recipes = listOf(
+            recipe("recipe-1", listOf("dinner", "easy")),
+            recipe("recipe-2", listOf("dinner", "italian")),
+            recipe("recipe-3", listOf("dinner", "quick")),
+            recipe("recipe-4", listOf("easy", "quick"))
         )
 
-        val result = getTagsUseCase.execute()
+        val result = getTagsUseCase.execute(recipes)
 
         // "dinner" appears in 3 recipes, should be first
         assertEquals("dinner", result[0])
     }
 
     @Test
-    fun `returns exactly 10 tags when more than 10 exist`() = runTest {
+    fun `returns exactly 10 tags when more than 10 exist`() {
         // Create 15 different tags spread across recipes
-        val recipesWithTags = (1..15).map { i ->
-            "recipe-$i" to listOf("tag-$i", "common-${i % 3}")
+        val recipes = (1..15).map { i ->
+            recipe("recipe-$i", listOf("tag-$i", "common-${i % 3}"))
         }
 
-        coEvery { recipeRepository.getAllRecipesWithTags() } returns recipesWithTags
-
-        val result = getTagsUseCase.execute()
+        val result = getTagsUseCase.execute(recipes)
 
         assertEquals(10, result.size)
     }
 
     @Test
-    fun `greedy algorithm selects tag covering most recipes first`() = runTest {
+    fun `greedy algorithm selects tag covering most recipes first`() {
         // Tag "popular" covers 5 recipes, "niche" covers 1
-        coEvery { recipeRepository.getAllRecipesWithTags() } returns listOf(
-            "recipe-1" to listOf("popular", "tag-a"),
-            "recipe-2" to listOf("popular", "tag-b"),
-            "recipe-3" to listOf("popular", "tag-c"),
-            "recipe-4" to listOf("popular", "tag-d"),
-            "recipe-5" to listOf("popular", "tag-e"),
-            "recipe-6" to listOf("niche", "tag-f"),
-            "recipe-7" to listOf("tag-g"),
-            "recipe-8" to listOf("tag-h"),
-            "recipe-9" to listOf("tag-i"),
-            "recipe-10" to listOf("tag-j"),
-            "recipe-11" to listOf("tag-k")
+        val recipes = listOf(
+            recipe("recipe-1", listOf("popular", "tag-a")),
+            recipe("recipe-2", listOf("popular", "tag-b")),
+            recipe("recipe-3", listOf("popular", "tag-c")),
+            recipe("recipe-4", listOf("popular", "tag-d")),
+            recipe("recipe-5", listOf("popular", "tag-e")),
+            recipe("recipe-6", listOf("niche", "tag-f")),
+            recipe("recipe-7", listOf("tag-g")),
+            recipe("recipe-8", listOf("tag-h")),
+            recipe("recipe-9", listOf("tag-i")),
+            recipe("recipe-10", listOf("tag-j")),
+            recipe("recipe-11", listOf("tag-k"))
         )
 
-        val result = getTagsUseCase.execute()
+        val result = getTagsUseCase.execute(recipes)
 
         // "popular" should be selected and sorted by count (first in list)
         assertTrue(result.contains("popular"))
@@ -97,33 +99,33 @@ class GetTagsUseCaseTest {
     }
 
     @Test
-    fun `handles recipes with no tags`() = runTest {
-        coEvery { recipeRepository.getAllRecipesWithTags() } returns listOf(
-            "recipe-1" to emptyList(),
-            "recipe-2" to listOf("dinner"),
-            "recipe-3" to emptyList()
+    fun `handles recipes with no tags`() {
+        val recipes = listOf(
+            recipe("recipe-1", emptyList()),
+            recipe("recipe-2", listOf("dinner")),
+            recipe("recipe-3", emptyList())
         )
 
-        val result = getTagsUseCase.execute()
+        val result = getTagsUseCase.execute(recipes)
 
         assertEquals(1, result.size)
         assertEquals("dinner", result[0])
     }
 
     @Test
-    fun `handles single recipe with single tag`() = runTest {
-        coEvery { recipeRepository.getAllRecipesWithTags() } returns listOf(
-            "recipe-1" to listOf("dinner")
+    fun `handles single recipe with single tag`() {
+        val recipes = listOf(
+            recipe("recipe-1", listOf("dinner"))
         )
 
-        val result = getTagsUseCase.execute()
+        val result = getTagsUseCase.execute(recipes)
 
         assertEquals(1, result.size)
         assertEquals("dinner", result[0])
     }
 
     @Test
-    fun `maximizes coverage with greedy set cover`() = runTest {
+    fun `maximizes coverage with greedy set cover`() {
         // This test verifies the greedy set cover algorithm
         // Recipe coverage:
         // tag-a covers recipe-1, recipe-2 (2 recipes)
@@ -139,24 +141,22 @@ class GetTagsUseCaseTest {
         // tag-k covers recipe-11, recipe-12 (2 recipes)
         // tag-l covers all 12 recipes (would be selected first)
 
-        val recipesWithTags = listOf(
-            "recipe-1" to listOf("tag-a", "tag-l"),
-            "recipe-2" to listOf("tag-a", "tag-b", "tag-l"),
-            "recipe-3" to listOf("tag-b", "tag-c", "tag-l"),
-            "recipe-4" to listOf("tag-c", "tag-d", "tag-l"),
-            "recipe-5" to listOf("tag-d", "tag-e", "tag-l"),
-            "recipe-6" to listOf("tag-e", "tag-f", "tag-l"),
-            "recipe-7" to listOf("tag-f", "tag-g", "tag-l"),
-            "recipe-8" to listOf("tag-g", "tag-h", "tag-l"),
-            "recipe-9" to listOf("tag-h", "tag-i", "tag-l"),
-            "recipe-10" to listOf("tag-i", "tag-j", "tag-l"),
-            "recipe-11" to listOf("tag-j", "tag-k", "tag-l"),
-            "recipe-12" to listOf("tag-k", "tag-l")
+        val recipes = listOf(
+            recipe("recipe-1", listOf("tag-a", "tag-l")),
+            recipe("recipe-2", listOf("tag-a", "tag-b", "tag-l")),
+            recipe("recipe-3", listOf("tag-b", "tag-c", "tag-l")),
+            recipe("recipe-4", listOf("tag-c", "tag-d", "tag-l")),
+            recipe("recipe-5", listOf("tag-d", "tag-e", "tag-l")),
+            recipe("recipe-6", listOf("tag-e", "tag-f", "tag-l")),
+            recipe("recipe-7", listOf("tag-f", "tag-g", "tag-l")),
+            recipe("recipe-8", listOf("tag-g", "tag-h", "tag-l")),
+            recipe("recipe-9", listOf("tag-h", "tag-i", "tag-l")),
+            recipe("recipe-10", listOf("tag-i", "tag-j", "tag-l")),
+            recipe("recipe-11", listOf("tag-j", "tag-k", "tag-l")),
+            recipe("recipe-12", listOf("tag-k", "tag-l"))
         )
 
-        coEvery { recipeRepository.getAllRecipesWithTags() } returns recipesWithTags
-
-        val result = getTagsUseCase.execute()
+        val result = getTagsUseCase.execute(recipes)
 
         assertEquals(10, result.size)
         // tag-l covers all recipes, so it should be in the result and sorted first
@@ -164,16 +164,16 @@ class GetTagsUseCaseTest {
     }
 
     @Test
-    fun `returns tags sorted by total recipe count after selection`() = runTest {
-        coEvery { recipeRepository.getAllRecipesWithTags() } returns listOf(
-            "recipe-1" to listOf("common", "rare-a"),
-            "recipe-2" to listOf("common", "rare-b"),
-            "recipe-3" to listOf("common", "rare-c"),
-            "recipe-4" to listOf("semi-common", "rare-d"),
-            "recipe-5" to listOf("semi-common", "rare-e")
+    fun `returns tags sorted by total recipe count after selection`() {
+        val recipes = listOf(
+            recipe("recipe-1", listOf("common", "rare-a")),
+            recipe("recipe-2", listOf("common", "rare-b")),
+            recipe("recipe-3", listOf("common", "rare-c")),
+            recipe("recipe-4", listOf("semi-common", "rare-d")),
+            recipe("recipe-5", listOf("semi-common", "rare-e"))
         )
 
-        val result = getTagsUseCase.execute()
+        val result = getTagsUseCase.execute(recipes)
 
         // Results should be sorted by count: common (3), semi-common (2), then rares (1 each)
         assertEquals("common", result[0])
@@ -181,14 +181,14 @@ class GetTagsUseCaseTest {
     }
 
     @Test
-    fun `handles duplicate tags across recipes correctly`() = runTest {
-        coEvery { recipeRepository.getAllRecipesWithTags() } returns listOf(
-            "recipe-1" to listOf("dinner", "dinner"), // Duplicate in same recipe
-            "recipe-2" to listOf("dinner"),
-            "recipe-3" to listOf("lunch")
+    fun `handles duplicate tags across recipes correctly`() {
+        val recipes = listOf(
+            recipe("recipe-1", listOf("dinner", "dinner")), // Duplicate in same recipe
+            recipe("recipe-2", listOf("dinner")),
+            recipe("recipe-3", listOf("lunch"))
         )
 
-        val result = getTagsUseCase.execute()
+        val result = getTagsUseCase.execute(recipes)
 
         // Should count unique recipes per tag, not tag occurrences
         assertTrue(result.contains("dinner"))
@@ -196,17 +196,17 @@ class GetTagsUseCaseTest {
     }
 
     @Test
-    fun `selects diverse tags to cover all recipes`() = runTest {
+    fun `selects diverse tags to cover all recipes`() {
         // Create a scenario where we need multiple tags to cover all recipes
-        coEvery { recipeRepository.getAllRecipesWithTags() } returns listOf(
-            "recipe-1" to listOf("breakfast"),
-            "recipe-2" to listOf("lunch"),
-            "recipe-3" to listOf("dinner"),
-            "recipe-4" to listOf("dessert"),
-            "recipe-5" to listOf("snack")
+        val recipes = listOf(
+            recipe("recipe-1", listOf("breakfast")),
+            recipe("recipe-2", listOf("lunch")),
+            recipe("recipe-3", listOf("dinner")),
+            recipe("recipe-4", listOf("dessert")),
+            recipe("recipe-5", listOf("snack"))
         )
 
-        val result = getTagsUseCase.execute()
+        val result = getTagsUseCase.execute(recipes)
 
         // All 5 tags should be selected since each covers a unique recipe
         assertEquals(5, result.size)

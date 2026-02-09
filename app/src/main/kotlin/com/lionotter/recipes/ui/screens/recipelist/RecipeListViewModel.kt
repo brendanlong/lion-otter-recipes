@@ -2,13 +2,10 @@ package com.lionotter.recipes.ui.screens.recipelist
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.WorkInfo
-import androidx.work.WorkManager
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.usecase.GetTagsUseCase
 import com.lionotter.recipes.ui.state.InProgressRecipeManager
 import com.lionotter.recipes.ui.state.RecipeListItem
-import com.lionotter.recipes.worker.RecipeImportWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -27,7 +24,6 @@ class RecipeListViewModel @Inject constructor(
     private val getTagsUseCase: GetTagsUseCase,
     private val inProgressRecipeManager: InProgressRecipeManager,
     private val recipeRepository: RecipeRepository,
-    workManager: WorkManager
 ) : ViewModel() {
 
     /**
@@ -41,8 +37,17 @@ class RecipeListViewModel @Inject constructor(
     private val _selectedTag = MutableStateFlow<String?>(null)
     val selectedTag: StateFlow<String?> = _selectedTag.asStateFlow()
 
-    private val _availableTags = MutableStateFlow<List<String>>(emptyList())
-    val availableTags: StateFlow<List<String>> = _availableTags.asStateFlow()
+    /**
+     * Available tags derived reactively from the current recipes.
+     * Automatically stays in sync when recipes are added, deleted, or modified.
+     */
+    val availableTags: StateFlow<List<String>> = recipeRepository.getAllRecipes()
+        .map { recipes -> getTagsUseCase.execute(recipes) }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
 
     /**
      * Holds the sorted order of recipe IDs from the last sort operation.
@@ -119,40 +124,6 @@ class RecipeListViewModel @Inject constructor(
         initialValue = emptyList()
     )
 
-    init {
-        loadTags()
-        observeImportCompletionForTags(workManager)
-    }
-
-    /**
-     * Observe recipe import work completion to refresh tags when new recipes are imported.
-     * In-progress recipe cleanup is handled by [InProgressRecipeManager] itself.
-     */
-    private fun observeImportCompletionForTags(workManager: WorkManager) {
-        viewModelScope.launch {
-            workManager.getWorkInfosByTagFlow(RecipeImportWorker.TAG_RECIPE_IMPORT)
-                .collect { workInfos ->
-                    if (workInfos.any { it.state == WorkInfo.State.SUCCEEDED }) {
-                        loadTags()
-                    }
-                }
-        }
-    }
-
-    /**
-     * Refresh the available tags. Call this after recipes are imported
-     * to ensure the tag filter reflects newly added recipes.
-     */
-    fun refreshTags() {
-        loadTags()
-    }
-
-    private fun loadTags() {
-        viewModelScope.launch {
-            _availableTags.value = getTagsUseCase.execute()
-        }
-    }
-
     fun onSearchQueryChange(query: String) {
         _searchQuery.value = query
     }
@@ -177,7 +148,6 @@ class RecipeListViewModel @Inject constructor(
             val item = recipes.value.find { it.id == recipeId }
             if (item is RecipeListItem.Saved) {
                 recipeRepository.deleteRecipe(recipeId)
-                loadTags() // Refresh tags after deletion
             }
         }
     }

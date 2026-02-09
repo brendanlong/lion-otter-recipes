@@ -141,8 +141,6 @@ fun RecipeListScreen(
                 }
                 snackbarHostState.showSnackbar(message)
                 googleDriveViewModel.resetOperationState()
-                // Refresh tags to include any new tags from imported recipes
-                viewModel.refreshTags()
             }
             is OperationState.Error -> {
                 snackbarHostState.showSnackbar(state.message)

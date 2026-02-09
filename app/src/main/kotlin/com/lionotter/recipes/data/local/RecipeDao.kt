@@ -13,9 +13,6 @@ interface RecipeDao {
     @Query("SELECT * FROM recipes ORDER BY updatedAt DESC")
     fun getAllRecipes(): Flow<List<RecipeEntity>>
 
-    @Query("SELECT * FROM recipes ORDER BY updatedAt DESC")
-    suspend fun getAllRecipesOnce(): List<RecipeEntity>
-
     @Query("SELECT * FROM recipes WHERE id = :id")
     suspend fun getRecipeById(id: String): RecipeEntity?
 
@@ -39,9 +36,6 @@ interface RecipeDao {
 
     @Query("DELETE FROM recipes WHERE id = :id")
     suspend fun deleteRecipeById(id: String)
-
-    @Query("SELECT DISTINCT tagsJson FROM recipes")
-    suspend fun getAllTagsJson(): List<String>
 
     @Query("UPDATE recipes SET isFavorite = :isFavorite WHERE id = :id")
     suspend fun setFavorite(id: String, isFavorite: Boolean)
