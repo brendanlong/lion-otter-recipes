@@ -75,6 +75,8 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             excludes += "META-INF/DEPENDENCIES"
             excludes += "META-INF/INDEX.LIST"
+            // Duplicate from httpclient5 (Anthropic SDK) and httpclient (Google API)
+            pickFirsts += "mozilla/public-suffix-list.txt"
         }
     }
 }
@@ -116,12 +118,15 @@ dependencies {
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
 
-    // Ktor
+    // Ktor (used for WebScraperService HTTP requests)
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.android)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
     implementation(libs.ktor.client.logging)
+
+    // Anthropic SDK (for Claude API calls)
+    implementation(libs.anthropic.sdk)
 
     // Kotlinx
     implementation(libs.kotlinx.serialization.json)

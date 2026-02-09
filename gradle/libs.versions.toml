@@ -27,6 +27,7 @@ benchmarkMacroJunit4 = "1.4.1"
 profileinstaller = "1.4.1"
 uiautomator = "2.3.0"
 androidxTestExtJunit = "1.2.1"
+anthropicSdk = "2.14.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -64,6 +65,9 @@ ktor-client-android = { group = "io.ktor", name = "ktor-client-android", version
 ktor-client-content-negotiation = { group = "io.ktor", name = "ktor-client-content-negotiation", version.ref = "ktor" }
 ktor-serialization-kotlinx-json = { group = "io.ktor", name = "ktor-serialization-kotlinx-json", version.ref = "ktor" }
 ktor-client-logging = { group = "io.ktor", name = "ktor-client-logging", version.ref = "ktor" }
+
+# Anthropic SDK
+anthropic-sdk = { group = "com.anthropic", name = "anthropic-java", version.ref = "anthropicSdk" }
 
 # Kotlinx
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
