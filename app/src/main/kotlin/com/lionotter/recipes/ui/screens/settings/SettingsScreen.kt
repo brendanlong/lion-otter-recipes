@@ -31,6 +31,7 @@ import com.lionotter.recipes.ui.screens.settings.components.AboutSection
 import com.lionotter.recipes.ui.screens.settings.components.ApiKeySection
 import com.lionotter.recipes.ui.screens.settings.components.BackupRestoreSection
 import com.lionotter.recipes.ui.screens.settings.components.DisplaySection
+import com.lionotter.recipes.ui.screens.settings.components.FolderPickerDialog
 import com.lionotter.recipes.ui.screens.settings.components.GoogleDriveSection
 import com.lionotter.recipes.ui.screens.settings.components.ImportDebuggingSection
 import com.lionotter.recipes.ui.screens.settings.components.ModelSelectionSection
@@ -53,8 +54,11 @@ fun SettingsScreen(
     val saveState by viewModel.saveState.collectAsStateWithLifecycle()
     val driveUiState by googleDriveViewModel.uiState.collectAsStateWithLifecycle()
     val syncEnabled by googleDriveViewModel.syncEnabled.collectAsStateWithLifecycle()
+    val syncFolderName by googleDriveViewModel.syncFolderName.collectAsStateWithLifecycle()
     val lastSyncTimestamp by googleDriveViewModel.lastSyncTimestamp.collectAsStateWithLifecycle()
     val operationState by googleDriveViewModel.operationState.collectAsStateWithLifecycle()
+    val showFolderPicker by googleDriveViewModel.showFolderPicker.collectAsStateWithLifecycle()
+    val folderPickerState by googleDriveViewModel.folderPickerState.collectAsStateWithLifecycle()
     val zipOperationState by zipViewModel.operationState.collectAsStateWithLifecycle()
     val importDebuggingEnabled by viewModel.importDebuggingEnabled.collectAsStateWithLifecycle()
 
@@ -204,6 +208,7 @@ fun SettingsScreen(
             GoogleDriveSection(
                 uiState = driveUiState,
                 syncEnabled = syncEnabled,
+                syncFolderName = syncFolderName,
                 lastSyncTimestamp = lastSyncTimestamp,
                 operationState = operationState,
                 onSignInClick = {
@@ -212,8 +217,18 @@ fun SettingsScreen(
                 onSignOutClick = googleDriveViewModel::signOut,
                 onEnableSyncClick = googleDriveViewModel::enableSync,
                 onDisableSyncClick = googleDriveViewModel::disableSync,
-                onSyncNowClick = googleDriveViewModel::triggerSync
+                onSyncNowClick = googleDriveViewModel::triggerSync,
+                onChangeFolderClick = googleDriveViewModel::changeSyncFolder
             )
+
+            // Folder picker dialog
+            if (showFolderPicker && folderPickerState != null) {
+                FolderPickerDialog(
+                    state = folderPickerState!!,
+                    onDismiss = googleDriveViewModel::dismissFolderPicker,
+                    onConfirm = googleDriveViewModel::onFolderSelected
+                )
+            }
 
             HorizontalDivider()
 

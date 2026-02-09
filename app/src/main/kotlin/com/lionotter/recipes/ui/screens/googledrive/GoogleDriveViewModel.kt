@@ -11,6 +11,8 @@ import androidx.work.WorkManager
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.GoogleDriveService
+import com.lionotter.recipes.ui.screens.settings.components.FolderPickerState
+import com.lionotter.recipes.ui.screens.settings.components.FolderSelection
 import com.lionotter.recipes.worker.GoogleDriveSyncWorker
 import com.lionotter.recipes.worker.observeWorkByTag
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -33,6 +35,7 @@ class GoogleDriveViewModel @Inject constructor(
 
     companion object {
         const val PERIODIC_SYNC_WORK_NAME = "google_drive_periodic_sync"
+        private const val DEFAULT_SYNC_FOLDER_NAME = "Lion+Otter Recipes"
     }
 
     private val _uiState = MutableStateFlow<GoogleDriveUiState>(GoogleDriveUiState.Loading)
@@ -49,6 +52,12 @@ class GoogleDriveViewModel @Inject constructor(
 
     val lastSyncTimestamp: StateFlow<String?> = settingsDataStore.googleDriveLastSyncTimestamp
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    private val _folderPickerState = MutableStateFlow<FolderPickerState?>(null)
+    val folderPickerState: StateFlow<FolderPickerState?> = _folderPickerState.asStateFlow()
+
+    private val _showFolderPicker = MutableStateFlow(false)
+    val showFolderPicker: StateFlow<Boolean> = _showFolderPicker.asStateFlow()
 
     private var currentWorkId: UUID? = null
 
@@ -105,7 +114,7 @@ class GoogleDriveViewModel @Inject constructor(
     }
 
     /**
-     * Enable sync and schedule periodic background sync.
+     * Start the enable sync flow by showing the folder picker dialog.
      */
     fun enableSync() {
         if (_uiState.value !is GoogleDriveUiState.SignedIn) {
@@ -113,12 +122,78 @@ class GoogleDriveViewModel @Inject constructor(
             return
         }
 
+        _showFolderPicker.value = true
+        _folderPickerState.value = FolderPickerState.Loading
+
         viewModelScope.launch {
-            settingsDataStore.setGoogleDriveSyncEnabled(true)
-            schedulePeriodicSync()
-            // Trigger an immediate sync
-            triggerSync()
+            val result = googleDriveService.listFolders()
+            result.fold(
+                onSuccess = { folders ->
+                    _folderPickerState.value = FolderPickerState.Loaded(folders)
+                },
+                onFailure = { error ->
+                    _folderPickerState.value = FolderPickerState.Error(
+                        error.message ?: "Failed to load folders"
+                    )
+                }
+            )
         }
+    }
+
+    /**
+     * Handle folder selection from the picker dialog and enable sync.
+     * Clears the last sync timestamp so the first sync with the new folder
+     * treats all remote recipes as new (downloads them instead of deleting).
+     */
+    fun onFolderSelected(selection: FolderSelection) {
+        _showFolderPicker.value = false
+
+        viewModelScope.launch {
+            when (selection) {
+                is FolderSelection.CreateNew -> {
+                    val result = googleDriveService.createFolder(DEFAULT_SYNC_FOLDER_NAME)
+                    result.fold(
+                        onSuccess = { folder ->
+                            settingsDataStore.setGoogleDriveSyncFolder(folder.id, folder.name)
+                            settingsDataStore.clearGoogleDriveLastSyncTimestamp()
+                            settingsDataStore.setGoogleDriveSyncEnabled(true)
+                            schedulePeriodicSync()
+                            triggerSync()
+                        },
+                        onFailure = { error ->
+                            _operationState.value = OperationState.Error(
+                                "Failed to create folder: ${error.message}"
+                            )
+                        }
+                    )
+                }
+                is FolderSelection.Existing -> {
+                    settingsDataStore.setGoogleDriveSyncFolder(
+                        selection.folder.id,
+                        selection.folder.name
+                    )
+                    settingsDataStore.clearGoogleDriveLastSyncTimestamp()
+                    settingsDataStore.setGoogleDriveSyncEnabled(true)
+                    schedulePeriodicSync()
+                    triggerSync()
+                }
+            }
+        }
+    }
+
+    /**
+     * Dismiss the folder picker dialog without enabling sync.
+     */
+    fun dismissFolderPicker() {
+        _showFolderPicker.value = false
+        _folderPickerState.value = null
+    }
+
+    /**
+     * Show the folder picker to change the sync folder.
+     */
+    fun changeSyncFolder() {
+        enableSync()
     }
 
     /**

@@ -176,4 +176,10 @@ class SettingsDataStore @Inject constructor(
             preferences[Keys.IMPORT_DEBUGGING_ENABLED] = enabled
         }
     }
+
+    suspend fun clearGoogleDriveLastSyncTimestamp() {
+        context.dataStore.edit { preferences ->
+            preferences.remove(Keys.GOOGLE_DRIVE_LAST_SYNC_TIMESTAMP)
+        }
+    }
 }

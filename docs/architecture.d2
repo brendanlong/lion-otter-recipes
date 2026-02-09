@@ -117,7 +117,7 @@ app: {
       settings_vm: SettingsViewModel
       drive_vm: {
         label: GoogleDriveViewModel
-        tooltip: "Manages Google Drive sign-in state and sync enable/disable/trigger"
+        tooltip: "Manages Google Drive sign-in state, folder selection (via folder picker dialog), and sync enable/disable/trigger"
       }
       zip_vm: {
         label: ZipExportImportViewModel
@@ -407,7 +407,7 @@ app: {
       }
       google_drive_svc: {
         label: GoogleDriveService
-        tooltip: "Handles Google Sign-In, folder operations, file upload/download/update/delete for Drive sync"
+        tooltip: "Handles Google Sign-In, folder listing/creation/selection, file upload/download/update/delete for Drive sync"
       }
     }
 
@@ -528,9 +528,9 @@ legend: {
       bold: true
     }
   }
-  drive1: "Bidirectional sync on startup + every 6 hours (latest timestamp wins)"
-  drive2: "Uploads new local recipes, downloads new remote recipes"
-  drive3: "Updates changed recipes, deletes remotely-deleted recipes"
+  drive1: "User selects existing folder or creates new one via folder picker dialog"
+  drive2: "Bidirectional sync on startup + every 6 hours (latest timestamp wins)"
+  drive3: "Uploads new local recipes, downloads new remote recipes, updates changed"
 
   drive1 -> drive2 -> drive3
 
