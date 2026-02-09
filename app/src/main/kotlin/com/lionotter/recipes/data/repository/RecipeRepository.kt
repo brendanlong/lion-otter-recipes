@@ -86,6 +86,21 @@ class RecipeRepository @Inject constructor(
         recipeDao.setFavorite(id, isFavorite)
     }
 
+    private inline fun <reified T> safeDecodeJson(
+        jsonString: String,
+        entityName: String,
+        entityId: String,
+        fieldName: String,
+        default: T,
+        onError: () -> Unit = {}
+    ): T = try {
+        json.decodeFromString(jsonString)
+    } catch (e: Exception) {
+        Log.e(TAG, "Failed to parse $fieldName for recipe '$entityName' ($entityId)", e)
+        onError()
+        default
+    }
+
     /**
      * Converts a database entity to a domain Recipe.
      * If JSON parsing fails for any section, logs the error, emits an error message,
@@ -93,30 +108,17 @@ class RecipeRepository @Inject constructor(
      */
     private suspend fun entityToRecipeWithErrorReporting(entity: RecipeEntity): Recipe {
         var hasError = false
+        val onError = { hasError = true }
 
-        val ingredientSections: List<IngredientSection> = try {
-            json.decodeFromString(entity.ingredientSectionsJson)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse ingredients for recipe '${entity.name}' (${entity.id})", e)
-            hasError = true
-            emptyList()
-        }
-
-        val instructionSections: List<InstructionSection> = try {
-            json.decodeFromString(entity.instructionSectionsJson)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse instructions for recipe '${entity.name}' (${entity.id})", e)
-            hasError = true
-            emptyList()
-        }
-
-        val tags: List<String> = try {
-            json.decodeFromString(entity.tagsJson)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse tags for recipe '${entity.name}' (${entity.id})", e)
-            hasError = true
-            emptyList()
-        }
+        val ingredientSections: List<IngredientSection> = safeDecodeJson(
+            entity.ingredientSectionsJson, entity.name, entity.id, "ingredients", emptyList(), onError
+        )
+        val instructionSections: List<InstructionSection> = safeDecodeJson(
+            entity.instructionSectionsJson, entity.name, entity.id, "instructions", emptyList(), onError
+        )
+        val tags: List<String> = safeDecodeJson(
+            entity.tagsJson, entity.name, entity.id, "tags", emptyList(), onError
+        )
 
         if (hasError) {
             emitError("Some data for recipe '${entity.name}' could not be loaded. The recipe may appear incomplete.")
@@ -134,26 +136,15 @@ class RecipeRepository @Inject constructor(
      * Logs errors but cannot emit to the error flow.
      */
     private fun entityToRecipe(entity: RecipeEntity): Recipe {
-        val ingredientSections: List<IngredientSection> = try {
-            json.decodeFromString(entity.ingredientSectionsJson)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse ingredients for recipe '${entity.name}' (${entity.id})", e)
-            emptyList()
-        }
-
-        val instructionSections: List<InstructionSection> = try {
-            json.decodeFromString(entity.instructionSectionsJson)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse instructions for recipe '${entity.name}' (${entity.id})", e)
-            emptyList()
-        }
-
-        val tags: List<String> = try {
-            json.decodeFromString(entity.tagsJson)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse tags for recipe '${entity.name}' (${entity.id})", e)
-            emptyList()
-        }
+        val ingredientSections: List<IngredientSection> = safeDecodeJson(
+            entity.ingredientSectionsJson, entity.name, entity.id, "ingredients", emptyList()
+        )
+        val instructionSections: List<InstructionSection> = safeDecodeJson(
+            entity.instructionSectionsJson, entity.name, entity.id, "instructions", emptyList()
+        )
+        val tags: List<String> = safeDecodeJson(
+            entity.tagsJson, entity.name, entity.id, "tags", emptyList()
+        )
 
         return entity.toRecipe(
             ingredientSections = ingredientSections,
