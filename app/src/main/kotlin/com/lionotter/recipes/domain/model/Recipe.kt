@@ -1,5 +1,7 @@
 package com.lionotter.recipes.domain.model
 
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.Stable
 import com.lionotter.recipes.util.pluralize
 import com.lionotter.recipes.util.singularize
 import kotlinx.datetime.Instant
@@ -22,6 +24,7 @@ enum class MeasurementType {
 /**
  * Represents a single measurement amount with its unit and type.
  */
+@Immutable
 @Serializable
 data class Measurement(
     val value: Double?,
@@ -33,12 +36,14 @@ data class Measurement(
 /**
  * User preference for how measurements should be displayed.
  */
+@Stable
 enum class MeasurementPreference {
     ORIGINAL,  // Show the default measurement from the recipe
     VOLUME,    // Prefer volume measurements
     WEIGHT     // Prefer weight measurements
 }
 
+@Immutable
 @Serializable
 data class Recipe(
     val id: String,
@@ -58,12 +63,14 @@ data class Recipe(
     val isFavorite: Boolean = false
 )
 
+@Immutable
 @Serializable
 data class IngredientSection(
     val name: String? = null,
     val ingredients: List<Ingredient> = emptyList()
 )
 
+@Immutable
 @Serializable
 data class Ingredient(
     val name: String,
@@ -157,12 +164,14 @@ data class Ingredient(
     }
 }
 
+@Immutable
 @Serializable
 data class InstructionSection(
     val name: String? = null,
     val steps: List<InstructionStep> = emptyList()
 )
 
+@Immutable
 @Serializable
 data class InstructionStep(
     val stepNumber: Int,
@@ -172,6 +181,7 @@ data class InstructionStep(
     val optional: Boolean = false
 )
 
+@Immutable
 @Serializable
 data class IngredientReference(
     val ingredientName: String,

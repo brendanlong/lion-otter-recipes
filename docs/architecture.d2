@@ -240,15 +240,15 @@ app: {
 
       recipe: {
         label: Recipe
-        tooltip: "Fields: id, name, sourceUrl, story, servings, times, ingredients, instructions, tags, imageUrl, timestamps, isFavorite"
+        tooltip: "@Immutable. Fields: id, name, sourceUrl, story, servings, times, ingredients, instructions, tags, imageUrl, timestamps, isFavorite"
       }
       ingredient: {
         label: Ingredient
-        tooltip: "Fields: name, notes, alternates, amounts, optional"
+        tooltip: "@Immutable. Fields: name, notes, alternates, amounts, optional"
       }
       instruction: {
         label: InstructionStep
-        tooltip: "Fields: stepNumber, instruction, ingredients, optional"
+        tooltip: "@Immutable. Fields: stepNumber, instruction, ingredients, optional"
       }
       section: IngredientSection
       measurement: Measurement
@@ -256,7 +256,7 @@ app: {
       measurement_pref: MeasurementPreference
       usage_status: {
         label: IngredientUsageStatus
-        tooltip: "Fields: totalAmount, usedAmount, unit, isFullyUsed, remainingAmount"
+        tooltip: "@Immutable. Fields: totalAmount, usedAmount, unit, isFullyUsed, remainingAmount"
       }
 
       recipe -> section

@@ -1,5 +1,6 @@
 package com.lionotter.recipes.ui.state
 
+import androidx.compose.runtime.Immutable
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.lionotter.recipes.di.ApplicationScope
@@ -12,6 +13,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 
+@Immutable
 data class InProgressRecipe(
     val id: String,
     val name: String

@@ -1,7 +1,9 @@
 package com.lionotter.recipes.ui.state
 
+import androidx.compose.runtime.Immutable
 import com.lionotter.recipes.domain.model.Recipe
 
+@Immutable
 sealed class RecipeListItem {
     abstract val id: String
     abstract val name: String
