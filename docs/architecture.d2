@@ -105,6 +105,10 @@ app: {
         label: GoogleDriveViewModel
         tooltip: "Manages Google Drive sign-in state, folder navigation, export/import operations, and sync enable/disable/trigger"
       }
+      zip_vm: {
+        label: ZipExportImportViewModel
+        tooltip: "Manages ZIP file export/import operations via WorkManager. Handles file picker integration and work status observation."
+      }
     }
 
     state: {
@@ -125,6 +129,7 @@ app: {
     screens.add -> viewmodels.add_vm
     screens.settings -> viewmodels.settings_vm
     screens.settings -> viewmodels.drive_vm: sign in/out
+    screens.settings -> viewmodels.zip_vm: backup/restore
     viewmodels.list_vm -> state.in_progress_mgr: observes
     viewmodels.add_vm -> state.in_progress_mgr: adds entries
     state.in_progress_mgr -> background.worker: observes status
@@ -168,14 +173,24 @@ app: {
         label: GoogleDriveSyncWorker
         tooltip: "Bidirectional sync with Google Drive. Runs on app startup and periodically (every 6 hours). Uploads new local recipes, downloads new remote recipes, updates changed recipes using latest-timestamp-wins conflict resolution."
       }
+      zip_export_worker: {
+        label: ZipExportWorker
+        tooltip: "Exports all recipes to a ZIP file. Uses the same folder structure as Google Drive export (recipe.json + original.html + recipe.md per recipe)."
+      }
+      zip_import_worker: {
+        label: ZipImportWorker
+        tooltip: "Imports recipes from a ZIP file. Reads recipe.json from each folder, skips duplicates, optionally restores original HTML."
+      }
       import_worker -> base_worker: extends
       export_worker -> base_worker: extends
       drive_import_worker -> base_worker: extends
       paprika_import_worker -> base_worker: extends
       sync_worker -> base_worker: extends
+      zip_export_worker -> base_worker: extends
+      zip_import_worker -> base_worker: extends
       work_ext: {
         label: "observeWorkByTag()"
-        tooltip: "WorkManager extension function that encapsulates the common pattern of observing work by tag and filtering to a specific work ID. Used by AddRecipeViewModel and GoogleDriveViewModel."
+        tooltip: "WorkManager extension function that encapsulates the common pattern of observing work by tag and filtering to a specific work ID. Used by AddRecipeViewModel, GoogleDriveViewModel, and ZipExportImportViewModel."
       }
     }
 
@@ -196,6 +211,8 @@ app: {
     worker.drive_import_worker -> notification.helper: notify progress
     worker.paprika_import_worker -> notification.helper: notify progress
     worker.sync_worker -> notification.helper: notify progress
+    worker.zip_export_worker -> notification.helper: notify progress
+    worker.zip_import_worker -> notification.helper: notify progress
   }
 
   # Domain Layer
@@ -233,6 +250,14 @@ app: {
         label: SyncToGoogleDriveUseCase
         tooltip: "Bidirectional sync: compares local vs remote recipes, uploads new, downloads new, updates changed (latest timestamp wins). Runs via WorkManager on startup and periodically."
       }
+      export_zip: {
+        label: ExportToZipUseCase
+        tooltip: "Exports all recipes to a ZIP file using RecipeSerializer. Same folder structure as Google Drive export."
+      }
+      import_zip: {
+        label: ImportFromZipUseCase
+        tooltip: "Imports recipes from a ZIP file. Reads recipe.json from each folder, skips duplicates by ID, optionally restores original HTML."
+      }
       tags: GetTagsUseCase
       calc_usage: {
         label: CalculateIngredientUsageUseCase
@@ -250,6 +275,11 @@ app: {
         label: RecipeMarkdownFormatter
         tooltip: "Converts Recipe to human-readable Markdown format for export"
       }
+      serializer: {
+        label: RecipeSerializer
+        tooltip: "Shared logic for serializing/deserializing recipes in the standard folder export format (recipe.json + original.html + recipe.md). Used by Google Drive and ZIP export/import."
+      }
+      serializer -> markdown: format
     }
 
     models: {
@@ -290,8 +320,10 @@ app: {
 
     usecases.import -> usecases.parse_html: uses
     usecases.import_drive -> usecases.parse_html: HTML fallback
-    usecases.export_drive -> util.markdown: format
-    usecases.sync_drive -> util.markdown: format
+    usecases.export_drive -> util.serializer: serialize
+    usecases.sync_drive -> util.serializer: serialize
+    usecases.export_zip -> util.serializer: serialize
+    usecases.import_zip -> util.serializer: deserialize
   }
 
   # Data Layer
@@ -434,11 +466,16 @@ app: {
   ui.viewmodels.drive_vm -> background.worker.sync_worker: sync
   ui.viewmodels.drive_vm -> background.worker.work_ext: observe export/import/sync
   ui.viewmodels.drive_vm -> data.local.settings: sync settings
+  ui.viewmodels.zip_vm -> background.worker.zip_export_worker: export
+  ui.viewmodels.zip_vm -> background.worker.zip_import_worker: import
+  ui.viewmodels.zip_vm -> background.worker.work_ext: observe export/import
   background.worker.import_worker -> domain.usecases.import: execute
   background.worker.export_worker -> domain.usecases.export_drive: execute
   background.worker.drive_import_worker -> domain.usecases.import_drive: execute
   background.worker.paprika_import_worker -> domain.usecases.import_paprika: execute
   background.worker.sync_worker -> domain.usecases.sync_drive: execute
+  background.worker.zip_export_worker -> domain.usecases.export_zip: execute
+  background.worker.zip_import_worker -> domain.usecases.import_zip: execute
   domain.usecases -> data.repository: access data
   domain.usecases.import_paprika -> data.paprika.parser: parse export
   domain.usecases.import_paprika -> data.remote.anthropic_svc: parse recipe content
@@ -485,6 +522,20 @@ legend: {
 
   drive1 -> drive2 -> drive3 -> drive4
 
+  zip_flow: {
+    label: "ZIP Export/Import Flow"
+    style: {
+      font-size: 14
+      bold: true
+    }
+  }
+  zip1: "Export: User picks save location, ZipExportWorker writes ZIP with same folder structure as Drive"
+  zip2: "Import: User picks .zip file, ZipImportWorker reads recipe.json from each folder"
+  zip3: "Uses RecipeSerializer shared with Google Drive for consistent format"
+  zip4: "Skips recipes that already exist locally (by ID)"
+
+  zip1 -> zip2 -> zip3 -> zip4
+
   paprika_flow: {
     label: "Paprika Import Flow"
     style: {
@@ -501,7 +552,7 @@ legend: {
   pap1 -> pap2 -> pap3 -> pap4 -> pap5
 
   note: {
-    label: "Import runs in background via WorkManager. Supports multiple concurrent imports. Google Drive export/import/sync and Paprika import run in background with progress notifications. Sync runs on app startup and every 6 hours when enabled. Paprika import can be cancelled mid-way, keeping already-imported recipes."
+    label: "Import runs in background via WorkManager. Supports multiple concurrent imports. Google Drive export/import/sync, ZIP export/import, and Paprika import run in background with progress notifications. Sync runs on app startup and every 6 hours when enabled. Paprika import can be cancelled mid-way, keeping already-imported recipes. ZIP and Google Drive export share the same folder format via RecipeSerializer."
     style: {
       font-size: 12
       italic: true

@@ -1,0 +1,130 @@
+package com.lionotter.recipes.domain.usecase
+
+import com.lionotter.recipes.data.repository.RecipeRepository
+import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.util.RecipeSerializer
+import kotlinx.datetime.Clock
+import java.io.InputStream
+import java.util.zip.ZipInputStream
+import javax.inject.Inject
+
+/**
+ * Use case for importing recipes from a ZIP file.
+ * Expects the same folder structure as the export:
+ * - recipe-name/recipe.json
+ * - recipe-name/original.html (optional)
+ * - recipe-name/recipe.md (ignored on import, regenerated from data)
+ *
+ * Import strategy: JSON-first (same as Google Drive import).
+ * Skips recipes that already exist locally (by ID).
+ */
+class ImportFromZipUseCase @Inject constructor(
+    private val recipeRepository: RecipeRepository,
+    private val recipeSerializer: RecipeSerializer
+) {
+    sealed class ImportResult {
+        data class Success(
+            val importedCount: Int,
+            val failedCount: Int,
+            val skippedCount: Int
+        ) : ImportResult()
+        data class Error(val message: String) : ImportResult()
+    }
+
+    sealed class ImportProgress {
+        object Starting : ImportProgress()
+        object ReadingZip : ImportProgress()
+        data class ImportingRecipe(
+            val recipeName: String,
+            val current: Int,
+            val total: Int
+        ) : ImportProgress()
+        data class Complete(val result: ImportResult) : ImportProgress()
+    }
+
+    /**
+     * Import recipes from a ZIP file input stream.
+     */
+    suspend fun importFromZip(
+        inputStream: InputStream,
+        onProgress: suspend (ImportProgress) -> Unit = {}
+    ): ImportResult {
+        onProgress(ImportProgress.Starting)
+        onProgress(ImportProgress.ReadingZip)
+
+        // First pass: read all entries from the ZIP into memory, grouped by folder
+        val folderContents = mutableMapOf<String, MutableMap<String, String>>()
+
+        try {
+            ZipInputStream(inputStream).use { zipIn ->
+                var entry = zipIn.nextEntry
+                while (entry != null) {
+                    if (!entry.isDirectory) {
+                        val pathParts = entry.name.split("/", limit = 2)
+                        if (pathParts.size == 2) {
+                            val folderName = pathParts[0]
+                            val fileName = pathParts[1]
+                            val content = zipIn.readBytes().toString(Charsets.UTF_8)
+                            folderContents.getOrPut(folderName) { mutableMapOf() }[fileName] = content
+                        }
+                    }
+                    zipIn.closeEntry()
+                    entry = zipIn.nextEntry
+                }
+            }
+        } catch (e: Exception) {
+            return ImportResult.Error("Failed to read ZIP file: ${e.message}")
+        }
+
+        if (folderContents.isEmpty()) {
+            return ImportResult.Error("No recipe folders found in ZIP file")
+        }
+
+        var importedCount = 0
+        var failedCount = 0
+        var skippedCount = 0
+
+        val folders = folderContents.entries.toList()
+        folders.forEachIndexed { index, (folderName, files) ->
+            onProgress(
+                ImportProgress.ImportingRecipe(
+                    recipeName = folderName,
+                    current = index + 1,
+                    total = folders.size
+                )
+            )
+
+            val jsonContent = files[RecipeSerializer.RECIPE_JSON_FILENAME]
+            if (jsonContent == null) {
+                failedCount++
+                return@forEachIndexed
+            }
+
+            try {
+                val recipe = recipeSerializer.deserializeRecipe(jsonContent)
+
+                // Check if recipe already exists
+                val existing = recipeRepository.getRecipeByIdOnce(recipe.id)
+                if (existing != null) {
+                    skippedCount++
+                    return@forEachIndexed
+                }
+
+                val importedRecipe = recipe.copy(updatedAt = Clock.System.now())
+                val originalHtml = files[RecipeSerializer.RECIPE_HTML_FILENAME]
+                recipeRepository.saveRecipe(importedRecipe, originalHtml)
+                importedCount++
+            } catch (e: Exception) {
+                failedCount++
+            }
+        }
+
+        val result = ImportResult.Success(
+            importedCount = importedCount,
+            failedCount = failedCount,
+            skippedCount = skippedCount
+        )
+        onProgress(ImportProgress.Complete(result))
+        return result
+    }
+}

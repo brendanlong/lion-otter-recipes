@@ -4,10 +4,8 @@ import com.lionotter.recipes.data.remote.DriveFolder
 import com.lionotter.recipes.data.remote.GoogleDriveService
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
-import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
+import com.lionotter.recipes.domain.util.RecipeSerializer
 import kotlinx.coroutines.flow.first
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import javax.inject.Inject
 
 /**
@@ -20,7 +18,7 @@ import javax.inject.Inject
 class ExportToGoogleDriveUseCase @Inject constructor(
     private val googleDriveService: GoogleDriveService,
     private val recipeRepository: RecipeRepository,
-    private val json: Json
+    private val recipeSerializer: RecipeSerializer
 ) {
     sealed class ExportResult {
         data class Success(
@@ -129,7 +127,7 @@ class ExportToGoogleDriveUseCase @Inject constructor(
         return if (exportRecipe(recipe, parentFolderId)) {
             // Return the folder that was created
             googleDriveService.listFolders(parentFolderId).map { folders ->
-                folders.find { it.name == sanitizeFolderName(recipe.name) }
+                folders.find { it.name == recipeSerializer.sanitizeFolderName(recipe.name) }
                     ?: throw IllegalStateException("Failed to find exported folder")
             }
         } else {
@@ -139,19 +137,20 @@ class ExportToGoogleDriveUseCase @Inject constructor(
 
     private suspend fun exportRecipe(recipe: Recipe, parentFolderId: String): Boolean {
         return try {
+            val originalHtml = recipeRepository.getOriginalHtml(recipe.id)
+            val files = recipeSerializer.serializeRecipe(recipe, originalHtml)
+
             // Create folder for this recipe
-            val folderName = sanitizeFolderName(recipe.name)
-            val folderResult = googleDriveService.createFolder(folderName, parentFolderId)
+            val folderResult = googleDriveService.createFolder(files.folderName, parentFolderId)
             if (folderResult.isFailure) {
                 return false
             }
             val recipeFolder = folderResult.getOrThrow()
 
             // Upload recipe.json
-            val recipeJson = json.encodeToString(recipe)
             val jsonResult = googleDriveService.uploadJsonFile(
-                fileName = GoogleDriveService.RECIPE_JSON_FILENAME,
-                content = recipeJson,
+                fileName = RecipeSerializer.RECIPE_JSON_FILENAME,
+                content = files.recipeJson,
                 parentFolderId = recipeFolder.id
             )
             if (jsonResult.isFailure) {
@@ -159,21 +158,19 @@ class ExportToGoogleDriveUseCase @Inject constructor(
             }
 
             // Upload original.html (if available)
-            val originalHtml = recipeRepository.getOriginalHtml(recipe.id)
-            if (originalHtml != null) {
+            if (files.originalHtml != null) {
                 googleDriveService.uploadHtmlFile(
-                    fileName = GoogleDriveService.RECIPE_HTML_FILENAME,
-                    content = originalHtml,
+                    fileName = RecipeSerializer.RECIPE_HTML_FILENAME,
+                    content = files.originalHtml,
                     parentFolderId = recipeFolder.id
                 )
                 // Don't fail if HTML upload fails - it's optional
             }
 
             // Upload recipe.md
-            val markdown = RecipeMarkdownFormatter.format(recipe)
             val mdResult = googleDriveService.uploadMarkdownFile(
-                fileName = GoogleDriveService.RECIPE_MARKDOWN_FILENAME,
-                content = markdown,
+                fileName = RecipeSerializer.RECIPE_MARKDOWN_FILENAME,
+                content = files.recipeMarkdown,
                 parentFolderId = recipeFolder.id
             )
             if (mdResult.isFailure) {
@@ -184,17 +181,5 @@ class ExportToGoogleDriveUseCase @Inject constructor(
         } catch (e: Exception) {
             false
         }
-    }
-
-    /**
-     * Sanitize a recipe name for use as a folder name.
-     */
-    private fun sanitizeFolderName(name: String): String {
-        return name
-            .replace(Regex("[/\\\\:*?\"<>|]"), "_") // Replace invalid characters
-            .replace(Regex("\\s+"), " ") // Normalize whitespace
-            .trim()
-            .take(100) // Limit length
-            .ifEmpty { "Untitled Recipe" }
     }
 }

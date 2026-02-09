@@ -10,8 +10,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -25,6 +29,7 @@ import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.screens.googledrive.GoogleDriveViewModel
 import com.lionotter.recipes.ui.screens.settings.components.AboutSection
 import com.lionotter.recipes.ui.screens.settings.components.ApiKeySection
+import com.lionotter.recipes.ui.screens.settings.components.BackupRestoreSection
 import com.lionotter.recipes.ui.screens.settings.components.DisplaySection
 import com.lionotter.recipes.ui.screens.settings.components.GoogleDriveSection
 import com.lionotter.recipes.ui.screens.settings.components.ModelSelectionSection
@@ -34,7 +39,8 @@ import com.lionotter.recipes.ui.screens.settings.components.ThemeSection
 fun SettingsScreen(
     onBackClick: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
-    googleDriveViewModel: GoogleDriveViewModel = hiltViewModel()
+    googleDriveViewModel: GoogleDriveViewModel = hiltViewModel(),
+    zipViewModel: ZipExportImportViewModel = hiltViewModel()
 ) {
     val apiKey by viewModel.apiKey.collectAsStateWithLifecycle()
     val apiKeyInput by viewModel.apiKeyInput.collectAsStateWithLifecycle()
@@ -46,8 +52,10 @@ fun SettingsScreen(
     val syncEnabled by googleDriveViewModel.syncEnabled.collectAsStateWithLifecycle()
     val lastSyncTimestamp by googleDriveViewModel.lastSyncTimestamp.collectAsStateWithLifecycle()
     val operationState by googleDriveViewModel.operationState.collectAsStateWithLifecycle()
+    val zipOperationState by zipViewModel.operationState.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
 
     // Google Sign-In launcher - always try to get the account, don't check result code
     val signInLauncher = rememberLauncherForActivityResult(
@@ -70,13 +78,63 @@ fun SettingsScreen(
         }
     }
 
+    // ZIP export file picker (create document)
+    val zipExportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        uri?.let { zipViewModel.exportToZip(it) }
+    }
+
+    // ZIP import file picker (open document)
+    val zipImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let { zipViewModel.importFromZip(it) }
+    }
+
+    // Show snackbar for zip operation results
+    LaunchedEffect(zipOperationState) {
+        when (val state = zipOperationState) {
+            is ZipOperationState.ExportComplete -> {
+                val message = if (state.failedCount > 0) {
+                    context.getString(R.string.zip_exported_recipes_with_failures, state.exportedCount, state.failedCount)
+                } else {
+                    context.getString(R.string.zip_exported_recipes, state.exportedCount)
+                }
+                snackbarHostState.showSnackbar(message)
+                zipViewModel.resetOperationState()
+            }
+            is ZipOperationState.ImportComplete -> {
+                val message = buildString {
+                    append(context.getString(R.string.zip_imported_recipes, state.importedCount))
+                    if (state.skippedCount > 0 || state.failedCount > 0) {
+                        append(" (")
+                        val parts = mutableListOf<String>()
+                        if (state.skippedCount > 0) parts.add(context.getString(R.string.skipped_count, state.skippedCount))
+                        if (state.failedCount > 0) parts.add(context.getString(R.string.failed_count, state.failedCount))
+                        append(parts.joinToString(", "))
+                        append(")")
+                    }
+                }
+                snackbarHostState.showSnackbar(message)
+                zipViewModel.resetOperationState()
+            }
+            is ZipOperationState.Error -> {
+                snackbarHostState.showSnackbar(state.message)
+                zipViewModel.resetOperationState()
+            }
+            else -> {}
+        }
+    }
+
     Scaffold(
         topBar = {
             RecipeTopAppBar(
                 title = stringResource(R.string.settings),
                 onBackClick = onBackClick
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
         Column(
             modifier = Modifier
@@ -119,6 +177,19 @@ fun SettingsScreen(
             DisplaySection(
                 keepScreenOn = keepScreenOn,
                 onKeepScreenOnChange = viewModel::setKeepScreenOn
+            )
+
+            HorizontalDivider()
+
+            // Backup & Restore Section
+            BackupRestoreSection(
+                operationState = zipOperationState,
+                onExportClick = {
+                    zipExportLauncher.launch("lion-otter-recipes.zip")
+                },
+                onImportClick = {
+                    zipImportLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed"))
+                }
             )
 
             HorizontalDivider()
