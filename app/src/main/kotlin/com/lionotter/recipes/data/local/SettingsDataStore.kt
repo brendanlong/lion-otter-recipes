@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import com.lionotter.recipes.data.remote.AnthropicService
+import com.lionotter.recipes.domain.model.ThemeMode
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -30,6 +31,7 @@ class SettingsDataStore @Inject constructor(
     private object Keys {
         val AI_MODEL = stringPreferencesKey("ai_model")
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
+        val THEME_MODE = stringPreferencesKey("theme_mode")
         const val ENCRYPTED_API_KEY = "anthropic_api_key"
     }
 
@@ -64,6 +66,15 @@ class SettingsDataStore @Inject constructor(
         preferences[Keys.KEEP_SCREEN_ON] ?: true
     }
 
+    val themeMode: Flow<ThemeMode> = context.dataStore.data.map { preferences ->
+        val value = preferences[Keys.THEME_MODE]
+        if (value != null) {
+            try { ThemeMode.valueOf(value) } catch (_: IllegalArgumentException) { ThemeMode.AUTO }
+        } else {
+            ThemeMode.AUTO
+        }
+    }
+
     suspend fun setAnthropicApiKey(apiKey: String) {
         withContext(Dispatchers.IO) {
             encryptedPrefs.edit().putString(Keys.ENCRYPTED_API_KEY, apiKey).apply()
@@ -87,6 +98,12 @@ class SettingsDataStore @Inject constructor(
     suspend fun setKeepScreenOn(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[Keys.KEEP_SCREEN_ON] = enabled
+        }
+    }
+
+    suspend fun setThemeMode(mode: ThemeMode) {
+        context.dataStore.edit { preferences ->
+            preferences[Keys.THEME_MODE] = mode.name
         }
     }
 }

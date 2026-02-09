@@ -38,11 +38,11 @@ val md_theme_light_onSurfaceVariant = Color(0xFF49454F)
 val md_theme_light_outline = Color(0xFF79747E)
 val md_theme_light_outlineVariant = Color(0xFFCAC4D0)
 
-// Dark theme
-val md_theme_dark_primary = Color(0xFF7DD3E8)
-val md_theme_dark_onPrimary = Color(0xFF003544)
-val md_theme_dark_primaryContainer = OtterBlue
-val md_theme_dark_onPrimaryContainer = OtterLight
+// Dark theme (warm accents — red tones, no blue — to avoid disrupting sleep)
+val md_theme_dark_primary = Color(0xFFE8907D) // Warm coral-red (replaces cyan/blue)
+val md_theme_dark_onPrimary = Color(0xFF442017)
+val md_theme_dark_primaryContainer = Color(0xFF5C2E22) // Deep warm red container
+val md_theme_dark_onPrimaryContainer = Color(0xFFFFDAD3)
 val md_theme_dark_secondary = Color(0xFFFFD180)
 val md_theme_dark_onSecondary = Color(0xFF3F2E00)
 val md_theme_dark_secondaryContainer = Color(0xFF5A4300)

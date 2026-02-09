@@ -98,6 +98,11 @@
     <string name="get_api_key">Get an API Key from Anthropic</string>
     <string name="ai_model">AI Model</string>
     <string name="ai_model_description">Choose the Claude model to use for parsing recipes. Better models may provide more accurate results but cost more.</string>
+    <string name="theme">Theme</string>
+    <string name="theme_description">Choose the app theme. Auto follows your system setting.</string>
+    <string name="theme_auto">Auto (System)</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
     <string name="display">Display</string>
     <string name="keep_screen_on">Keep screen on</string>
     <string name="keep_screen_on_description">Prevent the screen from turning off while viewing a recipe.</string>

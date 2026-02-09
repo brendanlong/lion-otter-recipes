@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AnthropicService
+import com.lionotter.recipes.domain.model.ThemeMode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -37,6 +38,13 @@ class SettingsViewModel @Inject constructor(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = true
+        )
+
+    val themeMode: StateFlow<ThemeMode> = settingsDataStore.themeMode
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = ThemeMode.AUTO
         )
 
     private val _apiKeyInput = MutableStateFlow("")
@@ -85,6 +93,12 @@ class SettingsViewModel @Inject constructor(
     fun setKeepScreenOn(enabled: Boolean) {
         viewModelScope.launch {
             settingsDataStore.setKeepScreenOn(enabled)
+        }
+    }
+
+    fun setThemeMode(mode: ThemeMode) {
+        viewModelScope.launch {
+            settingsDataStore.setThemeMode(mode)
         }
     }
 
