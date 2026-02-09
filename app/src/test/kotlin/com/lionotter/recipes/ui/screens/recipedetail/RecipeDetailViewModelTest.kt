@@ -12,6 +12,8 @@ import com.lionotter.recipes.domain.model.Measurement
 import com.lionotter.recipes.domain.model.MeasurementPreference
 import com.lionotter.recipes.domain.model.MeasurementType
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.model.createInstructionIngredientKey
+import com.lionotter.recipes.domain.usecase.CalculateIngredientUsageUseCase
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -86,7 +88,8 @@ class RecipeDetailViewModelTest {
         return RecipeDetailViewModel(
             savedStateHandle = savedStateHandle,
             recipeRepository = recipeRepository,
-            settingsDataStore = settingsDataStore
+            settingsDataStore = settingsDataStore,
+            calculateIngredientUsage = CalculateIngredientUsageUseCase()
         )
     }
 

@@ -203,6 +203,10 @@ app: {
         tooltip: "Imports from Drive: tries JSON first, falls back to HTML parsing. Reuses ParseHtmlUseCase."
       }
       tags: GetTagsUseCase
+      calc_usage: {
+        label: CalculateIngredientUsageUseCase
+        tooltip: "Pure domain logic for calculating ingredient usage status from checked instruction steps, scale, and measurement preference."
+      }
     }
 
     util: {
@@ -239,6 +243,10 @@ app: {
       measurement: Measurement
       measurement_type: MeasurementType
       measurement_pref: MeasurementPreference
+      usage_status: {
+        label: IngredientUsageStatus
+        tooltip: "Fields: totalAmount, usedAmount, unit, isFullyUsed, remainingAmount"
+      }
 
       recipe -> section
       section -> ingredient
@@ -348,6 +356,7 @@ app: {
   ui.viewmodels.list_vm -> data.repository.repo: recipes, delete
   ui.viewmodels.list_vm -> domain.usecases.tags: top tags
   ui.viewmodels.detail_vm -> data.repository.repo: recipe, delete, favorite
+  ui.viewmodels.detail_vm -> domain.usecases.calc_usage: ingredient usage
   ui.viewmodels.detail_vm -> data.local.settings: keep screen on
   ui.viewmodels.add_vm -> background.worker: enqueue work
   ui.viewmodels.drive_vm -> background.worker.export_worker: export
