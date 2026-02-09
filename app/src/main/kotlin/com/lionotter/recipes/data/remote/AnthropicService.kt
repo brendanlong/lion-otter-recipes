@@ -17,6 +17,13 @@ import javax.inject.Singleton
  */
 class RecipeParseException(message: String) : Exception(message)
 
+data class ParseResultWithUsage(
+    val result: RecipeParseResult,
+    val inputTokens: Long,
+    val outputTokens: Long,
+    val aiOutputJson: String
+)
+
 @Singleton
 class AnthropicService @Inject constructor(
     private val json: Json
@@ -26,7 +33,7 @@ class AnthropicService @Inject constructor(
         apiKey: String,
         model: String = DEFAULT_MODEL,
         extendedThinking: Boolean = true
-    ): Result<RecipeParseResult> {
+    ): Result<ParseResultWithUsage> {
         return try {
             val client = buildClient(apiKey)
 
@@ -57,6 +64,11 @@ class AnthropicService @Inject constructor(
                 client.messages().create(params)
             }
 
+            // Extract token usage
+            val usage = message.usage()
+            val inputTokens = usage.inputTokens()
+            val outputTokens = usage.outputTokens()
+
             // Find the text content block (skip thinking blocks)
             val textContent = message.content()
                 .firstOrNull { it.isText() }
@@ -77,7 +89,12 @@ class AnthropicService @Inject constructor(
             val recipeResult = parseResponse.recipe
                 ?: return Result.failure(RecipeParseException("No recipe data in response"))
 
-            Result.success(recipeResult)
+            Result.success(ParseResultWithUsage(
+                result = recipeResult,
+                inputTokens = inputTokens,
+                outputTokens = outputTokens,
+                aiOutputJson = jsonContent
+            ))
         } catch (e: Exception) {
             Result.failure(e)
         }

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AnthropicService
+import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.domain.model.ThemeMode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,7 +17,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    private val settingsDataStore: SettingsDataStore
+    private val settingsDataStore: SettingsDataStore,
+    private val importDebugRepository: ImportDebugRepository
 ) : ViewModel() {
 
     val apiKey: StateFlow<String?> = settingsDataStore.anthropicApiKey
@@ -52,6 +54,13 @@ class SettingsViewModel @Inject constructor(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = ThemeMode.AUTO
+        )
+
+    val importDebuggingEnabled: StateFlow<Boolean> = settingsDataStore.importDebuggingEnabled
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = false
         )
 
     private val _apiKeyInput = MutableStateFlow("")
@@ -112,6 +121,15 @@ class SettingsViewModel @Inject constructor(
     fun setThemeMode(mode: ThemeMode) {
         viewModelScope.launch {
             settingsDataStore.setThemeMode(mode)
+        }
+    }
+
+    fun setImportDebuggingEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsDataStore.setImportDebuggingEnabled(enabled)
+            if (!enabled) {
+                importDebugRepository.deleteAllDebugEntries()
+            }
         }
     }
 

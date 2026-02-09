@@ -37,6 +37,7 @@ class SettingsDataStore @Inject constructor(
         val GOOGLE_DRIVE_SYNC_FOLDER_ID = stringPreferencesKey("google_drive_sync_folder_id")
         val GOOGLE_DRIVE_SYNC_FOLDER_NAME = stringPreferencesKey("google_drive_sync_folder_name")
         val GOOGLE_DRIVE_LAST_SYNC_TIMESTAMP = stringPreferencesKey("google_drive_last_sync_timestamp")
+        val IMPORT_DEBUGGING_ENABLED = booleanPreferencesKey("import_debugging_enabled")
         const val ENCRYPTED_API_KEY = "anthropic_api_key"
     }
 
@@ -98,6 +99,10 @@ class SettingsDataStore @Inject constructor(
 
     val googleDriveLastSyncTimestamp: Flow<String?> = context.dataStore.data.map { preferences ->
         preferences[Keys.GOOGLE_DRIVE_LAST_SYNC_TIMESTAMP]
+    }
+
+    val importDebuggingEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[Keys.IMPORT_DEBUGGING_ENABLED] ?: false
     }
 
     suspend fun setAnthropicApiKey(apiKey: String) {
@@ -163,6 +168,12 @@ class SettingsDataStore @Inject constructor(
     suspend fun setGoogleDriveLastSyncTimestamp(timestamp: String) {
         context.dataStore.edit { preferences ->
             preferences[Keys.GOOGLE_DRIVE_LAST_SYNC_TIMESTAMP] = timestamp
+        }
+    }
+
+    suspend fun setImportDebuggingEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[Keys.IMPORT_DEBUGGING_ENABLED] = enabled
         }
     }
 }

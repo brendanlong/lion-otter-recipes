@@ -32,12 +32,14 @@ import com.lionotter.recipes.ui.screens.settings.components.ApiKeySection
 import com.lionotter.recipes.ui.screens.settings.components.BackupRestoreSection
 import com.lionotter.recipes.ui.screens.settings.components.DisplaySection
 import com.lionotter.recipes.ui.screens.settings.components.GoogleDriveSection
+import com.lionotter.recipes.ui.screens.settings.components.ImportDebuggingSection
 import com.lionotter.recipes.ui.screens.settings.components.ModelSelectionSection
 import com.lionotter.recipes.ui.screens.settings.components.ThemeSection
 
 @Composable
 fun SettingsScreen(
     onBackClick: () -> Unit,
+    onNavigateToImportDebug: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
     googleDriveViewModel: GoogleDriveViewModel = hiltViewModel(),
     zipViewModel: ZipExportImportViewModel = hiltViewModel()
@@ -54,6 +56,7 @@ fun SettingsScreen(
     val lastSyncTimestamp by googleDriveViewModel.lastSyncTimestamp.collectAsStateWithLifecycle()
     val operationState by googleDriveViewModel.operationState.collectAsStateWithLifecycle()
     val zipOperationState by zipViewModel.operationState.collectAsStateWithLifecycle()
+    val importDebuggingEnabled by viewModel.importDebuggingEnabled.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -210,6 +213,15 @@ fun SettingsScreen(
                 onEnableSyncClick = googleDriveViewModel::enableSync,
                 onDisableSyncClick = googleDriveViewModel::disableSync,
                 onSyncNowClick = googleDriveViewModel::triggerSync
+            )
+
+            HorizontalDivider()
+
+            // Import Debugging Section
+            ImportDebuggingSection(
+                importDebuggingEnabled = importDebuggingEnabled,
+                onImportDebuggingChange = viewModel::setImportDebuggingEnabled,
+                onViewDebugDataClick = onNavigateToImportDebug
             )
 
             HorizontalDivider()
