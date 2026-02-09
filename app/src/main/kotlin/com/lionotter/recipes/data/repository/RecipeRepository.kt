@@ -21,13 +21,8 @@ class RecipeRepository @Inject constructor(
     private val recipeDao: RecipeDao,
     private val json: Json
 ) {
-    private val _errors = MutableSharedFlow<String>()
-    val errors: SharedFlow<String> = _errors.asSharedFlow()
-
-    private suspend fun emitError(message: String) {
-        Log.e(TAG, message)
-        _errors.emit(message)
-    }
+    private val _errors = MutableSharedFlow<RepositoryError>()
+    val errors: SharedFlow<RepositoryError> = _errors.asSharedFlow()
 
     companion object {
         private const val TAG = "RecipeRepository"
@@ -103,25 +98,31 @@ class RecipeRepository @Inject constructor(
 
     /**
      * Converts a database entity to a domain Recipe.
-     * If JSON parsing fails for any section, logs the error, emits an error message,
+     * If JSON parsing fails for any section, logs the error, emits a typed error,
      * and returns the recipe with empty data for that section.
      */
     private suspend fun entityToRecipeWithErrorReporting(entity: RecipeEntity): Recipe {
-        var hasError = false
-        val onError = { hasError = true }
+        val failedFields = mutableListOf<String>()
+        fun onError(field: String): () -> Unit = { failedFields.add(field) }
 
         val ingredientSections: List<IngredientSection> = safeDecodeJson(
-            entity.ingredientSectionsJson, entity.name, entity.id, "ingredients", emptyList(), onError
+            entity.ingredientSectionsJson, entity.name, entity.id, "ingredients", emptyList(), onError("ingredients")
         )
         val instructionSections: List<InstructionSection> = safeDecodeJson(
-            entity.instructionSectionsJson, entity.name, entity.id, "instructions", emptyList(), onError
+            entity.instructionSectionsJson, entity.name, entity.id, "instructions", emptyList(), onError("instructions")
         )
         val tags: List<String> = safeDecodeJson(
-            entity.tagsJson, entity.name, entity.id, "tags", emptyList(), onError
+            entity.tagsJson, entity.name, entity.id, "tags", emptyList(), onError("tags")
         )
 
-        if (hasError) {
-            emitError("Some data for recipe '${entity.name}' could not be loaded. The recipe may appear incomplete.")
+        if (failedFields.isNotEmpty()) {
+            _errors.emit(
+                RepositoryError.ParseError(
+                    recipeId = entity.id,
+                    recipeName = entity.name,
+                    failedFields = failedFields
+                )
+            )
         }
 
         return entity.toRecipe(

@@ -3,6 +3,7 @@ package com.lionotter.recipes.ui.screens.recipelist
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lionotter.recipes.data.repository.RecipeRepository
+import com.lionotter.recipes.data.repository.RepositoryError
 import com.lionotter.recipes.domain.usecase.GetTagsUseCase
 import com.lionotter.recipes.ui.state.InProgressRecipeManager
 import com.lionotter.recipes.ui.state.RecipeListItem
@@ -27,9 +28,9 @@ class RecipeListViewModel @Inject constructor(
 ) : ViewModel() {
 
     /**
-     * Errors from the repository (e.g., JSON parse failures) to be displayed to the user.
+     * Errors from the repository mapped to user-facing strings.
      */
-    val repositoryErrors: SharedFlow<String> = recipeRepository.errors
+    val repositoryErrors: SharedFlow<RepositoryError> = recipeRepository.errors
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
