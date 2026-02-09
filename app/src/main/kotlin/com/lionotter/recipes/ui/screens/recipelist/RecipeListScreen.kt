@@ -297,7 +297,7 @@ fun RecipeListScreen(
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Default.Search,
-                        contentDescription = null
+                        contentDescription = "Search"
                     )
                 },
                 singleLine = true
@@ -434,7 +434,7 @@ private fun FolderPickerDialog(
                 ) {
                     Icon(
                         imageVector = Icons.Default.FolderOpen,
-                        contentDescription = null,
+                        contentDescription = "Current folder",
                         modifier = Modifier.size(20.dp),
                         tint = MaterialTheme.colorScheme.primary
                     )
@@ -503,7 +503,7 @@ private fun FolderPickerDialog(
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.Folder,
-                                                contentDescription = null,
+                                                contentDescription = "Go back",
                                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                             Spacer(modifier = Modifier.width(12.dp))
@@ -551,7 +551,7 @@ private fun FolderPickerDialog(
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Folder,
-                                            contentDescription = null,
+                                            contentDescription = "Folder",
                                             tint = MaterialTheme.colorScheme.primary
                                         )
                                         Spacer(modifier = Modifier.width(12.dp))
