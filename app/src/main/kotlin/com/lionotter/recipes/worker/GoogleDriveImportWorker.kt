@@ -1,17 +1,13 @@
 package com.lionotter.recipes.worker
 
 import android.content.Context
-import android.content.pm.ServiceInfo
-import android.os.Build
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.Data
-import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.usecase.ImportFromGoogleDriveUseCase
-import com.lionotter.recipes.notification.ImportNotificationHelper
+import com.lionotter.recipes.notification.RecipeNotificationHelper
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 
@@ -20,7 +16,7 @@ class GoogleDriveImportWorker @AssistedInject constructor(
     @Assisted private val context: Context,
     @Assisted workerParams: WorkerParameters,
     private val importFromGoogleDriveUseCase: ImportFromGoogleDriveUseCase,
-    private val notificationHelper: ImportNotificationHelper
+    private val notificationHelper: RecipeNotificationHelper
 ) : CoroutineWorker(context, workerParams) {
 
     companion object {
@@ -61,7 +57,7 @@ class GoogleDriveImportWorker @AssistedInject constructor(
                 )
             )
 
-        setForeground(createForegroundInfo("Starting import from Google Drive..."))
+        setForeground(notificationHelper.createForegroundInfo("Importing from Google Drive", "Starting import from Google Drive..."))
 
         val result = importFromGoogleDriveUseCase.importFromFolder(
             folderId = folderId,
@@ -91,7 +87,7 @@ class GoogleDriveImportWorker @AssistedInject constructor(
                     }
                     is ImportFromGoogleDriveUseCase.ImportProgress.Complete -> "Complete!"
                 }
-                setForeground(createForegroundInfo(progressMessage))
+                setForeground(notificationHelper.createForegroundInfo("Importing from Google Drive", progressMessage))
             }
         )
 
@@ -112,7 +108,7 @@ class GoogleDriveImportWorker @AssistedInject constructor(
                 )
             }
             is ImportFromGoogleDriveUseCase.ImportResult.Error -> {
-                notificationHelper.showErrorNotification(result.message)
+                notificationHelper.showErrorNotification("Import Failed", result.message)
                 Result.failure(
                     workDataOf(
                         KEY_RESULT_TYPE to RESULT_ERROR,
@@ -138,33 +134,6 @@ class GoogleDriveImportWorker @AssistedInject constructor(
                     )
                 )
             }
-        }
-    }
-
-    private fun createForegroundInfo(progress: String): ForegroundInfo {
-        val notification = androidx.core.app.NotificationCompat.Builder(
-            context,
-            ImportNotificationHelper.CHANNEL_ID
-        )
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Importing from Google Drive")
-            .setContentText(progress)
-            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_LOW)
-            .setOngoing(true)
-            .setProgress(0, 0, true)
-            .build()
-
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ForegroundInfo(
-                ImportNotificationHelper.NOTIFICATION_ID_PROGRESS,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            )
-        } else {
-            ForegroundInfo(
-                ImportNotificationHelper.NOTIFICATION_ID_PROGRESS,
-                notification
-            )
         }
     }
 }
