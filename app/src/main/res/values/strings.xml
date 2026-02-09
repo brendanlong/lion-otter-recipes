@@ -139,5 +139,7 @@
     <string name="paprika_import_complete">Paprika Import Complete</string>
     <string name="paprika_import_result">Successfully imported %1$d recipes</string>
     <string name="paprika_import_result_with_failures">Imported %1$d recipes (%2$d failed)</string>
+    <string name="paprika_import_cancelled">Import Cancelled</string>
+    <string name="paprika_import_cancelled_result">Successfully imported %1$d recipes before cancellation</string>
     <string name="done">Done</string>
 </resources>

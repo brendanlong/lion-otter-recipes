@@ -7,11 +7,13 @@ import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.remote.WebScraperService
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.datetime.Clock
 import java.io.InputStream
 import java.util.UUID
 import javax.inject.Inject
+import kotlin.coroutines.coroutineContext
 
 /**
  * Use case for importing recipes from a Paprika export file (.paprikarecipes).
@@ -36,6 +38,11 @@ class ImportPaprikaUseCase @Inject constructor(
             val failedRecipes: List<String> = emptyList()
         ) : ImportResult()
 
+        data class Cancelled(
+            val importedCount: Int,
+            val failedCount: Int
+        ) : ImportResult()
+
         data class Error(val message: String) : ImportResult()
         object NoApiKey : ImportResult()
     }
@@ -45,7 +52,9 @@ class ImportPaprikaUseCase @Inject constructor(
         data class ImportingRecipe(
             val recipeName: String,
             val current: Int,
-            val total: Int
+            val total: Int,
+            val importedSoFar: Int = 0,
+            val failedSoFar: Int = 0
         ) : ImportProgress()
 
         data class Complete(val result: ImportResult) : ImportProgress()
@@ -84,22 +93,35 @@ class ImportPaprikaUseCase @Inject constructor(
         var failedCount = 0
         val failedRecipes = mutableListOf<String>()
 
-        paprikaRecipes.forEachIndexed { index, paprikaRecipe ->
-            onProgress(
-                ImportProgress.ImportingRecipe(
-                    recipeName = paprikaRecipe.name,
-                    current = index + 1,
-                    total = paprikaRecipes.size
-                )
-            )
+        try {
+            paprikaRecipes.forEachIndexed { index, paprikaRecipe ->
+                coroutineContext.ensureActive()
 
-            val result = importSingleRecipe(paprikaRecipe, apiKey, model)
-            if (result != null) {
-                importedCount++
-            } else {
-                failedCount++
-                failedRecipes.add(paprikaRecipe.name)
+                onProgress(
+                    ImportProgress.ImportingRecipe(
+                        recipeName = paprikaRecipe.name,
+                        current = index + 1,
+                        total = paprikaRecipes.size,
+                        importedSoFar = importedCount,
+                        failedSoFar = failedCount
+                    )
+                )
+
+                val result = importSingleRecipe(paprikaRecipe, apiKey, model)
+                if (result != null) {
+                    importedCount++
+                } else {
+                    failedCount++
+                    failedRecipes.add(paprikaRecipe.name)
+                }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            val result = ImportResult.Cancelled(
+                importedCount = importedCount,
+                failedCount = failedCount
+            )
+            onProgress(ImportProgress.Complete(result))
+            throw e
         }
 
         val result = ImportResult.Success(
@@ -153,6 +175,8 @@ class ImportPaprikaUseCase @Inject constructor(
 
             recipeRepository.saveRecipe(recipe)
             recipe
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             null
         }

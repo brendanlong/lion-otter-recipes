@@ -33,6 +33,10 @@ class AddRecipeViewModel @Inject constructor(
     private var currentImportId: String? = null
     private var currentWorkId: UUID? = null
 
+    // Track last known Paprika import progress for cancellation reporting
+    private var lastPaprikaImportedCount: Int = 0
+    private var lastPaprikaFailedCount: Int = 0
+
     private val _url = MutableStateFlow("")
     val url: StateFlow<String> = _url.asStateFlow()
 
@@ -129,6 +133,14 @@ class AddRecipeViewModel @Inject constructor(
                 val current = workInfo.progress.getInt(PaprikaImportWorker.KEY_CURRENT, 0)
                 val total = workInfo.progress.getInt(PaprikaImportWorker.KEY_TOTAL, 0)
 
+                // Track running counts for cancellation reporting
+                lastPaprikaImportedCount = workInfo.progress.getInt(
+                    PaprikaImportWorker.KEY_PROGRESS_IMPORTED_COUNT, lastPaprikaImportedCount
+                )
+                lastPaprikaFailedCount = workInfo.progress.getInt(
+                    PaprikaImportWorker.KEY_PROGRESS_FAILED_COUNT, lastPaprikaFailedCount
+                )
+
                 val importProgress = when (progress) {
                     PaprikaImportWorker.PROGRESS_PARSING -> ImportProgress.ParsingPaprikaFile
                     PaprikaImportWorker.PROGRESS_IMPORTING -> ImportProgress.ImportingPaprikaRecipe(
@@ -146,6 +158,8 @@ class AddRecipeViewModel @Inject constructor(
                 _uiState.value = AddRecipeUiState.PaprikaImportComplete(importedCount, failedCount)
                 currentImportId = null
                 currentWorkId = null
+                lastPaprikaImportedCount = 0
+                lastPaprikaFailedCount = 0
                 workManager.pruneWork()
             }
             WorkInfo.State.FAILED -> {
@@ -159,12 +173,21 @@ class AddRecipeViewModel @Inject constructor(
                 }
                 currentImportId = null
                 currentWorkId = null
+                lastPaprikaImportedCount = 0
+                lastPaprikaFailedCount = 0
                 workManager.pruneWork()
             }
             WorkInfo.State.CANCELLED -> {
-                _uiState.value = AddRecipeUiState.Idle
+                val importedCount = lastPaprikaImportedCount
+                if (importedCount > 0) {
+                    _uiState.value = AddRecipeUiState.PaprikaImportCancelled(importedCount)
+                } else {
+                    _uiState.value = AddRecipeUiState.Idle
+                }
                 currentImportId = null
                 currentWorkId = null
+                lastPaprikaImportedCount = 0
+                lastPaprikaFailedCount = 0
                 workManager.pruneWork()
             }
         }
@@ -204,6 +227,8 @@ class AddRecipeViewModel @Inject constructor(
 
     fun importPaprikaFile(fileUri: Uri) {
         currentImportId = UUID.randomUUID().toString()
+        lastPaprikaImportedCount = 0
+        lastPaprikaFailedCount = 0
         inProgressRecipeManager.addInProgressRecipe(currentImportId!!, "Importing from Paprika...")
 
         val workRequest = OneTimeWorkRequestBuilder<PaprikaImportWorker>()
@@ -222,9 +247,20 @@ class AddRecipeViewModel @Inject constructor(
         if (currentImportId != null) {
             inProgressRecipeManager.removeInProgressRecipe(currentImportId!!)
         }
+
+        val importedCount = lastPaprikaImportedCount
+        val wasPaprikaImport = importedCount > 0
+
         currentImportId = null
         currentWorkId = null
-        _uiState.value = AddRecipeUiState.Idle
+        lastPaprikaImportedCount = 0
+        lastPaprikaFailedCount = 0
+
+        _uiState.value = if (wasPaprikaImport) {
+            AddRecipeUiState.PaprikaImportCancelled(importedCount)
+        } else {
+            AddRecipeUiState.Idle
+        }
     }
 
     fun resetState() {
@@ -251,6 +287,7 @@ sealed class AddRecipeUiState {
     data class Loading(val progress: ImportProgress) : AddRecipeUiState()
     data class Success(val recipeId: String) : AddRecipeUiState()
     data class PaprikaImportComplete(val importedCount: Int, val failedCount: Int) : AddRecipeUiState()
+    data class PaprikaImportCancelled(val importedCount: Int) : AddRecipeUiState()
     data class Error(val message: String) : AddRecipeUiState()
     object NoApiKey : AddRecipeUiState()
 }
