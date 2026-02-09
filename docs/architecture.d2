@@ -160,9 +160,14 @@ app: {
         label: GoogleDriveImportWorker
         tooltip: "Imports recipes from Google Drive. Tries JSON first, falls back to HTML parsing via AI."
       }
+      paprika_import_worker: {
+        label: PaprikaImportWorker
+        tooltip: "Imports recipes from a Paprika export file (.paprikarecipes). Parses ZIP of gzip-compressed JSON, sends content through AI pipeline."
+      }
       import_worker -> base_worker: extends
       export_worker -> base_worker: extends
       drive_import_worker -> base_worker: extends
+      paprika_import_worker -> base_worker: extends
       work_ext: {
         label: "observeWorkByTag()"
         tooltip: "WorkManager extension function that encapsulates the common pattern of observing work by tag and filtering to a specific work ID. Used by AddRecipeViewModel and GoogleDriveViewModel."
@@ -184,6 +189,7 @@ app: {
     worker.import_worker -> notification.helper: notify progress
     worker.export_worker -> notification.helper: notify progress
     worker.drive_import_worker -> notification.helper: notify progress
+    worker.paprika_import_worker -> notification.helper: notify progress
   }
 
   # Domain Layer
@@ -212,6 +218,10 @@ app: {
       import_drive: {
         label: ImportFromGoogleDriveUseCase
         tooltip: "Imports from Drive: tries JSON first, falls back to HTML parsing. Reuses ParseHtmlUseCase."
+      }
+      import_paprika: {
+        label: ImportPaprikaUseCase
+        tooltip: "Imports recipes from Paprika export (.paprikarecipes). Parses export, sends recipe content (not source URL) through AI, resolves images from Paprika data or source page."
       }
       tags: GetTagsUseCase
       calc_usage: {
@@ -345,6 +355,22 @@ app: {
       }
     }
 
+    paprika: {
+      label: Paprika
+      style: {
+        fill: "#ffffff"
+      }
+
+      parser: {
+        label: PaprikaParser
+        tooltip: "Parses Paprika export files (.paprikarecipes): ZIP of gzip-compressed JSON. Formats recipe content for AI parsing."
+      }
+      recipe_model: {
+        label: PaprikaRecipe
+        tooltip: "Data model for Paprika recipe JSON (name, ingredients, directions, notes, categories, photo_data, etc.)"
+      }
+    }
+
     repository.repo -> local.dao
     repository.repo -> local.settings
   }
@@ -398,7 +424,11 @@ app: {
   background.worker.import_worker -> domain.usecases.import: execute
   background.worker.export_worker -> domain.usecases.export_drive: execute
   background.worker.drive_import_worker -> domain.usecases.import_drive: execute
+  background.worker.paprika_import_worker -> domain.usecases.import_paprika: execute
   domain.usecases -> data.repository: access data
+  domain.usecases.import_paprika -> data.paprika.parser: parse export
+  domain.usecases.import_paprika -> data.remote.anthropic_svc: parse recipe content
+  domain.usecases.import_paprika -> data.remote.scraper: fetch source image
   data.remote.scraper -> external.web: fetch HTML
   data.remote.anthropic_svc -> external.anthropic: parse recipe
   data.remote.google_drive_svc -> external.google_drive: sync files
@@ -440,8 +470,23 @@ legend: {
 
   drive1 -> drive2 -> drive3
 
+  paprika_flow: {
+    label: "Paprika Import Flow"
+    style: {
+      font-size: 14
+      bold: true
+    }
+  }
+  pap1: "1. User picks .paprikarecipes file"
+  pap2: "2. PaprikaImportWorker parses ZIP of gzip-compressed JSON"
+  pap3: "3. Each recipe's content (not source URL) sent to AI"
+  pap4: "4. Image resolved from Paprika data or source page"
+  pap5: "5. Repository saves each parsed recipe to Room"
+
+  pap1 -> pap2 -> pap3 -> pap4 -> pap5
+
   note: {
-    label: "Import runs in background via WorkManager. Supports multiple concurrent imports. Google Drive export/import runs in background with progress notifications."
+    label: "Import runs in background via WorkManager. Supports multiple concurrent imports. Google Drive export/import and Paprika import run in background with progress notifications."
     style: {
       font-size: 12
       italic: true

@@ -112,6 +112,12 @@ fun NavGraph(
                     }
                     navController.navigate(Screen.RecipeDetail.createRoute(recipeId))
                 },
+                onPaprikaImportComplete = {
+                    // Navigate back to recipe list after Paprika batch import
+                    navController.navigate(Screen.RecipeList.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
                 onNavigateToSettings = {
                     navController.navigate(Screen.Settings.route)
                 }

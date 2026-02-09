@@ -130,4 +130,13 @@
     <string name="imported_recipes">Imported %1$d recipes</string>
     <string name="skipped_count">%1$d skipped</string>
     <string name="failed_count">%1$d failed</string>
+
+    <!-- Paprika Import -->
+    <string name="import_from_paprika">Import from Paprika</string>
+    <string name="reading_paprika_export">Reading Paprika export\u2026</string>
+    <string name="importing_paprika_recipe">Importing %1$d/%2$d: %3$s</string>
+    <string name="paprika_import_complete">Paprika Import Complete</string>
+    <string name="paprika_import_result">Successfully imported %1$d recipes</string>
+    <string name="paprika_import_result_with_failures">Imported %1$d recipes (%2$d failed)</string>
+    <string name="done">Done</string>
 </resources>
