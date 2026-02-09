@@ -144,6 +144,10 @@ app: {
         fill: "#ffffff"
       }
 
+      base_worker: {
+        label: BaseRecipeWorker
+        tooltip: "Abstract base class providing shared foreground notification management and error/unavailable result handling for all recipe workers."
+      }
       import_worker: {
         label: RecipeImportWorker
         tooltip: "CoroutineWorker that handles recipe import in background. Survives app closure and shows progress notifications. Supports queue of multiple imports."
@@ -156,6 +160,9 @@ app: {
         label: GoogleDriveImportWorker
         tooltip: "Imports recipes from Google Drive. Tries JSON first, falls back to HTML parsing via AI."
       }
+      import_worker -> base_worker: extends
+      export_worker -> base_worker: extends
+      drive_import_worker -> base_worker: extends
       work_ext: {
         label: "observeWorkByTag()"
         tooltip: "WorkManager extension function that encapsulates the common pattern of observing work by tag and filtering to a specific work ID. Used by AddRecipeViewModel and GoogleDriveViewModel."
