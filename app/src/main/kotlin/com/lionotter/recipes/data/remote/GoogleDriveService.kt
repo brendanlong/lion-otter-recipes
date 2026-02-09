@@ -340,6 +340,54 @@ class GoogleDriveService @Inject constructor(
         }
 
     /**
+     * Delete a file or folder from Drive.
+     */
+    suspend fun deleteFile(fileId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val drive = requireDriveService()
+            drive.files().delete(fileId).execute()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Update (overwrite) an existing text file in Drive.
+     */
+    suspend fun updateTextFile(
+        fileId: String,
+        content: String,
+        mimeType: String
+    ): Result<DriveFile> = withContext(Dispatchers.IO) {
+        try {
+            val drive = requireDriveService()
+            val mediaContent = ByteArrayContent(mimeType, content.toByteArray(Charsets.UTF_8))
+            val file = drive.files().update(fileId, null, mediaContent)
+                .setFields("id, name, mimeType")
+                .execute()
+            Result.success(DriveFile(id = file.id, name = file.name, mimeType = file.mimeType))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Get file metadata including modification time.
+     */
+    suspend fun getFileModifiedTime(fileId: String): Result<Long> = withContext(Dispatchers.IO) {
+        try {
+            val drive = requireDriveService()
+            val file = drive.files().get(fileId)
+                .setFields("modifiedTime")
+                .execute()
+            Result.success(file.modifiedTime.value)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Find or create a folder with the given name in the parent folder.
      */
     suspend fun findOrCreateFolder(

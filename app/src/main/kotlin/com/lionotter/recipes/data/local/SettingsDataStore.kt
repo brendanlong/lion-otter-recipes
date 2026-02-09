@@ -32,6 +32,10 @@ class SettingsDataStore @Inject constructor(
         val AI_MODEL = stringPreferencesKey("ai_model")
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
         val THEME_MODE = stringPreferencesKey("theme_mode")
+        val GOOGLE_DRIVE_SYNC_ENABLED = booleanPreferencesKey("google_drive_sync_enabled")
+        val GOOGLE_DRIVE_SYNC_FOLDER_ID = stringPreferencesKey("google_drive_sync_folder_id")
+        val GOOGLE_DRIVE_SYNC_FOLDER_NAME = stringPreferencesKey("google_drive_sync_folder_name")
+        val GOOGLE_DRIVE_LAST_SYNC_TIMESTAMP = stringPreferencesKey("google_drive_last_sync_timestamp")
         const val ENCRYPTED_API_KEY = "anthropic_api_key"
     }
 
@@ -75,6 +79,22 @@ class SettingsDataStore @Inject constructor(
         }
     }
 
+    val googleDriveSyncEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[Keys.GOOGLE_DRIVE_SYNC_ENABLED] ?: false
+    }
+
+    val googleDriveSyncFolderId: Flow<String?> = context.dataStore.data.map { preferences ->
+        preferences[Keys.GOOGLE_DRIVE_SYNC_FOLDER_ID]
+    }
+
+    val googleDriveSyncFolderName: Flow<String?> = context.dataStore.data.map { preferences ->
+        preferences[Keys.GOOGLE_DRIVE_SYNC_FOLDER_NAME]
+    }
+
+    val googleDriveLastSyncTimestamp: Flow<String?> = context.dataStore.data.map { preferences ->
+        preferences[Keys.GOOGLE_DRIVE_LAST_SYNC_TIMESTAMP]
+    }
+
     suspend fun setAnthropicApiKey(apiKey: String) {
         withContext(Dispatchers.IO) {
             encryptedPrefs.edit().putString(Keys.ENCRYPTED_API_KEY, apiKey).apply()
@@ -104,6 +124,34 @@ class SettingsDataStore @Inject constructor(
     suspend fun setThemeMode(mode: ThemeMode) {
         context.dataStore.edit { preferences ->
             preferences[Keys.THEME_MODE] = mode.name
+        }
+    }
+
+    suspend fun setGoogleDriveSyncEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[Keys.GOOGLE_DRIVE_SYNC_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setGoogleDriveSyncFolder(folderId: String, folderName: String) {
+        context.dataStore.edit { preferences ->
+            preferences[Keys.GOOGLE_DRIVE_SYNC_FOLDER_ID] = folderId
+            preferences[Keys.GOOGLE_DRIVE_SYNC_FOLDER_NAME] = folderName
+        }
+    }
+
+    suspend fun clearGoogleDriveSyncFolder() {
+        context.dataStore.edit { preferences ->
+            preferences.remove(Keys.GOOGLE_DRIVE_SYNC_FOLDER_ID)
+            preferences.remove(Keys.GOOGLE_DRIVE_SYNC_FOLDER_NAME)
+            preferences.remove(Keys.GOOGLE_DRIVE_SYNC_ENABLED)
+            preferences.remove(Keys.GOOGLE_DRIVE_LAST_SYNC_TIMESTAMP)
+        }
+    }
+
+    suspend fun setGoogleDriveLastSyncTimestamp(timestamp: String) {
+        context.dataStore.edit { preferences ->
+            preferences[Keys.GOOGLE_DRIVE_LAST_SYNC_TIMESTAMP] = timestamp
         }
     }
 }

@@ -330,10 +330,15 @@ Compose observes and recomposes
 
 ## Future Considerations
 
-### Google Drive Sync
-- Store recipes as `{name}-v{n}/recipe.json` + `original.html`
-- Sync on app launch, background periodic sync
-- Conflict resolution: latest timestamp wins
+### Google Drive Sync (Implemented)
+- Bidirectional sync with Google Drive via `SyncToGoogleDriveUseCase`
+- Each recipe stored as `{sanitized-name}/recipe.json` + `original.html` + `recipe.md`
+- Sync runs on app startup and every 6 hours via `GoogleDriveSyncWorker` (WorkManager periodic work)
+- Conflict resolution: latest `updatedAt` timestamp wins
+- New local recipes uploaded, new remote recipes downloaded
+- Updated recipes synced in either direction based on timestamp
+- Sync toggle in Settings with manual "Sync Now" button
+- Sync settings stored in DataStore (enabled, folder ID, last sync timestamp)
 
 ### Cooking Mode
 - Track ingredient usage across steps via `IngredientReference`

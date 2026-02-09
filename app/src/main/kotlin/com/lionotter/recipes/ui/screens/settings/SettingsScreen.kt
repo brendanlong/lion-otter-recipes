@@ -43,6 +43,9 @@ fun SettingsScreen(
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val saveState by viewModel.saveState.collectAsStateWithLifecycle()
     val driveUiState by googleDriveViewModel.uiState.collectAsStateWithLifecycle()
+    val syncEnabled by googleDriveViewModel.syncEnabled.collectAsStateWithLifecycle()
+    val lastSyncTimestamp by googleDriveViewModel.lastSyncTimestamp.collectAsStateWithLifecycle()
+    val operationState by googleDriveViewModel.operationState.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
 
@@ -123,10 +126,16 @@ fun SettingsScreen(
             // Google Drive Section
             GoogleDriveSection(
                 uiState = driveUiState,
+                syncEnabled = syncEnabled,
+                lastSyncTimestamp = lastSyncTimestamp,
+                operationState = operationState,
                 onSignInClick = {
                     signInLauncher.launch(googleDriveViewModel.getSignInIntent())
                 },
-                onSignOutClick = googleDriveViewModel::signOut
+                onSignOutClick = googleDriveViewModel::signOut,
+                onEnableSyncClick = googleDriveViewModel::enableSync,
+                onDisableSyncClick = googleDriveViewModel::disableSync,
+                onSyncNowClick = googleDriveViewModel::triggerSync
             )
 
             HorizontalDivider()
