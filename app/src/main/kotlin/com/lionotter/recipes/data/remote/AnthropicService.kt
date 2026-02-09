@@ -260,9 +260,90 @@ Guidelines:
   * Use the "amounts" array to provide multiple measurement options
   * Mark the original recipe measurement with "isDefault": true
   * Provide approximate conversions to other measurement types (volume to weight or vice versa)
-  * Use your knowledge of common ingredient densities for conversions (e.g., flour ~125g/cup, sugar ~200g/cup, butter ~227g/cup)
+  * Use the conversion reference table below for accurate conversions
   * For items that are counted (eggs, onions, etc.), use "type": "count" and only include that measurement
   * For ingredients marked "to taste", "as needed", or similar non-quantifiable amounts: leave the "amounts" array EMPTY and put the phrase in the "notes" field instead (e.g., notes: "to taste")
+
+INGREDIENT WEIGHT/VOLUME CONVERSION REFERENCE (1 cup unless noted):
+
+Volume equivalents:
+  1 tablespoon = 3 teaspoons
+  1 cup = 16 tablespoons
+  1 cup = 8 fluid ounces (volume)
+
+Flours:
+  All-purpose flour: 1 cup = 125 grams / 4.4 ounces
+  Bread flour: 1 cup = 130 grams / 4.6 ounces
+  Cake flour: 1 cup = 114 grams / 4 ounces
+  Whole wheat flour: 1 cup = 120 grams / 4.2 ounces
+  Almond flour: 1 cup = 96 grams / 3.4 ounces
+  Coconut flour: 1 cup = 128 grams / 4.5 ounces
+  Cornstarch: 1 cup = 120 grams / 4.2 ounces
+
+Sugars:
+  Granulated sugar: 1 cup = 200 grams / 7 ounces
+  Brown sugar (lightly packed): 1 cup = 200 grams / 7 ounces
+  Brown sugar (firmly packed): 1 cup = 220 grams / 7.75 ounces
+  Powdered/confectioners sugar (unsifted): 1 cup = 120 grams / 4.2 ounces
+  Honey: 1 cup = 336 grams / 12 ounces
+  Maple syrup: 1 cup = 312 grams / 11 ounces
+  Corn syrup: 1 cup = 328 grams / 11.6 ounces
+  Molasses: 1 cup = 340 grams / 12 ounces
+
+Fats and oils:
+  Butter: 1 cup = 227 grams / 8 ounces (1 stick = 113 grams / 4 ounces)
+  Vegetable/canola oil: 1 cup = 218 grams / 7.7 ounces
+  Olive oil: 1 cup = 216 grams / 7.6 ounces
+  Coconut oil: 1 cup = 218 grams / 7.7 ounces
+  Shortening: 1 cup = 191 grams / 6.75 ounces
+  Lard: 1 cup = 205 grams / 7.2 ounces
+
+Dairy:
+  Milk (whole, 2%, skim): 1 cup = 245 grams / 8.6 ounces
+  Heavy cream: 1 cup = 232 grams / 8.2 ounces
+  Sour cream: 1 cup = 230 grams / 8.1 ounces
+  Yogurt: 1 cup = 245 grams / 8.6 ounces
+  Cream cheese: 1 cup = 228 grams / 8 ounces
+  Grated parmesan: 1 cup = 100 grams / 3.5 ounces
+
+Leaveners and salt (small measures):
+  Baking powder: 1 teaspoon = 4 grams
+  Baking soda: 1 teaspoon = 6 grams
+  Table salt: 1 teaspoon = 6 grams
+  Kosher salt (Morton): 1 teaspoon = 5 grams
+  Kosher salt (Diamond Crystal): 1 teaspoon = 3 grams
+  Active dry yeast: 1 teaspoon = 3 grams (1 packet = 7 grams)
+  Instant yeast: 1 teaspoon = 3 grams
+
+Chocolate and cocoa:
+  Cocoa powder: 1 cup = 85 grams / 3 ounces
+  Chocolate chips: 1 cup = 170 grams / 6 ounces
+
+Nuts and seeds:
+  Almonds (whole): 1 cup = 142 grams / 5 ounces
+  Walnuts (halves): 1 cup = 120 grams / 4.2 ounces
+  Pecans (halves): 1 cup = 100 grams / 3.5 ounces
+  Peanuts: 1 cup = 146 grams / 5.1 ounces
+  Peanut butter: 1 cup = 270 grams / 9.5 ounces
+
+Grains and starches:
+  Rolled oats: 1 cup = 80 grams / 2.8 ounces
+  White rice (uncooked): 1 cup = 185 grams / 6.5 ounces
+  Breadcrumbs (dry): 1 cup = 115 grams / 4 ounces
+  Cornmeal: 1 cup = 150 grams / 5.3 ounces
+
+Liquids (1 US cup = 236.6 ml, rounded to 237 grams for water):
+  Water: 1 cup = 237 grams / 8.35 ounces
+  Vinegar: 1 cup = 238 grams / 8.4 ounces
+  Soy sauce: 1 tablespoon = 16 grams
+
+Miscellaneous:
+  Vanilla extract: 1 teaspoon = 4 grams
+  Cinnamon (ground): 1 teaspoon = 3 grams
+  Tomato paste: 1 tablespoon = 16 grams
+
+When the ingredient is not in this table, use your best knowledge of its density to estimate.
+When converting from weight to volume, use the inverse of these ratios.
 - IMPORTANT: Always spell out units fully (use "cups" not "c", "tablespoons" not "tbsp", "teaspoons" not "tsp", "grams" not "g", "ounces" not "oz", etc.)
 - Extract quantities as decimal numbers (e.g., 0.5 for 1/2, 0.25 for 1/4)
 - Include notes for ingredient modifications like "room temperature", "divided", etc.
