@@ -166,4 +166,24 @@ class RecipeNotificationHelper @Inject constructor(
 
         notificationManager.notify(NOTIFICATION_ID_COMPLETE, notification)
     }
+
+    @SuppressLint("MissingPermission")
+    fun showPaprikaImportSuccessNotification(importedCount: Int, failedCount: Int) {
+        if (!notificationManager.areNotificationsEnabled()) return
+
+        notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
+
+        val message = if (failedCount > 0) {
+            "Imported $importedCount recipes ($failedCount failed)"
+        } else {
+            "Imported $importedCount recipes from Paprika"
+        }
+
+        val notification = baseNotification()
+            .setContentTitle("Paprika Import Complete")
+            .setContentText(message)
+            .build()
+
+        notificationManager.notify(NOTIFICATION_ID_COMPLETE, notification)
+    }
 }

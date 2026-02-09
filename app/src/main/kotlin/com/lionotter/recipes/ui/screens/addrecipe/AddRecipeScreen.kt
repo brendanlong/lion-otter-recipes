@@ -14,16 +14,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -50,6 +53,7 @@ fun AddRecipeScreen(
     onBackClick: () -> Unit,
     onRecipeAdded: (String) -> Unit,
     onNavigateToSettings: () -> Unit,
+    onPaprikaImportComplete: () -> Unit = onBackClick,
     sharedUrl: String? = null,
     viewModel: AddRecipeViewModel = hiltViewModel()
 ) {
@@ -81,6 +85,15 @@ fun AddRecipeScreen(
         }
     }
 
+    // File picker for Paprika import
+    val paprikaFilePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            viewModel.importPaprikaFile(uri)
+        }
+    }
+
     Scaffold(
         topBar = {
             RecipeTopAppBar(
@@ -101,6 +114,9 @@ fun AddRecipeScreen(
                         url = url,
                         onUrlChange = viewModel::onUrlChange,
                         onImportClick = viewModel::importRecipe,
+                        onPaprikaImportClick = {
+                            paprikaFilePicker.launch(arrayOf("*/*"))
+                        },
                         hasApiKey = hasApiKey,
                         onNavigateToSettings = onNavigateToSettings,
                         errorMessage = (state as? AddRecipeUiState.Error)?.message
@@ -118,6 +134,16 @@ fun AddRecipeScreen(
                 is AddRecipeUiState.Success -> {
                     // Handled by LaunchedEffect
                 }
+                is AddRecipeUiState.PaprikaImportComplete -> {
+                    PaprikaImportCompleteContent(
+                        importedCount = state.importedCount,
+                        failedCount = state.failedCount,
+                        onDoneClick = {
+                            viewModel.resetState()
+                            onPaprikaImportComplete()
+                        }
+                    )
+                }
             }
         }
     }
@@ -128,6 +154,7 @@ private fun IdleContent(
     url: String,
     onUrlChange: (String) -> Unit,
     onImportClick: () -> Unit,
+    onPaprikaImportClick: () -> Unit,
     hasApiKey: Boolean,
     onNavigateToSettings: () -> Unit,
     errorMessage: String?
@@ -197,6 +224,22 @@ private fun IdleContent(
         ) {
             Text(stringResource(R.string.import_recipe))
         }
+
+        HorizontalDivider()
+
+        OutlinedButton(
+            onClick = onPaprikaImportClick,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = hasApiKey
+        ) {
+            Icon(
+                imageVector = Icons.Default.UploadFile,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.size(8.dp))
+            Text(stringResource(R.string.import_from_paprika))
+        }
     }
 }
 
@@ -221,6 +264,15 @@ private fun LoadingContent(
                 Icons.Default.Psychology to stringResource(R.string.analyzing_recipe)
             is ImportProgress.SavingRecipe ->
                 Icons.Default.Save to stringResource(R.string.saving_recipe)
+            is ImportProgress.ParsingPaprikaFile ->
+                Icons.Default.UploadFile to stringResource(R.string.reading_paprika_export)
+            is ImportProgress.ImportingPaprikaRecipe ->
+                Icons.Default.Psychology to stringResource(
+                    R.string.importing_paprika_recipe,
+                    progress.current,
+                    progress.total,
+                    progress.recipeName
+                )
         }
 
         Icon(
@@ -242,7 +294,7 @@ private fun LoadingContent(
             textAlign = TextAlign.Center
         )
 
-        if (progress is ImportProgress.ParsingRecipe) {
+        if (progress is ImportProgress.ParsingRecipe || progress is ImportProgress.ImportingPaprikaRecipe) {
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = stringResource(R.string.may_take_a_moment),
@@ -272,6 +324,54 @@ private fun LoadingContent(
 
         TextButton(onClick = onCancelClick) {
             Text(stringResource(R.string.cancel_import))
+        }
+    }
+}
+
+@Composable
+private fun PaprikaImportCompleteContent(
+    importedCount: Int,
+    failedCount: Int,
+    onDoneClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = Icons.Default.CheckCircle,
+            contentDescription = null,
+            modifier = Modifier.size(64.dp),
+            tint = MaterialTheme.colorScheme.primary
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = stringResource(R.string.paprika_import_complete),
+            style = MaterialTheme.typography.titleLarge,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        val message = if (failedCount > 0) {
+            stringResource(R.string.paprika_import_result_with_failures, importedCount, failedCount)
+        } else {
+            stringResource(R.string.paprika_import_result, importedCount)
+        }
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Button(onClick = onDoneClick) {
+            Text(stringResource(R.string.done))
         }
     }
 }
