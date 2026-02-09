@@ -27,7 +27,8 @@ class AnthropicService @Inject constructor(
     suspend fun parseRecipe(
         html: String,
         apiKey: String,
-        model: String = DEFAULT_MODEL
+        model: String = DEFAULT_MODEL,
+        extendedThinking: Boolean = true
     ): Result<RecipeParseResult> {
         return try {
             val request = AnthropicRequest(
@@ -40,10 +41,11 @@ class AnthropicService @Inject constructor(
                         content = "Parse this recipe webpage and extract the structured data:\n\n$html"
                     )
                 ),
-                thinking = ThinkingConfig(
-                    type = "enabled",
-                    budgetTokens = 8000
-                )
+                thinking = if (extendedThinking) {
+                    ThinkingConfig(type = "enabled", budgetTokens = 8000)
+                } else {
+                    null
+                }
             )
 
             val response = httpClient.post(ANTHROPIC_API_URL) {

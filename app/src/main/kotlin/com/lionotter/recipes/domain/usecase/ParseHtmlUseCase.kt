@@ -60,6 +60,7 @@ class ParseHtmlUseCase @Inject constructor(
         }
 
         val model = settingsDataStore.aiModel.first()
+        val extendedThinking = settingsDataStore.extendedThinkingEnabled.first()
 
         // Extract content from HTML
         onProgress(ParseProgress.ExtractingContent)
@@ -68,7 +69,7 @@ class ParseHtmlUseCase @Inject constructor(
 
         // Parse with AI
         onProgress(ParseProgress.ParsingRecipe)
-        val parseResult = anthropicService.parseRecipe(extractedContent, apiKey, model)
+        val parseResult = anthropicService.parseRecipe(extractedContent, apiKey, model, extendedThinking)
         if (parseResult.isFailure) {
             return ParseResult.Error("Failed to parse recipe: ${parseResult.exceptionOrNull()?.message}")
         }

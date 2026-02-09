@@ -76,6 +76,7 @@ class ImportPaprikaUseCase @Inject constructor(
         }
 
         val model = settingsDataStore.aiModel.first()
+        val extendedThinking = settingsDataStore.extendedThinkingEnabled.first()
 
         // Parse the export file
         onProgress(ImportProgress.Parsing)
@@ -107,7 +108,7 @@ class ImportPaprikaUseCase @Inject constructor(
                     )
                 )
 
-                val result = importSingleRecipe(paprikaRecipe, apiKey, model)
+                val result = importSingleRecipe(paprikaRecipe, apiKey, model, extendedThinking)
                 if (result != null) {
                     importedCount++
                 } else {
@@ -136,14 +137,15 @@ class ImportPaprikaUseCase @Inject constructor(
     private suspend fun importSingleRecipe(
         paprikaRecipe: PaprikaRecipe,
         apiKey: String,
-        model: String
+        model: String,
+        extendedThinking: Boolean
     ): Recipe? {
         return try {
             // Format the Paprika recipe content for AI parsing
             val contentForAi = paprikaParser.formatForAi(paprikaRecipe)
 
             // Parse with AI
-            val parseResult = anthropicService.parseRecipe(contentForAi, apiKey, model)
+            val parseResult = anthropicService.parseRecipe(contentForAi, apiKey, model, extendedThinking)
             if (parseResult.isFailure) {
                 return null
             }
