@@ -15,33 +15,14 @@
     <string name="delete_recipe_confirmation">Are you sure you want to delete \"%1$s\"? This action cannot be undone.</string>
 
     <!-- Recipe List Screen -->
-    <string name="more_options">More options</string>
-    <string name="export_to_google_drive">Export to Google Drive</string>
-    <string name="import_from_google_drive">Import from Google Drive</string>
     <string name="add_recipe">Add recipe</string>
     <string name="search_recipes">Search recipes\u2026</string>
     <string name="no_recipes_yet">No recipes yet</string>
     <string name="tap_to_import_first_recipe">Tap + to import your first recipe</string>
-    <string name="exporting_to_google_drive">Exporting to Google Drive\u2026</string>
-    <string name="importing_from_google_drive">Importing from Google Drive\u2026</string>
     <string name="add_to_favorites">Add to favorites</string>
     <string name="remove_from_favorites">Remove from favorites</string>
     <string name="importing">Importing\u2026</string>
     <string name="servings_count">%1$s servings</string>
-
-    <!-- Folder Picker Dialog -->
-    <string name="current_folder">Current folder</string>
-    <string name="my_drive">My Drive</string>
-    <string name="folder_picker_export_hint">Navigate to a folder and tap \"Export Here\" to export your recipes.</string>
-    <string name="folder_picker_import_hint">Navigate to the folder containing your recipe exports and tap \"Import from Here\".</string>
-    <string name="go_back">Go back</string>
-    <string name="no_subfolders">No subfolders</string>
-    <string name="folder">Folder</string>
-    <string name="open_folder">Open folder</string>
-    <string name="export_to_root">Export to Root</string>
-    <string name="export_here">Export Here</string>
-    <string name="import_from_root">Import from Root</string>
-    <string name="import_from_here">Import from Here</string>
 
     <!-- Recipe Detail Screen -->
     <string name="recipe">Recipe</string>
@@ -113,7 +94,6 @@
     <string name="checking_sign_in_status">Checking sign-in status\u2026</string>
     <string name="connected_to_google_drive">Connected to Google Drive</string>
     <string name="disconnect">Disconnect</string>
-    <string name="google_drive_usage_hint">Use the menu on the recipe list to export or import recipes.</string>
     <string name="google_drive_sync">Sync</string>
     <string name="google_drive_sync_description">Automatically sync recipes with Google Drive. New, updated, and deleted recipes are synced on startup and every 6 hours.</string>
     <string name="sync_enabled">Sync enabled</string>
@@ -145,10 +125,7 @@
     <string name="model_sonnet">Claude Sonnet 4.5 (Balanced)</string>
     <string name="model_haiku">Claude Haiku 4.5 (Fastest)</string>
 
-    <!-- Export/Import snackbar messages -->
-    <string name="exported_recipes">Exported %1$d recipes to Google Drive</string>
-    <string name="exported_recipes_with_failures">Exported %1$d recipes (%2$d failed)</string>
-    <string name="imported_recipes">Imported %1$d recipes</string>
+    <!-- Common count strings -->
     <string name="skipped_count">%1$d skipped</string>
     <string name="failed_count">%1$d failed</string>
 
