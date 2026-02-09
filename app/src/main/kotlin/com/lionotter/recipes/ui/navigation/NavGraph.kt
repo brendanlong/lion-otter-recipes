@@ -71,7 +71,7 @@ fun NavGraph(
                     navController.navigate(Screen.RecipeDetail.createRoute(recipeId))
                 },
                 onAddRecipeClick = {
-                    navController.navigate(Screen.AddRecipe.route)
+                    navController.navigate(Screen.AddRecipe.createRoute())
                 },
                 onSettingsClick = {
                     navController.navigate(Screen.Settings.route)
