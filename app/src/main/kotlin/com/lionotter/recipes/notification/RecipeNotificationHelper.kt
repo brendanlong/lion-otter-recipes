@@ -168,6 +168,35 @@ class RecipeNotificationHelper @Inject constructor(
     }
 
     @SuppressLint("MissingPermission")
+    fun showSyncSuccessNotification(uploaded: Int, downloaded: Int, updated: Int, deleted: Int) {
+        if (!notificationManager.areNotificationsEnabled()) return
+
+        notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
+
+        val totalChanges = uploaded + downloaded + updated + deleted
+        if (totalChanges == 0) {
+            // No changes - don't show a notification
+            return
+        }
+
+        val message = buildString {
+            val parts = mutableListOf<String>()
+            if (uploaded > 0) parts.add("$uploaded uploaded")
+            if (downloaded > 0) parts.add("$downloaded downloaded")
+            if (updated > 0) parts.add("$updated updated")
+            if (deleted > 0) parts.add("$deleted deleted")
+            append(parts.joinToString(", "))
+        }
+
+        val notification = baseNotification()
+            .setContentTitle("Sync Complete")
+            .setContentText(message)
+            .build()
+
+        notificationManager.notify(NOTIFICATION_ID_COMPLETE, notification)
+    }
+
+    @SuppressLint("MissingPermission")
     fun showPaprikaImportSuccessNotification(importedCount: Int, failedCount: Int) {
         if (!notificationManager.areNotificationsEnabled()) return
 

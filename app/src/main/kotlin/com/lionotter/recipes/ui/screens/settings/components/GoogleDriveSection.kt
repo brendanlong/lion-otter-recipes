@@ -8,12 +8,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -25,12 +27,19 @@ import com.lionotter.recipes.ui.components.ErrorCard
 import com.lionotter.recipes.ui.components.ProgressCard
 import com.lionotter.recipes.ui.components.StatusCard
 import com.lionotter.recipes.ui.screens.googledrive.GoogleDriveUiState
+import com.lionotter.recipes.ui.screens.googledrive.OperationState
 
 @Composable
 fun GoogleDriveSection(
     uiState: GoogleDriveUiState,
+    syncEnabled: Boolean,
+    lastSyncTimestamp: String?,
+    operationState: OperationState,
     onSignInClick: () -> Unit,
-    onSignOutClick: () -> Unit
+    onSignOutClick: () -> Unit,
+    onEnableSyncClick: () -> Unit,
+    onDisableSyncClick: () -> Unit,
+    onSyncNowClick: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
@@ -87,6 +96,75 @@ fun GoogleDriveSection(
                     }
                 }
 
+                // Sync toggle section
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = stringResource(R.string.google_drive_sync),
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Text(
+                                    text = stringResource(R.string.google_drive_sync_description),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = syncEnabled,
+                                onCheckedChange = { enabled ->
+                                    if (enabled) onEnableSyncClick() else onDisableSyncClick()
+                                }
+                            )
+                        }
+
+                        if (syncEnabled) {
+                            // Last sync info
+                            Text(
+                                text = if (lastSyncTimestamp != null) {
+                                    stringResource(R.string.last_synced, formatTimestamp(lastSyncTimestamp))
+                                } else {
+                                    stringResource(R.string.never_synced)
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            // Sync now button
+                            val isSyncing = operationState is OperationState.Syncing
+                            OutlinedButton(
+                                onClick = onSyncNowClick,
+                                enabled = !isSyncing,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Sync,
+                                    contentDescription = null,
+                                    modifier = Modifier.padding(end = 8.dp)
+                                )
+                                Text(
+                                    if (isSyncing) stringResource(R.string.syncing_with_google_drive)
+                                    else stringResource(R.string.sync_now)
+                                )
+                            }
+                        }
+                    }
+                }
+
                 Text(
                     text = stringResource(R.string.google_drive_usage_hint),
                     style = MaterialTheme.typography.bodySmall,
@@ -121,5 +199,20 @@ fun GoogleDriveSection(
                 }
             }
         }
+    }
+}
+
+private fun formatTimestamp(timestamp: String): String {
+    return try {
+        val instant = java.time.Instant.parse(timestamp)
+        val localDateTime = java.time.LocalDateTime.ofInstant(instant, java.time.ZoneId.systemDefault())
+        val month = localDateTime.month.name.lowercase().replaceFirstChar { it.uppercase() }
+        val day = localDateTime.dayOfMonth
+        val year = localDateTime.year
+        val hour = localDateTime.hour.toString().padStart(2, '0')
+        val minute = localDateTime.minute.toString().padStart(2, '0')
+        "$month $day, $year $hour:$minute"
+    } catch (_: Exception) {
+        timestamp
     }
 }

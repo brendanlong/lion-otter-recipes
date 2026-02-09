@@ -103,7 +103,7 @@ app: {
       settings_vm: SettingsViewModel
       drive_vm: {
         label: GoogleDriveViewModel
-        tooltip: "Manages Google Drive sign-in state, folder navigation, and export/import operations"
+        tooltip: "Manages Google Drive sign-in state, folder navigation, export/import operations, and sync enable/disable/trigger"
       }
     }
 
@@ -164,10 +164,15 @@ app: {
         label: PaprikaImportWorker
         tooltip: "Imports recipes from a Paprika export file (.paprikarecipes). Parses ZIP of gzip-compressed JSON, sends content through AI pipeline."
       }
+      sync_worker: {
+        label: GoogleDriveSyncWorker
+        tooltip: "Bidirectional sync with Google Drive. Runs on app startup and periodically (every 6 hours). Uploads new local recipes, downloads new remote recipes, updates changed recipes using latest-timestamp-wins conflict resolution."
+      }
       import_worker -> base_worker: extends
       export_worker -> base_worker: extends
       drive_import_worker -> base_worker: extends
       paprika_import_worker -> base_worker: extends
+      sync_worker -> base_worker: extends
       work_ext: {
         label: "observeWorkByTag()"
         tooltip: "WorkManager extension function that encapsulates the common pattern of observing work by tag and filtering to a specific work ID. Used by AddRecipeViewModel and GoogleDriveViewModel."
@@ -190,6 +195,7 @@ app: {
     worker.export_worker -> notification.helper: notify progress
     worker.drive_import_worker -> notification.helper: notify progress
     worker.paprika_import_worker -> notification.helper: notify progress
+    worker.sync_worker -> notification.helper: notify progress
   }
 
   # Domain Layer
@@ -222,6 +228,10 @@ app: {
       import_paprika: {
         label: ImportPaprikaUseCase
         tooltip: "Imports recipes from Paprika export (.paprikarecipes). Parses export, sends recipe content (not source URL) through AI, resolves images from Paprika data or source page. Supports cooperative cancellation — checks coroutine state between recipes and preserves already-imported recipes on cancel."
+      }
+      sync_drive: {
+        label: SyncToGoogleDriveUseCase
+        tooltip: "Bidirectional sync: compares local vs remote recipes, uploads new, downloads new, updates changed (latest timestamp wins). Runs via WorkManager on startup and periodically."
       }
       tags: GetTagsUseCase
       calc_usage: {
@@ -281,6 +291,7 @@ app: {
     usecases.import -> usecases.parse_html: uses
     usecases.import_drive -> usecases.parse_html: HTML fallback
     usecases.export_drive -> util.markdown: format
+    usecases.sync_drive -> util.markdown: format
   }
 
   # Data Layer
@@ -326,7 +337,7 @@ app: {
       entity: RecipeEntity
       settings: {
         label: SettingsDataStore
-        tooltip: "Uses EncryptedSharedPreferences for API key, DataStore for non-sensitive settings (AI model, keep screen on, theme mode)"
+        tooltip: "Uses EncryptedSharedPreferences for API key, DataStore for non-sensitive settings (AI model, keep screen on, theme mode, Google Drive sync enabled/folder/last sync timestamp)"
       }
 
       dao -> room
@@ -351,7 +362,7 @@ app: {
       }
       google_drive_svc: {
         label: GoogleDriveService
-        tooltip: "Handles Google Sign-In, folder operations, and file upload/download for Drive integration"
+        tooltip: "Handles Google Sign-In, folder operations, file upload/download/update/delete for Drive integration and sync"
       }
     }
 
@@ -420,11 +431,14 @@ app: {
   ui.viewmodels.add_vm -> background.worker.work_ext: observe import
   ui.viewmodels.drive_vm -> background.worker.export_worker: export
   ui.viewmodels.drive_vm -> background.worker.drive_import_worker: import
-  ui.viewmodels.drive_vm -> background.worker.work_ext: observe export/import
+  ui.viewmodels.drive_vm -> background.worker.sync_worker: sync
+  ui.viewmodels.drive_vm -> background.worker.work_ext: observe export/import/sync
+  ui.viewmodels.drive_vm -> data.local.settings: sync settings
   background.worker.import_worker -> domain.usecases.import: execute
   background.worker.export_worker -> domain.usecases.export_drive: execute
   background.worker.drive_import_worker -> domain.usecases.import_drive: execute
   background.worker.paprika_import_worker -> domain.usecases.import_paprika: execute
+  background.worker.sync_worker -> domain.usecases.sync_drive: execute
   domain.usecases -> data.repository: access data
   domain.usecases.import_paprika -> data.paprika.parser: parse export
   domain.usecases.import_paprika -> data.remote.anthropic_svc: parse recipe content
@@ -466,9 +480,10 @@ legend: {
   }
   drive1: "Export: Creates folder per recipe (JSON + HTML + Markdown)"
   drive2: "Import: Reads JSON directly, falls back to HTML via AI"
-  drive3: "Supports queued batch operations in background"
+  drive3: "Sync: Bidirectional on startup + every 6 hours (latest timestamp wins)"
+  drive4: "Supports queued batch operations in background"
 
-  drive1 -> drive2 -> drive3
+  drive1 -> drive2 -> drive3 -> drive4
 
   paprika_flow: {
     label: "Paprika Import Flow"
@@ -486,7 +501,7 @@ legend: {
   pap1 -> pap2 -> pap3 -> pap4 -> pap5
 
   note: {
-    label: "Import runs in background via WorkManager. Supports multiple concurrent imports. Google Drive export/import and Paprika import run in background with progress notifications. Paprika import can be cancelled mid-way, keeping already-imported recipes."
+    label: "Import runs in background via WorkManager. Supports multiple concurrent imports. Google Drive export/import/sync and Paprika import run in background with progress notifications. Sync runs on app startup and every 6 hours when enabled. Paprika import can be cancelled mid-way, keeping already-imported recipes."
     style: {
       font-size: 12
       italic: true
