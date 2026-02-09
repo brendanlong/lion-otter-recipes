@@ -8,6 +8,7 @@ import androidx.work.WorkManager
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.ui.state.InProgressRecipeManager
 import com.lionotter.recipes.worker.RecipeImportWorker
+import com.lionotter.recipes.worker.observeWorkByTag
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -55,15 +56,8 @@ class AddRecipeViewModel @Inject constructor(
      */
     private fun observeWorkStatus() {
         viewModelScope.launch {
-            workManager.getWorkInfosByTagFlow(RecipeImportWorker.TAG_RECIPE_IMPORT)
-                .collect { workInfos ->
-                    val currentWorkInfo = currentWorkId?.let { workId ->
-                        workInfos.find { it.id == workId }
-                    }
-                    if (currentWorkInfo != null) {
-                        handleWorkInfo(currentWorkInfo)
-                    }
-                }
+            workManager.observeWorkByTag(RecipeImportWorker.TAG_RECIPE_IMPORT) { currentWorkId }
+                .collect { handleWorkInfo(it) }
         }
     }
 

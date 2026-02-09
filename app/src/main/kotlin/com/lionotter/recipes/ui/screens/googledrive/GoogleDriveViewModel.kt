@@ -11,6 +11,7 @@ import com.lionotter.recipes.data.remote.DriveFolder
 import com.lionotter.recipes.data.remote.GoogleDriveService
 import com.lionotter.recipes.worker.GoogleDriveExportWorker
 import com.lionotter.recipes.worker.GoogleDriveImportWorker
+import com.lionotter.recipes.worker.observeWorkByTag
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -186,26 +187,13 @@ class GoogleDriveViewModel @Inject constructor(
     }
 
     private fun observeWorkStatus() {
-        // Observe export work
         viewModelScope.launch {
-            workManager.getWorkInfosByTagFlow(GoogleDriveExportWorker.TAG_DRIVE_EXPORT)
-                .collect { workInfos ->
-                    val workInfo = currentWorkId?.let { id ->
-                        workInfos.find { it.id == id }
-                    }
-                    workInfo?.let { handleExportWorkInfo(it) }
-                }
+            workManager.observeWorkByTag(GoogleDriveExportWorker.TAG_DRIVE_EXPORT) { currentWorkId }
+                .collect { handleExportWorkInfo(it) }
         }
-
-        // Observe import work
         viewModelScope.launch {
-            workManager.getWorkInfosByTagFlow(GoogleDriveImportWorker.TAG_DRIVE_IMPORT)
-                .collect { workInfos ->
-                    val workInfo = currentWorkId?.let { id ->
-                        workInfos.find { it.id == id }
-                    }
-                    workInfo?.let { handleImportWorkInfo(it) }
-                }
+            workManager.observeWorkByTag(GoogleDriveImportWorker.TAG_DRIVE_IMPORT) { currentWorkId }
+                .collect { handleImportWorkInfo(it) }
         }
     }
 
