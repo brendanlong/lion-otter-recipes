@@ -2,3 +2,8 @@
 - Prefer to amend if fixing the current commit
 - ALWAYS check the current commit before amending
 - Reference @docs/architecture.d2 and keep it up to date with any changes
+- Before committing, always run the CI checks locally to verify nothing is broken:
+  - `./gradlew assembleDebug` (debug build)
+  - `./gradlew testDebugUnitTest` (unit tests)
+  - `./gradlew lintDebug` (lint)
+  - See `.github/workflows/android-ci.yml` for the full CI pipeline

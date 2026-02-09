@@ -1,20 +1,13 @@
 package com.lionotter.recipes.data.remote
 
-import io.ktor.client.HttpClient
-import io.ktor.client.request.header
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
-import io.ktor.http.contentType
-import io.ktor.http.isSuccess
+import com.anthropic.client.AnthropicClient
+import com.anthropic.client.okhttp.AnthropicOkHttpClient
+import com.anthropic.models.messages.MessageCreateParams
+import com.anthropic.models.messages.TextBlockParam
+import com.anthropic.models.messages.ThinkingConfigEnabled
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.addJsonObject
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -26,7 +19,6 @@ class RecipeParseException(message: String) : Exception(message)
 
 @Singleton
 class AnthropicService @Inject constructor(
-    private val httpClient: HttpClient,
     private val json: Json
 ) {
     suspend fun parseRecipe(
@@ -36,51 +28,44 @@ class AnthropicService @Inject constructor(
         extendedThinking: Boolean = true
     ): Result<RecipeParseResult> {
         return try {
-            val requestBody = buildJsonObject {
-                put("model", model)
-                put("max_tokens", 16000)
-                put("system", SYSTEM_PROMPT)
-                putJsonArray("messages") {
-                    addJsonObject {
-                        put("role", "user")
-                        put("content", "Parse this recipe webpage and extract the structured data:\n\n$html")
-                    }
-                }
-                if (extendedThinking) {
-                    putJsonObject("thinking") {
-                        put("type", "enabled")
-                        put("budget_tokens", 8000)
-                    }
-                }
+            val client = buildClient(apiKey)
+
+            val paramsBuilder = MessageCreateParams.builder()
+                .model(model)
+                .maxTokens(16000)
+                .systemOfTextBlockParams(
+                    listOf(
+                        TextBlockParam.builder()
+                            .text(SYSTEM_PROMPT)
+                            .build()
+                    )
+                )
+                .addUserMessage("Parse this recipe webpage and extract the structured data:\n\n$html")
+
+            if (extendedThinking) {
+                paramsBuilder.thinking(
+                    ThinkingConfigEnabled.builder()
+                        .budgetTokens(8000)
+                        .build()
+                )
             }
 
-            val response = httpClient.post(ANTHROPIC_API_URL) {
-                contentType(ContentType.Application.Json)
-                header(HttpHeaders.Accept, ContentType.Application.Json.toString())
-                header("x-api-key", apiKey)
-                header("anthropic-version", ANTHROPIC_VERSION)
-                setBody(requestBody.toString())
+            val params = paramsBuilder.build()
+
+            // The SDK uses OkHttp synchronously, so run on IO dispatcher
+            val message = withContext(Dispatchers.IO) {
+                client.messages().create(params)
             }
 
-            val responseBody = response.bodyAsText()
-
-            if (!response.status.isSuccess()) {
-                val error = try {
-                    json.decodeFromString(AnthropicError.serializer(), responseBody)
-                } catch (e: Exception) {
-                    return Result.failure(Exception("API error: ${response.status.value} - $responseBody"))
-                }
-                return Result.failure(Exception("API error: ${error.error.message}"))
-            }
-
-            val anthropicResponse = json.decodeFromString(AnthropicResponse.serializer(), responseBody)
             // Find the text content block (skip thinking blocks)
-            val content = anthropicResponse.content
-                .firstOrNull { it.type == "text" && it.text != null }?.text
+            val textContent = message.content()
+                .firstOrNull { it.isText() }
+                ?.asText()
+                ?.text()
                 ?: return Result.failure(Exception("No text content in response"))
 
             // Extract JSON from the response (it might be wrapped in markdown code blocks)
-            val jsonContent = extractJson(content)
+            val jsonContent = extractJson(textContent)
 
             val parseResponse = json.decodeFromString(RecipeParseResponse.serializer(), jsonContent)
 
@@ -96,6 +81,12 @@ class AnthropicService @Inject constructor(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    private fun buildClient(apiKey: String): AnthropicClient {
+        return AnthropicOkHttpClient.builder()
+            .apiKey(apiKey)
+            .build()
     }
 
     private fun extractJson(content: String): String {
@@ -118,8 +109,6 @@ class AnthropicService @Inject constructor(
     }
 
     companion object {
-        private const val ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
-        private const val ANTHROPIC_VERSION = "2023-06-01"
         const val DEFAULT_MODEL = "claude-opus-4-6"
         private const val API_KEY_PREFIX = "sk-ant-"
 
