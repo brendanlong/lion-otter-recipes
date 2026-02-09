@@ -10,6 +10,11 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -31,29 +36,30 @@ class AnthropicService @Inject constructor(
         extendedThinking: Boolean = true
     ): Result<RecipeParseResult> {
         return try {
-            val request = AnthropicRequest(
-                model = model,
-                maxTokens = 16000,
-                system = SYSTEM_PROMPT,
-                messages = listOf(
-                    AnthropicMessage(
-                        role = "user",
-                        content = "Parse this recipe webpage and extract the structured data:\n\n$html"
-                    )
-                ),
-                thinking = if (extendedThinking) {
-                    ThinkingConfig(type = "enabled", budgetTokens = 8000)
-                } else {
-                    null
+            val requestBody = buildJsonObject {
+                put("model", model)
+                put("max_tokens", 16000)
+                put("system", SYSTEM_PROMPT)
+                putJsonArray("messages") {
+                    addJsonObject {
+                        put("role", "user")
+                        put("content", "Parse this recipe webpage and extract the structured data:\n\n$html")
+                    }
                 }
-            )
+                if (extendedThinking) {
+                    putJsonObject("thinking") {
+                        put("type", "enabled")
+                        put("budget_tokens", 8000)
+                    }
+                }
+            }
 
             val response = httpClient.post(ANTHROPIC_API_URL) {
                 contentType(ContentType.Application.Json)
                 header(HttpHeaders.Accept, ContentType.Application.Json.toString())
                 header("x-api-key", apiKey)
                 header("anthropic-version", ANTHROPIC_VERSION)
-                setBody(json.encodeToString(AnthropicRequest.serializer(), request))
+                setBody(requestBody.toString())
             }
 
             val responseBody = response.bodyAsText()
