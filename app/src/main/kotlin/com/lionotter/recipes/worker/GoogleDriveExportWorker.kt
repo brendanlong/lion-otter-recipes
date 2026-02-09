@@ -2,7 +2,6 @@ package com.lionotter.recipes.worker
 
 import android.content.Context
 import androidx.hilt.work.HiltWorker
-import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
@@ -16,8 +15,8 @@ class GoogleDriveExportWorker @AssistedInject constructor(
     @Assisted private val context: Context,
     @Assisted workerParams: WorkerParameters,
     private val exportToGoogleDriveUseCase: ExportToGoogleDriveUseCase,
-    private val notificationHelper: RecipeNotificationHelper
-) : CoroutineWorker(context, workerParams) {
+    notificationHelper: RecipeNotificationHelper
+) : BaseRecipeWorker(context, workerParams, notificationHelper) {
 
     companion object {
         const val TAG_DRIVE_EXPORT = "google_drive_export"
@@ -52,11 +51,13 @@ class GoogleDriveExportWorker @AssistedInject constructor(
         }
     }
 
+    override val notificationTitle = "Exporting to Google Drive"
+
     override suspend fun doWork(): Result {
         val parentFolderId = inputData.getString(KEY_PARENT_FOLDER_ID)
         val folderName = inputData.getString(KEY_FOLDER_NAME) ?: "Lion+Otter Recipes Export"
 
-        setForeground(notificationHelper.createForegroundInfo("Exporting to Google Drive", "Starting export..."))
+        updateNotification("Starting export...")
 
         val result = exportToGoogleDriveUseCase.exportAllRecipes(
             parentFolderId = parentFolderId,
@@ -85,7 +86,7 @@ class GoogleDriveExportWorker @AssistedInject constructor(
                     }
                     is ExportToGoogleDriveUseCase.ExportProgress.Complete -> "Complete!"
                 }
-                setForeground(notificationHelper.createForegroundInfo("Exporting to Google Drive", progressMessage))
+                updateNotification(progressMessage)
             }
         )
 

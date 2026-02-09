@@ -144,6 +144,10 @@ app: {
         fill: "#ffffff"
       }
 
+      base_worker: {
+        label: BaseRecipeWorker
+        tooltip: "Abstract CoroutineWorker base class. Provides shared notification title and updateNotification() helper to eliminate duplication across workers."
+      }
       import_worker: {
         label: RecipeImportWorker
         tooltip: "CoroutineWorker that handles recipe import in background. Survives app closure and shows progress notifications. Supports queue of multiple imports."
@@ -156,6 +160,10 @@ app: {
         label: GoogleDriveImportWorker
         tooltip: "Imports recipes from Google Drive. Tries JSON first, falls back to HTML parsing via AI."
       }
+
+      import_worker -> base_worker: extends
+      export_worker -> base_worker: extends
+      drive_import_worker -> base_worker: extends
     }
 
     notification: {
@@ -170,9 +178,7 @@ app: {
       }
     }
 
-    worker.import_worker -> notification.helper: notify progress
-    worker.export_worker -> notification.helper: notify progress
-    worker.drive_import_worker -> notification.helper: notify progress
+    worker.base_worker -> notification.helper: notify progress
   }
 
   # Domain Layer

@@ -2,7 +2,6 @@ package com.lionotter.recipes.worker
 
 import android.content.Context
 import androidx.hilt.work.HiltWorker
-import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
@@ -16,8 +15,8 @@ class GoogleDriveImportWorker @AssistedInject constructor(
     @Assisted private val context: Context,
     @Assisted workerParams: WorkerParameters,
     private val importFromGoogleDriveUseCase: ImportFromGoogleDriveUseCase,
-    private val notificationHelper: RecipeNotificationHelper
-) : CoroutineWorker(context, workerParams) {
+    notificationHelper: RecipeNotificationHelper
+) : BaseRecipeWorker(context, workerParams, notificationHelper) {
 
     companion object {
         const val TAG_DRIVE_IMPORT = "google_drive_import"
@@ -48,6 +47,8 @@ class GoogleDriveImportWorker @AssistedInject constructor(
         }
     }
 
+    override val notificationTitle = "Importing from Google Drive"
+
     override suspend fun doWork(): Result {
         val folderId = inputData.getString(KEY_FOLDER_ID)
             ?: return Result.failure(
@@ -57,7 +58,7 @@ class GoogleDriveImportWorker @AssistedInject constructor(
                 )
             )
 
-        setForeground(notificationHelper.createForegroundInfo("Importing from Google Drive", "Starting import from Google Drive..."))
+        updateNotification("Starting import from Google Drive...")
 
         val result = importFromGoogleDriveUseCase.importFromFolder(
             folderId = folderId,
@@ -87,7 +88,7 @@ class GoogleDriveImportWorker @AssistedInject constructor(
                     }
                     is ImportFromGoogleDriveUseCase.ImportProgress.Complete -> "Complete!"
                 }
-                setForeground(notificationHelper.createForegroundInfo("Importing from Google Drive", progressMessage))
+                updateNotification(progressMessage)
             }
         )
 

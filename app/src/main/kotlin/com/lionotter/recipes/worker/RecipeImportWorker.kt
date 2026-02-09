@@ -2,7 +2,6 @@ package com.lionotter.recipes.worker
 
 import android.content.Context
 import androidx.hilt.work.HiltWorker
-import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
@@ -16,8 +15,8 @@ class RecipeImportWorker @AssistedInject constructor(
     @Assisted private val context: Context,
     @Assisted workerParams: WorkerParameters,
     private val importRecipeUseCase: ImportRecipeUseCase,
-    private val notificationHelper: RecipeNotificationHelper
-) : CoroutineWorker(context, workerParams) {
+    notificationHelper: RecipeNotificationHelper
+) : BaseRecipeWorker(context, workerParams, notificationHelper) {
 
     companion object {
         const val TAG_RECIPE_IMPORT = "recipe_import"
@@ -46,6 +45,8 @@ class RecipeImportWorker @AssistedInject constructor(
         }
     }
 
+    override val notificationTitle = "Importing Recipe"
+
     override suspend fun doWork(): Result {
         val url = inputData.getString(KEY_URL)
             ?: return Result.failure(
@@ -56,8 +57,7 @@ class RecipeImportWorker @AssistedInject constructor(
             )
         val importId = inputData.getString(KEY_IMPORT_ID) ?: id.toString()
 
-        // Set as foreground service for long-running work
-        setForeground(notificationHelper.createForegroundInfo("Importing Recipe", "Starting import..."))
+        updateNotification("Starting import...")
 
         val result = importRecipeUseCase.execute(
             url = url,
@@ -94,7 +94,7 @@ class RecipeImportWorker @AssistedInject constructor(
                     }
                     is ImportRecipeUseCase.ImportProgress.Complete -> "Complete!"
                 }
-                setForeground(notificationHelper.createForegroundInfo("Importing Recipe", progressMessage))
+                updateNotification(progressMessage)
             }
         )
 
