@@ -52,8 +52,6 @@ import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -74,6 +72,8 @@ import coil.compose.AsyncImage
 import com.lionotter.recipes.data.remote.DriveFolder
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.ui.components.DeleteConfirmationDialog
+import com.lionotter.recipes.ui.components.ProgressCard
+import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.screens.googledrive.GoogleDriveUiState
 import com.lionotter.recipes.ui.screens.googledrive.GoogleDriveViewModel
 import com.lionotter.recipes.ui.screens.googledrive.OperationState
@@ -169,12 +169,8 @@ fun RecipeListScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Lion+Otter Recipes") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                ),
+            RecipeTopAppBar(
+                title = "Lion+Otter Recipes",
                 actions = {
                     // Menu for Google Drive operations
                     Box {
@@ -259,31 +255,14 @@ fun RecipeListScreen(
             // Show progress indicator when exporting/importing
             if (operationState is OperationState.Exporting ||
                 operationState is OperationState.Importing) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                        Text(
-                            text = if (operationState is OperationState.Exporting) {
-                                "  Exporting to Google Drive..."
-                            } else {
-                                "  Importing from Google Drive..."
-                            },
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-                }
+                ProgressCard(
+                    message = if (operationState is OperationState.Exporting) {
+                        "Exporting to Google Drive..."
+                    } else {
+                        "Importing from Google Drive..."
+                    },
+                    modifier = Modifier.padding(16.dp)
+                )
             }
 
             // Search bar

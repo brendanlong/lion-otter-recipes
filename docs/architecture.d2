@@ -76,6 +76,21 @@ app: {
       add -> settings: no API key
     }
 
+    components: {
+      label: Shared Components
+      style: {
+        fill: "#ffffff"
+      }
+
+      top_bar: RecipeTopAppBar
+      error_card: ErrorCard
+      progress_card: ProgressCard
+      status_card: StatusCard
+      delete_dialog: DeleteConfirmationDialog
+    }
+
+    screens -> components: uses
+
     viewmodels: {
       label: ViewModels
       style: {
