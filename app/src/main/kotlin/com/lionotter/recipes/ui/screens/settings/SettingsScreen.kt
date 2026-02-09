@@ -50,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -58,6 +59,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.common.api.ApiException
+import com.lionotter.recipes.BuildConfig
+import com.lionotter.recipes.R
 import com.lionotter.recipes.ui.components.ErrorCard
 import com.lionotter.recipes.ui.components.ProgressCard
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
@@ -78,6 +81,8 @@ fun SettingsScreen(
     val saveState by viewModel.saveState.collectAsStateWithLifecycle()
     val driveUiState by googleDriveViewModel.uiState.collectAsStateWithLifecycle()
 
+    val context = LocalContext.current
+
     // Google Sign-In launcher - always try to get the account, don't check result code
     val signInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -89,11 +94,11 @@ fun SettingsScreen(
         } catch (e: ApiException) {
             // Provide helpful error messages for common error codes
             val errorMessage = when (e.statusCode) {
-                10 -> "App not configured. Please set up OAuth in Google Cloud Console with your app's SHA-1 fingerprint."
-                12501 -> "Sign in cancelled"
-                12502 -> "Sign in currently in progress"
-                7 -> "Network error. Please check your internet connection."
-                else -> "Sign in failed (code ${e.statusCode})"
+                10 -> context.getString(R.string.oauth_not_configured)
+                12501 -> context.getString(R.string.sign_in_cancelled)
+                12502 -> context.getString(R.string.sign_in_in_progress)
+                7 -> context.getString(R.string.network_error)
+                else -> context.getString(R.string.sign_in_failed, e.statusCode)
             }
             googleDriveViewModel.handleSignInError(errorMessage)
         }
@@ -102,7 +107,7 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             RecipeTopAppBar(
-                title = "Settings",
+                title = stringResource(R.string.settings),
                 onBackClick = onBackClick
             )
         }
@@ -176,12 +181,12 @@ private fun ApiKeySection(
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
-            text = "Anthropic API Key",
+            text = stringResource(R.string.anthropic_api_key),
             style = MaterialTheme.typography.titleMedium
         )
 
         Text(
-            text = "Your API key is stored locally on your device and used to parse recipes with Claude.",
+            text = stringResource(R.string.api_key_storage_info),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -203,17 +208,17 @@ private fun ApiKeySection(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 imageVector = Icons.Default.Check,
-                                contentDescription = "API key configured",
+                                contentDescription = stringResource(R.string.api_key_configured),
                                 tint = MaterialTheme.colorScheme.primary
                             )
                             Text(
-                                text = " API Key configured",
+                                text = " " + stringResource(R.string.api_key_configured_label),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         }
                         Text(
-                            text = "sk-ant-****${currentApiKey.takeLast(4)}",
+                            text = stringResource(R.string.api_key_masked, currentApiKey.takeLast(4)),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                         )
@@ -221,7 +226,7 @@ private fun ApiKeySection(
                     IconButton(onClick = onClearClick) {
                         Icon(
                             imageVector = Icons.Default.Delete,
-                            contentDescription = "Remove API key",
+                            contentDescription = stringResource(R.string.remove_api_key),
                             tint = MaterialTheme.colorScheme.error
                         )
                     }
@@ -232,8 +237,8 @@ private fun ApiKeySection(
                 value = apiKeyInput,
                 onValueChange = onApiKeyInputChange,
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("API Key") },
-                placeholder = { Text("sk-ant-...") },
+                label = { Text(stringResource(R.string.api_key)) },
+                placeholder = { Text(stringResource(R.string.api_key_placeholder)) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 visualTransformation = if (passwordVisible) {
@@ -249,7 +254,7 @@ private fun ApiKeySection(
                             } else {
                                 Icons.Default.Visibility
                             },
-                            contentDescription = if (passwordVisible) "Hide" else "Show"
+                            contentDescription = if (passwordVisible) stringResource(R.string.hide) else stringResource(R.string.show)
                         )
                     }
                 },
@@ -275,7 +280,7 @@ private fun ApiKeySection(
                 modifier = Modifier.fillMaxWidth(),
                 enabled = apiKeyInput.isNotBlank()
             ) {
-                Text("Save API Key")
+                Text(stringResource(R.string.save_api_key))
             }
         }
 
@@ -286,7 +291,7 @@ private fun ApiKeySection(
             },
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Get an API Key from Anthropic")
+            Text(stringResource(R.string.get_api_key))
         }
     }
 }
@@ -300,19 +305,19 @@ private fun ModelSelectionSection(
     var expanded by remember { mutableStateOf(false) }
 
     val models = listOf(
-        "claude-opus-4-5" to "Claude Opus 4.5 (Best quality)",
-        "claude-sonnet-4-5" to "Claude Sonnet 4.5 (Balanced)",
-        "claude-haiku-4-5" to "Claude Haiku 4.5 (Fastest)"
+        "claude-opus-4-5" to stringResource(R.string.model_opus),
+        "claude-sonnet-4-5" to stringResource(R.string.model_sonnet),
+        "claude-haiku-4-5" to stringResource(R.string.model_haiku)
     )
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
-            text = "AI Model",
+            text = stringResource(R.string.ai_model),
             style = MaterialTheme.typography.titleMedium
         )
 
         Text(
-            text = "Choose the Claude model to use for parsing recipes. Better models may provide more accurate results but cost more.",
+            text = stringResource(R.string.ai_model_description),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -356,7 +361,7 @@ private fun DisplaySection(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
-            text = "Display",
+            text = stringResource(R.string.display),
             style = MaterialTheme.typography.titleMedium
         )
 
@@ -367,11 +372,11 @@ private fun DisplaySection(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Keep screen on",
+                    text = stringResource(R.string.keep_screen_on),
                     style = MaterialTheme.typography.bodyLarge
                 )
                 Text(
-                    text = "Prevent the screen from turning off while viewing a recipe.",
+                    text = stringResource(R.string.keep_screen_on_description),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -392,19 +397,19 @@ private fun GoogleDriveSection(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
-            text = "Google Drive",
+            text = stringResource(R.string.google_drive),
             style = MaterialTheme.typography.titleMedium
         )
 
         Text(
-            text = "Connect to Google Drive to export and import your recipes. Export creates a folder for each recipe containing JSON, HTML, and Markdown files.",
+            text = stringResource(R.string.google_drive_description),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
         when (uiState) {
             is GoogleDriveUiState.Loading -> {
-                ProgressCard(message = "Checking sign-in status...")
+                ProgressCard(message = stringResource(R.string.checking_sign_in_status))
             }
 
             is GoogleDriveUiState.SignedIn -> {
@@ -424,11 +429,11 @@ private fun GoogleDriveSection(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
                                     imageVector = Icons.Default.Cloud,
-                                    contentDescription = "Connected to Google Drive",
+                                    contentDescription = stringResource(R.string.connected_to_google_drive),
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                                 Text(
-                                    text = "  Connected to Google Drive",
+                                    text = "  " + stringResource(R.string.connected_to_google_drive),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer
                                 )
@@ -440,13 +445,13 @@ private fun GoogleDriveSection(
                             )
                         }
                         OutlinedButton(onClick = onSignOutClick) {
-                            Text("Disconnect")
+                            Text(stringResource(R.string.disconnect))
                         }
                     }
                 }
 
                 Text(
-                    text = "Use the menu on the recipe list to export or import recipes.",
+                    text = stringResource(R.string.google_drive_usage_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -454,7 +459,7 @@ private fun GoogleDriveSection(
 
             is GoogleDriveUiState.SignedOut -> {
                 StatusCard(
-                    message = "Not connected",
+                    message = stringResource(R.string.not_connected),
                     icon = Icons.Default.CloudOff,
                     containerColor = MaterialTheme.colorScheme.surfaceVariant,
                     contentColor = MaterialTheme.colorScheme.onSurfaceVariant
@@ -464,7 +469,7 @@ private fun GoogleDriveSection(
                     onClick = onSignInClick,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Connect to Google Drive")
+                    Text(stringResource(R.string.connect_to_google_drive))
                 }
             }
 
@@ -475,7 +480,7 @@ private fun GoogleDriveSection(
                     onClick = onSignInClick,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Try Again")
+                    Text(stringResource(R.string.try_again))
                 }
             }
         }
@@ -486,17 +491,17 @@ private fun GoogleDriveSection(
 private fun AboutSection() {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
-            text = "About",
+            text = stringResource(R.string.about),
             style = MaterialTheme.typography.titleMedium
         )
 
         Text(
-            text = "Lion+Otter Recipes",
+            text = stringResource(R.string.app_name),
             style = MaterialTheme.typography.bodyLarge
         )
 
         Text(
-            text = "Version 1.0.0",
+            text = stringResource(R.string.version_format, BuildConfig.VERSION_NAME),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -504,7 +509,7 @@ private fun AboutSection() {
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "Import recipes from any website using AI. Your recipes are stored locally on your device.",
+            text = stringResource(R.string.about_description),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

@@ -36,10 +36,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.lionotter.recipes.R
 import com.lionotter.recipes.ui.components.ErrorCard
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 
@@ -82,7 +84,7 @@ fun AddRecipeScreen(
     Scaffold(
         topBar = {
             RecipeTopAppBar(
-                title = "Import Recipe",
+                title = stringResource(R.string.import_recipe),
                 onBackClick = onBackClick
             )
         }
@@ -135,12 +137,12 @@ private fun IdleContent(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
-            text = "Import a recipe from any website",
+            text = stringResource(R.string.import_recipe_title),
             style = MaterialTheme.typography.titleMedium
         )
 
         Text(
-            text = "Paste the URL of a recipe page below. The AI will extract the recipe details automatically.",
+            text = stringResource(R.string.import_recipe_description),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -149,8 +151,8 @@ private fun IdleContent(
             value = url,
             onValueChange = onUrlChange,
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Recipe URL") },
-            placeholder = { Text("https://example.com/recipe") },
+            label = { Text(stringResource(R.string.recipe_url)) },
+            placeholder = { Text(stringResource(R.string.recipe_url_placeholder)) },
             singleLine = true,
             isError = errorMessage != null
         )
@@ -170,17 +172,17 @@ private fun IdleContent(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "API Key Required",
+                        text = stringResource(R.string.api_key_required),
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onErrorContainer
                     )
                     Text(
-                        text = "You need to set up your Anthropic API key before importing recipes.",
+                        text = stringResource(R.string.api_key_required_message),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onErrorContainer
                     )
                     OutlinedButton(onClick = onNavigateToSettings) {
-                        Text("Go to Settings")
+                        Text(stringResource(R.string.go_to_settings))
                     }
                 }
             }
@@ -193,7 +195,7 @@ private fun IdleContent(
             modifier = Modifier.fillMaxWidth(),
             enabled = url.isNotBlank() && hasApiKey
         ) {
-            Text("Import Recipe")
+            Text(stringResource(R.string.import_recipe))
         }
     }
 }
@@ -210,15 +212,15 @@ private fun LoadingContent(
     ) {
         val (icon, message) = when (progress) {
             is ImportProgress.Queued ->
-                Icons.Default.HourglassEmpty to "Preparing import..."
+                Icons.Default.HourglassEmpty to stringResource(R.string.preparing_import)
             is ImportProgress.Starting ->
-                Icons.Default.Cloud to "Starting..."
+                Icons.Default.Cloud to stringResource(R.string.starting)
             is ImportProgress.FetchingPage ->
-                Icons.Default.CloudDownload to "Fetching recipe page..."
+                Icons.Default.CloudDownload to stringResource(R.string.fetching_recipe_page)
             is ImportProgress.ParsingRecipe ->
-                Icons.Default.Psychology to "AI is analyzing the recipe..."
+                Icons.Default.Psychology to stringResource(R.string.analyzing_recipe)
             is ImportProgress.SavingRecipe ->
-                Icons.Default.Save to "Saving recipe..."
+                Icons.Default.Save to stringResource(R.string.saving_recipe)
         }
 
         Icon(
@@ -243,7 +245,7 @@ private fun LoadingContent(
         if (progress is ImportProgress.ParsingRecipe) {
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "This may take a moment...",
+                text = stringResource(R.string.may_take_a_moment),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -258,7 +260,7 @@ private fun LoadingContent(
             )
         ) {
             Text(
-                text = "You can leave this screen. You'll be notified when the import is complete.",
+                text = stringResource(R.string.import_background_notice),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -269,7 +271,7 @@ private fun LoadingContent(
         Spacer(modifier = Modifier.height(16.dp))
 
         TextButton(onClick = onCancelClick) {
-            Text("Cancel Import")
+            Text(stringResource(R.string.cancel_import))
         }
     }
 }
@@ -283,7 +285,7 @@ private fun NoApiKeyContent(onNavigateToSettings: () -> Unit) {
     ) {
         Icon(
             imageVector = Icons.Default.Warning,
-            contentDescription = "Warning",
+            contentDescription = stringResource(R.string.warning),
             modifier = Modifier.size(64.dp),
             tint = MaterialTheme.colorScheme.error
         )
@@ -291,7 +293,7 @@ private fun NoApiKeyContent(onNavigateToSettings: () -> Unit) {
         Spacer(modifier = Modifier.height(24.dp))
 
         Text(
-            text = "API Key Required",
+            text = stringResource(R.string.api_key_required),
             style = MaterialTheme.typography.titleLarge,
             textAlign = TextAlign.Center
         )
@@ -299,7 +301,7 @@ private fun NoApiKeyContent(onNavigateToSettings: () -> Unit) {
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "Please set up your Anthropic API key in settings to import recipes.",
+            text = stringResource(R.string.api_key_setup_message),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
@@ -308,7 +310,7 @@ private fun NoApiKeyContent(onNavigateToSettings: () -> Unit) {
         Spacer(modifier = Modifier.height(24.dp))
 
         Button(onClick = onNavigateToSettings) {
-            Text("Go to Settings")
+            Text(stringResource(R.string.go_to_settings))
         }
     }
 }

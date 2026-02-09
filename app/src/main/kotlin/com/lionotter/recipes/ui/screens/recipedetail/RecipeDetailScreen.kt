@@ -49,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -60,6 +61,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.core.net.toUri
 import coil.compose.AsyncImage
+import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.IngredientSection
 import com.lionotter.recipes.domain.model.IngredientUsageStatus
 import com.lionotter.recipes.domain.model.InstructionIngredientKey
@@ -121,21 +123,21 @@ fun RecipeDetailScreen(
     Scaffold(
         topBar = {
             RecipeTopAppBar(
-                title = recipe?.name ?: "Recipe",
+                title = recipe?.name ?: stringResource(R.string.recipe),
                 onBackClick = onBackClick,
                 actions = {
                     if (recipe != null) {
                         IconButton(onClick = { viewModel.toggleFavorite() }) {
                             Icon(
                                 imageVector = if (recipe!!.isFavorite) Icons.Filled.Star else Icons.Outlined.StarOutline,
-                                contentDescription = if (recipe!!.isFavorite) "Remove from favorites" else "Add to favorites",
+                                contentDescription = if (recipe!!.isFavorite) stringResource(R.string.remove_from_favorites) else stringResource(R.string.add_to_favorites),
                                 tint = if (recipe!!.isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         }
                         IconButton(onClick = { showDeleteDialog = true }) {
                             Icon(
                                 imageVector = Icons.Default.Delete,
-                                contentDescription = "Delete recipe"
+                                contentDescription = stringResource(R.string.delete_recipe_action)
                             )
                         }
                     }
@@ -267,7 +269,7 @@ private fun RecipeContent(
             // Ingredients
             Spacer(modifier = Modifier.height(24.dp))
             Text(
-                text = "Ingredients",
+                text = stringResource(R.string.ingredients),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
@@ -284,7 +286,7 @@ private fun RecipeContent(
             // Instructions
             Spacer(modifier = Modifier.height(24.dp))
             Text(
-                text = "Instructions",
+                text = stringResource(R.string.instructions),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
@@ -309,7 +311,7 @@ private fun RecipeContent(
                 HorizontalDivider()
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    text = "Source: $url",
+                    text = stringResource(R.string.source_prefix, url),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.clickable {
@@ -327,15 +329,15 @@ private fun RecipeContent(
 @Composable
 private fun RecipeMetadata(recipe: Recipe, scale: Double) {
     val items = buildList {
-        recipe.prepTime?.let { add("Prep: $it") }
-        recipe.cookTime?.let { add("Cook: $it") }
-        recipe.totalTime?.let { add("Total: $it") }
+        recipe.prepTime?.let { add(stringResource(R.string.prep_time, it)) }
+        recipe.cookTime?.let { add(stringResource(R.string.cook_time, it)) }
+        recipe.totalTime?.let { add(stringResource(R.string.total_time, it)) }
         recipe.servings?.let {
             val scaled = (it * scale).let { s ->
                 if (s == s.toLong().toDouble()) s.toLong().toString()
                 else "%.1f".format(s)
             }
-            add("Servings: $scaled")
+            add(stringResource(R.string.servings_label, scaled))
         }
     }
 
@@ -382,7 +384,7 @@ private fun ScaleControl(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Scale:",
+                text = stringResource(R.string.scale_label),
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSecondaryContainer
             )
@@ -390,7 +392,7 @@ private fun ScaleControl(
             IconButton(onClick = onDecrement) {
                 Icon(
                     imageVector = Icons.Default.Remove,
-                    contentDescription = "Decrease scale"
+                    contentDescription = stringResource(R.string.decrease_scale)
                 )
             }
             Text(
@@ -402,7 +404,7 @@ private fun ScaleControl(
             IconButton(onClick = onIncrement) {
                 Icon(
                     imageVector = Icons.Default.Add,
-                    contentDescription = "Increase scale"
+                    contentDescription = stringResource(R.string.increase_scale)
                 )
             }
         }
@@ -422,9 +424,9 @@ private fun MeasurementToggle(
 
     // Build the list of options to display
     val options = buildList {
-        add(MeasurementPreference.ORIGINAL to "Original")
-        if (hasVolume) add(MeasurementPreference.VOLUME to "Volume")
-        if (hasWeight) add(MeasurementPreference.WEIGHT to "Weight")
+        add(MeasurementPreference.ORIGINAL to stringResource(R.string.original))
+        if (hasVolume) add(MeasurementPreference.VOLUME to stringResource(R.string.volume))
+        if (hasWeight) add(MeasurementPreference.WEIGHT to stringResource(R.string.weight))
     }
 
     // Only show toggle if there are at least 2 options (Original plus at least one conversion)
@@ -442,7 +444,7 @@ private fun MeasurementToggle(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "Units",
+                text = stringResource(R.string.units),
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 8.dp)
@@ -531,7 +533,7 @@ private fun IngredientSectionContent(
                         .padding(vertical = 2.dp, horizontal = 24.dp)
                 ) {
                     Text(
-                        text = "or",
+                        text = stringResource(R.string.or),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.outline,
                         modifier = Modifier.padding(end = 8.dp)
@@ -722,7 +724,7 @@ private fun InstructionSectionContent(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "or",
+                                        text = stringResource(R.string.or),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.outline,
                                         modifier = Modifier.padding(end = 8.dp)
