@@ -1,8 +1,11 @@
 package com.lionotter.recipes.domain.model
 
+import androidx.compose.runtime.Immutable
+
 /**
  * Represents the usage status of a global ingredient based on instruction step usage.
  */
+@Immutable
 data class IngredientUsageStatus(
     val totalAmount: Double?,
     val usedAmount: Double,
