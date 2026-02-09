@@ -2,7 +2,6 @@ package com.lionotter.recipes.worker
 
 import android.content.Context
 import androidx.hilt.work.HiltWorker
-import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
@@ -16,8 +15,10 @@ class GoogleDriveImportWorker @AssistedInject constructor(
     @Assisted private val context: Context,
     @Assisted workerParams: WorkerParameters,
     private val importFromGoogleDriveUseCase: ImportFromGoogleDriveUseCase,
-    private val notificationHelper: RecipeNotificationHelper
-) : CoroutineWorker(context, workerParams) {
+    notificationHelper: RecipeNotificationHelper
+) : BaseRecipeWorker(context, workerParams, notificationHelper) {
+
+    override val notificationTitle = "Importing from Google Drive"
 
     companion object {
         const val TAG_DRIVE_IMPORT = "google_drive_import"
@@ -57,7 +58,7 @@ class GoogleDriveImportWorker @AssistedInject constructor(
                 )
             )
 
-        setForeground(notificationHelper.createForegroundInfo("Importing from Google Drive", "Starting import from Google Drive..."))
+        setForegroundProgress("Starting import from Google Drive...")
 
         val result = importFromGoogleDriveUseCase.importFromFolder(
             folderId = folderId,
@@ -87,7 +88,7 @@ class GoogleDriveImportWorker @AssistedInject constructor(
                     }
                     is ImportFromGoogleDriveUseCase.ImportProgress.Complete -> "Complete!"
                 }
-                setForeground(notificationHelper.createForegroundInfo("Importing from Google Drive", progressMessage))
+                setForegroundProgress(progressMessage)
             }
         )
 
@@ -107,33 +108,25 @@ class GoogleDriveImportWorker @AssistedInject constructor(
                     )
                 )
             }
-            is ImportFromGoogleDriveUseCase.ImportResult.Error -> {
-                notificationHelper.showErrorNotification("Import Failed", result.message)
-                Result.failure(
-                    workDataOf(
-                        KEY_RESULT_TYPE to RESULT_ERROR,
-                        KEY_ERROR_MESSAGE to result.message
-                    )
-                )
-            }
-            ImportFromGoogleDriveUseCase.ImportResult.NotSignedIn -> {
-                notificationHelper.cancelProgressNotification()
-                Result.failure(
-                    workDataOf(
-                        KEY_RESULT_TYPE to RESULT_NOT_SIGNED_IN,
-                        KEY_ERROR_MESSAGE to "Not signed in to Google Drive"
-                    )
-                )
-            }
-            ImportFromGoogleDriveUseCase.ImportResult.NoApiKey -> {
-                notificationHelper.cancelProgressNotification()
-                Result.failure(
-                    workDataOf(
-                        KEY_RESULT_TYPE to RESULT_NO_API_KEY,
-                        KEY_ERROR_MESSAGE to "API key required for HTML fallback import"
-                    )
-                )
-            }
+            is ImportFromGoogleDriveUseCase.ImportResult.Error -> errorResult(
+                errorNotificationTitle = "Import Failed",
+                resultTypeKey = KEY_RESULT_TYPE,
+                errorMessageKey = KEY_ERROR_MESSAGE,
+                errorType = RESULT_ERROR,
+                errorMessage = result.message
+            )
+            ImportFromGoogleDriveUseCase.ImportResult.NotSignedIn -> notAvailableResult(
+                resultTypeKey = KEY_RESULT_TYPE,
+                errorMessageKey = KEY_ERROR_MESSAGE,
+                resultType = RESULT_NOT_SIGNED_IN,
+                errorMessage = "Not signed in to Google Drive"
+            )
+            ImportFromGoogleDriveUseCase.ImportResult.NoApiKey -> notAvailableResult(
+                resultTypeKey = KEY_RESULT_TYPE,
+                errorMessageKey = KEY_ERROR_MESSAGE,
+                resultType = RESULT_NO_API_KEY,
+                errorMessage = "API key required for HTML fallback import"
+            )
         }
     }
 }

@@ -2,7 +2,6 @@ package com.lionotter.recipes.worker
 
 import android.content.Context
 import androidx.hilt.work.HiltWorker
-import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
@@ -16,8 +15,10 @@ class RecipeImportWorker @AssistedInject constructor(
     @Assisted private val context: Context,
     @Assisted workerParams: WorkerParameters,
     private val importRecipeUseCase: ImportRecipeUseCase,
-    private val notificationHelper: RecipeNotificationHelper
-) : CoroutineWorker(context, workerParams) {
+    notificationHelper: RecipeNotificationHelper
+) : BaseRecipeWorker(context, workerParams, notificationHelper) {
+
+    override val notificationTitle = "Importing Recipe"
 
     companion object {
         const val TAG_RECIPE_IMPORT = "recipe_import"
@@ -57,7 +58,7 @@ class RecipeImportWorker @AssistedInject constructor(
         val importId = inputData.getString(KEY_IMPORT_ID) ?: id.toString()
 
         // Set as foreground service for long-running work
-        setForeground(notificationHelper.createForegroundInfo("Importing Recipe", "Starting import..."))
+        setForegroundProgress("Starting import...")
 
         val result = importRecipeUseCase.execute(
             url = url,
@@ -94,7 +95,7 @@ class RecipeImportWorker @AssistedInject constructor(
                     }
                     is ImportRecipeUseCase.ImportProgress.Complete -> "Complete!"
                 }
-                setForeground(notificationHelper.createForegroundInfo("Importing Recipe", progressMessage))
+                setForegroundProgress(progressMessage)
             }
         )
 
@@ -113,26 +114,21 @@ class RecipeImportWorker @AssistedInject constructor(
                     )
                 )
             }
-            is ImportRecipeUseCase.ImportResult.Error -> {
-                notificationHelper.showErrorNotification("Import Failed", result.message)
-                Result.failure(
-                    workDataOf(
-                        KEY_IMPORT_ID to importId,
-                        KEY_RESULT_TYPE to RESULT_ERROR,
-                        KEY_ERROR_MESSAGE to result.message
-                    )
-                )
-            }
-            ImportRecipeUseCase.ImportResult.NoApiKey -> {
-                notificationHelper.cancelProgressNotification()
-                Result.failure(
-                    workDataOf(
-                        KEY_IMPORT_ID to importId,
-                        KEY_RESULT_TYPE to RESULT_NO_API_KEY,
-                        KEY_ERROR_MESSAGE to "API key not configured"
-                    )
-                )
-            }
+            is ImportRecipeUseCase.ImportResult.Error -> errorResult(
+                errorNotificationTitle = "Import Failed",
+                resultTypeKey = KEY_RESULT_TYPE,
+                errorMessageKey = KEY_ERROR_MESSAGE,
+                errorType = RESULT_ERROR,
+                errorMessage = result.message,
+                KEY_IMPORT_ID to importId
+            )
+            ImportRecipeUseCase.ImportResult.NoApiKey -> notAvailableResult(
+                resultTypeKey = KEY_RESULT_TYPE,
+                errorMessageKey = KEY_ERROR_MESSAGE,
+                resultType = RESULT_NO_API_KEY,
+                errorMessage = "API key not configured",
+                KEY_IMPORT_ID to importId
+            )
         }
     }
 }
