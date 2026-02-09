@@ -3,7 +3,7 @@ package com.lionotter.recipes
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
-import com.lionotter.recipes.notification.ImportNotificationHelper
+import com.lionotter.recipes.notification.RecipeNotificationHelper
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 
@@ -14,11 +14,11 @@ class LionOtterApp : Application(), Configuration.Provider {
     lateinit var workerFactory: HiltWorkerFactory
 
     @Inject
-    lateinit var importNotificationHelper: ImportNotificationHelper
+    lateinit var recipeNotificationHelper: RecipeNotificationHelper
 
     override fun onCreate() {
         super.onCreate()
-        importNotificationHelper.createNotificationChannel()
+        recipeNotificationHelper.createNotificationChannel()
     }
 
     override val workManagerConfiguration: Configuration

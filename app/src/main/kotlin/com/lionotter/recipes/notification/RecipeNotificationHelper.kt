@@ -6,8 +6,11 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.work.ForegroundInfo
 import com.lionotter.recipes.MainActivity
 import com.lionotter.recipes.R
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -15,7 +18,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class ImportNotificationHelper @Inject constructor(
+class RecipeNotificationHelper @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     companion object {
@@ -44,20 +47,34 @@ class ImportNotificationHelper @Inject constructor(
         systemNotificationManager.createNotificationChannel(channel)
     }
 
-    @SuppressLint("MissingPermission")
-    fun showProgressNotification(progress: String) {
-        if (!notificationManager.areNotificationsEnabled()) return
-
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+    private fun baseNotification(): NotificationCompat.Builder =
+        NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Importing Recipe")
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+
+    fun createForegroundInfo(title: String, progress: String): ForegroundInfo {
+        val notification = baseNotification()
+            .setContentTitle(title)
             .setContentText(progress)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setAutoCancel(false)
             .setOngoing(true)
             .setProgress(0, 0, true)
             .build()
 
-        notificationManager.notify(NOTIFICATION_ID_PROGRESS, notification)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ForegroundInfo(
+                NOTIFICATION_ID_PROGRESS,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+        } else {
+            ForegroundInfo(
+                NOTIFICATION_ID_PROGRESS,
+                notification
+            )
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -77,12 +94,9 @@ class ImportNotificationHelper @Inject constructor(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification)
+        val notification = baseNotification()
             .setContentTitle("Recipe Imported")
             .setContentText(recipeName)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .build()
 
@@ -90,17 +104,14 @@ class ImportNotificationHelper @Inject constructor(
     }
 
     @SuppressLint("MissingPermission")
-    fun showErrorNotification(errorMessage: String) {
+    fun showErrorNotification(title: String, errorMessage: String) {
         if (!notificationManager.areNotificationsEnabled()) return
 
         notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Import Failed")
+        val notification = baseNotification()
+            .setContentTitle(title)
             .setContentText(errorMessage)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setAutoCancel(true)
             .build()
 
         notificationManager.notify(NOTIFICATION_ID_ERROR, notification)
@@ -122,32 +133,12 @@ class ImportNotificationHelper @Inject constructor(
             "Exported $exportedCount recipes to Google Drive"
         }
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification)
+        val notification = baseNotification()
             .setContentTitle("Export Complete")
             .setContentText(message)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setAutoCancel(true)
             .build()
 
         notificationManager.notify(NOTIFICATION_ID_COMPLETE, notification)
-    }
-
-    @SuppressLint("MissingPermission")
-    fun showExportErrorNotification(errorMessage: String) {
-        if (!notificationManager.areNotificationsEnabled()) return
-
-        notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
-
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Export Failed")
-            .setContentText(errorMessage)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setAutoCancel(true)
-            .build()
-
-        notificationManager.notify(NOTIFICATION_ID_ERROR, notification)
     }
 
     @SuppressLint("MissingPermission")
@@ -168,12 +159,9 @@ class ImportNotificationHelper @Inject constructor(
             }
         }
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification)
+        val notification = baseNotification()
             .setContentTitle("Import Complete")
             .setContentText(message)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setAutoCancel(true)
             .build()
 
         notificationManager.notify(NOTIFICATION_ID_COMPLETE, notification)

@@ -1,17 +1,13 @@
 package com.lionotter.recipes.worker
 
 import android.content.Context
-import android.content.pm.ServiceInfo
-import android.os.Build
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.Data
-import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.usecase.ImportRecipeUseCase
-import com.lionotter.recipes.notification.ImportNotificationHelper
+import com.lionotter.recipes.notification.RecipeNotificationHelper
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 
@@ -20,7 +16,7 @@ class RecipeImportWorker @AssistedInject constructor(
     @Assisted private val context: Context,
     @Assisted workerParams: WorkerParameters,
     private val importRecipeUseCase: ImportRecipeUseCase,
-    private val notificationHelper: ImportNotificationHelper
+    private val notificationHelper: RecipeNotificationHelper
 ) : CoroutineWorker(context, workerParams) {
 
     companion object {
@@ -61,7 +57,7 @@ class RecipeImportWorker @AssistedInject constructor(
         val importId = inputData.getString(KEY_IMPORT_ID) ?: id.toString()
 
         // Set as foreground service for long-running work
-        setForeground(createForegroundInfo("Starting import..."))
+        setForeground(notificationHelper.createForegroundInfo("Importing Recipe", "Starting import..."))
 
         val result = importRecipeUseCase.execute(
             url = url,
@@ -98,7 +94,7 @@ class RecipeImportWorker @AssistedInject constructor(
                     }
                     is ImportRecipeUseCase.ImportProgress.Complete -> "Complete!"
                 }
-                setForeground(createForegroundInfo(progressMessage))
+                setForeground(notificationHelper.createForegroundInfo("Importing Recipe", progressMessage))
             }
         )
 
@@ -118,7 +114,7 @@ class RecipeImportWorker @AssistedInject constructor(
                 )
             }
             is ImportRecipeUseCase.ImportResult.Error -> {
-                notificationHelper.showErrorNotification(result.message)
+                notificationHelper.showErrorNotification("Import Failed", result.message)
                 Result.failure(
                     workDataOf(
                         KEY_IMPORT_ID to importId,
@@ -137,33 +133,6 @@ class RecipeImportWorker @AssistedInject constructor(
                     )
                 )
             }
-        }
-    }
-
-    private fun createForegroundInfo(progress: String): ForegroundInfo {
-        val notification = androidx.core.app.NotificationCompat.Builder(
-            context,
-            ImportNotificationHelper.CHANNEL_ID
-        )
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Importing Recipe")
-            .setContentText(progress)
-            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_LOW)
-            .setOngoing(true)
-            .setProgress(0, 0, true)
-            .build()
-
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ForegroundInfo(
-                ImportNotificationHelper.NOTIFICATION_ID_PROGRESS,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            )
-        } else {
-            ForegroundInfo(
-                ImportNotificationHelper.NOTIFICATION_ID_PROGRESS,
-                notification
-            )
         }
     }
 }

@@ -1,17 +1,13 @@
 package com.lionotter.recipes.worker
 
 import android.content.Context
-import android.content.pm.ServiceInfo
-import android.os.Build
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.Data
-import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.usecase.ExportToGoogleDriveUseCase
-import com.lionotter.recipes.notification.ImportNotificationHelper
+import com.lionotter.recipes.notification.RecipeNotificationHelper
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 
@@ -20,7 +16,7 @@ class GoogleDriveExportWorker @AssistedInject constructor(
     @Assisted private val context: Context,
     @Assisted workerParams: WorkerParameters,
     private val exportToGoogleDriveUseCase: ExportToGoogleDriveUseCase,
-    private val notificationHelper: ImportNotificationHelper
+    private val notificationHelper: RecipeNotificationHelper
 ) : CoroutineWorker(context, workerParams) {
 
     companion object {
@@ -60,7 +56,7 @@ class GoogleDriveExportWorker @AssistedInject constructor(
         val parentFolderId = inputData.getString(KEY_PARENT_FOLDER_ID)
         val folderName = inputData.getString(KEY_FOLDER_NAME) ?: "Lion+Otter Recipes Export"
 
-        setForeground(createForegroundInfo("Starting export..."))
+        setForeground(notificationHelper.createForegroundInfo("Exporting to Google Drive", "Starting export..."))
 
         val result = exportToGoogleDriveUseCase.exportAllRecipes(
             parentFolderId = parentFolderId,
@@ -89,7 +85,7 @@ class GoogleDriveExportWorker @AssistedInject constructor(
                     }
                     is ExportToGoogleDriveUseCase.ExportProgress.Complete -> "Complete!"
                 }
-                setForeground(createForegroundInfo(progressMessage))
+                setForeground(notificationHelper.createForegroundInfo("Exporting to Google Drive", progressMessage))
             }
         )
 
@@ -108,7 +104,7 @@ class GoogleDriveExportWorker @AssistedInject constructor(
                 )
             }
             is ExportToGoogleDriveUseCase.ExportResult.Error -> {
-                notificationHelper.showExportErrorNotification(result.message)
+                notificationHelper.showErrorNotification("Export Failed", result.message)
                 Result.failure(
                     workDataOf(
                         KEY_RESULT_TYPE to RESULT_ERROR,
@@ -125,33 +121,6 @@ class GoogleDriveExportWorker @AssistedInject constructor(
                     )
                 )
             }
-        }
-    }
-
-    private fun createForegroundInfo(progress: String): ForegroundInfo {
-        val notification = androidx.core.app.NotificationCompat.Builder(
-            context,
-            ImportNotificationHelper.CHANNEL_ID
-        )
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Exporting to Google Drive")
-            .setContentText(progress)
-            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_LOW)
-            .setOngoing(true)
-            .setProgress(0, 0, true)
-            .build()
-
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ForegroundInfo(
-                ImportNotificationHelper.NOTIFICATION_ID_PROGRESS,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            )
-        } else {
-            ForegroundInfo(
-                ImportNotificationHelper.NOTIFICATION_ID_PROGRESS,
-                notification
-            )
         }
     }
 }
