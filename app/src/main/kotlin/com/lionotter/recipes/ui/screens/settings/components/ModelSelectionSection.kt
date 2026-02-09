@@ -30,6 +30,7 @@ fun ModelSelectionSection(
     var expanded by remember { mutableStateOf(false) }
 
     val models = listOf(
+        "claude-opus-4-6" to stringResource(R.string.model_opus_4_6),
         "claude-opus-4-5" to stringResource(R.string.model_opus),
         "claude-sonnet-4-5" to stringResource(R.string.model_sonnet),
         "claude-haiku-4-5" to stringResource(R.string.model_haiku)

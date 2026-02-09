@@ -120,7 +120,8 @@
     <string name="oauth_not_configured">App not configured. Please set up OAuth in Google Cloud Console with your app\'s SHA-1 fingerprint.</string>
 
     <!-- Model names -->
-    <string name="model_opus">Claude Opus 4.5 (Best quality)</string>
+    <string name="model_opus_4_6">Claude Opus 4.6 (Best quality)</string>
+    <string name="model_opus">Claude Opus 4.5</string>
     <string name="model_sonnet">Claude Sonnet 4.5 (Balanced)</string>
     <string name="model_haiku">Claude Haiku 4.5 (Fastest)</string>
 
