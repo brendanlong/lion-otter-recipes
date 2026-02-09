@@ -64,11 +64,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.lionotter.recipes.R
 import com.lionotter.recipes.data.remote.DriveFolder
 import com.lionotter.recipes.data.repository.RepositoryError
 import com.lionotter.recipes.domain.model.Recipe
@@ -173,14 +175,14 @@ fun RecipeListScreen(
     Scaffold(
         topBar = {
             RecipeTopAppBar(
-                title = "Lion+Otter Recipes",
+                title = stringResource(R.string.app_name),
                 actions = {
                     // Menu for Google Drive operations
                     Box {
                         IconButton(onClick = { showMenu = true }) {
                             Icon(
                                 imageVector = Icons.Default.MoreVert,
-                                contentDescription = "More options"
+                                contentDescription = stringResource(R.string.more_options)
                             )
                         }
                         DropdownMenu(
@@ -192,7 +194,7 @@ fun RecipeListScreen(
                                     operationState is OperationState.Importing
 
                             DropdownMenuItem(
-                                text = { Text("Export to Google Drive") },
+                                text = { Text(stringResource(R.string.export_to_google_drive)) },
                                 onClick = {
                                     showMenu = false
                                     if (isSignedIn) {
@@ -209,7 +211,7 @@ fun RecipeListScreen(
                                 enabled = !isOperating
                             )
                             DropdownMenuItem(
-                                text = { Text("Import from Google Drive") },
+                                text = { Text(stringResource(R.string.import_from_google_drive)) },
                                 onClick = {
                                     showMenu = false
                                     if (isSignedIn) {
@@ -231,7 +233,7 @@ fun RecipeListScreen(
                     IconButton(onClick = onSettingsClick) {
                         Icon(
                             imageVector = Icons.Default.Settings,
-                            contentDescription = "Settings"
+                            contentDescription = stringResource(R.string.settings)
                         )
                     }
                 }
@@ -244,7 +246,7 @@ fun RecipeListScreen(
             ) {
                 Icon(
                     imageVector = Icons.Default.Add,
-                    contentDescription = "Add recipe"
+                    contentDescription = stringResource(R.string.add_recipe)
                 )
             }
         },
@@ -260,9 +262,9 @@ fun RecipeListScreen(
                 operationState is OperationState.Importing) {
                 ProgressCard(
                     message = if (operationState is OperationState.Exporting) {
-                        "Exporting to Google Drive..."
+                        stringResource(R.string.exporting_to_google_drive)
                     } else {
-                        "Importing from Google Drive..."
+                        stringResource(R.string.importing_from_google_drive)
                     },
                     modifier = Modifier.padding(16.dp)
                 )
@@ -275,11 +277,11 @@ fun RecipeListScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
-                placeholder = { Text("Search recipes...") },
+                placeholder = { Text(stringResource(R.string.search_recipes)) },
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Default.Search,
-                        contentDescription = "Search"
+                        contentDescription = stringResource(R.string.search)
                     )
                 },
                 singleLine = true
@@ -312,13 +314,13 @@ fun RecipeListScreen(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = "No recipes yet",
+                            text = stringResource(R.string.no_recipes_yet),
                             style = MaterialTheme.typography.titleLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Tap + to import your first recipe",
+                            text = stringResource(R.string.tap_to_import_first_recipe),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -402,8 +404,8 @@ private fun FolderPickerDialog(
         title = {
             Text(
                 text = when (mode) {
-                    FolderPickerMode.EXPORT -> "Export to Google Drive"
-                    FolderPickerMode.IMPORT -> "Import from Google Drive"
+                    FolderPickerMode.EXPORT -> stringResource(R.string.export_to_google_drive)
+                    FolderPickerMode.IMPORT -> stringResource(R.string.import_from_google_drive)
                 }
             )
         },
@@ -416,13 +418,13 @@ private fun FolderPickerDialog(
                 ) {
                     Icon(
                         imageVector = Icons.Default.FolderOpen,
-                        contentDescription = "Current folder",
+                        contentDescription = stringResource(R.string.current_folder),
                         modifier = Modifier.size(20.dp),
                         tint = MaterialTheme.colorScheme.primary
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (isAtRoot) "My Drive" else navigationStack.joinToString(" / ") { it.name },
+                        text = if (isAtRoot) stringResource(R.string.my_drive) else navigationStack.joinToString(" / ") { it.name },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.primary,
                         maxLines = 1,
@@ -435,8 +437,8 @@ private fun FolderPickerDialog(
 
                 Text(
                     text = when (mode) {
-                        FolderPickerMode.EXPORT -> "Navigate to a folder and tap \"Export Here\" to export your recipes."
-                        FolderPickerMode.IMPORT -> "Navigate to the folder containing your recipe exports and tap \"Import from Here\"."
+                        FolderPickerMode.EXPORT -> stringResource(R.string.folder_picker_export_hint)
+                        FolderPickerMode.IMPORT -> stringResource(R.string.folder_picker_import_hint)
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -485,7 +487,7 @@ private fun FolderPickerDialog(
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.Folder,
-                                                contentDescription = "Go back",
+                                                contentDescription = stringResource(R.string.go_back),
                                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                             Spacer(modifier = Modifier.width(12.dp))
@@ -508,7 +510,7 @@ private fun FolderPickerDialog(
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
-                                            text = "No subfolders",
+                                            text = stringResource(R.string.no_subfolders),
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -533,7 +535,7 @@ private fun FolderPickerDialog(
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Folder,
-                                            contentDescription = "Folder",
+                                            contentDescription = stringResource(R.string.folder),
                                             tint = MaterialTheme.colorScheme.primary
                                         )
                                         Spacer(modifier = Modifier.width(12.dp))
@@ -546,7 +548,7 @@ private fun FolderPickerDialog(
                                         )
                                         Icon(
                                             imageVector = Icons.Default.KeyboardArrowRight,
-                                            contentDescription = "Open folder",
+                                            contentDescription = stringResource(R.string.open_folder),
                                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
@@ -564,15 +566,15 @@ private fun FolderPickerDialog(
             ) {
                 Text(
                     when (mode) {
-                        FolderPickerMode.EXPORT -> if (isAtRoot) "Export to Root" else "Export Here"
-                        FolderPickerMode.IMPORT -> if (isAtRoot) "Import from Root" else "Import from Here"
+                        FolderPickerMode.EXPORT -> if (isAtRoot) stringResource(R.string.export_to_root) else stringResource(R.string.export_here)
+                        FolderPickerMode.IMPORT -> if (isAtRoot) stringResource(R.string.import_from_root) else stringResource(R.string.import_from_here)
                     }
                 )
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.cancel))
             }
         }
     )
@@ -609,7 +611,7 @@ private fun SwipeableRecipeCard(
             ) {
                 Icon(
                     imageVector = Icons.Default.Delete,
-                    contentDescription = "Delete",
+                    contentDescription = stringResource(R.string.delete),
                     tint = MaterialTheme.colorScheme.error
                 )
             }
@@ -694,7 +696,7 @@ private fun RecipeCard(
                             }
                             recipe.servings?.let {
                                 Text(
-                                    text = "$it servings",
+                                    text = stringResource(R.string.servings_count, it.toString()),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -730,7 +732,7 @@ private fun RecipeCard(
                 ) {
                     Icon(
                         imageVector = if (recipe.isFavorite) Icons.Filled.Star else Icons.Outlined.StarOutline,
-                        contentDescription = if (recipe.isFavorite) "Remove from favorites" else "Add to favorites",
+                        contentDescription = if (recipe.isFavorite) stringResource(R.string.remove_from_favorites) else stringResource(R.string.add_to_favorites),
                         tint = if (recipe.isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -743,7 +745,7 @@ private fun RecipeCard(
             onDismissRequest = onDismissMenu
         ) {
             DropdownMenuItem(
-                text = { Text("Delete") },
+                text = { Text(stringResource(R.string.delete)) },
                 onClick = {
                     onDismissMenu()
                     onDeleteRequest()
@@ -811,7 +813,7 @@ private fun InProgressRecipeCard(name: String) {
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Importing...",
+                    text = stringResource(R.string.importing),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
