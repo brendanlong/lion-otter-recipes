@@ -12,6 +12,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -26,6 +29,8 @@ import com.lionotter.recipes.ui.screens.googledrive.GoogleDriveViewModel
 import com.lionotter.recipes.ui.screens.settings.components.AboutSection
 import com.lionotter.recipes.ui.screens.settings.components.ApiKeySection
 import com.lionotter.recipes.ui.screens.settings.components.DisplaySection
+import com.lionotter.recipes.ui.screens.recipelist.FolderPickerMode
+import com.lionotter.recipes.ui.screens.recipelist.components.FolderPickerDialog
 import com.lionotter.recipes.ui.screens.settings.components.GoogleDriveSection
 import com.lionotter.recipes.ui.screens.settings.components.ModelSelectionSection
 import com.lionotter.recipes.ui.screens.settings.components.ThemeSection
@@ -44,8 +49,15 @@ fun SettingsScreen(
     val saveState by viewModel.saveState.collectAsStateWithLifecycle()
     val driveUiState by googleDriveViewModel.uiState.collectAsStateWithLifecycle()
     val syncEnabled by googleDriveViewModel.syncEnabled.collectAsStateWithLifecycle()
+    val syncFolderName by googleDriveViewModel.syncFolderName.collectAsStateWithLifecycle()
     val lastSyncTimestamp by googleDriveViewModel.lastSyncTimestamp.collectAsStateWithLifecycle()
     val operationState by googleDriveViewModel.operationState.collectAsStateWithLifecycle()
+    val folders by googleDriveViewModel.folders.collectAsStateWithLifecycle()
+    val folderNavigationStack by googleDriveViewModel.folderNavigationStack.collectAsStateWithLifecycle()
+    val isLoadingFolders by googleDriveViewModel.isLoadingFolders.collectAsStateWithLifecycle()
+
+    var showSyncFolderPicker by remember { mutableStateOf(false) }
+    var isChangingFolder by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
 
@@ -127,15 +139,25 @@ fun SettingsScreen(
             GoogleDriveSection(
                 uiState = driveUiState,
                 syncEnabled = syncEnabled,
+                syncFolderName = syncFolderName,
                 lastSyncTimestamp = lastSyncTimestamp,
                 operationState = operationState,
                 onSignInClick = {
                     signInLauncher.launch(googleDriveViewModel.getSignInIntent())
                 },
                 onSignOutClick = googleDriveViewModel::signOut,
-                onEnableSyncClick = googleDriveViewModel::enableSync,
+                onEnableSyncClick = {
+                    isChangingFolder = false
+                    showSyncFolderPicker = true
+                    googleDriveViewModel.resetFolderNavigation()
+                },
                 onDisableSyncClick = googleDriveViewModel::disableSync,
-                onSyncNowClick = googleDriveViewModel::triggerSync
+                onSyncNowClick = googleDriveViewModel::triggerSync,
+                onChangeSyncFolderClick = {
+                    isChangingFolder = true
+                    showSyncFolderPicker = true
+                    googleDriveViewModel.resetFolderNavigation()
+                }
             )
 
             HorizontalDivider()
@@ -143,5 +165,31 @@ fun SettingsScreen(
             // About Section
             AboutSection()
         }
+    }
+
+    // Folder picker dialog for sync folder selection
+    if (showSyncFolderPicker) {
+        FolderPickerDialog(
+            mode = FolderPickerMode.SYNC,
+            folders = folders,
+            navigationStack = folderNavigationStack,
+            isLoading = isLoadingFolders,
+            onFolderSelected = { folderId ->
+                showSyncFolderPicker = false
+                val folderName = folderNavigationStack.lastOrNull()?.name
+                if (isChangingFolder) {
+                    googleDriveViewModel.changeSyncFolder(folderId, folderName)
+                } else {
+                    googleDriveViewModel.enableSync(folderId, folderName)
+                }
+            },
+            onDismiss = { showSyncFolderPicker = false },
+            onNavigateToFolder = { folder ->
+                googleDriveViewModel.navigateToFolder(folder)
+            },
+            onNavigateBack = {
+                googleDriveViewModel.navigateBack()
+            }
+        )
     }
 }

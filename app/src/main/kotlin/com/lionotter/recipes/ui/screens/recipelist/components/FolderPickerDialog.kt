@@ -58,6 +58,7 @@ fun FolderPickerDialog(
                 text = when (mode) {
                     FolderPickerMode.EXPORT -> stringResource(R.string.export_to_google_drive)
                     FolderPickerMode.IMPORT -> stringResource(R.string.import_from_google_drive)
+                    FolderPickerMode.SYNC -> stringResource(R.string.select_sync_folder)
                 }
             )
         },
@@ -91,6 +92,7 @@ fun FolderPickerDialog(
                     text = when (mode) {
                         FolderPickerMode.EXPORT -> stringResource(R.string.folder_picker_export_hint)
                         FolderPickerMode.IMPORT -> stringResource(R.string.folder_picker_import_hint)
+                        FolderPickerMode.SYNC -> stringResource(R.string.folder_picker_sync_hint)
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -220,6 +222,7 @@ fun FolderPickerDialog(
                     when (mode) {
                         FolderPickerMode.EXPORT -> if (isAtRoot) stringResource(R.string.export_to_root) else stringResource(R.string.export_here)
                         FolderPickerMode.IMPORT -> if (isAtRoot) stringResource(R.string.import_from_root) else stringResource(R.string.import_from_here)
+                        FolderPickerMode.SYNC -> if (isAtRoot) stringResource(R.string.sync_to_root) else stringResource(R.string.sync_this_folder)
                     }
                 )
             }

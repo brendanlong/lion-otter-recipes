@@ -149,6 +149,13 @@ class SettingsDataStore @Inject constructor(
         }
     }
 
+    suspend fun clearGoogleDriveSyncFolderOnly() {
+        context.dataStore.edit { preferences ->
+            preferences.remove(Keys.GOOGLE_DRIVE_SYNC_FOLDER_ID)
+            preferences.remove(Keys.GOOGLE_DRIVE_SYNC_FOLDER_NAME)
+        }
+    }
+
     suspend fun setGoogleDriveLastSyncTimestamp(timestamp: String) {
         context.dataStore.edit { preferences ->
             preferences[Keys.GOOGLE_DRIVE_LAST_SYNC_TIMESTAMP] = timestamp

@@ -345,6 +345,7 @@ fun RecipeListScreen(
                 when (folderPickerMode) {
                     FolderPickerMode.EXPORT -> googleDriveViewModel.exportToGoogleDrive(folderId)
                     FolderPickerMode.IMPORT -> folderId?.let { googleDriveViewModel.importFromGoogleDrive(it) }
+                    FolderPickerMode.SYNC -> {} // Sync folder selection is handled in SettingsScreen
                 }
             },
             onDismiss = { showFolderPicker = false },
@@ -359,5 +360,5 @@ fun RecipeListScreen(
 }
 
 enum class FolderPickerMode {
-    EXPORT, IMPORT
+    EXPORT, IMPORT, SYNC
 }

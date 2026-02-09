@@ -5,9 +5,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -17,6 +19,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,13 +36,15 @@ import com.lionotter.recipes.ui.screens.googledrive.OperationState
 fun GoogleDriveSection(
     uiState: GoogleDriveUiState,
     syncEnabled: Boolean,
+    syncFolderName: String?,
     lastSyncTimestamp: String?,
     operationState: OperationState,
     onSignInClick: () -> Unit,
     onSignOutClick: () -> Unit,
     onEnableSyncClick: () -> Unit,
     onDisableSyncClick: () -> Unit,
-    onSyncNowClick: () -> Unit
+    onSyncNowClick: () -> Unit,
+    onChangeSyncFolderClick: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
@@ -133,6 +138,38 @@ fun GoogleDriveSection(
                         }
 
                         if (syncEnabled) {
+                            // Sync folder info
+                            if (syncFolderName != null) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.FolderOpen,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            text = "  " + syncFolderName,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    TextButton(onClick = onChangeSyncFolderClick) {
+                                        Text(
+                                            stringResource(R.string.change_folder),
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                }
+                            }
+
                             // Last sync info
                             Text(
                                 text = if (lastSyncTimestamp != null) {

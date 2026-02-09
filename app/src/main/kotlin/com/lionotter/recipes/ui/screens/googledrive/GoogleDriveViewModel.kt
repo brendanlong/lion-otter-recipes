@@ -209,18 +209,43 @@ class GoogleDriveViewModel @Inject constructor(
     }
 
     /**
-     * Enable sync and schedule periodic background sync.
+     * Enable sync with a selected folder and schedule periodic background sync.
+     * If folderId is null, a default folder will be created on first sync.
      */
-    fun enableSync() {
+    fun enableSync(folderId: String?, folderName: String?) {
         if (_uiState.value !is GoogleDriveUiState.SignedIn) {
             _operationState.value = OperationState.Error("Please sign in to Google Drive first")
             return
         }
 
         viewModelScope.launch {
+            if (folderId != null && folderName != null) {
+                settingsDataStore.setGoogleDriveSyncFolder(folderId, folderName)
+            }
             settingsDataStore.setGoogleDriveSyncEnabled(true)
             schedulePeriodicSync()
             // Trigger an immediate sync
+            triggerSync()
+        }
+    }
+
+    /**
+     * Change the sync folder and trigger a re-sync.
+     */
+    fun changeSyncFolder(folderId: String?, folderName: String?) {
+        if (_uiState.value !is GoogleDriveUiState.SignedIn) {
+            _operationState.value = OperationState.Error("Please sign in to Google Drive first")
+            return
+        }
+
+        viewModelScope.launch {
+            if (folderId != null && folderName != null) {
+                settingsDataStore.setGoogleDriveSyncFolder(folderId, folderName)
+            } else {
+                // Clear folder ID/name so sync will create a new default folder
+                settingsDataStore.clearGoogleDriveSyncFolderOnly()
+            }
+            // Trigger an immediate sync with the new folder
             triggerSync()
         }
     }

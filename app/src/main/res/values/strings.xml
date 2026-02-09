@@ -42,6 +42,11 @@
     <string name="export_here">Export Here</string>
     <string name="import_from_root">Import from Root</string>
     <string name="import_from_here">Import from Here</string>
+    <string name="sync_to_root">Use Default Folder</string>
+    <string name="sync_this_folder">Sync This Folder</string>
+    <string name="select_sync_folder">Select Sync Folder</string>
+    <string name="folder_picker_sync_hint">Select an existing folder to sync with, or use the default to create a new \"Lion+Otter Recipes\" folder.</string>
+    <string name="change_folder">Change Folder</string>
 
     <!-- Recipe Detail Screen -->
     <string name="recipe">Recipe</string>
