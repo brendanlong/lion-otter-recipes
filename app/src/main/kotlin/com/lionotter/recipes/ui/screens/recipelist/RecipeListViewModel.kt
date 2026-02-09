@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.runningFold
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -42,32 +44,32 @@ class RecipeListViewModel @Inject constructor(
     private val _availableTags = MutableStateFlow<List<String>>(emptyList())
     val availableTags: StateFlow<List<String>> = _availableTags.asStateFlow()
 
-    // Counter that increments when we want to re-sort (tag change, search change, etc.)
-    // This triggers a new sort order snapshot
-    private val _sortTrigger = MutableStateFlow(0)
-
-    // Cache the last sorted order of recipe IDs to maintain stable positions
-    // when favorites change without triggering a re-sort
-    private var lastSortedIds: List<String> = emptyList()
+    /**
+     * Holds the sorted order of recipe IDs from the last sort operation.
+     * When sort-relevant inputs change (search query, selected tag) or the set of
+     * visible recipe IDs changes, a full re-sort is performed. Otherwise, the
+     * existing order is preserved to avoid jarring UI jumps (e.g., when toggling
+     * a favorite).
+     *
+     * This uses [runningFold] to carry sort state forward between emissions
+     * in a thread-safe, reactive way — no mutable vars outside the flow.
+     */
+    private data class SortState(
+        val sortedIds: List<String> = emptyList(),
+        val lastQuery: String = "",
+        val lastTag: String? = null
+    )
 
     val recipes: StateFlow<List<RecipeListItem>> = combine(
         recipeRepository.getAllRecipes(),
         inProgressRecipeManager.inProgressRecipes,
         _searchQuery,
         _selectedTag,
-        _sortTrigger
-    ) { allRecipes, inProgressRecipes, query, tag, sortTrigger ->
-        // Combine in-progress recipes and saved recipes
-        val items = mutableListOf<RecipeListItem>()
-
-        // Add in-progress recipes first (they're at the top of the list)
-        inProgressRecipes.values.forEach { inProgress ->
-            items.add(RecipeListItem.InProgress(inProgress))
-        }
-
-        // Add saved recipes
-        allRecipes.forEach { recipe ->
-            items.add(RecipeListItem.Saved(recipe))
+    ) { allRecipes, inProgressRecipes, query, tag ->
+        // Build combined list: in-progress first, then saved recipes
+        val items = buildList {
+            inProgressRecipes.values.forEach { add(RecipeListItem.InProgress(it)) }
+            allRecipes.forEach { add(RecipeListItem.Saved(it)) }
         }
 
         // Filter by search and tag
@@ -82,33 +84,36 @@ class RecipeListViewModel @Inject constructor(
             matchesSearch && matchesTag
         }
 
-        // Get current filtered IDs
+        Triple(filteredItems, query, tag)
+    }.runningFold(Pair(SortState(), emptyList<RecipeListItem>())) { (prevState, _), (filteredItems, query, tag) ->
         val currentIds = filteredItems.map { it.id }.toSet()
+        val filtersChanged = query != prevState.lastQuery || tag != prevState.lastTag
+        val idsChanged = currentIds != prevState.sortedIds.toSet()
 
-        // Check if we should re-sort:
-        // - sortTrigger changed (search/tag filter changed)
-        // - IDs changed (new recipes added/removed)
-        val lastIds = lastSortedIds.toSet()
-        val shouldResort = currentIds != lastIds
-
-        if (shouldResort) {
-            // Re-sort: favorites first, then by updatedAt (already sorted by DAO)
+        if (filtersChanged || idsChanged) {
+            // Re-sort: in-progress first, then favorites, preserving DAO order within groups
             val sorted = filteredItems.sortedWith(
-                compareByDescending<RecipeListItem> {
+                compareByDescending {
                     when (it) {
-                        is RecipeListItem.InProgress -> true // In-progress always first
+                        is RecipeListItem.InProgress -> true
                         is RecipeListItem.Saved -> it.recipe.isFavorite
                     }
                 }
             )
-            lastSortedIds = sorted.map { it.id }
-            sorted
+            val newState = SortState(
+                sortedIds = sorted.map { it.id },
+                lastQuery = query,
+                lastTag = tag
+            )
+            Pair(newState, sorted)
         } else {
             // Maintain current order but update recipe data (for favorite status display)
             val itemsById = filteredItems.associateBy { it.id }
-            lastSortedIds.mapNotNull { id -> itemsById[id] }
+            val ordered = prevState.sortedIds.mapNotNull { id -> itemsById[id] }
+            Pair(prevState, ordered)
         }
-    }.stateIn(
+    }.map { (_, items) -> items }
+    .stateIn(
         scope = viewModelScope,
         started = SharingStarted.Eagerly,
         initialValue = emptyList()
@@ -175,12 +180,10 @@ class RecipeListViewModel @Inject constructor(
 
     fun onSearchQueryChange(query: String) {
         _searchQuery.value = query
-        _sortTrigger.value++ // Trigger re-sort on search change
     }
 
     fun onTagSelected(tag: String?) {
         _selectedTag.value = if (_selectedTag.value == tag) null else tag
-        _sortTrigger.value++ // Trigger re-sort on tag change
     }
 
     fun toggleFavorite(recipeId: String) {
@@ -189,7 +192,6 @@ class RecipeListViewModel @Inject constructor(
             if (item is RecipeListItem.Saved) {
                 val newFavorite = !item.recipe.isFavorite
                 recipeRepository.setFavorite(recipeId, newFavorite)
-                // Don't increment sortTrigger - maintain current position
             }
         }
     }
