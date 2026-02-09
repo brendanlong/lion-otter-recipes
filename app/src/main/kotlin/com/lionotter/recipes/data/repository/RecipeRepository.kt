@@ -86,34 +86,6 @@ class RecipeRepository @Inject constructor(
         recipeDao.setFavorite(id, isFavorite)
     }
 
-    suspend fun getAllTags(): Set<String> {
-        val allTagsJson = recipeDao.getAllTagsJson()
-        return allTagsJson.flatMap { tagsJson ->
-            try {
-                json.decodeFromString<List<String>>(tagsJson)
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to parse tags JSON: $tagsJson", e)
-                emptyList()
-            }
-        }.toSet()
-    }
-
-    /**
-     * Get all recipes with their tags for tag ranking algorithms.
-     * Returns a list of pairs: (recipeId, list of tags for that recipe)
-     */
-    suspend fun getAllRecipesWithTags(): List<Pair<String, List<String>>> {
-        return recipeDao.getAllRecipesOnce().map { entity ->
-            val tags: List<String> = try {
-                json.decodeFromString(entity.tagsJson)
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to parse tags JSON for recipe ${entity.id}: ${entity.tagsJson}", e)
-                emptyList()
-            }
-            entity.id to tags
-        }
-    }
-
     /**
      * Converts a database entity to a domain Recipe.
      * If JSON parsing fails for any section, logs the error, emits an error message,

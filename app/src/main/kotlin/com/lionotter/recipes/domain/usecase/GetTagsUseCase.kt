@@ -1,11 +1,9 @@
 package com.lionotter.recipes.domain.usecase
 
-import com.lionotter.recipes.data.repository.RecipeRepository
+import com.lionotter.recipes.domain.model.Recipe
 import javax.inject.Inject
 
-class GetTagsUseCase @Inject constructor(
-    private val recipeRepository: RecipeRepository
-) {
+class GetTagsUseCase @Inject constructor() {
     companion object {
         private const val MAX_TAGS = 10
     }
@@ -22,14 +20,12 @@ class GetTagsUseCase @Inject constructor(
      * 5. If set becomes empty but we have fewer than 10 tags, reset the set
      * 6. Sort final tags by total recipe count (descending)
      */
-    suspend fun execute(): List<String> {
-        val recipesWithTags = recipeRepository.getAllRecipesWithTags()
-
+    fun execute(recipes: List<Recipe>): List<String> {
         // Build tag -> recipe IDs map
         val tagToRecipes = mutableMapOf<String, MutableSet<String>>()
-        for ((recipeId, tags) in recipesWithTags) {
-            for (tag in tags) {
-                tagToRecipes.getOrPut(tag) { mutableSetOf() }.add(recipeId)
+        for (recipe in recipes) {
+            for (tag in recipe.tags) {
+                tagToRecipes.getOrPut(tag) { mutableSetOf() }.add(recipe.id)
             }
         }
 
@@ -45,7 +41,7 @@ class GetTagsUseCase @Inject constructor(
         }
 
         // Greedy set cover algorithm
-        val allRecipeIds = recipesWithTags.map { it.first }.toSet()
+        val allRecipeIds = recipes.map { it.id }.toSet()
         val selectedTags = mutableListOf<String>()
         var uncoveredRecipes = allRecipeIds.toMutableSet()
 
