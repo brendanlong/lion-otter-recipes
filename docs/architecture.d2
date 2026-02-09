@@ -186,9 +186,6 @@ app: {
         label: ImportFromGoogleDriveUseCase
         tooltip: "Imports from Drive: tries JSON first, falls back to HTML parsing. Reuses ParseHtmlUseCase."
       }
-      get_all: GetRecipesUseCase
-      get_one: GetRecipeByIdUseCase
-      delete: DeleteRecipeUseCase
       tags: GetTagsUseCase
     }
 
@@ -332,6 +329,9 @@ app: {
   }
 
   # Connections within app
+  ui.viewmodels.list_vm -> data.repository.repo: recipes, delete
+  ui.viewmodels.list_vm -> domain.usecases.tags: top tags
+  ui.viewmodels.detail_vm -> data.repository.repo: recipe, delete, favorite
   ui.viewmodels.detail_vm -> data.local.settings: keep screen on
   ui.viewmodels.add_vm -> background.worker: enqueue work
   ui.viewmodels.drive_vm -> background.worker.export_worker: export

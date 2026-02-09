@@ -5,8 +5,6 @@ import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.lionotter.recipes.data.repository.RecipeRepository
-import com.lionotter.recipes.domain.usecase.DeleteRecipeUseCase
-import com.lionotter.recipes.domain.usecase.GetRecipesUseCase
 import com.lionotter.recipes.domain.usecase.GetTagsUseCase
 import com.lionotter.recipes.ui.state.InProgressRecipeManager
 import com.lionotter.recipes.ui.state.RecipeListItem
@@ -24,9 +22,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class RecipeListViewModel @Inject constructor(
-    private val getRecipesUseCase: GetRecipesUseCase,
     private val getTagsUseCase: GetTagsUseCase,
-    private val deleteRecipeUseCase: DeleteRecipeUseCase,
     private val inProgressRecipeManager: InProgressRecipeManager,
     private val recipeRepository: RecipeRepository,
     private val workManager: WorkManager
@@ -55,7 +51,7 @@ class RecipeListViewModel @Inject constructor(
     private var lastSortedIds: List<String> = emptyList()
 
     val recipes: StateFlow<List<RecipeListItem>> = combine(
-        getRecipesUseCase.execute(),
+        recipeRepository.getAllRecipes(),
         inProgressRecipeManager.inProgressRecipes,
         _searchQuery,
         _selectedTag,
@@ -203,7 +199,7 @@ class RecipeListViewModel @Inject constructor(
             // Only delete if it's a saved recipe (not in-progress)
             val item = recipes.value.find { it.id == recipeId }
             if (item is RecipeListItem.Saved) {
-                deleteRecipeUseCase.execute(recipeId)
+                recipeRepository.deleteRecipe(recipeId)
                 loadTags() // Refresh tags after deletion
             }
         }

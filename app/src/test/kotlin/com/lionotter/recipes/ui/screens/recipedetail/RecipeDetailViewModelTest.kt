@@ -12,8 +12,6 @@ import com.lionotter.recipes.domain.model.Measurement
 import com.lionotter.recipes.domain.model.MeasurementPreference
 import com.lionotter.recipes.domain.model.MeasurementType
 import com.lionotter.recipes.domain.model.Recipe
-import com.lionotter.recipes.domain.usecase.DeleteRecipeUseCase
-import com.lionotter.recipes.domain.usecase.GetRecipeByIdUseCase
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -40,8 +38,6 @@ import org.junit.Test
 class RecipeDetailViewModelTest {
 
     private lateinit var savedStateHandle: SavedStateHandle
-    private lateinit var getRecipeByIdUseCase: GetRecipeByIdUseCase
-    private lateinit var deleteRecipeUseCase: DeleteRecipeUseCase
     private lateinit var recipeRepository: RecipeRepository
     private lateinit var settingsDataStore: SettingsDataStore
     private lateinit var viewModel: RecipeDetailViewModel
@@ -73,13 +69,11 @@ class RecipeDetailViewModelTest {
     fun setup() {
         Dispatchers.setMain(testDispatcher)
         savedStateHandle = SavedStateHandle(mapOf("recipeId" to "recipe-1"))
-        getRecipeByIdUseCase = mockk()
-        deleteRecipeUseCase = mockk()
         recipeRepository = mockk()
         settingsDataStore = mockk()
 
         // Default mock setup
-        every { getRecipeByIdUseCase.execute("recipe-1") } returns flowOf(createTestRecipe())
+        every { recipeRepository.getRecipeById("recipe-1") } returns flowOf(createTestRecipe())
         every { settingsDataStore.keepScreenOn } returns flowOf(true)
     }
 
@@ -91,8 +85,6 @@ class RecipeDetailViewModelTest {
     private fun createViewModel(): RecipeDetailViewModel {
         return RecipeDetailViewModel(
             savedStateHandle = savedStateHandle,
-            getRecipeByIdUseCase = getRecipeByIdUseCase,
-            deleteRecipeUseCase = deleteRecipeUseCase,
             recipeRepository = recipeRepository,
             settingsDataStore = settingsDataStore
         )
@@ -294,7 +286,7 @@ class RecipeDetailViewModelTest {
     @Test
     fun `toggleFavorite calls repository with toggled value`() = runTest {
         val recipe = createTestRecipe(isFavorite = false)
-        every { getRecipeByIdUseCase.execute("recipe-1") } returns flowOf(recipe)
+        every { recipeRepository.getRecipeById("recipe-1") } returns flowOf(recipe)
         coEvery { recipeRepository.setFavorite("recipe-1", true) } just runs
 
         viewModel = createViewModel()
@@ -309,7 +301,7 @@ class RecipeDetailViewModelTest {
     @Test
     fun `toggleFavorite toggles from true to false`() = runTest {
         val recipe = createTestRecipe(isFavorite = true)
-        every { getRecipeByIdUseCase.execute("recipe-1") } returns flowOf(recipe)
+        every { recipeRepository.getRecipeById("recipe-1") } returns flowOf(recipe)
         coEvery { recipeRepository.setFavorite("recipe-1", false) } just runs
 
         viewModel = createViewModel()
@@ -322,8 +314,8 @@ class RecipeDetailViewModelTest {
     }
 
     @Test
-    fun `deleteRecipe calls use case and emits event`() = runTest {
-        coEvery { deleteRecipeUseCase.execute("recipe-1") } just runs
+    fun `deleteRecipe calls repository and emits event`() = runTest {
+        coEvery { recipeRepository.deleteRecipe("recipe-1") } just runs
 
         viewModel = createViewModel()
 
@@ -335,13 +327,13 @@ class RecipeDetailViewModelTest {
             cancelAndIgnoreRemainingEvents()
         }
 
-        coVerify { deleteRecipeUseCase.execute("recipe-1") }
+        coVerify { recipeRepository.deleteRecipe("recipe-1") }
     }
 
     @Test
     fun `hasMultipleMeasurementTypes is false for empty recipe`() = runTest {
         val recipe = createTestRecipe(ingredientSections = emptyList())
-        every { getRecipeByIdUseCase.execute("recipe-1") } returns flowOf(recipe)
+        every { recipeRepository.getRecipeById("recipe-1") } returns flowOf(recipe)
 
         viewModel = createViewModel()
 
@@ -368,7 +360,7 @@ class RecipeDetailViewModelTest {
                 )
             )
         )
-        every { getRecipeByIdUseCase.execute("recipe-1") } returns flowOf(recipe)
+        every { recipeRepository.getRecipeById("recipe-1") } returns flowOf(recipe)
 
         viewModel = createViewModel()
         testDispatcher.scheduler.advanceUntilIdle()
@@ -396,7 +388,7 @@ class RecipeDetailViewModelTest {
                 )
             )
         )
-        every { getRecipeByIdUseCase.execute("recipe-1") } returns flowOf(recipe)
+        every { recipeRepository.getRecipeById("recipe-1") } returns flowOf(recipe)
 
         viewModel = createViewModel()
         testDispatcher.scheduler.advanceUntilIdle()

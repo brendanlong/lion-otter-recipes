@@ -9,8 +9,6 @@ import com.lionotter.recipes.domain.model.Ingredient
 import com.lionotter.recipes.domain.model.MeasurementPreference
 import com.lionotter.recipes.domain.model.MeasurementType
 import com.lionotter.recipes.domain.model.Recipe
-import com.lionotter.recipes.domain.usecase.DeleteRecipeUseCase
-import com.lionotter.recipes.domain.usecase.GetRecipeByIdUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -56,8 +54,6 @@ data class HighlightedInstructionStep(
 @HiltViewModel
 class RecipeDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    getRecipeByIdUseCase: GetRecipeByIdUseCase,
-    private val deleteRecipeUseCase: DeleteRecipeUseCase,
     private val recipeRepository: RecipeRepository,
     settingsDataStore: SettingsDataStore
 ) : ViewModel() {
@@ -72,7 +68,7 @@ class RecipeDetailViewModel @Inject constructor(
     private val _recipeDeleted = MutableSharedFlow<Unit>()
     val recipeDeleted: SharedFlow<Unit> = _recipeDeleted.asSharedFlow()
 
-    val recipe: StateFlow<Recipe?> = getRecipeByIdUseCase.execute(recipeId)
+    val recipe: StateFlow<Recipe?> = recipeRepository.getRecipeById(recipeId)
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.Eagerly,
@@ -300,7 +296,7 @@ class RecipeDetailViewModel @Inject constructor(
      */
     fun deleteRecipe() {
         viewModelScope.launch {
-            deleteRecipeUseCase.execute(recipeId)
+            recipeRepository.deleteRecipe(recipeId)
             _recipeDeleted.emit(Unit)
         }
     }
