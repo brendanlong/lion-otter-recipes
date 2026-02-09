@@ -156,6 +156,10 @@ app: {
         label: GoogleDriveImportWorker
         tooltip: "Imports recipes from Google Drive. Tries JSON first, falls back to HTML parsing via AI."
       }
+      work_ext: {
+        label: "observeWorkByTag()"
+        tooltip: "WorkManager extension function that encapsulates the common pattern of observing work by tag and filtering to a specific work ID. Used by AddRecipeViewModel and GoogleDriveViewModel."
+      }
     }
 
     notification: {
@@ -350,8 +354,10 @@ app: {
   ui.viewmodels.detail_vm -> data.repository.repo: recipe, delete, favorite
   ui.viewmodels.detail_vm -> data.local.settings: keep screen on
   ui.viewmodels.add_vm -> background.worker: enqueue work
+  ui.viewmodels.add_vm -> background.worker.work_ext: observe import
   ui.viewmodels.drive_vm -> background.worker.export_worker: export
   ui.viewmodels.drive_vm -> background.worker.drive_import_worker: import
+  ui.viewmodels.drive_vm -> background.worker.work_ext: observe export/import
   background.worker.import_worker -> domain.usecases.import: execute
   background.worker.export_worker -> domain.usecases.export_drive: execute
   background.worker.drive_import_worker -> domain.usecases.import_drive: execute
