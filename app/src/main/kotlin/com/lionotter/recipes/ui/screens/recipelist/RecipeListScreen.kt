@@ -1,41 +1,25 @@
 package com.lionotter.recipes.ui.screens.recipelist
 
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudUpload
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.outlined.StarOutline
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -48,11 +32,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -61,17 +41,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil.compose.AsyncImage
 import com.lionotter.recipes.R
-import com.lionotter.recipes.data.remote.DriveFolder
 import com.lionotter.recipes.data.repository.RepositoryError
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.ui.components.DeleteConfirmationDialog
@@ -80,9 +54,12 @@ import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.screens.googledrive.GoogleDriveUiState
 import com.lionotter.recipes.ui.screens.googledrive.GoogleDriveViewModel
 import com.lionotter.recipes.ui.screens.googledrive.OperationState
+import com.lionotter.recipes.ui.screens.recipelist.components.FolderPickerDialog
+import com.lionotter.recipes.ui.screens.recipelist.components.InProgressRecipeCard
+import com.lionotter.recipes.ui.screens.recipelist.components.SwipeableRecipeCard
 import com.lionotter.recipes.ui.state.RecipeListItem
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun RecipeListScreen(
     onRecipeClick: (String) -> Unit,
@@ -383,441 +360,4 @@ fun RecipeListScreen(
 
 enum class FolderPickerMode {
     EXPORT, IMPORT
-}
-
-@Composable
-private fun FolderPickerDialog(
-    mode: FolderPickerMode,
-    folders: List<DriveFolder>,
-    navigationStack: List<DriveFolder>,
-    isLoading: Boolean,
-    onFolderSelected: (String?) -> Unit,
-    onDismiss: () -> Unit,
-    onNavigateToFolder: (DriveFolder) -> Unit,
-    onNavigateBack: () -> Unit
-) {
-    val currentFolder = navigationStack.lastOrNull()
-    val isAtRoot = navigationStack.isEmpty()
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = when (mode) {
-                    FolderPickerMode.EXPORT -> stringResource(R.string.export_to_google_drive)
-                    FolderPickerMode.IMPORT -> stringResource(R.string.import_from_google_drive)
-                }
-            )
-        },
-        text = {
-            Column {
-                // Current path breadcrumb
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.FolderOpen,
-                        contentDescription = stringResource(R.string.current_folder),
-                        modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (isAtRoot) stringResource(R.string.my_drive) else navigationStack.joinToString(" / ") { it.name },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = when (mode) {
-                        FolderPickerMode.EXPORT -> stringResource(R.string.folder_picker_export_hint)
-                        FolderPickerMode.IMPORT -> stringResource(R.string.folder_picker_import_hint)
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Folder list with back button
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(280.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                    )
-                ) {
-                    if (isLoading) {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(modifier = Modifier.size(32.dp))
-                        }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            // Back button (if not at root)
-                            if (!isAtRoot) {
-                                item(key = "back") {
-                                    Card(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable { onNavigateBack() },
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = MaterialTheme.colorScheme.surface
-                                        )
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(12.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Folder,
-                                                contentDescription = stringResource(R.string.go_back),
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                            Spacer(modifier = Modifier.width(12.dp))
-                                            Text(
-                                                text = "..",
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (folders.isEmpty() && !isLoading) {
-                                item(key = "empty") {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(16.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = stringResource(R.string.no_subfolders),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-
-                            items(folders, key = { it.id }) { folder ->
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { onNavigateToFolder(folder) },
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surface
-                                    )
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Folder,
-                                            contentDescription = stringResource(R.string.folder),
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Text(
-                                            text = folder.name,
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            modifier = Modifier.weight(1f),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Icon(
-                                            imageVector = Icons.Default.KeyboardArrowRight,
-                                            contentDescription = stringResource(R.string.open_folder),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onFolderSelected(currentFolder?.id) },
-                enabled = !isLoading
-            ) {
-                Text(
-                    when (mode) {
-                        FolderPickerMode.EXPORT -> if (isAtRoot) stringResource(R.string.export_to_root) else stringResource(R.string.export_here)
-                        FolderPickerMode.IMPORT -> if (isAtRoot) stringResource(R.string.import_from_root) else stringResource(R.string.import_from_here)
-                    }
-                )
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.cancel))
-            }
-        }
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
-@Composable
-private fun SwipeableRecipeCard(
-    recipe: Recipe,
-    onClick: () -> Unit,
-    onDeleteRequest: () -> Unit,
-    onFavoriteClick: () -> Unit
-) {
-    var showMenu by remember { mutableStateOf(false) }
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            if (value == SwipeToDismissBoxValue.EndToStart) {
-                onDeleteRequest()
-                false // Don't dismiss - wait for confirmation
-            } else {
-                false
-            }
-        }
-    )
-
-    SwipeToDismissBox(
-        state = dismissState,
-        backgroundContent = {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-                contentAlignment = Alignment.CenterEnd
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = stringResource(R.string.delete),
-                    tint = MaterialTheme.colorScheme.error
-                )
-            }
-        },
-        enableDismissFromStartToEnd = false
-    ) {
-        RecipeCard(
-            recipe = recipe,
-            onClick = onClick,
-            onLongClick = { showMenu = true },
-            showMenu = showMenu,
-            onDismissMenu = { showMenu = false },
-            onDeleteRequest = onDeleteRequest,
-            onFavoriteClick = onFavoriteClick
-        )
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
-@Composable
-private fun RecipeCard(
-    recipe: Recipe,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
-    showMenu: Boolean,
-    onDismissMenu: () -> Unit,
-    onDeleteRequest: () -> Unit,
-    onFavoriteClick: () -> Unit
-) {
-    Box {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .combinedClickable(
-                    onClick = onClick,
-                    onLongClick = onLongClick
-                ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(12.dp)
-            ) {
-                // Recipe image
-                if (recipe.imageUrl != null) {
-                    AsyncImage(
-                        model = recipe.imageUrl,
-                        contentDescription = recipe.name,
-                        modifier = Modifier
-                            .size(80.dp)
-                            .clip(MaterialTheme.shapes.small),
-                        contentScale = ContentScale.Crop
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                }
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = recipe.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    if (recipe.totalTime != null || recipe.servings != null) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Row {
-                            recipe.totalTime?.let {
-                                Text(
-                                    text = it,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            if (recipe.totalTime != null && recipe.servings != null) {
-                                Text(
-                                    text = " • ",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            recipe.servings?.let {
-                                Text(
-                                    text = stringResource(R.string.servings_count, it.toString()),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-
-                    if (recipe.tags.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            recipe.tags.take(3).forEach { tag ->
-                                TagChip(tag = tag)
-                            }
-                            if (recipe.tags.size > 3) {
-                                Text(
-                                    text = "+${recipe.tags.size - 3}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 4.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Favorite button
-                IconButton(
-                    onClick = onFavoriteClick,
-                    modifier = Modifier.align(Alignment.Top)
-                ) {
-                    Icon(
-                        imageVector = if (recipe.isFavorite) Icons.Filled.Star else Icons.Outlined.StarOutline,
-                        contentDescription = if (recipe.isFavorite) stringResource(R.string.remove_from_favorites) else stringResource(R.string.add_to_favorites),
-                        tint = if (recipe.isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-
-        // Long-press context menu
-        DropdownMenu(
-            expanded = showMenu,
-            onDismissRequest = onDismissMenu
-        ) {
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.delete)) },
-                onClick = {
-                    onDismissMenu()
-                    onDeleteRequest()
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error
-                    )
-                }
-            )
-        }
-    }
-}
-
-@Composable
-private fun TagChip(tag: String) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer
-        ),
-        shape = MaterialTheme.shapes.small
-    ) {
-        Text(
-            text = tag,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSecondaryContainer,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-        )
-    }
-}
-
-@Composable
-private fun InProgressRecipeCard(name: String) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .alpha(0.6f),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Loading indicator
-            CircularProgressIndicator(
-                modifier = Modifier
-                    .size(40.dp)
-                    .padding(end = 12.dp),
-                strokeWidth = 2.dp
-            )
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = name,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = stringResource(R.string.importing),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
 }
