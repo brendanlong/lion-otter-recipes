@@ -144,6 +144,15 @@ fun AddRecipeScreen(
                         }
                     )
                 }
+                is AddRecipeUiState.PaprikaImportCancelled -> {
+                    PaprikaImportCancelledContent(
+                        importedCount = state.importedCount,
+                        onDoneClick = {
+                            viewModel.resetState()
+                            onPaprikaImportComplete()
+                        }
+                    )
+                }
             }
         }
     }
@@ -363,6 +372,48 @@ private fun PaprikaImportCompleteContent(
         }
         Text(
             text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Button(onClick = onDoneClick) {
+            Text(stringResource(R.string.done))
+        }
+    }
+}
+
+@Composable
+private fun PaprikaImportCancelledContent(
+    importedCount: Int,
+    onDoneClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = Icons.Default.Warning,
+            contentDescription = null,
+            modifier = Modifier.size(64.dp),
+            tint = MaterialTheme.colorScheme.tertiary
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = stringResource(R.string.paprika_import_cancelled),
+            style = MaterialTheme.typography.titleLarge,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = stringResource(R.string.paprika_import_cancelled_result, importedCount),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center

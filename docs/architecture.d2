@@ -221,7 +221,7 @@ app: {
       }
       import_paprika: {
         label: ImportPaprikaUseCase
-        tooltip: "Imports recipes from Paprika export (.paprikarecipes). Parses export, sends recipe content (not source URL) through AI, resolves images from Paprika data or source page."
+        tooltip: "Imports recipes from Paprika export (.paprikarecipes). Parses export, sends recipe content (not source URL) through AI, resolves images from Paprika data or source page. Supports cooperative cancellation — checks coroutine state between recipes and preserves already-imported recipes on cancel."
       }
       tags: GetTagsUseCase
       calc_usage: {
@@ -486,7 +486,7 @@ legend: {
   pap1 -> pap2 -> pap3 -> pap4 -> pap5
 
   note: {
-    label: "Import runs in background via WorkManager. Supports multiple concurrent imports. Google Drive export/import and Paprika import run in background with progress notifications."
+    label: "Import runs in background via WorkManager. Supports multiple concurrent imports. Google Drive export/import and Paprika import run in background with progress notifications. Paprika import can be cancelled mid-way, keeping already-imported recipes."
     style: {
       font-size: 12
       italic: true

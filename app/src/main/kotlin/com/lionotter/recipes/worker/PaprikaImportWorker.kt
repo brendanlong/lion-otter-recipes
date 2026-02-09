@@ -34,6 +34,8 @@ class PaprikaImportWorker @AssistedInject constructor(
         const val KEY_CURRENT = "current"
         const val KEY_TOTAL = "total"
         const val KEY_RECIPE_NAME = "recipe_name"
+        const val KEY_PROGRESS_IMPORTED_COUNT = "progress_imported_count"
+        const val KEY_PROGRESS_FAILED_COUNT = "progress_failed_count"
 
         const val RESULT_SUCCESS = "success"
         const val RESULT_ERROR = "error"
@@ -91,7 +93,9 @@ class PaprikaImportWorker @AssistedInject constructor(
                                     KEY_PROGRESS to PROGRESS_IMPORTING,
                                     KEY_RECIPE_NAME to progress.recipeName,
                                     KEY_CURRENT to progress.current,
-                                    KEY_TOTAL to progress.total
+                                    KEY_TOTAL to progress.total,
+                                    KEY_PROGRESS_IMPORTED_COUNT to progress.importedSoFar,
+                                    KEY_PROGRESS_FAILED_COUNT to progress.failedSoFar
                                 )
                             )
                             "Importing ${progress.current}/${progress.total}: ${progress.recipeName}"
@@ -124,6 +128,16 @@ class PaprikaImportWorker @AssistedInject constructor(
                 errorType = RESULT_ERROR,
                 errorMessage = result.message
             )
+            is ImportPaprikaUseCase.ImportResult.Cancelled -> {
+                notificationHelper.cancelProgressNotification()
+                Result.success(
+                    workDataOf(
+                        KEY_RESULT_TYPE to RESULT_SUCCESS,
+                        KEY_IMPORTED_COUNT to result.importedCount,
+                        KEY_FAILED_COUNT to result.failedCount
+                    )
+                )
+            }
             ImportPaprikaUseCase.ImportResult.NoApiKey -> notAvailableResult(
                 resultTypeKey = KEY_RESULT_TYPE,
                 errorMessageKey = KEY_ERROR_MESSAGE,
