@@ -39,6 +39,7 @@ fun SettingsScreen(
     val apiKey by viewModel.apiKey.collectAsStateWithLifecycle()
     val apiKeyInput by viewModel.apiKeyInput.collectAsStateWithLifecycle()
     val aiModel by viewModel.aiModel.collectAsStateWithLifecycle()
+    val extendedThinkingEnabled by viewModel.extendedThinkingEnabled.collectAsStateWithLifecycle()
     val keepScreenOn by viewModel.keepScreenOn.collectAsStateWithLifecycle()
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val saveState by viewModel.saveState.collectAsStateWithLifecycle()
@@ -102,7 +103,9 @@ fun SettingsScreen(
             // Model Selection Section
             ModelSelectionSection(
                 currentModel = aiModel,
-                onModelChange = viewModel::setAiModel
+                onModelChange = viewModel::setAiModel,
+                extendedThinkingEnabled = extendedThinkingEnabled,
+                onExtendedThinkingChange = viewModel::setExtendedThinkingEnabled
             )
 
             HorizontalDivider()

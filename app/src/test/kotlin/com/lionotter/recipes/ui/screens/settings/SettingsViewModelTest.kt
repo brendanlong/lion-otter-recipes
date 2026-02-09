@@ -32,6 +32,7 @@ class SettingsViewModelTest {
 
     private val apiKeyFlow = MutableStateFlow<String?>(null)
     private val aiModelFlow = MutableStateFlow(AnthropicService.DEFAULT_MODEL)
+    private val extendedThinkingFlow = MutableStateFlow(true)
     private val keepScreenOnFlow = MutableStateFlow(true)
     private val themeModeFlow = MutableStateFlow(ThemeMode.AUTO)
 
@@ -41,6 +42,7 @@ class SettingsViewModelTest {
         settingsDataStore = mockk()
         every { settingsDataStore.anthropicApiKey } returns apiKeyFlow
         every { settingsDataStore.aiModel } returns aiModelFlow
+        every { settingsDataStore.extendedThinkingEnabled } returns extendedThinkingFlow
         every { settingsDataStore.keepScreenOn } returns keepScreenOnFlow
         every { settingsDataStore.themeMode } returns themeModeFlow
         viewModel = SettingsViewModel(settingsDataStore)
@@ -216,6 +218,31 @@ class SettingsViewModelTest {
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals("sk-ant-stored-key", awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `setExtendedThinkingEnabled calls datastore`() = runTest {
+        coEvery { settingsDataStore.setExtendedThinkingEnabled(any()) } just runs
+
+        viewModel.setExtendedThinkingEnabled(false)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify { settingsDataStore.setExtendedThinkingEnabled(false) }
+    }
+
+    @Test
+    fun `extendedThinkingEnabled flow reflects datastore value`() = runTest {
+        viewModel.extendedThinkingEnabled.test {
+            // Initial value (default: true)
+            assertEquals(true, awaitItem())
+
+            // Update the underlying flow
+            extendedThinkingFlow.value = false
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(false, awaitItem())
             cancelAndIgnoreRemainingEvents()
         }
     }

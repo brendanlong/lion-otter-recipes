@@ -33,6 +33,13 @@ class SettingsViewModel @Inject constructor(
             initialValue = AnthropicService.DEFAULT_MODEL
         )
 
+    val extendedThinkingEnabled: StateFlow<Boolean> = settingsDataStore.extendedThinkingEnabled
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = true
+        )
+
     val keepScreenOn: StateFlow<Boolean> = settingsDataStore.keepScreenOn
         .stateIn(
             scope = viewModelScope,
@@ -87,6 +94,12 @@ class SettingsViewModel @Inject constructor(
     fun setAiModel(model: String) {
         viewModelScope.launch {
             settingsDataStore.setAiModel(model)
+        }
+    }
+
+    fun setExtendedThinkingEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsDataStore.setExtendedThinkingEnabled(enabled)
         }
     }
 
