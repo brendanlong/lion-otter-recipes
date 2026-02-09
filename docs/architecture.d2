@@ -349,6 +349,27 @@ app: {
     repository.repo -> local.settings
   }
 
+  # Performance
+  performance: {
+    label: Performance
+    style: {
+      fill: "#fff9c4"
+      stroke: "#f9a825"
+    }
+
+    baseline_profile: {
+      label: Baseline Profiles
+      tooltip: "Pre-compiled critical code paths for faster startup and smoother scrolling. Generated via :baselineprofile macrobenchmark module."
+    }
+
+    profile_installer: {
+      label: ProfileInstaller
+      tooltip: "Installs Baseline Profiles at app install time for AOT compilation of critical paths."
+    }
+
+    baseline_profile -> profile_installer: generates rules for
+  }
+
   # DI
   di: {
     label: Hilt DI

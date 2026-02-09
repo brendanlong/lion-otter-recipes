@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.baselineprofile)
 }
 
 android {
@@ -37,6 +38,12 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+        create("benchmark") {
+            initWith(buildTypes.getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+            isDebuggable = false
         }
     }
 
@@ -141,6 +148,10 @@ dependencies {
     implementation(libs.google.drive.api) {
         exclude(group = "org.apache.httpcomponents")
     }
+
+    // Baseline Profile
+    implementation(libs.androidx.profileinstaller)
+    "baselineProfile"(project(":baselineprofile"))
 
     // Testing
     testImplementation(libs.junit)
