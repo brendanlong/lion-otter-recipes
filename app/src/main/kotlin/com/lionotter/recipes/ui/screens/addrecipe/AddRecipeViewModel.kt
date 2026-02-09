@@ -49,42 +49,19 @@ class AddRecipeViewModel @Inject constructor(
         observeWorkStatus()
     }
 
+    /**
+     * Observe work status for the current import to update this screen's UI state.
+     * In-progress recipe cleanup is handled by [InProgressRecipeManager] itself.
+     */
     private fun observeWorkStatus() {
         viewModelScope.launch {
             workManager.getWorkInfosByTagFlow(RecipeImportWorker.TAG_RECIPE_IMPORT)
                 .collect { workInfos ->
-                    // Find the work info for our current import
                     val currentWorkInfo = currentWorkId?.let { workId ->
                         workInfos.find { it.id == workId }
                     }
                     if (currentWorkInfo != null) {
                         handleWorkInfo(currentWorkInfo)
-                    }
-
-                    // Update in-progress recipes for all running imports
-                    workInfos.forEach { workInfo ->
-                        val importId = workInfo.progress.getString(RecipeImportWorker.KEY_IMPORT_ID)
-                            ?: workInfo.outputData.getString(RecipeImportWorker.KEY_IMPORT_ID)
-
-                        when (workInfo.state) {
-                            WorkInfo.State.RUNNING -> {
-                                val recipeName = workInfo.progress.getString(RecipeImportWorker.KEY_RECIPE_NAME)
-                                if (recipeName != null && importId != null) {
-                                    inProgressRecipeManager.updateRecipeName(importId, recipeName)
-                                }
-                            }
-                            WorkInfo.State.SUCCEEDED -> {
-                                if (importId != null) {
-                                    inProgressRecipeManager.removeInProgressRecipe(importId)
-                                }
-                            }
-                            WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> {
-                                if (importId != null) {
-                                    inProgressRecipeManager.removeInProgressRecipe(importId)
-                                }
-                            }
-                            else -> {}
-                        }
                     }
                 }
         }
@@ -97,7 +74,6 @@ class AddRecipeViewModel @Inject constructor(
             }
             WorkInfo.State.RUNNING -> {
                 val progress = workInfo.progress.getString(RecipeImportWorker.KEY_PROGRESS)
-                val recipeName = workInfo.progress.getString(RecipeImportWorker.KEY_RECIPE_NAME)
 
                 val importProgress = when (progress) {
                     RecipeImportWorker.PROGRESS_FETCHING -> ImportProgress.FetchingPage
@@ -106,24 +82,14 @@ class AddRecipeViewModel @Inject constructor(
                     else -> ImportProgress.Starting
                 }
                 _uiState.value = AddRecipeUiState.Loading(importProgress)
-
-                // If we have a recipe name, update the in-progress state
-                if (recipeName != null && currentImportId != null) {
-                    inProgressRecipeManager.updateRecipeName(currentImportId!!, recipeName)
-                }
             }
             WorkInfo.State.SUCCEEDED -> {
                 val recipeId = workInfo.outputData.getString(RecipeImportWorker.KEY_RECIPE_ID)
                 if (recipeId != null) {
                     _uiState.value = AddRecipeUiState.Success(recipeId)
-                    // Remove from in-progress once completed
-                    if (currentImportId != null) {
-                        inProgressRecipeManager.removeInProgressRecipe(currentImportId!!)
-                    }
                 }
                 currentImportId = null
                 currentWorkId = null
-                // Prune completed work
                 workManager.pruneWork()
             }
             WorkInfo.State.FAILED -> {
@@ -135,20 +101,12 @@ class AddRecipeViewModel @Inject constructor(
                     RecipeImportWorker.RESULT_NO_API_KEY -> AddRecipeUiState.NoApiKey
                     else -> AddRecipeUiState.Error(errorMessage)
                 }
-                // Remove from in-progress on failure
-                if (currentImportId != null) {
-                    inProgressRecipeManager.removeInProgressRecipe(currentImportId!!)
-                }
                 currentImportId = null
                 currentWorkId = null
-                // Prune completed work
                 workManager.pruneWork()
             }
             WorkInfo.State.CANCELLED -> {
                 _uiState.value = AddRecipeUiState.Idle
-                if (currentImportId != null) {
-                    inProgressRecipeManager.removeInProgressRecipe(currentImportId!!)
-                }
                 currentImportId = null
                 currentWorkId = null
                 workManager.pruneWork()
