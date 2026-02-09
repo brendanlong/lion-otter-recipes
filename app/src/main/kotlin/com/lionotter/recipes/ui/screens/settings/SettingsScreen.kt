@@ -28,6 +28,7 @@ import com.lionotter.recipes.ui.screens.settings.components.ApiKeySection
 import com.lionotter.recipes.ui.screens.settings.components.DisplaySection
 import com.lionotter.recipes.ui.screens.settings.components.GoogleDriveSection
 import com.lionotter.recipes.ui.screens.settings.components.ModelSelectionSection
+import com.lionotter.recipes.ui.screens.settings.components.ThemeSection
 
 @Composable
 fun SettingsScreen(
@@ -39,6 +40,7 @@ fun SettingsScreen(
     val apiKeyInput by viewModel.apiKeyInput.collectAsStateWithLifecycle()
     val aiModel by viewModel.aiModel.collectAsStateWithLifecycle()
     val keepScreenOn by viewModel.keepScreenOn.collectAsStateWithLifecycle()
+    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val saveState by viewModel.saveState.collectAsStateWithLifecycle()
     val driveUiState by googleDriveViewModel.uiState.collectAsStateWithLifecycle()
 
@@ -98,6 +100,14 @@ fun SettingsScreen(
             ModelSelectionSection(
                 currentModel = aiModel,
                 onModelChange = viewModel::setAiModel
+            )
+
+            HorizontalDivider()
+
+            // Theme Section
+            ThemeSection(
+                currentThemeMode = themeMode,
+                onThemeModeChange = viewModel::setThemeMode
             )
 
             HorizontalDivider()

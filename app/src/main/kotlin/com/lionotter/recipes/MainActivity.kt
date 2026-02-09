@@ -9,16 +9,24 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import com.lionotter.recipes.data.local.SettingsDataStore
+import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.ui.navigation.NavGraph
 import com.lionotter.recipes.ui.theme.LionOtterTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     private val sharedIntentViewModel: SharedIntentViewModel by viewModels()
+
+    @Inject
+    lateinit var settingsDataStore: SettingsDataStore
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,7 +42,10 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            LionOtterTheme {
+            val themeMode by settingsDataStore.themeMode
+                .collectAsStateWithLifecycle(initialValue = ThemeMode.AUTO)
+
+            LionOtterTheme(themeMode = themeMode) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background

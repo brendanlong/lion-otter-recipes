@@ -3,6 +3,7 @@ package com.lionotter.recipes.ui.screens.settings
 import app.cash.turbine.test
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AnthropicService
+import com.lionotter.recipes.domain.model.ThemeMode
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -32,6 +33,7 @@ class SettingsViewModelTest {
     private val apiKeyFlow = MutableStateFlow<String?>(null)
     private val aiModelFlow = MutableStateFlow(AnthropicService.DEFAULT_MODEL)
     private val keepScreenOnFlow = MutableStateFlow(true)
+    private val themeModeFlow = MutableStateFlow(ThemeMode.AUTO)
 
     @Before
     fun setup() {
@@ -40,6 +42,7 @@ class SettingsViewModelTest {
         every { settingsDataStore.anthropicApiKey } returns apiKeyFlow
         every { settingsDataStore.aiModel } returns aiModelFlow
         every { settingsDataStore.keepScreenOn } returns keepScreenOnFlow
+        every { settingsDataStore.themeMode } returns themeModeFlow
         viewModel = SettingsViewModel(settingsDataStore)
     }
 
