@@ -100,7 +100,7 @@ app: {
 
       in_progress_mgr: {
         label: InProgressRecipeManager
-        tooltip: "Tracks recipes currently being imported, shows them in recipe list while import is in progress"
+        tooltip: "Tracks recipes currently being imported. Observes WorkManager directly to auto-clean orphaned entries on completion/failure/cancellation, regardless of which screens are active."
       }
     }
 
@@ -111,7 +111,8 @@ app: {
     screens.settings -> viewmodels.settings_vm
     screens.settings -> viewmodels.drive_vm: sign in/out
     viewmodels.list_vm -> state.in_progress_mgr: observes
-    viewmodels.add_vm -> state.in_progress_mgr: updates
+    viewmodels.add_vm -> state.in_progress_mgr: adds entries
+    state.in_progress_mgr -> background.worker: observes status
   }
 
   # Background Processing Layer

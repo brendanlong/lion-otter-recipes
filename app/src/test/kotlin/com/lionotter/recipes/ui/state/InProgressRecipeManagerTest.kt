@@ -1,6 +1,12 @@
 package com.lionotter.recipes.ui.state
 
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import app.cash.turbine.test
+import io.mockk.every
+import io.mockk.mockk
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -10,10 +16,16 @@ import org.junit.Test
 class InProgressRecipeManagerTest {
 
     private lateinit var manager: InProgressRecipeManager
+    private lateinit var workManager: WorkManager
+    private lateinit var testScope: TestScope
 
     @Before
     fun setup() {
-        manager = InProgressRecipeManager()
+        workManager = mockk {
+            every { getWorkInfosByTagFlow(any()) } returns MutableStateFlow(emptyList<WorkInfo>())
+        }
+        testScope = TestScope()
+        manager = InProgressRecipeManager(workManager, testScope)
     }
 
     @Test

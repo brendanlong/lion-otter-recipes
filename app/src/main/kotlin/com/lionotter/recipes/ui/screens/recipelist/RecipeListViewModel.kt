@@ -27,7 +27,7 @@ class RecipeListViewModel @Inject constructor(
     private val getTagsUseCase: GetTagsUseCase,
     private val inProgressRecipeManager: InProgressRecipeManager,
     private val recipeRepository: RecipeRepository,
-    private val workManager: WorkManager
+    workManager: WorkManager
 ) : ViewModel() {
 
     /**
@@ -121,44 +121,19 @@ class RecipeListViewModel @Inject constructor(
 
     init {
         loadTags()
-        observeImportWorkStatus()
+        observeImportCompletionForTags(workManager)
     }
 
     /**
-     * Observe recipe import work status to clean up in-progress recipes and refresh tags.
-     * This ensures proper cleanup even if the AddRecipeScreen is no longer active.
+     * Observe recipe import work completion to refresh tags when new recipes are imported.
+     * In-progress recipe cleanup is handled by [InProgressRecipeManager] itself.
      */
-    private fun observeImportWorkStatus() {
+    private fun observeImportCompletionForTags(workManager: WorkManager) {
         viewModelScope.launch {
             workManager.getWorkInfosByTagFlow(RecipeImportWorker.TAG_RECIPE_IMPORT)
                 .collect { workInfos ->
-                    workInfos.forEach { workInfo ->
-                        val importId = workInfo.progress.getString(RecipeImportWorker.KEY_IMPORT_ID)
-                            ?: workInfo.outputData.getString(RecipeImportWorker.KEY_IMPORT_ID)
-
-                        when (workInfo.state) {
-                            WorkInfo.State.RUNNING -> {
-                                // Update in-progress recipe name if available
-                                val recipeName = workInfo.progress.getString(RecipeImportWorker.KEY_RECIPE_NAME)
-                                if (recipeName != null && importId != null) {
-                                    inProgressRecipeManager.updateRecipeName(importId, recipeName)
-                                }
-                            }
-                            WorkInfo.State.SUCCEEDED -> {
-                                // Remove from in-progress and refresh tags
-                                if (importId != null) {
-                                    inProgressRecipeManager.removeInProgressRecipe(importId)
-                                }
-                                loadTags()
-                            }
-                            WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> {
-                                // Remove from in-progress
-                                if (importId != null) {
-                                    inProgressRecipeManager.removeInProgressRecipe(importId)
-                                }
-                            }
-                            else -> {}
-                        }
+                    if (workInfos.any { it.state == WorkInfo.State.SUCCEEDED }) {
+                        loadTags()
                     }
                 }
         }
