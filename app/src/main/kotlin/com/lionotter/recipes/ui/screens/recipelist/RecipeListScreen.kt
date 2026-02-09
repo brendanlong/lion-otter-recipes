@@ -70,6 +70,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.lionotter.recipes.data.remote.DriveFolder
+import com.lionotter.recipes.data.repository.RepositoryError
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.ui.components.DeleteConfirmationDialog
 import com.lionotter.recipes.ui.components.ProgressCard
@@ -111,7 +112,11 @@ fun RecipeListScreen(
     // Show snackbar for repository errors (e.g., corrupted recipe data)
     LaunchedEffect(Unit) {
         viewModel.repositoryErrors.collect { error ->
-            snackbarHostState.showSnackbar(error)
+            val message = when (error) {
+                is RepositoryError.ParseError ->
+                    "Some data for recipe '${error.recipeName}' could not be loaded. The recipe may appear incomplete."
+            }
+            snackbarHostState.showSnackbar(message)
         }
     }
 
