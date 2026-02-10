@@ -217,4 +217,28 @@
     <!-- File Import -->
     <string name="file_import_success">Recipe imported successfully</string>
     <string name="file_import_already_exists">Recipe already exists</string>
+
+    <!-- Meal Planner -->
+    <string name="meal_planner">Meal Planner</string>
+    <string name="add_to_meal_plan">Add to Meal Plan</string>
+    <string name="select_recipe">Select Recipe</string>
+    <string name="select_date">Date</string>
+    <string name="select_meal_type">Meal</string>
+    <string name="servings">Servings</string>
+    <string name="breakfast">Breakfast</string>
+    <string name="lunch">Lunch</string>
+    <string name="dinner">Dinner</string>
+    <string name="snack">Snack</string>
+    <string name="today">Today</string>
+    <string name="no_meals_planned">No meals planned</string>
+    <string name="tap_plus_to_add_meal">Tap + to add a meal</string>
+    <string name="delete_meal_plan">Remove from Meal Plan</string>
+    <string name="delete_meal_plan_confirmation">Remove \"%1$s\" from the meal plan?</string>
+    <string name="search_recipes_to_add">Search recipes to add\u2026</string>
+    <string name="no_recipes_found">No recipes found</string>
+    <string name="previous_week">Previous week</string>
+    <string name="next_week">Next week</string>
+    <string name="servings_format">%1$sx</string>
+    <string name="remove">Remove</string>
+    <string name="recipes">Recipes</string>
 </resources>

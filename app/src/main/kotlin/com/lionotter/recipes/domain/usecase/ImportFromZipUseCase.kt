@@ -1,9 +1,12 @@
 package com.lionotter.recipes.domain.usecase
 
+import android.util.Log
+import com.lionotter.recipes.data.repository.MealPlanRepository
 import com.lionotter.recipes.data.repository.RecipeRepository
-import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.util.RecipeSerializer
 import kotlinx.datetime.Clock
+import kotlinx.serialization.json.Json
 import java.io.InputStream
 import java.util.zip.ZipInputStream
 import javax.inject.Inject
@@ -20,8 +23,14 @@ import javax.inject.Inject
  */
 class ImportFromZipUseCase @Inject constructor(
     private val recipeRepository: RecipeRepository,
-    private val recipeSerializer: RecipeSerializer
+    private val recipeSerializer: RecipeSerializer,
+    private val mealPlanRepository: MealPlanRepository,
+    private val json: Json
 ) {
+    companion object {
+        private const val TAG = "ImportFromZip"
+        private const val MEAL_PLANS_FOLDER = "meal-plans"
+    }
     sealed class ImportResult {
         data class Success(
             val importedCount: Int,
@@ -77,14 +86,14 @@ class ImportFromZipUseCase @Inject constructor(
         }
 
         if (folderContents.isEmpty()) {
-            return ImportResult.Error("No recipe folders found in ZIP file")
+            return ImportResult.Error("No data found in ZIP file")
         }
 
         var importedCount = 0
         var failedCount = 0
         var skippedCount = 0
 
-        val folders = folderContents.entries.toList()
+        val folders = folderContents.entries.filter { it.key != MEAL_PLANS_FOLDER }.toList()
         folders.forEachIndexed { index, (folderName, files) ->
             onProgress(
                 ImportProgress.ImportingRecipe(
@@ -116,6 +125,28 @@ class ImportFromZipUseCase @Inject constructor(
                 importedCount++
             } catch (e: Exception) {
                 failedCount++
+            }
+        }
+
+        // Import meal plans from the meal-plans folder
+        val mealPlanFiles = folderContents[MEAL_PLANS_FOLDER]
+        if (mealPlanFiles != null) {
+            for ((fileName, content) in mealPlanFiles) {
+                if (!fileName.endsWith(".json")) continue
+                try {
+                    val entries = json.decodeFromString<List<MealPlanEntry>>(content)
+                    for (entry in entries) {
+                        val existing = mealPlanRepository.getMealPlanByIdOnce(entry.id)
+                        if (existing == null) {
+                            mealPlanRepository.saveMealPlan(entry)
+                            importedCount++
+                        } else {
+                            skippedCount++
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to import meal plan file $fileName", e)
+                }
             }
         }
 
