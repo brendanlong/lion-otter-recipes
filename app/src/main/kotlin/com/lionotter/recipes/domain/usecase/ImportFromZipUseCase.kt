@@ -20,7 +20,7 @@ import kotlin.coroutines.coroutineContext
  * - recipe-name/original.html (optional)
  * - recipe-name/recipe.md (ignored on import, regenerated from data)
  *
- * Import strategy: JSON-first (same as Google Drive import).
+ * Import strategy: JSON-first.
  * Skips recipes that already exist locally (by ID).
  */
 class ImportFromZipUseCase @Inject constructor(

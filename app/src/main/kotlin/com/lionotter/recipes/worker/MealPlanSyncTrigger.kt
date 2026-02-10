@@ -7,8 +7,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Triggers an incremental Google Drive sync when meal plans change.
- * Uses the existing GoogleDriveSyncWorker with a unique work name to coalesce rapid changes.
+ * Triggers an incremental Firebase sync when meal plans change.
+ * Uses the FirestoreSyncWorker with a unique work name to coalesce rapid changes.
  */
 @Singleton
 class MealPlanSyncTrigger @Inject constructor(
@@ -19,8 +19,8 @@ class MealPlanSyncTrigger @Inject constructor(
     }
 
     fun triggerIncrementalSync() {
-        val syncRequest = OneTimeWorkRequestBuilder<GoogleDriveSyncWorker>()
-            .addTag(GoogleDriveSyncWorker.TAG_DRIVE_SYNC)
+        val syncRequest = OneTimeWorkRequestBuilder<FirestoreSyncWorker>()
+            .addTag(FirestoreSyncWorker.TAG_FIRESTORE_SYNC)
             .build()
 
         workManager.enqueueUniqueWork(

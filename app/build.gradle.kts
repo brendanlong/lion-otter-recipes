@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
     alias(libs.plugins.baselineprofile)
+    alias(libs.plugins.google.services)
 }
 
 android {
@@ -150,15 +151,16 @@ dependencies {
     // Optimization (ILP tag selection)
     implementation(libs.ojalgo)
 
-    // Google Drive
-    implementation(libs.play.services.auth)
+    // Firebase
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.auth)
+    implementation(libs.firebase.firestore)
+
+    // Google Sign-In (via Credential Manager)
     implementation(libs.credentials)
     implementation(libs.credentials.play.services.auth)
+    implementation(libs.google.id)
     implementation(libs.kotlinx.coroutines.play.services)
-    implementation(libs.google.api.client)
-    implementation(libs.google.drive.api) {
-        exclude(group = "org.apache.httpcomponents")
-    }
 
     // Baseline Profile
     implementation(libs.androidx.profileinstaller)
