@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -70,6 +71,7 @@ import java.util.Locale
 fun MealPlanScreen(
     onRecipeClick: (String) -> Unit,
     onBackClick: () -> Unit,
+    onGroceryListClick: () -> Unit,
     viewModel: MealPlanViewModel = hiltViewModel()
 ) {
     val weekStart by viewModel.currentWeekStart.collectAsStateWithLifecycle()
@@ -105,6 +107,12 @@ fun MealPlanScreen(
                 title = stringResource(R.string.meal_planner),
                 onBackClick = onBackClick,
                 actions = {
+                    IconButton(onClick = onGroceryListClick) {
+                        Icon(
+                            imageVector = Icons.Default.ShoppingCart,
+                            contentDescription = stringResource(R.string.grocery_list)
+                        )
+                    }
                     IconButton(onClick = { viewModel.goToToday() }) {
                         Icon(
                             imageVector = Icons.Default.Today,

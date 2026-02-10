@@ -248,4 +248,13 @@
     <string name="edit_meal_plan">Edit Meal Plan</string>
     <string name="save">Save</string>
     <string name="recipes">Recipes</string>
+
+    <!-- Grocery List -->
+    <string name="grocery_list">Grocery List</string>
+    <string name="generate_grocery_list">Generate Grocery List</string>
+    <string name="share_grocery_list">Share grocery list</string>
+    <string name="grocery_list_empty_hint">Add meals to your meal plan first</string>
+    <string name="no_ingredients">No ingredients found</string>
+    <string name="select_all">Select All</string>
+    <string name="deselect_all">Deselect All</string>
 </resources>
