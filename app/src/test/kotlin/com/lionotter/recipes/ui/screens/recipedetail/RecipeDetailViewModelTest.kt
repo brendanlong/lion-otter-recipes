@@ -14,6 +14,8 @@ import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.domain.model.createInstructionIngredientKey
 import com.lionotter.recipes.domain.usecase.CalculateIngredientUsageUseCase
+import com.lionotter.recipes.domain.usecase.ExportSingleRecipeUseCase
+import com.lionotter.recipes.domain.util.RecipeSerializer
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -90,7 +92,10 @@ class RecipeDetailViewModelTest {
             recipeRepository = recipeRepository,
             settingsDataStore = settingsDataStore,
             calculateIngredientUsage = CalculateIngredientUsageUseCase(),
-            workManager = workManager
+            workManager = workManager,
+            exportSingleRecipeUseCase = mockk<ExportSingleRecipeUseCase>(),
+            recipeSerializer = mockk<RecipeSerializer>(),
+            applicationContext = mockk(relaxed = true)
         )
     }
 

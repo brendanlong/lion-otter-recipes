@@ -1,12 +1,17 @@
 package com.lionotter.recipes.ui.navigation
 
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.lionotter.recipes.R
 import com.lionotter.recipes.SharedIntentViewModel
 import com.lionotter.recipes.ui.screens.addrecipe.AddRecipeScreen
 import com.lionotter.recipes.ui.screens.importdebug.ImportDebugDetailScreen
@@ -37,9 +42,12 @@ sealed class Screen(val route: String) {
 fun NavGraph(
     sharedIntentViewModel: SharedIntentViewModel? = null,
     initialSharedUrl: String? = null,
+    initialFileUri: Uri? = null,
     recipeId: String? = null
 ) {
     val navController = rememberNavController()
+    val fileImportViewModel: FileImportViewModel = hiltViewModel()
+    val context = LocalContext.current
 
     val startDestination = when {
         recipeId != null -> Screen.RecipeDetail.createRoute(recipeId)
@@ -53,6 +61,20 @@ fun NavGraph(
             if (url != null) {
                 navController.navigate(Screen.AddRecipe.createRoute(url))
             }
+        }
+    }
+
+    // Handle .lorecipes file import on launch
+    LaunchedEffect(initialFileUri) {
+        if (initialFileUri != null) {
+            handleFileImport(fileImportViewModel, initialFileUri, context, navController)
+        }
+    }
+
+    // Handle .lorecipes file shared/opened while app is running
+    LaunchedEffect(sharedIntentViewModel) {
+        sharedIntentViewModel?.sharedFileUri?.collectLatest { uri ->
+            handleFileImport(fileImportViewModel, uri, context, navController)
         }
     }
 
@@ -160,6 +182,52 @@ fun NavGraph(
                     navController.navigate(Screen.RecipeDetail.createRoute(recipeId))
                 }
             )
+        }
+    }
+}
+
+private suspend fun handleFileImport(
+    viewModel: FileImportViewModel,
+    uri: Uri,
+    context: android.content.Context,
+    navController: androidx.navigation.NavController
+) {
+    val result = viewModel.importFromFile(uri)
+    when (result) {
+        is FileImportViewModel.ImportResult.Success -> {
+            if (result.importedRecipeId != null) {
+                // Navigate to the imported recipe
+                navController.navigate(Screen.RecipeList.route) {
+                    popUpTo(0) { inclusive = true }
+                }
+                navController.navigate(Screen.RecipeDetail.createRoute(result.importedRecipeId))
+            } else {
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.file_import_success),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+        is FileImportViewModel.ImportResult.AlreadyExists -> {
+            if (result.existingRecipeId != null) {
+                navController.navigate(Screen.RecipeList.route) {
+                    popUpTo(0) { inclusive = true }
+                }
+                navController.navigate(Screen.RecipeDetail.createRoute(result.existingRecipeId))
+            }
+            Toast.makeText(
+                context,
+                context.getString(R.string.file_import_already_exists),
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+        is FileImportViewModel.ImportResult.Error -> {
+            Toast.makeText(
+                context,
+                result.message,
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 }

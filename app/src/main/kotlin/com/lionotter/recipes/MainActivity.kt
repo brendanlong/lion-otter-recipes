@@ -1,6 +1,7 @@
 package com.lionotter.recipes
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -33,11 +34,17 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         val sharedUrl = extractSharedUrl(intent)
+        val sharedFileUri = extractFileUri(intent)
         val recipeId = extractRecipeId(intent)
 
         if (sharedUrl != null) {
             lifecycleScope.launch {
                 sharedIntentViewModel.onSharedUrlReceived(sharedUrl)
+            }
+        }
+        if (sharedFileUri != null) {
+            lifecycleScope.launch {
+                sharedIntentViewModel.onSharedFileReceived(sharedFileUri)
             }
         }
 
@@ -53,6 +60,7 @@ class MainActivity : ComponentActivity() {
                     NavGraph(
                         sharedIntentViewModel = sharedIntentViewModel,
                         initialSharedUrl = sharedUrl,
+                        initialFileUri = sharedFileUri,
                         recipeId = recipeId
                     )
                 }
@@ -69,12 +77,31 @@ class MainActivity : ComponentActivity() {
                 sharedIntentViewModel.onSharedUrlReceived(sharedUrl)
             }
         }
+        val sharedFileUri = extractFileUri(intent)
+        if (sharedFileUri != null) {
+            lifecycleScope.launch {
+                sharedIntentViewModel.onSharedFileReceived(sharedFileUri)
+            }
+        }
     }
 
     private fun extractSharedUrl(intent: Intent?): String? {
         return when (intent?.action) {
             Intent.ACTION_SEND -> {
-                intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() }
+                // Only extract text URL if there's no file stream (to avoid treating file shares as URL shares)
+                if (intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM) != null) null
+                else intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() }
+            }
+            else -> null
+        }
+    }
+
+    private fun extractFileUri(intent: Intent?): Uri? {
+        return when (intent?.action) {
+            Intent.ACTION_VIEW -> intent.data
+            Intent.ACTION_SEND -> {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(Intent.EXTRA_STREAM)
             }
             else -> null
         }
