@@ -68,15 +68,8 @@ class RecipeDetailViewModel @Inject constructor(
     @ApplicationContext private val applicationContext: Context
 ) : ViewModel() {
 
-    private val recipeId: String
-
-    init {
-        recipeId = savedStateHandle.get<String>("recipeId")
-            ?: throw IllegalArgumentException("RecipeDetailViewModel requires a 'recipeId' argument in SavedStateHandle")
-        observeRegenerateWorkStatus()
-        loadRegenerateDefaults()
-        checkOriginalHtml()
-    }
+    private val recipeId: String = savedStateHandle.get<String>("recipeId")
+        ?: throw IllegalArgumentException("RecipeDetailViewModel requires a 'recipeId' argument in SavedStateHandle")
 
     private val _recipeDeleted = MutableSharedFlow<Unit>()
     val recipeDeleted: SharedFlow<Unit> = _recipeDeleted.asSharedFlow()
@@ -268,7 +261,8 @@ class RecipeDetailViewModel @Inject constructor(
     private val _regenerateThinking = MutableStateFlow(true)
     val regenerateThinking: StateFlow<Boolean> = _regenerateThinking.asStateFlow()
 
-    val hasOriginalHtml: StateFlow<Boolean> = MutableStateFlow(false)
+    private val _hasOriginalHtml = MutableStateFlow(false)
+    val hasOriginalHtml: StateFlow<Boolean> = _hasOriginalHtml.asStateFlow()
 
     private fun loadRegenerateDefaults() {
         viewModelScope.launch {
@@ -280,7 +274,7 @@ class RecipeDetailViewModel @Inject constructor(
     private fun checkOriginalHtml() {
         viewModelScope.launch {
             val html = recipeRepository.getOriginalHtml(recipeId)
-            (hasOriginalHtml as MutableStateFlow).value = !html.isNullOrBlank()
+            _hasOriginalHtml.value = !html.isNullOrBlank()
         }
     }
 
@@ -382,5 +376,11 @@ class RecipeDetailViewModel @Inject constructor(
                 _exportedFileUri.emit(uri)
             }
         }
+    }
+
+    init {
+        observeRegenerateWorkStatus()
+        loadRegenerateDefaults()
+        checkOriginalHtml()
     }
 }
