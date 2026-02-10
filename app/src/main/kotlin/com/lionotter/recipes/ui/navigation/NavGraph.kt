@@ -16,6 +16,7 @@ import com.lionotter.recipes.SharedIntentViewModel
 import com.lionotter.recipes.ui.screens.addrecipe.AddRecipeScreen
 import com.lionotter.recipes.ui.screens.importdebug.ImportDebugDetailScreen
 import com.lionotter.recipes.ui.screens.importdebug.ImportDebugListScreen
+import com.lionotter.recipes.ui.screens.mealplan.MealPlanScreen
 import com.lionotter.recipes.ui.screens.recipedetail.RecipeDetailScreen
 import com.lionotter.recipes.ui.screens.recipelist.RecipeListScreen
 import com.lionotter.recipes.ui.screens.settings.SettingsScreen
@@ -32,6 +33,7 @@ sealed class Screen(val route: String) {
             else "add-recipe"
     }
     object Settings : Screen("settings")
+    object MealPlan : Screen("meal-plan")
     object ImportDebugList : Screen("import-debug")
     object ImportDebugDetail : Screen("import-debug/{debugEntryId}") {
         fun createRoute(debugEntryId: String) = "import-debug/$debugEntryId"
@@ -103,6 +105,9 @@ fun NavGraph(
                 },
                 onSettingsClick = {
                     navController.navigate(Screen.Settings.route)
+                },
+                onMealPlanClick = {
+                    navController.navigate(Screen.MealPlan.route)
                 }
             )
         }
@@ -149,6 +154,15 @@ fun NavGraph(
                 onNavigateToSettings = {
                     navController.navigate(Screen.Settings.route)
                 }
+            )
+        }
+
+        composable(Screen.MealPlan.route) {
+            MealPlanScreen(
+                onRecipeClick = { recipeId ->
+                    navController.navigate(Screen.RecipeDetail.createRoute(recipeId))
+                },
+                onBackClick = navigateBack
             )
         }
 

@@ -29,7 +29,8 @@ class SyncToGoogleDriveUseCase @Inject constructor(
     private val recipeRepository: RecipeRepository,
     private val settingsDataStore: SettingsDataStore,
     private val recipeSerializer: RecipeSerializer,
-    private val json: Json
+    private val json: Json,
+    private val syncMealPlansUseCase: SyncMealPlansToGoogleDriveUseCase
 ) {
     companion object {
         private const val TAG = "SyncToGoogleDrive"
@@ -213,6 +214,13 @@ class SyncToGoogleDriveUseCase @Inject constructor(
             // Any remote-only recipes that we just downloaded shouldn't be deleted
             // This is handled by the toDownload set being processed first
         }
+
+        // Sync meal plans
+        val mealPlanResult = syncMealPlansUseCase.sync(syncFolderId)
+        uploaded += mealPlanResult.uploaded
+        downloaded += mealPlanResult.downloaded
+        updated += mealPlanResult.updated
+        deleted += mealPlanResult.deleted
 
         // Update last sync timestamp
         settingsDataStore.setGoogleDriveLastSyncTimestamp(Clock.System.now().toString())

@@ -6,14 +6,15 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [RecipeEntity::class, ImportDebugEntity::class, PendingImportEntity::class],
-    version = 5,
+    entities = [RecipeEntity::class, ImportDebugEntity::class, PendingImportEntity::class, MealPlanEntity::class],
+    version = 6,
     exportSchema = true
 )
 abstract class RecipeDatabase : RoomDatabase() {
     abstract fun recipeDao(): RecipeDao
     abstract fun importDebugDao(): ImportDebugDao
     abstract fun pendingImportDao(): PendingImportDao
+    abstract fun mealPlanDao(): MealPlanDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -65,6 +66,25 @@ abstract class RecipeDatabase : RoomDatabase() {
                         workManagerId TEXT,
                         errorMessage TEXT,
                         createdAt INTEGER NOT NULL
+                    )
+                """.trimIndent())
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS meal_plans (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        recipeId TEXT NOT NULL,
+                        recipeName TEXT NOT NULL,
+                        recipeImageUrl TEXT,
+                        date TEXT NOT NULL,
+                        mealType TEXT NOT NULL,
+                        servings REAL NOT NULL DEFAULT 1.0,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL,
+                        deleted INTEGER NOT NULL DEFAULT 0
                     )
                 """.trimIndent())
             }

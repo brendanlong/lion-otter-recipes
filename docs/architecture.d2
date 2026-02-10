@@ -81,9 +81,16 @@ app: {
         tooltip: "Tabbed detail view for a single import debug entry. Tabs: Summary (URL, lengths, tokens, model, cost, recipe link), Original Content (HTML with source toggle), Cleaned Content (HTML with source toggle), AI Output (JSON tree view with copy-to-clipboard button). All text is selectable."
       }
 
+      meal_plan: {
+        label: MealPlanScreen
+        tooltip: "Weekly meal planner view. Shows meals grouped by day with swipe-to-delete and long-press menu. Recipe selector bottom sheet with search, tag filter, date picker, meal type selector, and servings."
+      }
+
       list -> detail: tap recipe
       list -> add: tap +
       list -> settings: tap gear
+      list -> meal_plan: tap calendar
+      meal_plan -> detail: tap recipe
       add -> settings: no API key
       settings -> import_debug_list: view debug data
       import_debug_list -> import_debug_detail: tap entry
@@ -136,6 +143,10 @@ app: {
         label: FileImportViewModel
         tooltip: "Handles .lorecipes file imports. Reads ZIP file directly (single recipe, fast) and navigates to imported recipe."
       }
+      meal_plan_vm: {
+        label: MealPlanViewModel
+        tooltip: "Manages weekly meal plan view state, recipe selection dialog, and CRUD operations for meal plan entries. Triggers incremental Google Drive sync on changes."
+      }
     }
 
     state: {
@@ -156,6 +167,7 @@ app: {
     screens.settings -> viewmodels.settings_vm
     screens.settings -> viewmodels.drive_vm: sign in/out
     screens.settings -> viewmodels.zip_vm: backup/restore
+    screens.meal_plan -> viewmodels.meal_plan_vm
     screens.import_debug_list -> viewmodels.import_debug_list_vm
     screens.import_debug_detail -> viewmodels.import_debug_detail_vm
     viewmodels.list_vm -> state.in_progress_mgr: observes, cancel
@@ -281,6 +293,10 @@ app: {
         label: RegenerateRecipeUseCase
         tooltip: "Re-parses a recipe from its stored original HTML via ParseHtmlUseCase.parseHtml(). Passes model/thinking overrides as parameters, preserves recipe ID, favorite status, and creation timestamp."
       }
+      sync_meal_plans: {
+        label: SyncMealPlansToGoogleDriveUseCase
+        tooltip: "Bidirectional sync of meal plans with Google Drive. Stores one JSON file per day in a meal-plans subfolder. Handles soft-delete tracking, conflict resolution by timestamp, and purges deleted entries after sync."
+      }
       tags: GetTagsUseCase
       calc_usage: {
         label: CalculateIngredientUsageUseCase
@@ -335,6 +351,15 @@ app: {
         label: IngredientUsageStatus
         tooltip: "@Immutable. Fields: totalAmount, usedAmount, unit, isFullyUsed, remainingAmount"
       }
+      meal_plan_entry: {
+        label: MealPlanEntry
+        tooltip: "@Immutable @Serializable. Fields: id, recipeId, recipeName, recipeImageUrl, date, mealType, servings, createdAt, updatedAt"
+      }
+      meal_type: {
+        label: MealType
+        tooltip: "Enum: BREAKFAST, LUNCH, SNACK, DINNER with displayOrder for sorting"
+      }
+      meal_plan_entry -> meal_type: type
 
       recipe -> section
       section -> ingredient
@@ -377,6 +402,10 @@ app: {
         label: PendingImportRepository
         tooltip: "Database-backed import queue. CRUD operations for pending recipe imports. Tracks URL, page metadata (title, image), import status, and WorkManager job ID."
       }
+      meal_plan_repo: {
+        label: MealPlanRepository
+        tooltip: "CRUD operations for meal plan entries. Supports date-range queries, soft-delete for sync tracking, and hard-delete for sync cleanup."
+      }
     }
 
     local: {
@@ -413,6 +442,11 @@ app: {
         label: ImportDebugEntity
         tooltip: "Room entity storing import debug data: source URL, original/cleaned HTML, AI output JSON, token counts, model, error info, linked recipe ID"
       }
+      meal_plan_dao: MealPlanDao
+      meal_plan_entity: {
+        label: MealPlanEntity
+        tooltip: "Room entity for meal plan entries: id, recipeId, recipeName, recipeImageUrl, date, mealType, servings, createdAt, updatedAt, deleted (soft-delete flag for sync)"
+      }
       settings: {
         label: SettingsDataStore
         tooltip: "Uses EncryptedSharedPreferences for API key, DataStore for non-sensitive settings (AI model, extended thinking enabled, keep screen on, theme mode, volume/weight unit system preferences, import debugging enabled, Google Drive sync enabled/folder/last sync timestamp)"
@@ -424,6 +458,8 @@ app: {
       import_debug_entity -> room
       pending_import_dao -> room
       pending_import_entity -> room
+      meal_plan_dao -> room
+      meal_plan_entity -> room
       settings -> datastore: non-sensitive settings
       settings -> encrypted_prefs: API key
     }
@@ -468,6 +504,7 @@ app: {
     repository.repo -> local.settings
     repository.import_debug_repo -> local.import_debug_dao
     repository.pending_import_repo -> local.pending_import_dao
+    repository.meal_plan_repo -> local.meal_plan_dao
   }
 
   # Performance
@@ -524,6 +561,11 @@ app: {
   ui.viewmodels.zip_vm -> background.worker.zip_export_worker: export
   ui.viewmodels.zip_vm -> background.worker.zip_import_worker: import
   ui.viewmodels.zip_vm -> background.worker.work_ext: observe export/import
+  ui.viewmodels.meal_plan_vm -> data.repository.meal_plan_repo: CRUD
+  ui.viewmodels.meal_plan_vm -> data.repository.repo: recipe list
+  ui.viewmodels.meal_plan_vm -> domain.usecases.tags: top tags
+  domain.usecases.sync_drive -> domain.usecases.sync_meal_plans: sync meal plans
+  domain.usecases.sync_meal_plans -> data.repository.meal_plan_repo: access data
   ui.viewmodels.settings_vm -> data.repository.import_debug_repo: delete debug data
   ui.viewmodels.import_debug_list_vm -> data.repository.import_debug_repo: list entries
   ui.viewmodels.import_debug_detail_vm -> data.repository.import_debug_repo: get entry
@@ -641,4 +683,21 @@ legend: {
   fav3: "Re-sorting only occurs on filter/search/ID-set changes via runningFold"
 
   fav1 -> fav2 -> fav3
+
+  meal_plan_flow: {
+    label: "Meal Planner Feature"
+    style: {
+      font-size: 14
+      bold: true
+    }
+  }
+  mp1: "Weekly planner view with day-grouped meal entries"
+  mp2: "Add meals via bottom sheet: recipe search + tag filter, date picker, meal type, servings"
+  mp3: "Swipe-to-delete and long-press menu (shared pattern with recipe list)"
+  mp4: "Persistent in Room DB with soft-delete for sync tracking"
+  mp5: "Google Drive sync: one JSON file per day in meal-plans/ subfolder"
+  mp6: "Included in ZIP export/import for backup/restore"
+  mp7: "Incremental sync triggered on add/update/delete"
+
+  mp1 -> mp2 -> mp3 -> mp4 -> mp5 -> mp6 -> mp7
 }

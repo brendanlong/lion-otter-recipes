@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -57,6 +58,7 @@ fun RecipeListScreen(
     onRecipeClick: (String) -> Unit,
     onAddRecipeClick: () -> Unit,
     onSettingsClick: () -> Unit,
+    onMealPlanClick: () -> Unit,
     viewModel: RecipeListViewModel = hiltViewModel()
 ) {
     val recipes by viewModel.recipes.collectAsStateWithLifecycle()
@@ -112,6 +114,12 @@ fun RecipeListScreen(
             RecipeTopAppBar(
                 title = stringResource(R.string.app_name),
                 actions = {
+                    IconButton(onClick = onMealPlanClick) {
+                        Icon(
+                            imageVector = Icons.Default.CalendarMonth,
+                            contentDescription = stringResource(R.string.meal_planner)
+                        )
+                    }
                     IconButton(onClick = onSettingsClick) {
                         Icon(
                             imageVector = Icons.Default.Settings,

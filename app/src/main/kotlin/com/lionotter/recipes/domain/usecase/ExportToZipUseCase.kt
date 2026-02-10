@@ -1,8 +1,12 @@
 package com.lionotter.recipes.domain.usecase
 
+import com.lionotter.recipes.data.repository.MealPlanRepository
 import com.lionotter.recipes.data.repository.RecipeRepository
+import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.util.RecipeSerializer
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.io.OutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -17,8 +21,14 @@ import javax.inject.Inject
  */
 class ExportToZipUseCase @Inject constructor(
     private val recipeRepository: RecipeRepository,
-    private val recipeSerializer: RecipeSerializer
+    private val recipeSerializer: RecipeSerializer,
+    private val mealPlanRepository: MealPlanRepository,
+    private val json: Json
 ) {
+    companion object {
+        const val MEAL_PLANS_FOLDER = "meal-plans"
+    }
+
     sealed class ExportResult {
         data class Success(val exportedCount: Int, val failedCount: Int) : ExportResult()
         data class Error(val message: String) : ExportResult()
@@ -87,6 +97,22 @@ class ExportToZipUseCase @Inject constructor(
                         exportedCount++
                     } catch (e: Exception) {
                         failedCount++
+                    }
+                }
+
+                // Export meal plans grouped by date
+                val mealPlans = mealPlanRepository.getAllMealPlansOnce()
+                if (mealPlans.isNotEmpty()) {
+                    val mealPlansByDate = mealPlans.groupBy { it.date }
+                    for ((date, entries) in mealPlansByDate) {
+                        try {
+                            val mealPlanJson = json.encodeToString<List<MealPlanEntry>>(entries)
+                            zipOut.putNextEntry(ZipEntry("$MEAL_PLANS_FOLDER/$date.json"))
+                            zipOut.write(mealPlanJson.toByteArray(Charsets.UTF_8))
+                            zipOut.closeEntry()
+                        } catch (_: Exception) {
+                            // Non-critical: continue with other dates
+                        }
                     }
                 }
             }
