@@ -55,6 +55,8 @@ class ParseHtmlUseCase @Inject constructor(
         sourceUrl: String? = null,
         imageUrl: String? = null,
         saveRecipe: Boolean = true,
+        model: String? = null,
+        extendedThinking: Boolean? = null,
         onProgress: suspend (ParseProgress) -> Unit = {}
     ): ParseResult {
         // Check for API key
@@ -63,8 +65,8 @@ class ParseHtmlUseCase @Inject constructor(
             return ParseResult.NoApiKey
         }
 
-        val model = settingsDataStore.aiModel.first()
-        val extendedThinking = settingsDataStore.extendedThinkingEnabled.first()
+        val model = model ?: settingsDataStore.aiModel.first()
+        val extendedThinking = extendedThinking ?: settingsDataStore.extendedThinkingEnabled.first()
         val debuggingEnabled = settingsDataStore.importDebuggingEnabled.first()
 
         // Extract content from HTML
