@@ -150,4 +150,37 @@
     <string name="paprika_import_cancelled">Import Cancelled</string>
     <string name="paprika_import_cancelled_result">Successfully imported %1$d recipes before cancellation</string>
     <string name="done">Done</string>
+
+    <!-- Import Debugging -->
+    <string name="import_debugging">Import Debugging</string>
+    <string name="import_debugging_description">Save detailed information about recipe imports for debugging purposes.</string>
+    <string name="view_import_debug_data">View Import Debug Data</string>
+    <string name="import_debug_data">Import Debug Data</string>
+    <string name="no_debug_entries">No import debug entries yet</string>
+    <string name="no_debug_entries_description">Import a recipe with debugging enabled to see debug data here.</string>
+    <string name="debug_entry_success">Success</string>
+    <string name="debug_entry_error">Error</string>
+    <string name="summary">Summary</string>
+    <string name="original_content">Original Content</string>
+    <string name="cleaned_content">Cleaned Content</string>
+    <string name="ai_output">AI Output</string>
+    <string name="source_url_label">Source URL</string>
+    <string name="source_length_raw">Source Length (Raw)</string>
+    <string name="source_length_cleaned">Source Length (Cleaned)</string>
+    <string name="input_tokens_label">Input Tokens</string>
+    <string name="output_tokens_label">Output Tokens</string>
+    <string name="ai_model_label">AI Model</string>
+    <string name="thinking_mode_label">Thinking Mode</string>
+    <string name="ai_cost_label">Estimated Cost</string>
+    <string name="ai_duration_label">Response Time</string>
+    <string name="imported_recipe_label">Imported Recipe</string>
+    <string name="error_message_label">Error</string>
+    <string name="characters_count">%1$s characters</string>
+    <string name="tokens_count">%1$s tokens</string>
+    <string name="enabled">Enabled</string>
+    <string name="disabled">Disabled</string>
+    <string name="show_source">Show Source</string>
+    <string name="show_rendered">Show Rendered</string>
+    <string name="not_available">N/A</string>
+    <string name="unknown_import">Unknown Import</string>
 </resources>

@@ -1,7 +1,10 @@
 package com.lionotter.recipes.domain.usecase
 
+import com.lionotter.recipes.data.local.ImportDebugEntity
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AnthropicService
+import com.lionotter.recipes.data.remote.RecipeParseException
+import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
 import kotlinx.coroutines.flow.first
@@ -20,6 +23,7 @@ import javax.inject.Inject
 class ParseHtmlUseCase @Inject constructor(
     private val anthropicService: AnthropicService,
     private val recipeRepository: RecipeRepository,
+    private val importDebugRepository: ImportDebugRepository,
     private val settingsDataStore: SettingsDataStore
 ) {
     sealed class ParseResult {
@@ -61,6 +65,7 @@ class ParseHtmlUseCase @Inject constructor(
 
         val model = settingsDataStore.aiModel.first()
         val extendedThinking = settingsDataStore.extendedThinkingEnabled.first()
+        val debuggingEnabled = settingsDataStore.importDebuggingEnabled.first()
 
         // Extract content from HTML
         onProgress(ParseProgress.ExtractingContent)
@@ -69,11 +74,40 @@ class ParseHtmlUseCase @Inject constructor(
 
         // Parse with AI
         onProgress(ParseProgress.ParsingRecipe)
+        val startTime = System.currentTimeMillis()
         val parseResult = anthropicService.parseRecipe(extractedContent, apiKey, model, extendedThinking)
+        val durationMs = System.currentTimeMillis() - startTime
         if (parseResult.isFailure) {
-            return ParseResult.Error("Failed to parse recipe: ${parseResult.exceptionOrNull()?.message}")
+            val errorMessage = "Failed to parse recipe: ${parseResult.exceptionOrNull()?.message}"
+
+            if (debuggingEnabled) {
+                val exception = parseResult.exceptionOrNull()
+                val aiErrorMessage = if (exception is RecipeParseException) {
+                    exception.message
+                } else {
+                    exception?.message
+                }
+                saveDebugEntry(
+                    sourceUrl = sourceUrl,
+                    originalHtml = html,
+                    cleanedContent = extractedContent,
+                    aiOutputJson = null,
+                    inputTokens = null,
+                    outputTokens = null,
+                    aiModel = model,
+                    thinkingEnabled = extendedThinking,
+                    recipeId = null,
+                    recipeName = null,
+                    errorMessage = aiErrorMessage,
+                    isError = true,
+                    durationMs = durationMs
+                )
+            }
+
+            return ParseResult.Error(errorMessage)
         }
-        val parsed = parseResult.getOrThrow()
+        val parsedWithUsage = parseResult.getOrThrow()
+        val parsed = parsedWithUsage.result
 
         // Notify that recipe name is available
         onProgress(ParseProgress.RecipeNameAvailable(parsed.name))
@@ -103,8 +137,64 @@ class ParseHtmlUseCase @Inject constructor(
             recipeRepository.saveRecipe(recipe, originalHtml = html)
         }
 
+        // Save debug data on success if debugging is enabled
+        if (debuggingEnabled) {
+            saveDebugEntry(
+                sourceUrl = sourceUrl,
+                originalHtml = html,
+                cleanedContent = extractedContent,
+                aiOutputJson = parsedWithUsage.aiOutputJson,
+                inputTokens = parsedWithUsage.inputTokens,
+                outputTokens = parsedWithUsage.outputTokens,
+                aiModel = model,
+                thinkingEnabled = extendedThinking,
+                recipeId = recipe.id,
+                recipeName = recipe.name,
+                errorMessage = null,
+                isError = false,
+                durationMs = durationMs
+            )
+        }
+
         onProgress(ParseProgress.Complete(ParseResult.Success(recipe)))
         return ParseResult.Success(recipe)
+    }
+
+    private suspend fun saveDebugEntry(
+        sourceUrl: String?,
+        originalHtml: String?,
+        cleanedContent: String?,
+        aiOutputJson: String?,
+        inputTokens: Long?,
+        outputTokens: Long?,
+        aiModel: String?,
+        thinkingEnabled: Boolean,
+        recipeId: String?,
+        recipeName: String?,
+        errorMessage: String?,
+        isError: Boolean,
+        durationMs: Long?
+    ) {
+        val entry = ImportDebugEntity(
+            id = UUID.randomUUID().toString(),
+            sourceUrl = sourceUrl,
+            originalHtml = originalHtml,
+            cleanedContent = cleanedContent,
+            aiOutputJson = aiOutputJson,
+            originalLength = originalHtml?.length ?: 0,
+            cleanedLength = cleanedContent?.length ?: 0,
+            inputTokens = inputTokens,
+            outputTokens = outputTokens,
+            aiModel = aiModel,
+            thinkingEnabled = thinkingEnabled,
+            recipeId = recipeId,
+            recipeName = recipeName,
+            errorMessage = errorMessage,
+            isError = isError,
+            durationMs = durationMs,
+            createdAt = Clock.System.now().toEpochMilliseconds()
+        )
+        importDebugRepository.saveDebugEntry(entry)
     }
 
     private fun extractContent(html: String, sourceUrl: String?): String {

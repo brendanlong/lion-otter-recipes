@@ -3,6 +3,7 @@ package com.lionotter.recipes.ui.screens.settings
 import app.cash.turbine.test
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AnthropicService
+import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.domain.model.ThemeMode
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -27,6 +28,7 @@ import org.junit.Test
 class SettingsViewModelTest {
 
     private lateinit var settingsDataStore: SettingsDataStore
+    private lateinit var importDebugRepository: ImportDebugRepository
     private lateinit var viewModel: SettingsViewModel
     private val testDispatcher = StandardTestDispatcher()
 
@@ -35,17 +37,20 @@ class SettingsViewModelTest {
     private val extendedThinkingFlow = MutableStateFlow(true)
     private val keepScreenOnFlow = MutableStateFlow(true)
     private val themeModeFlow = MutableStateFlow(ThemeMode.AUTO)
+    private val importDebuggingEnabledFlow = MutableStateFlow(false)
 
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
         settingsDataStore = mockk()
+        importDebugRepository = mockk()
         every { settingsDataStore.anthropicApiKey } returns apiKeyFlow
         every { settingsDataStore.aiModel } returns aiModelFlow
         every { settingsDataStore.extendedThinkingEnabled } returns extendedThinkingFlow
         every { settingsDataStore.keepScreenOn } returns keepScreenOnFlow
         every { settingsDataStore.themeMode } returns themeModeFlow
-        viewModel = SettingsViewModel(settingsDataStore)
+        every { settingsDataStore.importDebuggingEnabled } returns importDebuggingEnabledFlow
+        viewModel = SettingsViewModel(settingsDataStore, importDebugRepository)
     }
 
     @After

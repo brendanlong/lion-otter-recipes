@@ -9,6 +9,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.lionotter.recipes.SharedIntentViewModel
 import com.lionotter.recipes.ui.screens.addrecipe.AddRecipeScreen
+import com.lionotter.recipes.ui.screens.importdebug.ImportDebugDetailScreen
+import com.lionotter.recipes.ui.screens.importdebug.ImportDebugListScreen
 import com.lionotter.recipes.ui.screens.recipedetail.RecipeDetailScreen
 import com.lionotter.recipes.ui.screens.recipelist.RecipeListScreen
 import com.lionotter.recipes.ui.screens.settings.SettingsScreen
@@ -25,6 +27,10 @@ sealed class Screen(val route: String) {
             else "add-recipe"
     }
     object Settings : Screen("settings")
+    object ImportDebugList : Screen("import-debug")
+    object ImportDebugDetail : Screen("import-debug/{debugEntryId}") {
+        fun createRoute(debugEntryId: String) = "import-debug/$debugEntryId"
+    }
 }
 
 @Composable
@@ -126,7 +132,33 @@ fun NavGraph(
 
         composable(Screen.Settings.route) {
             SettingsScreen(
-                onBackClick = navigateBack
+                onBackClick = navigateBack,
+                onNavigateToImportDebug = {
+                    navController.navigate(Screen.ImportDebugList.route)
+                }
+            )
+        }
+
+        composable(Screen.ImportDebugList.route) {
+            ImportDebugListScreen(
+                onBackClick = navigateBack,
+                onEntryClick = { debugEntryId ->
+                    navController.navigate(Screen.ImportDebugDetail.createRoute(debugEntryId))
+                }
+            )
+        }
+
+        composable(
+            route = Screen.ImportDebugDetail.route,
+            arguments = listOf(
+                navArgument("debugEntryId") { type = NavType.StringType }
+            )
+        ) {
+            ImportDebugDetailScreen(
+                onBackClick = navigateBack,
+                onNavigateToRecipe = { recipeId ->
+                    navController.navigate(Screen.RecipeDetail.createRoute(recipeId))
+                }
             )
         }
     }

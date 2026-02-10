@@ -149,7 +149,7 @@ class ImportPaprikaUseCase @Inject constructor(
             if (parseResult.isFailure) {
                 return null
             }
-            val parsed = parseResult.getOrThrow()
+            val parsed = parseResult.getOrThrow().result
 
             // Determine image URL:
             // 1. If Paprika has photo_data, we don't have a way to store raw image bytes in our model
