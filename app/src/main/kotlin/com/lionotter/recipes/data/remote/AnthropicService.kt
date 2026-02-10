@@ -174,21 +174,21 @@ For successful parsing, return:
             "stepNumber": 2,
             "instruction": "Mix dry ingredients together.",
             "ingredients": [
-              { "name": "all-purpose flour", "amount": { "value": 2.0, "unit": "cup" }, "density": 0.51 },
-              { "name": "granulated sugar", "amount": { "value": 1.0, "unit": "cup" }, "density": 0.84 },
-              { "name": "baking powder", "amount": { "value": 1.0, "unit": "tsp" }, "density": 0.81 }
+              { "name": "all-purpose flour", "amount": { "value": 2, "unit": "cup" }, "density": 0.51 },
+              { "name": "granulated sugar", "amount": { "value": 1, "unit": "cup" }, "density": 0.84 },
+              { "name": "baking powder", "amount": { "value": 1, "unit": "tsp" }, "density": 0.81 }
             ]
           },
           {
             "stepNumber": 3,
             "instruction": "Add wet ingredients and mix until combined.",
             "ingredients": [
-              { "name": "butter", "amount": { "value": 8.0, "unit": "oz" }, "density": 0.96, "notes": "melted" },
-              { "name": "eggs", "amount": { "value": 3.0 }, "notes": "room temperature" },
-              { "name": "milk", "amount": { "value": 1.0, "unit": "cup" }, "density": 0.96 },
+              { "name": "butter", "amount": { "value": 8, "unit": "oz" }, "density": 0.96, "notes": "melted" },
+              { "name": "eggs", "amount": { "value": 3 }, "notes": "room temperature" },
+              { "name": "milk", "amount": { "value": 1, "unit": "cup" }, "density": 0.96 },
               {
                 "name": "kosher salt",
-                "amount": { "value": 1.0, "unit": "tsp" },
+                "amount": { "value": 1, "unit": "tsp" },
                 "density": 0.54,
                 "alternates": [
                   { "name": "table salt", "amount": { "value": 0.5, "unit": "tsp" }, "density": 1.22 }
@@ -201,7 +201,7 @@ For successful parsing, return:
             "instruction": "Form into a ball, coat with olive oil, and place in a covered bowl.",
             "yields": 2,
             "ingredients": [
-              { "name": "olive oil", "amount": { "value": 1.0, "unit": "tsp" }, "density": 0.84 }
+              { "name": "olive oil", "amount": { "value": 1, "unit": "tsp" }, "density": 0.84 }
             ]
           }
         ]
@@ -224,7 +224,7 @@ Return an error response when:
 - You cannot confidently identify the recipe name, ingredients, or instructions
 
 INGREDIENT FORMAT:
-- Each ingredient has a single "amount" object with "value" (decimal number) and "unit" (string).
+- Each ingredient has a single "amount" object with "value" (number, integer or decimal) and "unit" (string).
 - For countable items (eggs, lemons, cloves), omit the "unit" field — just include "value".
 - ALWAYS include a "density" field (g/mL) for ANY ingredient measured by weight or volume. The app uses density to let users convert between weight and volume, so density is required regardless of which unit the recipe uses. For example, "8 oz butter" still needs "density": 0.96 so the app can show the equivalent volume.
 - Only omit "density" for countable items (no unit) or ingredients with no meaningful density (e.g., "a pinch of saffron threads").
@@ -275,8 +275,8 @@ INGREDIENTS LIVE ON STEPS ONLY:
 
 ADDITIONAL GUIDELINES:
 - If the recipe has distinct sections (e.g., cake and frosting), create separate instructionSections.
-- Extract quantities as decimal numbers (e.g., 0.5 for 1/2, 0.25 for 1/4).
-- Include "notes" for ingredient modifications like "room temperature", "divided", etc.
+- Extract quantities as numbers: use integers for whole amounts (e.g., 1, 2, 3) and decimals for fractions (e.g., 0.5 for 1/2, 0.25 for 1/4).
+- Include "notes" for ingredient modifications like "room temperature", "divided", etc. Notes must NOT repeat information already captured in the "name", "amount", or "unit" fields (e.g., if the amount is 1 with no unit, do not put "1 standard ice cube" in notes — use "standard ice cube" or omit notes if no extra info).
 - For ingredient alternates/substitutes (indicated by "or" in the recipe): extract the first option as the main ingredient, subsequent options as "alternates" array items.
 - For ingredients marked "to taste", "as needed", or similar: omit "amount" entirely and put the phrase in "notes".
 - Rephrase instruction text to remove quantity mentions — quantities are shown separately from the ingredient list. Example: "Add 2 cups flour" → instruction: "Add flour", with amount on the ingredient.
