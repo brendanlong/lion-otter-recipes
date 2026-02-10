@@ -4,6 +4,7 @@ import app.cash.turbine.test
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.repository.ImportDebugRepository
+import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
 import io.mockk.coEvery
@@ -41,6 +42,7 @@ class SettingsViewModelTest {
     private val importDebuggingEnabledFlow = MutableStateFlow(false)
     private val volumeUnitSystemFlow = MutableStateFlow(UnitSystem.CUSTOMARY)
     private val weightUnitSystemFlow = MutableStateFlow(UnitSystem.METRIC)
+    private val startOfWeekFlow = MutableStateFlow(StartOfWeek.LOCALE_DEFAULT)
 
     @Before
     fun setup() {
@@ -55,6 +57,7 @@ class SettingsViewModelTest {
         every { settingsDataStore.importDebuggingEnabled } returns importDebuggingEnabledFlow
         every { settingsDataStore.volumeUnitSystem } returns volumeUnitSystemFlow
         every { settingsDataStore.weightUnitSystem } returns weightUnitSystemFlow
+        every { settingsDataStore.startOfWeek } returns startOfWeekFlow
         viewModel = SettingsViewModel(settingsDataStore, importDebugRepository)
     }
 

@@ -33,6 +33,7 @@ import com.lionotter.recipes.ui.screens.settings.components.DisplaySection
 import com.lionotter.recipes.ui.screens.settings.components.FolderPickerDialog
 import com.lionotter.recipes.ui.screens.settings.components.GoogleDriveSection
 import com.lionotter.recipes.ui.screens.settings.components.ImportDebuggingSection
+import com.lionotter.recipes.ui.screens.settings.components.MealPlannerSection
 import com.lionotter.recipes.ui.screens.settings.components.ModelSelectionSection
 import com.lionotter.recipes.ui.screens.settings.components.ThemeSection
 import com.lionotter.recipes.ui.screens.settings.components.UnitPreferencesSection
@@ -63,6 +64,7 @@ fun SettingsScreen(
     val zipOperationState by zipViewModel.operationState.collectAsStateWithLifecycle()
     val volumeUnitSystem by viewModel.volumeUnitSystem.collectAsStateWithLifecycle()
     val weightUnitSystem by viewModel.weightUnitSystem.collectAsStateWithLifecycle()
+    val startOfWeek by viewModel.startOfWeek.collectAsStateWithLifecycle()
     val importDebuggingEnabled by viewModel.importDebuggingEnabled.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
@@ -196,6 +198,14 @@ fun SettingsScreen(
                 onVolumeUnitSystemChange = viewModel::setVolumeUnitSystem,
                 weightUnitSystem = weightUnitSystem,
                 onWeightUnitSystemChange = viewModel::setWeightUnitSystem
+            )
+
+            HorizontalDivider()
+
+            // Meal Planner Section
+            MealPlannerSection(
+                startOfWeek = startOfWeek,
+                onStartOfWeekChange = viewModel::setStartOfWeek
             )
 
             HorizontalDivider()

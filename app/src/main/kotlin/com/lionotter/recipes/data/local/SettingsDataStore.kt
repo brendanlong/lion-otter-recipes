@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import com.lionotter.recipes.data.remote.AnthropicService
+import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
 import javax.inject.Inject
@@ -41,6 +42,7 @@ class SettingsDataStore @Inject constructor(
         val IMPORT_DEBUGGING_ENABLED = booleanPreferencesKey("import_debugging_enabled")
         val VOLUME_UNIT_SYSTEM = stringPreferencesKey("volume_unit_system")
         val WEIGHT_UNIT_SYSTEM = stringPreferencesKey("weight_unit_system")
+        val START_OF_WEEK = stringPreferencesKey("start_of_week")
         const val ENCRYPTED_API_KEY = "anthropic_api_key"
     }
 
@@ -119,6 +121,15 @@ class SettingsDataStore @Inject constructor(
             try { UnitSystem.valueOf(value) } catch (_: IllegalArgumentException) { UnitSystem.METRIC }
         } else {
             UnitSystem.METRIC
+        }
+    }
+
+    val startOfWeek: Flow<StartOfWeek> = context.dataStore.data.map { preferences ->
+        val value = preferences[Keys.START_OF_WEEK]
+        if (value != null) {
+            try { StartOfWeek.valueOf(value) } catch (_: IllegalArgumentException) { StartOfWeek.LOCALE_DEFAULT }
+        } else {
+            StartOfWeek.LOCALE_DEFAULT
         }
     }
 
@@ -201,6 +212,12 @@ class SettingsDataStore @Inject constructor(
     suspend fun setWeightUnitSystem(system: UnitSystem) {
         context.dataStore.edit { preferences ->
             preferences[Keys.WEIGHT_UNIT_SYSTEM] = system.name
+        }
+    }
+
+    suspend fun setStartOfWeek(startOfWeek: StartOfWeek) {
+        context.dataStore.edit { preferences ->
+            preferences[Keys.START_OF_WEEK] = startOfWeek.name
         }
     }
 

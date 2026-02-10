@@ -2,11 +2,13 @@ package com.lionotter.recipes.ui.screens.mealplan
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.repository.MealPlanRepository
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.model.MealType
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.usecase.GetTagsUseCase
 import com.lionotter.recipes.worker.MealPlanSyncTrigger
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -34,13 +36,35 @@ class MealPlanViewModel @Inject constructor(
     private val mealPlanRepository: MealPlanRepository,
     private val recipeRepository: RecipeRepository,
     private val getTagsUseCase: GetTagsUseCase,
-    private val mealPlanSyncTrigger: MealPlanSyncTrigger
+    private val mealPlanSyncTrigger: MealPlanSyncTrigger,
+    settingsDataStore: SettingsDataStore
 ) : ViewModel() {
 
     private val today = Clock.System.todayIn(TimeZone.currentSystemDefault())
 
-    private val _currentWeekStart = MutableStateFlow(getWeekStart(today))
-    val currentWeekStart: StateFlow<LocalDate> = _currentWeekStart.asStateFlow()
+    private val startOfWeekSetting: StateFlow<StartOfWeek> = settingsDataStore.startOfWeek
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = StartOfWeek.LOCALE_DEFAULT
+        )
+
+    /**
+     * Tracks the date the user has navigated to. The actual week start is computed
+     * from this date and the start-of-week setting.
+     */
+    private val _navigatedDate = MutableStateFlow(today)
+
+    val currentWeekStart: StateFlow<LocalDate> = combine(
+        _navigatedDate,
+        startOfWeekSetting
+    ) { date, setting ->
+        getWeekStart(date, setting.resolve())
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = getWeekStart(today, StartOfWeek.LOCALE_DEFAULT.resolve())
+    )
 
     private val _showAddDialog = MutableStateFlow(false)
     val showAddDialog: StateFlow<Boolean> = _showAddDialog.asStateFlow()
@@ -92,7 +116,7 @@ class MealPlanViewModel @Inject constructor(
      * Meal plans for the current week, grouped by date.
      */
     val weekMealPlans: StateFlow<Map<LocalDate, List<MealPlanEntry>>> = combine(
-        _currentWeekStart,
+        currentWeekStart,
         mealPlanRepository.getAllMealPlans()
     ) { weekStart, allPlans ->
         val weekEnd = weekStart.plus(6, DateTimeUnit.DAY)
@@ -112,15 +136,15 @@ class MealPlanViewModel @Inject constructor(
     )
 
     fun navigateWeek(forward: Boolean) {
-        _currentWeekStart.value = if (forward) {
-            _currentWeekStart.value.plus(7, DateTimeUnit.DAY)
+        _navigatedDate.value = if (forward) {
+            _navigatedDate.value.plus(7, DateTimeUnit.DAY)
         } else {
-            _currentWeekStart.value.minus(7, DateTimeUnit.DAY)
+            _navigatedDate.value.minus(7, DateTimeUnit.DAY)
         }
     }
 
     fun goToToday() {
-        _currentWeekStart.value = getWeekStart(today)
+        _navigatedDate.value = today
     }
 
     fun openAddDialog() {
@@ -183,17 +207,9 @@ class MealPlanViewModel @Inject constructor(
         }
     }
 
-    private fun getWeekStart(date: LocalDate): LocalDate {
-        val dayOfWeek = date.dayOfWeek
-        val daysFromMonday = when (dayOfWeek) {
-            DayOfWeek.MONDAY -> 0
-            DayOfWeek.TUESDAY -> 1
-            DayOfWeek.WEDNESDAY -> 2
-            DayOfWeek.THURSDAY -> 3
-            DayOfWeek.FRIDAY -> 4
-            DayOfWeek.SATURDAY -> 5
-            DayOfWeek.SUNDAY -> 6
-        }
-        return date.minus(daysFromMonday, DateTimeUnit.DAY)
+    private fun getWeekStart(date: LocalDate, firstDayOfWeek: DayOfWeek): LocalDate {
+        val currentDay = date.dayOfWeek
+        val daysFromStart = (currentDay.value - firstDayOfWeek.value + 7) % 7
+        return date.minus(daysFromStart, DateTimeUnit.DAY)
     }
 }
