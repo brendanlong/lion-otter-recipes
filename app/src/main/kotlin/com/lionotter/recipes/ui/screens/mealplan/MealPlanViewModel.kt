@@ -69,6 +69,10 @@ class MealPlanViewModel @Inject constructor(
     private val _showAddDialog = MutableStateFlow(false)
     val showAddDialog: StateFlow<Boolean> = _showAddDialog.asStateFlow()
 
+    // When non-null, the dialog is in edit mode for this entry
+    private val _editingEntry = MutableStateFlow<MealPlanEntry?>(null)
+    val editingEntry: StateFlow<MealPlanEntry?> = _editingEntry.asStateFlow()
+
     private val _selectedDate = MutableStateFlow(today)
     val selectedDate: StateFlow<LocalDate> = _selectedDate.asStateFlow()
 
@@ -148,6 +152,7 @@ class MealPlanViewModel @Inject constructor(
     }
 
     fun openAddDialog() {
+        _editingEntry.value = null
         _selectedDate.value = currentWeekStart.value
         _selectedMealType.value = MealType.DINNER
         _selectedServings.value = 1.0
@@ -156,8 +161,19 @@ class MealPlanViewModel @Inject constructor(
         _showAddDialog.value = true
     }
 
+    fun openEditDialog(entry: MealPlanEntry) {
+        _editingEntry.value = entry
+        _selectedDate.value = entry.date
+        _selectedMealType.value = entry.mealType
+        _selectedServings.value = entry.servings
+        _recipeSearchQuery.value = ""
+        _selectedTagFilter.value = null
+        _showAddDialog.value = true
+    }
+
     fun dismissAddDialog() {
         _showAddDialog.value = false
+        _editingEntry.value = null
     }
 
     fun setSelectedDate(date: LocalDate) {
@@ -183,19 +199,54 @@ class MealPlanViewModel @Inject constructor(
     fun addRecipeToMealPlan(recipe: Recipe) {
         viewModelScope.launch {
             val now = Clock.System.now().toEpochMilliseconds()
-            val entry = MealPlanEntry(
-                id = UUID.randomUUID().toString(),
-                recipeId = recipe.id,
-                recipeName = recipe.name,
-                recipeImageUrl = recipe.imageUrl,
+            val existing = _editingEntry.value
+            if (existing != null) {
+                val updated = existing.copy(
+                    recipeId = recipe.id,
+                    recipeName = recipe.name,
+                    recipeImageUrl = recipe.imageUrl,
+                    date = _selectedDate.value,
+                    mealType = _selectedMealType.value,
+                    servings = _selectedServings.value,
+                    updatedAt = now
+                )
+                mealPlanRepository.updateMealPlan(updated)
+            } else {
+                val entry = MealPlanEntry(
+                    id = UUID.randomUUID().toString(),
+                    recipeId = recipe.id,
+                    recipeName = recipe.name,
+                    recipeImageUrl = recipe.imageUrl,
+                    date = _selectedDate.value,
+                    mealType = _selectedMealType.value,
+                    servings = _selectedServings.value,
+                    createdAt = now,
+                    updatedAt = now
+                )
+                mealPlanRepository.saveMealPlan(entry)
+            }
+            _showAddDialog.value = false
+            _editingEntry.value = null
+            mealPlanSyncTrigger.triggerIncrementalSync()
+        }
+    }
+
+    /**
+     * Save edits to an existing meal plan without changing the recipe.
+     */
+    fun saveEditedMealPlan() {
+        viewModelScope.launch {
+            val existing = _editingEntry.value ?: return@launch
+            val now = Clock.System.now().toEpochMilliseconds()
+            val updated = existing.copy(
                 date = _selectedDate.value,
                 mealType = _selectedMealType.value,
                 servings = _selectedServings.value,
-                createdAt = now,
                 updatedAt = now
             )
-            mealPlanRepository.saveMealPlan(entry)
+            mealPlanRepository.updateMealPlan(updated)
             _showAddDialog.value = false
+            _editingEntry.value = null
             mealPlanSyncTrigger.triggerIncrementalSync()
         }
     }

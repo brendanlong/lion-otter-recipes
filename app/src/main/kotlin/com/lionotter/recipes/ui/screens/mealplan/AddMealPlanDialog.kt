@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
@@ -77,6 +78,8 @@ fun AddMealPlanDialog(
     val selectedDate by viewModel.selectedDate.collectAsStateWithLifecycle()
     val selectedMealType by viewModel.selectedMealType.collectAsStateWithLifecycle()
     val selectedServings by viewModel.selectedServings.collectAsStateWithLifecycle()
+    val editingEntry by viewModel.editingEntry.collectAsStateWithLifecycle()
+    val isEditMode = editingEntry != null
 
     var showDatePicker by remember { mutableStateOf(false) }
 
@@ -125,7 +128,9 @@ fun AddMealPlanDialog(
                 .padding(bottom = 32.dp)
         ) {
             Text(
-                text = stringResource(R.string.add_to_meal_plan),
+                text = stringResource(
+                    if (isEditMode) R.string.edit_meal_plan else R.string.add_to_meal_plan
+                ),
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
@@ -213,6 +218,18 @@ fun AddMealPlanDialog(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
+
+            // Save button in edit mode (save without changing recipe)
+            if (isEditMode) {
+                Button(
+                    onClick = { viewModel.saveEditedMealPlan() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.save))
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+            }
 
             // Recipe search
             Text(

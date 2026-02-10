@@ -40,6 +40,10 @@ class MealPlanRepository @Inject constructor(
         mealPlanDao.insertMealPlan(MealPlanEntity.fromMealPlanEntry(entry))
     }
 
+    suspend fun updateMealPlan(entry: MealPlanEntry) {
+        mealPlanDao.updateMealPlan(MealPlanEntity.fromMealPlanEntry(entry))
+    }
+
     suspend fun deleteMealPlan(id: String) {
         val now = Clock.System.now().toEpochMilliseconds()
         mealPlanDao.softDeleteMealPlan(id, now)
