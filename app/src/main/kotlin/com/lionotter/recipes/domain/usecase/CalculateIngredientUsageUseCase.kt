@@ -9,8 +9,8 @@ import com.lionotter.recipes.domain.model.createInstructionIngredientKey
 import javax.inject.Inject
 
 /**
- * Calculates ingredient usage status by comparing global ingredient totals
- * against amounts used in checked instruction steps.
+ * Calculates ingredient usage status by comparing aggregated ingredient totals
+ * (derived from steps) against amounts used in checked instruction steps.
  */
 class CalculateIngredientUsageUseCase @Inject constructor() {
 
@@ -42,17 +42,24 @@ class CalculateIngredientUsageUseCase @Inject constructor() {
         }
     }
 
+    /**
+     * Build global totals by aggregating ingredients from all steps.
+     * This mirrors Recipe.aggregateIngredients() but returns raw amounts for usage tracking.
+     */
     private fun buildGlobalTotals(
         recipe: Recipe,
         scale: Double,
         preference: MeasurementPreference
     ): Map<String, Pair<Double?, String?>> {
         val globalTotals = mutableMapOf<String, Pair<Double?, String?>>()
-        recipe.ingredientSections.forEach { section ->
-            section.ingredients.forEach { ingredient ->
-                addIngredientTotal(ingredient, globalTotals, scale, preference)
-                ingredient.alternates.forEach { alt ->
-                    addIngredientTotal(alt, globalTotals, scale, preference)
+        recipe.instructionSections.forEach { section ->
+            section.steps.forEach { step ->
+                val yields = step.yields
+                step.ingredients.forEach { ingredient ->
+                    addIngredientTotal(ingredient, globalTotals, scale, preference, yields)
+                    ingredient.alternates.forEach { alt ->
+                        addIngredientTotal(alt, globalTotals, scale, preference, yields)
+                    }
                 }
             }
         }
@@ -63,12 +70,26 @@ class CalculateIngredientUsageUseCase @Inject constructor() {
         ingredient: Ingredient,
         totals: MutableMap<String, Pair<Double?, String?>>,
         scale: Double,
-        preference: MeasurementPreference
+        preference: MeasurementPreference,
+        yields: Int
     ) {
         val key = ingredient.name.lowercase()
-        val measurement = ingredient.getPreferredMeasurement(preference)
-        val value = measurement?.value?.let { it * scale }
-        totals[key] = Pair(value, measurement?.unit)
+        val displayAmount = ingredient.getDisplayAmount(scale = 1.0, preference = preference)
+        val perIterationValue = displayAmount?.value
+        val totalValue = perIterationValue?.let { it * yields * scale }
+        val unit = displayAmount?.unit
+
+        val existing = totals[key]
+        if (existing != null) {
+            val existingTotal = existing.first
+            val newTotal = when {
+                existingTotal == null || totalValue == null -> null
+                else -> existingTotal + totalValue
+            }
+            totals[key] = Pair(newTotal, existing.second ?: unit)
+        } else {
+            totals[key] = Pair(totalValue, unit)
+        }
     }
 
     private fun buildUsedAmounts(
@@ -80,12 +101,13 @@ class CalculateIngredientUsageUseCase @Inject constructor() {
         val usedAmounts = mutableMapOf<String, Double>()
         recipe.instructionSections.forEachIndexed { sectionIndex, section ->
             section.steps.forEachIndexed { stepIndex, step ->
+                val yields = step.yields
                 step.ingredients.forEachIndexed { ingredientIndex, ingredient ->
                     val stepKey = createInstructionIngredientKey(sectionIndex, stepIndex, ingredientIndex)
                     if (stepKey in usedKeys) {
-                        addIngredientUsage(ingredient, usedAmounts, scale, preference)
+                        addIngredientUsage(ingredient, usedAmounts, scale, preference, yields)
                         ingredient.alternates.forEach { alt ->
-                            addIngredientUsage(alt, usedAmounts, scale, preference)
+                            addIngredientUsage(alt, usedAmounts, scale, preference, yields)
                         }
                     }
                 }
@@ -98,11 +120,13 @@ class CalculateIngredientUsageUseCase @Inject constructor() {
         ingredient: Ingredient,
         usedAmounts: MutableMap<String, Double>,
         scale: Double,
-        preference: MeasurementPreference
+        preference: MeasurementPreference,
+        yields: Int
     ) {
         val key = ingredient.name.lowercase()
-        val measurement = ingredient.getPreferredMeasurement(preference)
-        val amount = measurement?.value?.let { it * scale } ?: 0.0
+        val displayAmount = ingredient.getDisplayAmount(scale = 1.0, preference = preference)
+        val perIterationValue = displayAmount?.value ?: 0.0
+        val amount = perIterationValue * yields * scale
         usedAmounts[key] = (usedAmounts[key] ?: 0.0) + amount
     }
 }

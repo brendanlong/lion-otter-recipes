@@ -8,7 +8,6 @@ import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.IngredientUsageStatus
 import com.lionotter.recipes.domain.model.InstructionIngredientKey
 import com.lionotter.recipes.domain.model.MeasurementPreference
-import com.lionotter.recipes.domain.model.MeasurementType
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.createInstructionIngredientKey
 import com.lionotter.recipes.domain.usecase.CalculateIngredientUsageUseCase
@@ -69,7 +68,7 @@ class RecipeDetailViewModel @Inject constructor(
     private val _scale = MutableStateFlow(1.0)
     val scale: StateFlow<Double> = _scale.asStateFlow()
 
-    private val _measurementPreference = MutableStateFlow(MeasurementPreference.ORIGINAL)
+    private val _measurementPreference = MutableStateFlow(MeasurementPreference.DEFAULT)
     val measurementPreference: StateFlow<MeasurementPreference> = _measurementPreference.asStateFlow()
 
     /**
@@ -86,14 +85,16 @@ class RecipeDetailViewModel @Inject constructor(
     val highlightedInstructionStep: StateFlow<HighlightedInstructionStep?> = _highlightedInstructionStep.asStateFlow()
 
     /**
-     * Returns true if the recipe has ingredients with multiple measurement types available.
-     * This is used to determine whether to show the measurement toggle.
+     * Returns true if any ingredient in the recipe supports conversion (has density).
+     * Used to determine whether to show the measurement toggle.
      */
-    val hasMultipleMeasurementTypes: StateFlow<Boolean> = recipe
+    val supportsConversion: StateFlow<Boolean> = recipe
         .map { recipe ->
-            recipe?.ingredientSections?.any { section ->
-                section.ingredients.any { ingredient ->
-                    ingredient.hasMultipleMeasurementTypes()
+            recipe?.instructionSections?.any { section ->
+                section.steps.any { step ->
+                    step.ingredients.any { ingredient ->
+                        ingredient.supportsConversion()
+                    }
                 }
             } ?: false
         }
@@ -101,23 +102,6 @@ class RecipeDetailViewModel @Inject constructor(
             scope = viewModelScope,
             started = SharingStarted.Eagerly,
             initialValue = false
-        )
-
-    /**
-     * Returns the set of all measurement types available in the recipe.
-     */
-    val availableMeasurementTypes: StateFlow<Set<MeasurementType>> = recipe
-        .map { recipe ->
-            recipe?.ingredientSections?.flatMap { section ->
-                section.ingredients.flatMap { ingredient ->
-                    ingredient.availableMeasurementTypes()
-                }
-            }?.toSet() ?: emptySet()
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.Eagerly,
-            initialValue = emptySet()
         )
 
     fun setScale(scale: Double) {
@@ -158,7 +142,7 @@ class RecipeDetailViewModel @Inject constructor(
     }
 
     /**
-     * Computes the usage status for all global ingredients based on which instruction
+     * Computes the usage status for all aggregated ingredients based on which instruction
      * ingredients have been marked as used.
      * Key: ingredient name (lowercase)
      * Value: IngredientUsageStatus with total, used, and remaining amounts

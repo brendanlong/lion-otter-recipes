@@ -42,8 +42,7 @@ fun RecipeDetailScreen(
     val recipe by viewModel.recipe.collectAsStateWithLifecycle()
     val scale by viewModel.scale.collectAsStateWithLifecycle()
     val measurementPreference by viewModel.measurementPreference.collectAsStateWithLifecycle()
-    val hasMultipleMeasurementTypes by viewModel.hasMultipleMeasurementTypes.collectAsStateWithLifecycle()
-    val availableMeasurementTypes by viewModel.availableMeasurementTypes.collectAsStateWithLifecycle()
+    val supportsConversion by viewModel.supportsConversion.collectAsStateWithLifecycle()
     val usedInstructionIngredients by viewModel.usedInstructionIngredients.collectAsStateWithLifecycle()
     val globalIngredientUsage by viewModel.globalIngredientUsage.collectAsStateWithLifecycle()
     val highlightedInstructionStep by viewModel.highlightedInstructionStep.collectAsStateWithLifecycle()
@@ -139,8 +138,7 @@ fun RecipeDetailScreen(
                 onScaleDecrement = viewModel::decrementScale,
                 measurementPreference = measurementPreference,
                 onMeasurementPreferenceChange = viewModel::setMeasurementPreference,
-                showMeasurementToggle = hasMultipleMeasurementTypes,
-                availableMeasurementTypes = availableMeasurementTypes,
+                showMeasurementToggle = supportsConversion,
                 usedInstructionIngredients = usedInstructionIngredients,
                 globalIngredientUsage = globalIngredientUsage,
                 onToggleInstructionIngredient = viewModel::toggleInstructionIngredientUsed,

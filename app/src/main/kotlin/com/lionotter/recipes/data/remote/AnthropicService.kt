@@ -157,95 +157,50 @@ For successful parsing, return:
   "success": true,
   "recipe": {
     "name": "Recipe Name",
-    "story": "Brief summary of the recipe's story/background (1-2 sentences, or null if none)",
+    "story": "Brief summary (1-2 sentences)",
     "servings": 4,
     "prepTime": "15 minutes",
     "cookTime": "30 minutes",
     "totalTime": "45 minutes",
-    "ingredientSections": [
-      {
-        "name": "For the cake",
-        "ingredients": [
-          {
-            "name": "all-purpose flour",
-            "notes": "sifted",
-            "alternates": [],
-            "amounts": [
-              {"value": 2.0, "unit": "cups", "type": "volume", "isDefault": true},
-              {"value": 250.0, "unit": "grams", "type": "weight", "isDefault": false}
-            ]
-          },
-          {
-            "name": "eggs",
-            "notes": "room temperature",
-            "alternates": [],
-            "amounts": [
-              {"value": 3.0, "unit": "large", "type": "count", "isDefault": true}
-            ]
-          },
-          {
-            "name": "kosher salt",
-            "notes": null,
-            "alternates": [
-              {
-                "name": "table salt",
-                "notes": null,
-                "alternates": [],
-                "amounts": [
-                  {"value": 0.5, "unit": "teaspoons", "type": "volume", "isDefault": true}
-                ],
-                "optional": false
-              }
-            ],
-            "amounts": [
-              {"value": 1.0, "unit": "teaspoons", "type": "volume", "isDefault": true},
-              {"value": 6.0, "unit": "grams", "type": "weight", "isDefault": false}
-            ],
-            "optional": false
-          }
-        ]
-      }
-    ],
     "instructionSections": [
       {
         "name": "Make the cake",
         "steps": [
           {
             "stepNumber": 1,
-            "instruction": "Preheat oven.",
-            "ingredientReferences": [],
-            "ingredients": [],
-            "optional": false
+            "instruction": "Preheat oven to 350°F."
           },
           {
             "stepNumber": 2,
-            "instruction": "Mix together.",
-            "ingredientReferences": [
-              {"ingredientName": "all-purpose flour", "quantity": 2.0, "unit": "cups"},
-              {"ingredientName": "sugar", "quantity": 1.0, "unit": "cup"}
-            ],
-            "optional": false,
+            "instruction": "Mix dry ingredients together.",
             "ingredients": [
+              { "name": "all-purpose flour", "amount": { "value": 2.0, "unit": "cup" }, "density": 0.51 },
+              { "name": "granulated sugar", "amount": { "value": 1.0, "unit": "cup" }, "density": 0.84 },
+              { "name": "baking powder", "amount": { "value": 1.0, "unit": "tsp" }, "density": 0.81 }
+            ]
+          },
+          {
+            "stepNumber": 3,
+            "instruction": "Add wet ingredients and mix until combined.",
+            "ingredients": [
+              { "name": "eggs", "amount": { "value": 3.0 }, "notes": "room temperature" },
+              { "name": "milk", "amount": { "value": 1.0, "unit": "cup" }, "density": 0.96 },
               {
-                "name": "all-purpose flour",
-                "notes": "sifted",
-                "alternates": [],
-                "amounts": [
-                  {"value": 2.0, "unit": "cups", "type": "volume", "isDefault": true},
-                  {"value": 250.0, "unit": "grams", "type": "weight", "isDefault": false}
-                ],
-                "optional": false
-              },
-              {
-                "name": "sugar",
-                "notes": null,
-                "alternates": [],
-                "amounts": [
-                  {"value": 1.0, "unit": "cup", "type": "volume", "isDefault": true},
-                  {"value": 200.0, "unit": "grams", "type": "weight", "isDefault": false}
-                ],
-                "optional": false
+                "name": "kosher salt",
+                "amount": { "value": 1.0, "unit": "tsp" },
+                "density": 0.54,
+                "alternates": [
+                  { "name": "table salt", "amount": { "value": 0.5, "unit": "tsp" }, "density": 1.22 }
+                ]
               }
+            ]
+          },
+          {
+            "stepNumber": 5,
+            "instruction": "Form into a ball, coat with olive oil, and place in a covered bowl.",
+            "yields": 2,
+            "ingredients": [
+              { "name": "olive oil", "amount": { "value": 1.0, "unit": "tsp" }, "density": 0.84 }
             ]
           }
         ]
@@ -267,42 +222,67 @@ Return an error response when:
 - The content is garbled, corrupted, or not in a readable format
 - You cannot confidently identify the recipe name, ingredients, or instructions
 
-Guidelines:
-- If the recipe has distinct sections (e.g., cake and frosting), create separate ingredientSections and instructionSections
-- If there's only one section, use null for the section name
-- IMPORTANT: For each ingredient, provide BOTH volume and weight measurements when possible:
-  * Use the "amounts" array to provide multiple measurement options
-  * Mark the original recipe measurement with "isDefault": true
-  * Provide approximate conversions to other measurement types (volume to weight or vice versa)
-  * Use your knowledge of common ingredient densities for conversions (e.g., flour ~125g/cup, sugar ~200g/cup, butter ~227g/cup)
-  * For items that are counted (eggs, onions, etc.), use "type": "count" and only include that measurement
-  * For ingredients marked "to taste", "as needed", or similar non-quantifiable amounts: leave the "amounts" array EMPTY and put the phrase in the "notes" field instead (e.g., notes: "to taste")
-- IMPORTANT: Always spell out units fully (use "cups" not "c", "tablespoons" not "tbsp", "teaspoons" not "tsp", "grams" not "g", "ounces" not "oz", etc.)
-- Extract quantities as decimal numbers (e.g., 0.5 for 1/2, 0.25 for 1/4)
-- Include notes for ingredient modifications like "room temperature", "divided", etc.
-- For ingredient alternates/substitutes (indicated by "or" in the ingredient list):
-  * Extract the first option as the main ingredient
-  * Parse subsequent options (separated by "or") as alternates in the alternates array
-  * Apply the same amounts structure to each alternate
-- For ingredientReferences, include the specific quantity used in that step if mentioned
-- IMPORTANT: For each instruction step, extract the ingredients used in that step:
-  * Populate the "ingredients" array with only the ingredients used in that step
-  * Include the same full ingredient data structure (name, amounts with volume/weight options, notes, alternates) as the top-level ingredients
-  * If an ingredient is used in multiple steps, include it in each step's ingredients array
-  * Rephrase the instruction text to remove quantity mentions since they'll be displayed separately from the ingredient list
-  * Example: "Add 2 cups flour" becomes "Add flour", with quantities shown in the ingredients array
-- IMPORTANT: Mark ingredients and steps as optional when appropriate:
-  * Set "optional": true for ingredients that are clearly marked as optional in the recipe (e.g., "optional garnish", "if desired", "for garnish")
-  * Set "optional": true for instruction steps that are purely decorative or enhancement steps (e.g., "Garnish with fresh herbs if desired")
-  * Set "optional": false for all ingredients and steps that are essential to the recipe
-- Generate relevant tags based on the recipe type, cuisine, dietary restrictions, etc.
-- Keep the story brief - just the essence of any background provided
-- Return null for fields that aren't present in the source
-- Always include the alternates array (empty array if no alternates)
-- Always include the amounts array (with at least one measurement, or empty if the ingredient is "to taste", "as needed", etc.)
-- Always include the ingredients array for each step (empty array if no ingredients used in that step)
-- Always include the optional field for ingredients (default to false if not specified)
-- Always include the optional field for steps (default to false if not specified)
+INGREDIENT FORMAT:
+- Each ingredient has a single "amount" object with "value" (decimal number) and "unit" (string).
+- For countable items (eggs, lemons, cloves), omit the "unit" field — just include "value".
+- Include a "density" field (g/mL) so the app can convert between volume and weight.
+- For countable items, omit "density".
+- If the recipe provides both weight and volume, prefer weight.
+- Estimate density for uncommon ingredients — cooking precision doesn't require exactness.
+
+SUPPORTED UNITS (use exactly these strings):
+- Weight: mg, g, kg, oz, lb
+- Volume: mL, L, tsp, tbsp, cup, fl_oz, pint, quart, gal
+- Count: omit unit field
+
+INGREDIENT DENSITIES (g/mL — use these when known):
+water 0.96, milk 0.96, buttermilk 0.96, heavy cream 0.96, yogurt 0.96, sour cream 0.96,
+vegetable oil 0.84, olive oil 0.84, coconut oil 0.96, butter 0.96,
+lard 0.96, vegetable shortening 0.78,
+honey 1.42, molasses 1.44, corn syrup 1.32, maple syrup 1.32,
+all-purpose flour 0.51, bread flour 0.51, cake flour 0.51, whole wheat flour 0.48,
+pastry flour 0.45, almond flour 0.41, coconut flour 0.54, rye flour 0.45,
+cornmeal 0.58, cornstarch 0.47, cocoa powder 0.35, tapioca starch 0.48,
+potato starch 0.64,
+granulated sugar 0.84, brown sugar (packed) 0.90, confectioners sugar 0.48,
+demerara sugar 0.93, turbinado sugar 0.76,
+table salt 1.22, kosher salt (Diamond Crystal) 0.54, kosher salt (Morton's) 1.08,
+baking powder 0.81, baking soda 1.22,
+peanut butter 1.14, cream cheese 0.96,
+oats (old-fashioned) 0.38, oats (rolled) 0.48,
+chocolate chips 0.72, walnuts (chopped) 0.48, pecans (chopped) 0.48,
+breadcrumbs (dried) 0.47, panko 0.21,
+vanilla extract 0.95, espresso powder 0.47
+
+OMIT NULL/EMPTY/DEFAULT FIELDS:
+- Do NOT include fields with null values, empty arrays, or default values.
+- "optional" defaults to false — omit when false.
+- "yields" defaults to 1 — omit when 1.
+- "alternates" defaults to empty — omit when empty.
+- "notes" defaults to null — omit when null.
+- Section "name" defaults to null — omit for single-section recipes.
+
+YIELDS FIELD:
+- If a step is performed multiple times (e.g., "form 2 dough balls"), set "yields" to the count (e.g., 2).
+- Ingredient amounts are per-iteration; the app multiplies by yields for totals.
+- Default is 1 — omit if the step is done once.
+
+INGREDIENTS LIVE ON STEPS ONLY:
+- There is NO global ingredient list. All ingredients belong to the step that uses them.
+- If an ingredient is split across steps (e.g., 1/2 cup water in step 1 and 1/2 cup water in step 3), list it on each step separately with its per-step amount. The app aggregates totals.
+- Include the same ingredient name consistently across steps for correct aggregation.
+
+ADDITIONAL GUIDELINES:
+- If the recipe has distinct sections (e.g., cake and frosting), create separate instructionSections.
+- Extract quantities as decimal numbers (e.g., 0.5 for 1/2, 0.25 for 1/4).
+- Include "notes" for ingredient modifications like "room temperature", "divided", etc.
+- For ingredient alternates/substitutes (indicated by "or" in the recipe): extract the first option as the main ingredient, subsequent options as "alternates" array items.
+- For ingredients marked "to taste", "as needed", or similar: omit "amount" entirely and put the phrase in "notes".
+- Rephrase instruction text to remove quantity mentions — quantities are shown separately from the ingredient list. Example: "Add 2 cups flour" → instruction: "Add flour", with amount on the ingredient.
+- Mark optional ingredients and steps with "optional": true (for garnish, decorative, "if desired" items).
+- Generate relevant tags based on recipe type, cuisine, dietary restrictions, etc.
+- Keep the story brief — just the essence of any background provided.
+- Return null for fields that aren't present in the source.
 """.trimIndent()
     }
 }

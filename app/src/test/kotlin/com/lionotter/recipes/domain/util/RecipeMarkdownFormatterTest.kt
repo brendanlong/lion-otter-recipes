@@ -1,11 +1,9 @@
 package com.lionotter.recipes.domain.util
 
+import com.lionotter.recipes.domain.model.Amount
 import com.lionotter.recipes.domain.model.Ingredient
-import com.lionotter.recipes.domain.model.IngredientSection
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.InstructionStep
-import com.lionotter.recipes.domain.model.Measurement
-import com.lionotter.recipes.domain.model.MeasurementType
 import com.lionotter.recipes.domain.model.Recipe
 import kotlinx.datetime.Instant
 import org.junit.Assert.assertFalse
@@ -23,7 +21,6 @@ class RecipeMarkdownFormatterTest {
         prepTime: String? = null,
         cookTime: String? = null,
         totalTime: String? = null,
-        ingredientSections: List<IngredientSection> = emptyList(),
         instructionSections: List<InstructionSection> = emptyList(),
         tags: List<String> = emptyList()
     ) = Recipe(
@@ -35,18 +32,11 @@ class RecipeMarkdownFormatterTest {
         prepTime = prepTime,
         cookTime = cookTime,
         totalTime = totalTime,
-        ingredientSections = ingredientSections,
         instructionSections = instructionSections,
         tags = tags,
         createdAt = Instant.fromEpochMilliseconds(1000),
         updatedAt = Instant.fromEpochMilliseconds(2000)
     )
-
-    private fun volumeMeasurement(value: Double, unit: String, isDefault: Boolean = true) =
-        Measurement(value = value, unit = unit, type = MeasurementType.VOLUME, isDefault = isDefault)
-
-    private fun weightMeasurement(value: Double, unit: String, isDefault: Boolean = false) =
-        Measurement(value = value, unit = unit, type = MeasurementType.WEIGHT, isDefault = isDefault)
 
     @Test
     fun `format includes recipe title as h1`() {
@@ -122,7 +112,6 @@ class RecipeMarkdownFormatterTest {
         )
         val markdown = RecipeMarkdownFormatter.format(recipe)
 
-        // Check that metadata items are on the same line separated by |
         assertTrue(markdown.contains("**Servings:** 4 | **Prep Time:** 10 min | **Cook Time:** 20 min"))
     }
 
@@ -152,20 +141,26 @@ class RecipeMarkdownFormatterTest {
 
     @Test
     fun `format shows no ingredients message when empty`() {
-        val recipe = createTestRecipe(ingredientSections = emptyList())
+        val recipe = createTestRecipe(instructionSections = emptyList())
         val markdown = RecipeMarkdownFormatter.format(recipe)
 
         assertTrue(markdown.contains("*No ingredients listed*"))
     }
 
     @Test
-    fun `format includes ingredient section names`() {
+    fun `format includes instruction section names in ingredients`() {
         val recipe = createTestRecipe(
-            ingredientSections = listOf(
-                IngredientSection(
+            instructionSections = listOf(
+                InstructionSection(
                     name = "For the Sauce",
-                    ingredients = listOf(
-                        Ingredient(name = "tomatoes", amounts = listOf(volumeMeasurement(2.0, "cups")))
+                    steps = listOf(
+                        InstructionStep(
+                            stepNumber = 1,
+                            instruction = "Cook tomatoes",
+                            ingredients = listOf(
+                                Ingredient(name = "tomatoes", amount = Amount(value = 2.0, unit = "cup"), density = 0.96)
+                            )
+                        )
                     )
                 )
             )
@@ -176,31 +171,44 @@ class RecipeMarkdownFormatterTest {
     }
 
     @Test
-    fun `format lists ingredients with amounts`() {
+    fun `format lists ingredients with amounts from steps`() {
         val recipe = createTestRecipe(
-            ingredientSections = listOf(
-                IngredientSection(
-                    ingredients = listOf(
-                        Ingredient(name = "flour", amounts = listOf(volumeMeasurement(2.0, "cups")))
+            instructionSections = listOf(
+                InstructionSection(
+                    steps = listOf(
+                        InstructionStep(
+                            stepNumber = 1,
+                            instruction = "Mix",
+                            ingredients = listOf(
+                                Ingredient(name = "flour", amount = Amount(value = 2.0, unit = "cup"), density = 0.51)
+                            )
+                        )
                     )
                 )
             )
         )
         val markdown = RecipeMarkdownFormatter.format(recipe)
 
-        assertTrue(markdown.contains("- 2 cups flour"))
+        assertTrue(markdown.contains("- 2 cup flour"))
     }
 
     @Test
     fun `format includes ingredient notes`() {
         val recipe = createTestRecipe(
-            ingredientSections = listOf(
-                IngredientSection(
-                    ingredients = listOf(
-                        Ingredient(
-                            name = "butter",
-                            amounts = listOf(volumeMeasurement(1.0, "cup")),
-                            notes = "softened"
+            instructionSections = listOf(
+                InstructionSection(
+                    steps = listOf(
+                        InstructionStep(
+                            stepNumber = 1,
+                            instruction = "Mix",
+                            ingredients = listOf(
+                                Ingredient(
+                                    name = "butter",
+                                    amount = Amount(value = 1.0, unit = "cup"),
+                                    density = 0.96,
+                                    notes = "softened"
+                                )
+                            )
                         )
                     )
                 )
@@ -214,13 +222,20 @@ class RecipeMarkdownFormatterTest {
     @Test
     fun `format marks optional ingredients`() {
         val recipe = createTestRecipe(
-            ingredientSections = listOf(
-                IngredientSection(
-                    ingredients = listOf(
-                        Ingredient(
-                            name = "chocolate chips",
-                            amounts = listOf(volumeMeasurement(0.5, "cup")),
-                            optional = true
+            instructionSections = listOf(
+                InstructionSection(
+                    steps = listOf(
+                        InstructionStep(
+                            stepNumber = 1,
+                            instruction = "Top",
+                            ingredients = listOf(
+                                Ingredient(
+                                    name = "chocolate chips",
+                                    amount = Amount(value = 0.5, unit = "cup"),
+                                    density = 0.72,
+                                    optional = true
+                                )
+                            )
                         )
                     )
                 )
@@ -234,16 +249,24 @@ class RecipeMarkdownFormatterTest {
     @Test
     fun `format includes alternate ingredients`() {
         val recipe = createTestRecipe(
-            ingredientSections = listOf(
-                IngredientSection(
-                    ingredients = listOf(
-                        Ingredient(
-                            name = "butter",
-                            amounts = listOf(volumeMeasurement(1.0, "cup")),
-                            alternates = listOf(
+            instructionSections = listOf(
+                InstructionSection(
+                    steps = listOf(
+                        InstructionStep(
+                            stepNumber = 1,
+                            instruction = "Cream butter",
+                            ingredients = listOf(
                                 Ingredient(
-                                    name = "margarine",
-                                    amounts = listOf(volumeMeasurement(1.0, "cup"))
+                                    name = "butter",
+                                    amount = Amount(value = 1.0, unit = "cup"),
+                                    density = 0.96,
+                                    alternates = listOf(
+                                        Ingredient(
+                                            name = "margarine",
+                                            amount = Amount(value = 1.0, unit = "cup"),
+                                            density = 0.96
+                                        )
+                                    )
                                 )
                             )
                         )
@@ -255,30 +278,6 @@ class RecipeMarkdownFormatterTest {
 
         assertTrue(markdown.contains("OR"))
         assertTrue(markdown.contains("margarine"))
-    }
-
-    @Test
-    fun `format includes alternate measurements in parentheses`() {
-        val recipe = createTestRecipe(
-            ingredientSections = listOf(
-                IngredientSection(
-                    ingredients = listOf(
-                        Ingredient(
-                            name = "flour",
-                            amounts = listOf(
-                                volumeMeasurement(2.0, "cups", isDefault = true),
-                                weightMeasurement(250.0, "grams", isDefault = false)
-                            )
-                        )
-                    )
-                )
-            )
-        )
-        val markdown = RecipeMarkdownFormatter.format(recipe)
-
-        // Default amount shown first, alternate in parentheses
-        assertTrue(markdown.contains("2 cups"))
-        assertTrue(markdown.contains("(250 grams)"))
     }
 
     @Test
@@ -357,14 +356,20 @@ class RecipeMarkdownFormatterTest {
     @Test
     fun `format converts fractions correctly`() {
         val recipe = createTestRecipe(
-            ingredientSections = listOf(
-                IngredientSection(
-                    ingredients = listOf(
-                        Ingredient(name = "butter", amounts = listOf(volumeMeasurement(0.5, "cup"))),
-                        Ingredient(name = "sugar", amounts = listOf(volumeMeasurement(0.25, "cup"))),
-                        Ingredient(name = "milk", amounts = listOf(volumeMeasurement(0.75, "cup"))),
-                        Ingredient(name = "cream", amounts = listOf(volumeMeasurement(0.33, "cup"))),
-                        Ingredient(name = "oil", amounts = listOf(volumeMeasurement(0.66, "cup")))
+            instructionSections = listOf(
+                InstructionSection(
+                    steps = listOf(
+                        InstructionStep(
+                            stepNumber = 1,
+                            instruction = "Mix",
+                            ingredients = listOf(
+                                Ingredient(name = "butter", amount = Amount(value = 0.5, unit = "cup"), density = 0.96),
+                                Ingredient(name = "sugar", amount = Amount(value = 0.25, unit = "cup"), density = 0.84),
+                                Ingredient(name = "milk", amount = Amount(value = 0.75, unit = "cup"), density = 0.96),
+                                Ingredient(name = "cream", amount = Amount(value = 0.33, unit = "cup"), density = 0.96),
+                                Ingredient(name = "oil", amount = Amount(value = 0.66, unit = "cup"), density = 0.84)
+                            )
+                        )
                     )
                 )
             )
@@ -381,33 +386,45 @@ class RecipeMarkdownFormatterTest {
     @Test
     fun `format handles mixed numbers`() {
         val recipe = createTestRecipe(
-            ingredientSections = listOf(
-                IngredientSection(
-                    ingredients = listOf(
-                        Ingredient(name = "flour", amounts = listOf(volumeMeasurement(2.5, "cups")))
+            instructionSections = listOf(
+                InstructionSection(
+                    steps = listOf(
+                        InstructionStep(
+                            stepNumber = 1,
+                            instruction = "Mix",
+                            ingredients = listOf(
+                                Ingredient(name = "flour", amount = Amount(value = 2.5, unit = "cup"), density = 0.51)
+                            )
+                        )
                     )
                 )
             )
         )
         val markdown = RecipeMarkdownFormatter.format(recipe)
 
-        assertTrue(markdown.contains("2 1/2 cups flour"))
+        assertTrue(markdown.contains("2 1/2 cup flour"))
     }
 
     @Test
     fun `format handles whole numbers`() {
         val recipe = createTestRecipe(
-            ingredientSections = listOf(
-                IngredientSection(
-                    ingredients = listOf(
-                        Ingredient(name = "eggs", amounts = listOf(volumeMeasurement(3.0, "large")))
+            instructionSections = listOf(
+                InstructionSection(
+                    steps = listOf(
+                        InstructionStep(
+                            stepNumber = 1,
+                            instruction = "Add eggs",
+                            ingredients = listOf(
+                                Ingredient(name = "eggs", amount = Amount(value = 3.0))
+                            )
+                        )
                     )
                 )
             )
         )
         val markdown = RecipeMarkdownFormatter.format(recipe)
 
-        assertTrue(markdown.contains("3 large eggs"))
+        assertTrue(markdown.contains("3 eggs"))
     }
 
     @Test
@@ -419,15 +436,19 @@ class RecipeMarkdownFormatterTest {
     }
 
     @Test
-    fun `format handles ingredient with null value measurement`() {
+    fun `format handles ingredient with no amount`() {
         val recipe = createTestRecipe(
-            ingredientSections = listOf(
-                IngredientSection(
-                    ingredients = listOf(
-                        Ingredient(
-                            name = "salt",
-                            amounts = listOf(
-                                Measurement(value = null, unit = "to taste", type = MeasurementType.VOLUME, isDefault = true)
+            instructionSections = listOf(
+                InstructionSection(
+                    steps = listOf(
+                        InstructionStep(
+                            stepNumber = 1,
+                            instruction = "Season",
+                            ingredients = listOf(
+                                Ingredient(
+                                    name = "salt",
+                                    notes = "to taste"
+                                )
                             )
                         )
                     )
@@ -436,7 +457,7 @@ class RecipeMarkdownFormatterTest {
         )
         val markdown = RecipeMarkdownFormatter.format(recipe)
 
-        assertTrue(markdown.contains("to taste"))
+        assertTrue(markdown.contains("salt"))
     }
 
     @Test
@@ -450,19 +471,18 @@ class RecipeMarkdownFormatterTest {
             prepTime = "15 min",
             cookTime = "30 min",
             totalTime = "45 min",
-            ingredientSections = listOf(
-                IngredientSection(
-                    name = "Main Ingredients",
-                    ingredients = listOf(
-                        Ingredient(name = "flour", amounts = listOf(volumeMeasurement(2.0, "cups"))),
-                        Ingredient(name = "sugar", amounts = listOf(volumeMeasurement(1.0, "cup")))
-                    )
-                )
-            ),
             instructionSections = listOf(
                 InstructionSection(
+                    name = "Main Ingredients",
                     steps = listOf(
-                        InstructionStep(stepNumber = 1, instruction = "Mix flour and sugar"),
+                        InstructionStep(
+                            stepNumber = 1,
+                            instruction = "Mix flour and sugar",
+                            ingredients = listOf(
+                                Ingredient(name = "flour", amount = Amount(value = 2.0, unit = "cup"), density = 0.51),
+                                Ingredient(name = "sugar", amount = Amount(value = 1.0, unit = "cup"), density = 0.84)
+                            )
+                        ),
                         InstructionStep(stepNumber = 2, instruction = "Bake at 350F")
                     )
                 )
@@ -482,7 +502,7 @@ class RecipeMarkdownFormatterTest {
         assertTrue(markdown.contains("**Tags:** baking, dessert"))
         assertTrue(markdown.contains("## Ingredients"))
         assertTrue(markdown.contains("### Main Ingredients"))
-        assertTrue(markdown.contains("- 2 cups flour"))
+        assertTrue(markdown.contains("- 2 cup flour"))
         assertTrue(markdown.contains("## Instructions"))
         assertTrue(markdown.contains("1. Mix flour and sugar"))
     }
