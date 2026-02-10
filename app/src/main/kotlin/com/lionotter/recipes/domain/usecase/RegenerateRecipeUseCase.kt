@@ -49,7 +49,7 @@ class RegenerateRecipeUseCase @Inject constructor(
         }
 
         // Re-parse with AI (don't save yet, we need to adjust the recipe)
-        val parseResult = parseHtmlUseCase.execute(
+        val parseResult = parseHtmlUseCase.parseHtml(
             html = originalHtml,
             sourceUrl = existingRecipe.sourceUrl,
             imageUrl = existingRecipe.imageUrl,

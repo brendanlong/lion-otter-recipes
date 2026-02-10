@@ -251,11 +251,11 @@ app: {
       import: ImportRecipeUseCase
       parse_html: {
         label: ParseHtmlUseCase
-        tooltip: "Reusable helper for parsing HTML via AI. Used by URL import."
+        tooltip: "Central AI parsing use case. parseHtml() extracts content from HTML via Readability4J then delegates to parseText(). parseText() sends pre-extracted text to AI, builds Recipe, saves debug data. Used by URL import, Paprika import, and regeneration."
       }
       import_paprika: {
         label: ImportPaprikaUseCase
-        tooltip: "Imports recipes from Paprika export (.paprikarecipes). Parses export, sends recipe content (not source URL) through AI, resolves images from Paprika data or source page. Supports cooperative cancellation — checks coroutine state between recipes and preserves already-imported recipes on cancel."
+        tooltip: "Imports recipes from Paprika export (.paprikarecipes). Parses export, sends recipe content through ParseHtmlUseCase.parseText(), resolves images from Paprika data or source page. Supports cooperative cancellation — checks coroutine state between recipes and preserves already-imported recipes on cancel."
       }
       sync_drive: {
         label: SyncToGoogleDriveUseCase
@@ -271,7 +271,7 @@ app: {
       }
       regenerate: {
         label: RegenerateRecipeUseCase
-        tooltip: "Re-parses a recipe from its stored original HTML via ParseHtmlUseCase. Temporarily overrides model/thinking settings, preserves recipe ID, favorite status, and creation timestamp."
+        tooltip: "Re-parses a recipe from its stored original HTML via ParseHtmlUseCase.parseHtml(). Passes model/thinking overrides as parameters, preserves recipe ID, favorite status, and creation timestamp."
       }
       tags: GetTagsUseCase
       calc_usage: {
@@ -523,7 +523,7 @@ app: {
   background.worker.zip_import_worker -> domain.usecases.import_zip: execute
   domain.usecases -> data.repository: access data
   domain.usecases.import_paprika -> data.paprika.parser: parse export
-  domain.usecases.import_paprika -> data.remote.anthropic_svc: parse recipe content
+  domain.usecases.import_paprika -> domain.usecases.parse_html: parseText
   domain.usecases.import_paprika -> data.remote.scraper: fetch source image
   data.remote.scraper -> external.web: fetch HTML
   data.remote.anthropic_svc -> external.anthropic: parse recipe

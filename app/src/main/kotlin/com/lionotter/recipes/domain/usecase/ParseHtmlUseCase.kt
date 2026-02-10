@@ -15,10 +15,11 @@ import java.util.UUID
 import javax.inject.Inject
 
 /**
- * Use case for parsing HTML content into a Recipe using AI.
- * This is a reusable helper that can be called from:
- * - ImportRecipeUseCase (URL-based import)
- * - Google Drive import (HTML fallback)
+ * Use case for parsing content into a Recipe using AI.
+ *
+ * Provides two entry points:
+ * - [parseHtml]: extracts readable content from raw HTML via Readability4J, then parses with AI
+ * - [parseText]: parses pre-extracted text directly with AI (used by Paprika import)
  */
 class ParseHtmlUseCase @Inject constructor(
     private val anthropicService: AnthropicService,
@@ -41,20 +42,64 @@ class ParseHtmlUseCase @Inject constructor(
     }
 
     /**
-     * Parse HTML content into a Recipe using AI.
+     * Parse raw HTML content into a Recipe using AI.
+     * Extracts readable content via Readability4J before sending to the AI.
      *
      * @param html The raw HTML content
      * @param sourceUrl Optional URL for the recipe source
      * @param imageUrl Optional image URL extracted from the page
      * @param saveRecipe Whether to save the recipe to the database (default true)
+     * @param model AI model override (null = use current setting)
+     * @param extendedThinking Extended thinking override (null = use current setting)
      * @param onProgress Callback for progress updates
      * @return The parsed recipe or error
      */
-    suspend fun execute(
+    suspend fun parseHtml(
         html: String,
         sourceUrl: String? = null,
         imageUrl: String? = null,
         saveRecipe: Boolean = true,
+        model: String? = null,
+        extendedThinking: Boolean? = null,
+        onProgress: suspend (ParseProgress) -> Unit = {}
+    ): ParseResult {
+        onProgress(ParseProgress.ExtractingContent)
+        val extractedContent = extractContent(html, sourceUrl)
+        val extractedImageUrl = imageUrl ?: extractImageUrl(html)
+
+        return parseText(
+            text = extractedContent,
+            sourceUrl = sourceUrl,
+            imageUrl = extractedImageUrl,
+            saveRecipe = saveRecipe,
+            originalHtml = html,
+            model = model,
+            extendedThinking = extendedThinking,
+            onProgress = onProgress
+        )
+    }
+
+    /**
+     * Parse pre-extracted text content into a Recipe using AI.
+     * Skips HTML extraction — use this when content is already in text form
+     * (e.g., Paprika import).
+     *
+     * @param text The pre-extracted text content to send to the AI
+     * @param sourceUrl Optional URL for the recipe source
+     * @param imageUrl Optional image URL for the recipe
+     * @param saveRecipe Whether to save the recipe to the database (default true)
+     * @param originalHtml Optional original HTML for debug data and storage alongside the recipe
+     * @param model AI model override (null = use current setting)
+     * @param extendedThinking Extended thinking override (null = use current setting)
+     * @param onProgress Callback for progress updates
+     * @return The parsed recipe or error
+     */
+    suspend fun parseText(
+        text: String,
+        sourceUrl: String? = null,
+        imageUrl: String? = null,
+        saveRecipe: Boolean = true,
+        originalHtml: String? = null,
         model: String? = null,
         extendedThinking: Boolean? = null,
         onProgress: suspend (ParseProgress) -> Unit = {}
@@ -69,15 +114,10 @@ class ParseHtmlUseCase @Inject constructor(
         val extendedThinking = extendedThinking ?: settingsDataStore.extendedThinkingEnabled.first()
         val debuggingEnabled = settingsDataStore.importDebuggingEnabled.first()
 
-        // Extract content from HTML
-        onProgress(ParseProgress.ExtractingContent)
-        val extractedContent = extractContent(html, sourceUrl)
-        val extractedImageUrl = imageUrl ?: extractImageUrl(html)
-
         // Parse with AI
         onProgress(ParseProgress.ParsingRecipe)
         val startTime = System.currentTimeMillis()
-        val parseResult = anthropicService.parseRecipe(extractedContent, apiKey, model, extendedThinking)
+        val parseResult = anthropicService.parseRecipe(text, apiKey, model, extendedThinking)
         val durationMs = System.currentTimeMillis() - startTime
         if (parseResult.isFailure) {
             val errorMessage = "Failed to parse recipe: ${parseResult.exceptionOrNull()?.message}"
@@ -91,8 +131,8 @@ class ParseHtmlUseCase @Inject constructor(
                 }
                 saveDebugEntry(
                     sourceUrl = sourceUrl,
-                    originalHtml = html,
-                    cleanedContent = extractedContent,
+                    originalHtml = originalHtml,
+                    cleanedContent = text,
                     aiOutputJson = null,
                     inputTokens = null,
                     outputTokens = null,
@@ -127,7 +167,7 @@ class ParseHtmlUseCase @Inject constructor(
             totalTime = parsed.totalTime,
             instructionSections = parsed.instructionSections,
             tags = parsed.tags,
-            imageUrl = extractedImageUrl,
+            imageUrl = imageUrl,
             createdAt = now,
             updatedAt = now
         )
@@ -135,15 +175,15 @@ class ParseHtmlUseCase @Inject constructor(
         // Save to database if requested
         if (saveRecipe) {
             onProgress(ParseProgress.SavingRecipe)
-            recipeRepository.saveRecipe(recipe, originalHtml = html)
+            recipeRepository.saveRecipe(recipe, originalHtml = originalHtml)
         }
 
         // Save debug data on success if debugging is enabled
         if (debuggingEnabled) {
             saveDebugEntry(
                 sourceUrl = sourceUrl,
-                originalHtml = html,
-                cleanedContent = extractedContent,
+                originalHtml = originalHtml,
+                cleanedContent = text,
                 aiOutputJson = parsedWithUsage.aiOutputJson,
                 inputTokens = parsedWithUsage.inputTokens,
                 outputTokens = parsedWithUsage.outputTokens,

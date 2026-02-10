@@ -1,17 +1,11 @@
 package com.lionotter.recipes.domain.usecase
 
-import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.paprika.PaprikaParser
 import com.lionotter.recipes.data.paprika.PaprikaRecipe
-import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.remote.WebScraperService
-import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.flow.first
-import kotlinx.datetime.Clock
 import java.io.InputStream
-import java.util.UUID
 import javax.inject.Inject
 import kotlin.coroutines.coroutineContext
 
@@ -26,9 +20,7 @@ import kotlin.coroutines.coroutineContext
  */
 class ImportPaprikaUseCase @Inject constructor(
     private val paprikaParser: PaprikaParser,
-    private val anthropicService: AnthropicService,
-    private val recipeRepository: RecipeRepository,
-    private val settingsDataStore: SettingsDataStore,
+    private val parseHtmlUseCase: ParseHtmlUseCase,
     private val webScraperService: WebScraperService
 ) {
     sealed class ImportResult {
@@ -70,14 +62,6 @@ class ImportPaprikaUseCase @Inject constructor(
         inputStream: InputStream,
         onProgress: suspend (ImportProgress) -> Unit = {}
     ): ImportResult {
-        val apiKey = settingsDataStore.anthropicApiKey.first()
-        if (apiKey.isNullOrBlank()) {
-            return ImportResult.NoApiKey
-        }
-
-        val model = settingsDataStore.aiModel.first()
-        val extendedThinking = settingsDataStore.extendedThinkingEnabled.first()
-
         // Parse the export file
         onProgress(ImportProgress.Parsing)
         val paprikaRecipes = try {
@@ -108,7 +92,7 @@ class ImportPaprikaUseCase @Inject constructor(
                     )
                 )
 
-                val result = importSingleRecipe(paprikaRecipe, apiKey, model, extendedThinking)
+                val result = importSingleRecipe(paprikaRecipe)
                 if (result != null) {
                     importedCount++
                 } else {
@@ -135,21 +119,11 @@ class ImportPaprikaUseCase @Inject constructor(
     }
 
     private suspend fun importSingleRecipe(
-        paprikaRecipe: PaprikaRecipe,
-        apiKey: String,
-        model: String,
-        extendedThinking: Boolean
+        paprikaRecipe: PaprikaRecipe
     ): Recipe? {
         return try {
             // Format the Paprika recipe content for AI parsing
             val contentForAi = paprikaParser.formatForAi(paprikaRecipe)
-
-            // Parse with AI
-            val parseResult = anthropicService.parseRecipe(contentForAi, apiKey, model, extendedThinking)
-            if (parseResult.isFailure) {
-                return null
-            }
-            val parsed = parseResult.getOrThrow().result
 
             // Determine image URL:
             // 1. If Paprika has photo_data, we don't have a way to store raw image bytes in our model
@@ -157,25 +131,21 @@ class ImportPaprikaUseCase @Inject constructor(
             // 2. Fall back to fetching from source URL to get og:image
             val imageUrl = resolveImageUrl(paprikaRecipe)
 
-            val now = Clock.System.now()
-            val recipe = Recipe(
-                id = UUID.randomUUID().toString(),
-                name = parsed.name,
-                sourceUrl = paprikaRecipe.sourceUrl?.takeIf { it.isNotBlank() },
-                story = parsed.story,
-                servings = parsed.servings,
-                prepTime = parsed.prepTime,
-                cookTime = parsed.cookTime,
-                totalTime = parsed.totalTime,
-                instructionSections = parsed.instructionSections,
-                tags = parsed.tags,
+            val sourceUrl = paprikaRecipe.sourceUrl?.takeIf { it.isNotBlank() }
+
+            // Parse with AI via shared use case
+            val parseResult = parseHtmlUseCase.parseText(
+                text = contentForAi,
+                sourceUrl = sourceUrl,
                 imageUrl = imageUrl,
-                createdAt = now,
-                updatedAt = now
+                saveRecipe = true
             )
 
-            recipeRepository.saveRecipe(recipe)
-            recipe
+            when (parseResult) {
+                is ParseHtmlUseCase.ParseResult.Success -> parseResult.recipe
+                is ParseHtmlUseCase.ParseResult.Error -> null
+                ParseHtmlUseCase.ParseResult.NoApiKey -> null
+            }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
