@@ -1,5 +1,8 @@
 package com.lionotter.recipes.ui.screens.recipedetail
 
+import android.content.Context
+import android.net.Uri
+import androidx.core.content.FileProvider
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -16,9 +19,12 @@ import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.domain.model.createInstructionIngredientKey
 import com.lionotter.recipes.domain.usecase.CalculateIngredientUsageUseCase
+import com.lionotter.recipes.domain.usecase.ExportSingleRecipeUseCase
+import com.lionotter.recipes.domain.util.RecipeSerializer
 import com.lionotter.recipes.worker.RecipeRegenerateWorker
 import com.lionotter.recipes.worker.observeWorkByTag
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -31,6 +37,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.File
 import java.util.UUID
 import javax.inject.Inject
 
@@ -55,7 +62,10 @@ class RecipeDetailViewModel @Inject constructor(
     private val recipeRepository: RecipeRepository,
     private val settingsDataStore: SettingsDataStore,
     private val calculateIngredientUsage: CalculateIngredientUsageUseCase,
-    private val workManager: WorkManager
+    private val workManager: WorkManager,
+    private val exportSingleRecipeUseCase: ExportSingleRecipeUseCase,
+    private val recipeSerializer: RecipeSerializer,
+    @ApplicationContext private val applicationContext: Context
 ) : ViewModel() {
 
     private val recipeId: String
@@ -339,6 +349,38 @@ class RecipeDetailViewModel @Inject constructor(
                         }
                     }
                 }
+        }
+    }
+
+    // --- Recipe Export ---
+
+    private val _exportedFileUri = MutableSharedFlow<Uri>()
+    val exportedFileUri: SharedFlow<Uri> = _exportedFileUri.asSharedFlow()
+
+    /**
+     * Exports the current recipe to a .lorecipes file in the cache directory
+     * and emits the content URI for sharing.
+     */
+    fun exportRecipeFile() {
+        viewModelScope.launch {
+            val currentRecipe = recipe.value ?: return@launch
+
+            val sharedDir = File(applicationContext.cacheDir, "shared_recipes").apply { mkdirs() }
+            val fileName = "${recipeSerializer.sanitizeFolderName(currentRecipe.name)}.lorecipes"
+            val file = File(sharedDir, fileName)
+
+            val result = file.outputStream().use { outputStream ->
+                exportSingleRecipeUseCase.exportRecipe(currentRecipe, outputStream)
+            }
+
+            if (result is ExportSingleRecipeUseCase.ExportResult.Success) {
+                val uri = FileProvider.getUriForFile(
+                    applicationContext,
+                    "${applicationContext.packageName}.fileprovider",
+                    file
+                )
+                _exportedFileUri.emit(uri)
+            }
         }
     }
 }

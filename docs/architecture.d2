@@ -68,7 +68,7 @@ app: {
       list: RecipeListScreen
       detail: {
         label: RecipeDetailScreen
-        tooltip: "Displays recipe details with share, regenerate, and delete buttons. Regenerate re-parses from original HTML with selectable model/thinking mode. Share exports as Markdown via Android share sheet. All text is selectable."
+        tooltip: "Displays recipe details with share menu (Markdown text or .lorecipes file), regenerate, and delete buttons. Regenerate re-parses from original HTML with selectable model/thinking mode. All text is selectable."
       }
       add: AddRecipeScreen
       settings: SettingsScreen
@@ -131,6 +131,10 @@ app: {
       import_debug_detail_vm: {
         label: ImportDebugDetailViewModel
         tooltip: "Loads a single import debug entry by ID from SavedStateHandle."
+      }
+      file_import_vm: {
+        label: FileImportViewModel
+        tooltip: "Handles .lorecipes file imports. Reads ZIP file directly (single recipe, fast) and navigates to imported recipe."
       }
     }
 
@@ -265,6 +269,10 @@ app: {
         label: ExportToZipUseCase
         tooltip: "Exports all recipes to a ZIP file using RecipeSerializer. Same folder structure as Google Drive export."
       }
+      export_single: {
+        label: ExportSingleRecipeUseCase
+        tooltip: "Exports a single recipe to a .lorecipes file (ZIP format) for sharing. Uses RecipeSerializer for consistent format."
+      }
       import_zip: {
         label: ImportFromZipUseCase
         tooltip: "Imports recipes from a ZIP file. Reads recipe.json from each folder, skips duplicates by ID, optionally restores original HTML."
@@ -342,6 +350,7 @@ app: {
     usecases.parse_html -> data.repository.import_debug_repo: save debug data
     usecases.sync_drive -> util.serializer: serialize
     usecases.export_zip -> util.serializer: serialize
+    usecases.export_single -> util.serializer: serialize
     usecases.import_zip -> util.serializer: deserialize
   }
 
@@ -501,9 +510,12 @@ app: {
   ui.viewmodels.list_vm -> domain.usecases.tags: top tags
   ui.viewmodels.detail_vm -> data.repository.repo: recipe, delete, favorite
   ui.viewmodels.detail_vm -> domain.usecases.calc_usage: ingredient usage
+  ui.viewmodels.detail_vm -> domain.usecases.export_single: export .lorecipes
   ui.viewmodels.detail_vm -> data.local.settings: keep screen on, unit prefs
   ui.viewmodels.detail_vm -> background.worker.regenerate_worker: regenerate
   ui.viewmodels.detail_vm -> background.worker.work_ext: observe regenerate
+  ui.viewmodels.file_import_vm -> data.repository.repo: import recipe
+  ui.viewmodels.file_import_vm -> domain.util.serializer: deserialize
   ui.viewmodels.add_vm -> background.worker: enqueue work
   ui.viewmodels.add_vm -> background.worker.work_ext: observe import
   ui.viewmodels.drive_vm -> background.worker.sync_worker: sync
@@ -594,6 +606,20 @@ legend: {
   pap5: "5. Repository saves each parsed recipe to Room"
 
   pap1 -> pap2 -> pap3 -> pap4 -> pap5
+
+  share_flow: {
+    label: "Recipe Sharing Flow"
+    style: {
+      font-size: 14
+      bold: true
+    }
+  }
+  share1: "Share as text: RecipeMarkdownFormatter creates Markdown, shared via ACTION_SEND text/plain"
+  share2: "Share as file: ExportSingleRecipeUseCase creates .lorecipes ZIP, shared via FileProvider + ACTION_SEND"
+  share3: "Import: .lorecipes file opened/shared to app triggers FileImportViewModel"
+  share4: "FileImportViewModel reads ZIP, deserializes recipe, saves to Room, navigates to recipe"
+
+  share1 -> share2 -> share3 -> share4
 
   note: {
     label: "Import runs in background via WorkManager. Import queue is database-backed (PendingImportEntity) and persists across app restarts. Supports multiple concurrent imports with individual cancellation from the recipe list via swipe-to-dismiss. Page metadata (title, image) is fetched cheaply before AI parsing begins. Google Drive sync, ZIP export/import, and Paprika import run in background with progress notifications. Sync runs on app startup and every 6 hours when enabled. Paprika import can be cancelled mid-way, keeping already-imported recipes. ZIP export uses the same folder format as sync via RecipeSerializer."

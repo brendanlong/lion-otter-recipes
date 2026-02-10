@@ -29,6 +29,8 @@
     <!-- Recipe Detail Screen -->
     <string name="recipe">Recipe</string>
     <string name="share_recipe">Share recipe</string>
+    <string name="share_as_text">Share as text</string>
+    <string name="share_as_file">Share as file (.lorecipes)</string>
     <string name="delete_recipe_action">Delete recipe</string>
     <string name="ingredients">Ingredients</string>
     <string name="instructions">Instructions</string>
@@ -211,4 +213,8 @@
     <string name="not_available">N/A</string>
     <string name="unknown_import">Unknown Import</string>
     <string name="copy_json">Copy JSON</string>
+
+    <!-- File Import -->
+    <string name="file_import_success">Recipe imported successfully</string>
+    <string name="file_import_already_exists">Recipe already exists</string>
 </resources>

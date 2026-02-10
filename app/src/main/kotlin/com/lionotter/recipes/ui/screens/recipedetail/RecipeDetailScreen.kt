@@ -16,6 +16,8 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -77,6 +79,7 @@ fun RecipeDetailScreen(
 
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showRegenerateDialog by remember { mutableStateOf(false) }
+    var showShareMenu by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val regenerateSuccessMessage = stringResource(R.string.regenerate_success)
@@ -101,6 +104,21 @@ fun RecipeDetailScreen(
                 // Error is shown in the dialog
             }
             else -> {}
+        }
+    }
+
+    val context = LocalContext.current
+
+    // Handle exported file URI for sharing
+    LaunchedEffect(Unit) {
+        viewModel.exportedFileUri.collect { uri ->
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/octet-stream"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, recipe?.name ?: "Recipe")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(shareIntent, null))
         }
     }
 
@@ -134,8 +152,6 @@ fun RecipeDetailScreen(
         )
     }
 
-    val context = LocalContext.current
-
     Scaffold(
         topBar = {
             RecipeTopAppBar(
@@ -151,21 +167,40 @@ fun RecipeDetailScreen(
                                 )
                             }
                         }
-                        IconButton(onClick = {
-                            val markdown = RecipeMarkdownFormatter.format(recipe!!)
-                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_SUBJECT, recipe!!.name)
-                                putExtra(Intent.EXTRA_TEXT, markdown)
+                        Box {
+                            IconButton(onClick = { showShareMenu = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = stringResource(R.string.share_recipe)
+                                )
                             }
-                            context.startActivity(
-                                Intent.createChooser(shareIntent, null)
-                            )
-                        }) {
-                            Icon(
-                                imageVector = Icons.Default.Share,
-                                contentDescription = stringResource(R.string.share_recipe)
-                            )
+                            DropdownMenu(
+                                expanded = showShareMenu,
+                                onDismissRequest = { showShareMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.share_as_text)) },
+                                    onClick = {
+                                        showShareMenu = false
+                                        val markdown = RecipeMarkdownFormatter.format(recipe!!)
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_SUBJECT, recipe!!.name)
+                                            putExtra(Intent.EXTRA_TEXT, markdown)
+                                        }
+                                        context.startActivity(
+                                            Intent.createChooser(shareIntent, null)
+                                        )
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.share_as_file)) },
+                                    onClick = {
+                                        showShareMenu = false
+                                        viewModel.exportRecipeFile()
+                                    }
+                                )
+                            }
                         }
                         IconButton(onClick = { viewModel.toggleFavorite() }) {
                             Icon(
