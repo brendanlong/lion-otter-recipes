@@ -2,21 +2,24 @@ package com.lionotter.recipes.data.remote
 
 import android.content.Context
 import android.content.Intent
-import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.auth.api.signin.GoogleSignInAccount
-import com.google.android.gms.auth.api.signin.GoogleSignInClient
-import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import androidx.credentials.ClearCredentialStateRequest
+import androidx.credentials.CredentialManager
+import com.google.android.gms.auth.api.identity.AuthorizationRequest
+import com.google.android.gms.auth.api.identity.AuthorizationResult
+import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.common.api.Scope
-import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential
 import com.google.api.client.http.ByteArrayContent
 import com.google.api.client.http.javanet.NetHttpTransport
 import com.google.api.client.json.gson.GsonFactory
 import com.google.api.services.drive.Drive
 import com.google.api.services.drive.DriveScopes
 import com.google.api.services.drive.model.File
-import com.google.api.services.drive.model.FileList
+import com.google.auth.http.HttpCredentialsAdapter
+import com.google.auth.oauth2.AccessToken
+import com.google.auth.oauth2.GoogleCredentials
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -40,7 +43,8 @@ data class DriveFile(
 
 /**
  * Service for interacting with Google Drive API.
- * Handles authentication, folder operations, and file uploads/downloads.
+ * Handles authentication via AuthorizationClient (Google Identity Services),
+ * folder operations, and file uploads/downloads.
  */
 @Singleton
 class GoogleDriveService @Inject constructor(
@@ -60,31 +64,36 @@ class GoogleDriveService @Inject constructor(
     }
 
     private var driveService: Drive? = null
-    private var signInClient: GoogleSignInClient? = null
 
-    /**
-     * Returns the Google Sign-In intent for the activity to launch.
-     */
-    fun getSignInIntent(): Intent {
-        val signInOptions = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestEmail()
-            .requestScopes(Scope(DriveScopes.DRIVE_FILE))
+    private val credentialManager: CredentialManager by lazy {
+        CredentialManager.create(context)
+    }
+
+    private fun buildAuthorizationRequest(): AuthorizationRequest {
+        return AuthorizationRequest.builder()
+            .setRequestedScopes(listOf(Scope(DriveScopes.DRIVE_FILE)))
             .build()
-
-        signInClient = GoogleSignIn.getClient(context, signInOptions)
-        return signInClient!!.signInIntent
     }
 
     /**
-     * Handle sign-in result from the activity.
-     * @return true if sign-in was successful
+     * Request authorization for Google Drive access.
+     * Returns the AuthorizationResult which may require user consent (hasResolution).
      */
-    suspend fun handleSignInResult(account: GoogleSignInAccount?): Boolean {
-        if (account == null) return false
+    suspend fun authorize(): AuthorizationResult = withContext(Dispatchers.IO) {
+        Identity.getAuthorizationClient(context)
+            .authorize(buildAuthorizationRequest())
+            .await()
+    }
 
+    /**
+     * Handle authorization result and initialize the Drive service.
+     * @return true if authorization was successful and Drive service is ready
+     */
+    suspend fun handleAuthorizationResult(result: AuthorizationResult): Boolean {
         return withContext(Dispatchers.IO) {
             try {
-                initializeDriveService(account)
+                val token = result.accessToken ?: return@withContext false
+                initializeDriveService(token)
                 true
             } catch (e: Exception) {
                 false
@@ -93,17 +102,29 @@ class GoogleDriveService @Inject constructor(
     }
 
     /**
-     * Check if user is signed in with Drive access.
+     * Parse an AuthorizationResult from a consent intent's data.
      */
-    fun isSignedIn(): Boolean {
-        val account = GoogleSignIn.getLastSignedInAccount(context)
-        if (account != null && GoogleSignIn.hasPermissions(account, Scope(DriveScopes.DRIVE_FILE))) {
-            if (driveService == null) {
-                initializeDriveService(account)
+    fun getAuthorizationResultFromIntent(data: Intent?): AuthorizationResult {
+        return Identity.getAuthorizationClient(context)
+            .getAuthorizationResultFromIntent(data)
+    }
+
+    /**
+     * Check if user is signed in with Drive access.
+     * Attempts silent authorization to verify access.
+     */
+    suspend fun isSignedIn(): Boolean {
+        if (driveService != null) return true
+        return try {
+            val result = authorize()
+            if (!result.hasResolution()) {
+                handleAuthorizationResult(result)
+            } else {
+                false
             }
-            return true
+        } catch (e: Exception) {
+            false
         }
-        return false
     }
 
     /**
@@ -111,36 +132,23 @@ class GoogleDriveService @Inject constructor(
      */
     suspend fun signOut() {
         withContext(Dispatchers.IO) {
-            val signInOptions = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-                .requestEmail()
-                .requestScopes(Scope(DriveScopes.DRIVE_FILE))
-                .build()
-            val client = GoogleSignIn.getClient(context, signInOptions)
-            client.signOut()
-            client.revokeAccess()
+            try {
+                credentialManager.clearCredentialState(ClearCredentialStateRequest())
+            } catch (_: Exception) {
+                // Best-effort clear
+            }
             driveService = null
         }
     }
 
-    /**
-     * Get the signed-in user's email.
-     */
-    fun getSignedInEmail(): String? {
-        return GoogleSignIn.getLastSignedInAccount(context)?.email
-    }
-
-    private fun initializeDriveService(account: GoogleSignInAccount) {
-        val credential = GoogleAccountCredential.usingOAuth2(
-            context,
-            listOf(DriveScopes.DRIVE_FILE)
-        ).apply {
-            selectedAccount = account.account
-        }
+    private fun initializeDriveService(accessToken: String) {
+        val credentials = GoogleCredentials.create(AccessToken(accessToken, null))
+        val requestInitializer = HttpCredentialsAdapter(credentials)
 
         driveService = Drive.Builder(
             NetHttpTransport(),
             GsonFactory.getDefaultInstance(),
-            credential
+            requestInitializer
         )
             .setApplicationName(APP_NAME)
             .build()
