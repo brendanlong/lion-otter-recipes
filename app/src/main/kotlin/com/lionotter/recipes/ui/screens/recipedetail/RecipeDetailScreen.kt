@@ -1,19 +1,29 @@
 package com.lionotter.recipes.ui.screens.recipedetail
 
 import android.content.Intent
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarOutline
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -26,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
@@ -33,6 +44,7 @@ import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
 import com.lionotter.recipes.ui.components.DeleteConfirmationDialog
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.screens.recipedetail.components.RecipeContent
+import com.lionotter.recipes.ui.screens.settings.components.ModelSelectionSection
 
 @Composable
 fun RecipeDetailScreen(
@@ -49,6 +61,10 @@ fun RecipeDetailScreen(
     val keepScreenOn by viewModel.keepScreenOn.collectAsStateWithLifecycle()
     val volumeUnitSystem by viewModel.volumeUnitSystem.collectAsStateWithLifecycle()
     val weightUnitSystem by viewModel.weightUnitSystem.collectAsStateWithLifecycle()
+    val hasOriginalHtml by viewModel.hasOriginalHtml.collectAsStateWithLifecycle()
+    val regenerateState by viewModel.regenerateState.collectAsStateWithLifecycle()
+    val regenerateModel by viewModel.regenerateModel.collectAsStateWithLifecycle()
+    val regenerateThinking by viewModel.regenerateThinking.collectAsStateWithLifecycle()
 
     // Keep screen on while viewing a recipe if the setting is enabled
     val view = LocalView.current
@@ -60,11 +76,31 @@ fun RecipeDetailScreen(
     }
 
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showRegenerateDialog by remember { mutableStateOf(false) }
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    val regenerateSuccessMessage = stringResource(R.string.regenerate_success)
+    val regenerateNoHtmlMessage = stringResource(R.string.regenerate_no_original_html)
 
     // Navigate back after recipe is deleted
     LaunchedEffect(Unit) {
         viewModel.recipeDeleted.collect {
             onBackClick()
+        }
+    }
+
+    // Handle regeneration result
+    LaunchedEffect(regenerateState) {
+        when (regenerateState) {
+            is RegenerateUiState.Success -> {
+                showRegenerateDialog = false
+                snackbarHostState.showSnackbar(regenerateSuccessMessage)
+                viewModel.resetRegenerateState()
+            }
+            is RegenerateUiState.Error -> {
+                // Error is shown in the dialog
+            }
+            else -> {}
         }
     }
 
@@ -80,6 +116,24 @@ fun RecipeDetailScreen(
         )
     }
 
+    // Regenerate dialog
+    if (showRegenerateDialog) {
+        RegenerateRecipeDialog(
+            currentModel = regenerateModel,
+            onModelChange = viewModel::setRegenerateModel,
+            extendedThinkingEnabled = regenerateThinking,
+            onExtendedThinkingChange = viewModel::setRegenerateThinking,
+            regenerateState = regenerateState,
+            onRegenerate = viewModel::regenerateRecipe,
+            onDismiss = {
+                showRegenerateDialog = false
+                if (regenerateState is RegenerateUiState.Error) {
+                    viewModel.resetRegenerateState()
+                }
+            }
+        )
+    }
+
     val context = LocalContext.current
 
     Scaffold(
@@ -89,6 +143,14 @@ fun RecipeDetailScreen(
                 onBackClick = onBackClick,
                 actions = {
                     if (recipe != null) {
+                        if (hasOriginalHtml) {
+                            IconButton(onClick = { showRegenerateDialog = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = stringResource(R.string.regenerate_recipe)
+                                )
+                            }
+                        }
                         IconButton(onClick = {
                             val markdown = RecipeMarkdownFormatter.format(recipe!!)
                             val shareIntent = Intent(Intent.ACTION_SEND).apply {
@@ -121,7 +183,8 @@ fun RecipeDetailScreen(
                     }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
         if (recipe == null) {
             Box(
@@ -152,4 +215,77 @@ fun RecipeDetailScreen(
             )
         }
     }
+}
+
+@Composable
+private fun RegenerateRecipeDialog(
+    currentModel: String,
+    onModelChange: (String) -> Unit,
+    extendedThinkingEnabled: Boolean,
+    onExtendedThinkingChange: (Boolean) -> Unit,
+    regenerateState: RegenerateUiState,
+    onRegenerate: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val isLoading = regenerateState is RegenerateUiState.Loading
+
+    AlertDialog(
+        onDismissRequest = { if (!isLoading) onDismiss() },
+        title = { Text(stringResource(R.string.regenerate_recipe)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text(
+                    text = stringResource(R.string.regenerate_recipe_description),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                ModelSelectionSection(
+                    currentModel = currentModel,
+                    onModelChange = onModelChange,
+                    extendedThinkingEnabled = extendedThinkingEnabled,
+                    onExtendedThinkingChange = onExtendedThinkingChange
+                )
+
+                when (regenerateState) {
+                    is RegenerateUiState.Loading -> {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                            Text(
+                                text = regenerateState.progress,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                    is RegenerateUiState.Error -> {
+                        Text(
+                            text = regenerateState.message,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    else -> {}
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onRegenerate,
+                enabled = !isLoading
+            ) {
+                Text(stringResource(R.string.regenerate))
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !isLoading
+            ) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
 }

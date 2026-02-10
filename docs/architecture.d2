@@ -68,7 +68,7 @@ app: {
       list: RecipeListScreen
       detail: {
         label: RecipeDetailScreen
-        tooltip: "Displays recipe details with share button (exports as Markdown via Android share sheet). All text is selectable."
+        tooltip: "Displays recipe details with share, regenerate, and delete buttons. Regenerate re-parses from original HTML with selectable model/thinking mode. Share exports as Markdown via Android share sheet. All text is selectable."
       }
       add: AddRecipeScreen
       settings: SettingsScreen
@@ -182,6 +182,10 @@ app: {
         label: RecipeImportWorker
         tooltip: "CoroutineWorker that handles recipe import in background. Survives app closure and shows progress notifications. Supports queue of multiple imports."
       }
+      regenerate_worker: {
+        label: RecipeRegenerateWorker
+        tooltip: "CoroutineWorker that re-parses a recipe from its stored original HTML using the AI. Supports selecting a different model and thinking mode. Overwrites the existing recipe, preserving ID, favorite status, and creation timestamp."
+      }
       paprika_import_worker: {
         label: PaprikaImportWorker
         tooltip: "Imports recipes from a Paprika export file (.paprikarecipes). Parses ZIP of gzip-compressed JSON, sends content through AI pipeline."
@@ -199,13 +203,14 @@ app: {
         tooltip: "Imports recipes from a ZIP file. Reads recipe.json from each folder, skips duplicates, optionally restores original HTML."
       }
       import_worker -> base_worker: extends
+      regenerate_worker -> base_worker: extends
       paprika_import_worker -> base_worker: extends
       sync_worker -> base_worker: extends
       zip_export_worker -> base_worker: extends
       zip_import_worker -> base_worker: extends
       work_ext: {
         label: "observeWorkByTag()"
-        tooltip: "WorkManager extension function that encapsulates the common pattern of observing work by tag and filtering to a specific work ID. Used by AddRecipeViewModel, GoogleDriveViewModel (sync), and ZipExportImportViewModel."
+        tooltip: "WorkManager extension function that encapsulates the common pattern of observing work by tag and filtering to a specific work ID. Used by AddRecipeViewModel, RecipeDetailViewModel (regenerate), GoogleDriveViewModel (sync), and ZipExportImportViewModel."
       }
     }
 
@@ -222,6 +227,7 @@ app: {
     }
 
     worker.import_worker -> notification.helper: notify progress
+    worker.regenerate_worker -> notification.helper: notify progress
     worker.paprika_import_worker -> notification.helper: notify progress
     worker.sync_worker -> notification.helper: notify progress
     worker.zip_export_worker -> notification.helper: notify progress
@@ -262,6 +268,10 @@ app: {
       import_zip: {
         label: ImportFromZipUseCase
         tooltip: "Imports recipes from a ZIP file. Reads recipe.json from each folder, skips duplicates by ID, optionally restores original HTML."
+      }
+      regenerate: {
+        label: RegenerateRecipeUseCase
+        tooltip: "Re-parses a recipe from its stored original HTML via ParseHtmlUseCase. Temporarily overrides model/thinking settings, preserves recipe ID, favorite status, and creation timestamp."
       }
       tags: GetTagsUseCase
       calc_usage: {
@@ -328,6 +338,7 @@ app: {
     }
 
     usecases.import -> usecases.parse_html: uses
+    usecases.regenerate -> usecases.parse_html: uses
     usecases.parse_html -> data.repository.import_debug_repo: save debug data
     usecases.sync_drive -> util.serializer: serialize
     usecases.export_zip -> util.serializer: serialize
@@ -491,6 +502,8 @@ app: {
   ui.viewmodels.detail_vm -> data.repository.repo: recipe, delete, favorite
   ui.viewmodels.detail_vm -> domain.usecases.calc_usage: ingredient usage
   ui.viewmodels.detail_vm -> data.local.settings: keep screen on, unit prefs
+  ui.viewmodels.detail_vm -> background.worker.regenerate_worker: regenerate
+  ui.viewmodels.detail_vm -> background.worker.work_ext: observe regenerate
   ui.viewmodels.add_vm -> background.worker: enqueue work
   ui.viewmodels.add_vm -> background.worker.work_ext: observe import
   ui.viewmodels.drive_vm -> background.worker.sync_worker: sync
@@ -503,6 +516,7 @@ app: {
   ui.viewmodels.import_debug_list_vm -> data.repository.import_debug_repo: list entries
   ui.viewmodels.import_debug_detail_vm -> data.repository.import_debug_repo: get entry
   background.worker.import_worker -> domain.usecases.import: execute
+  background.worker.regenerate_worker -> domain.usecases.regenerate: execute
   background.worker.paprika_import_worker -> domain.usecases.import_paprika: execute
   background.worker.sync_worker -> domain.usecases.sync_drive: execute
   background.worker.zip_export_worker -> domain.usecases.export_zip: execute

@@ -1,0 +1,120 @@
+package com.lionotter.recipes.domain.usecase
+
+import com.lionotter.recipes.data.local.SettingsDataStore
+import com.lionotter.recipes.data.repository.RecipeRepository
+import com.lionotter.recipes.domain.model.Recipe
+import kotlinx.coroutines.flow.first
+import kotlinx.datetime.Clock
+import javax.inject.Inject
+
+class RegenerateRecipeUseCase @Inject constructor(
+    private val parseHtmlUseCase: ParseHtmlUseCase,
+    private val recipeRepository: RecipeRepository,
+    private val settingsDataStore: SettingsDataStore
+) {
+    sealed class RegenerateResult {
+        data class Success(val recipe: Recipe) : RegenerateResult()
+        data class Error(val message: String) : RegenerateResult()
+        object NoApiKey : RegenerateResult()
+        object NoOriginalHtml : RegenerateResult()
+    }
+
+    sealed class RegenerateProgress {
+        object ParsingRecipe : RegenerateProgress()
+        data class RecipeNameAvailable(val name: String) : RegenerateProgress()
+        object SavingRecipe : RegenerateProgress()
+        data class Complete(val result: RegenerateResult) : RegenerateProgress()
+    }
+
+    /**
+     * Regenerate a recipe by re-parsing its original HTML with possibly different AI settings.
+     * Preserves the recipe ID, createdAt, favorite status, and source URL.
+     *
+     * @param recipeId The ID of the recipe to regenerate
+     * @param model The AI model to use (null = use current setting)
+     * @param extendedThinking Whether to use extended thinking (null = use current setting)
+     * @param onProgress Callback for progress updates
+     */
+    suspend fun execute(
+        recipeId: String,
+        model: String? = null,
+        extendedThinking: Boolean? = null,
+        onProgress: suspend (RegenerateProgress) -> Unit = {}
+    ): RegenerateResult {
+        // Load existing recipe
+        val existingRecipe = recipeRepository.getRecipeByIdOnce(recipeId)
+            ?: return RegenerateResult.Error("Recipe not found")
+
+        // Load original HTML
+        val originalHtml = recipeRepository.getOriginalHtml(recipeId)
+        if (originalHtml.isNullOrBlank()) {
+            return RegenerateResult.NoOriginalHtml
+        }
+
+        // Apply model/thinking overrides if provided
+        val previousModel = settingsDataStore.aiModel.first()
+        val previousThinking = settingsDataStore.extendedThinkingEnabled.first()
+
+        try {
+            if (model != null) {
+                settingsDataStore.setAiModel(model)
+            }
+            if (extendedThinking != null) {
+                settingsDataStore.setExtendedThinkingEnabled(extendedThinking)
+            }
+
+            // Re-parse with AI (don't save yet, we need to adjust the recipe)
+            val parseResult = parseHtmlUseCase.execute(
+                html = originalHtml,
+                sourceUrl = existingRecipe.sourceUrl,
+                imageUrl = existingRecipe.imageUrl,
+                saveRecipe = false,
+                onProgress = { progress ->
+                    when (progress) {
+                        is ParseHtmlUseCase.ParseProgress.ExtractingContent -> {}
+                        is ParseHtmlUseCase.ParseProgress.ParsingRecipe ->
+                            onProgress(RegenerateProgress.ParsingRecipe)
+                        is ParseHtmlUseCase.ParseProgress.RecipeNameAvailable ->
+                            onProgress(RegenerateProgress.RecipeNameAvailable(progress.name))
+                        is ParseHtmlUseCase.ParseProgress.SavingRecipe ->
+                            onProgress(RegenerateProgress.SavingRecipe)
+                        is ParseHtmlUseCase.ParseProgress.Complete -> {}
+                    }
+                }
+            )
+
+            return when (parseResult) {
+                is ParseHtmlUseCase.ParseResult.Success -> {
+                    // Overwrite with same ID, preserve createdAt and favorite status
+                    val regeneratedRecipe = parseResult.recipe.copy(
+                        id = existingRecipe.id,
+                        createdAt = existingRecipe.createdAt,
+                        updatedAt = Clock.System.now(),
+                        isFavorite = existingRecipe.isFavorite,
+                        sourceUrl = existingRecipe.sourceUrl,
+                        imageUrl = parseResult.recipe.imageUrl ?: existingRecipe.imageUrl
+                    )
+
+                    onProgress(RegenerateProgress.SavingRecipe)
+                    recipeRepository.saveRecipe(regeneratedRecipe, originalHtml = originalHtml)
+
+                    val result = RegenerateResult.Success(regeneratedRecipe)
+                    onProgress(RegenerateProgress.Complete(result))
+                    result
+                }
+                is ParseHtmlUseCase.ParseResult.Error ->
+                    RegenerateResult.Error(parseResult.message)
+                ParseHtmlUseCase.ParseResult.NoApiKey ->
+                    RegenerateResult.NoApiKey
+            }
+        } finally {
+            // Restore previous settings
+            if (model != null) {
+                settingsDataStore.setAiModel(previousModel)
+            }
+            if (extendedThinking != null) {
+                settingsDataStore.setExtendedThinkingEnabled(previousThinking)
+            }
+        }
+    }
+}
