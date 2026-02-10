@@ -1,16 +1,13 @@
 package com.lionotter.recipes.domain.usecase
 
-import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
-import kotlinx.coroutines.flow.first
 import kotlinx.datetime.Clock
 import javax.inject.Inject
 
 class RegenerateRecipeUseCase @Inject constructor(
     private val parseHtmlUseCase: ParseHtmlUseCase,
-    private val recipeRepository: RecipeRepository,
-    private val settingsDataStore: SettingsDataStore
+    private val recipeRepository: RecipeRepository
 ) {
     sealed class RegenerateResult {
         data class Success(val recipe: Recipe) : RegenerateResult()
@@ -51,70 +48,51 @@ class RegenerateRecipeUseCase @Inject constructor(
             return RegenerateResult.NoOriginalHtml
         }
 
-        // Apply model/thinking overrides if provided
-        val previousModel = settingsDataStore.aiModel.first()
-        val previousThinking = settingsDataStore.extendedThinkingEnabled.first()
-
-        try {
-            if (model != null) {
-                settingsDataStore.setAiModel(model)
-            }
-            if (extendedThinking != null) {
-                settingsDataStore.setExtendedThinkingEnabled(extendedThinking)
-            }
-
-            // Re-parse with AI (don't save yet, we need to adjust the recipe)
-            val parseResult = parseHtmlUseCase.execute(
-                html = originalHtml,
-                sourceUrl = existingRecipe.sourceUrl,
-                imageUrl = existingRecipe.imageUrl,
-                saveRecipe = false,
-                onProgress = { progress ->
-                    when (progress) {
-                        is ParseHtmlUseCase.ParseProgress.ExtractingContent -> {}
-                        is ParseHtmlUseCase.ParseProgress.ParsingRecipe ->
-                            onProgress(RegenerateProgress.ParsingRecipe)
-                        is ParseHtmlUseCase.ParseProgress.RecipeNameAvailable ->
-                            onProgress(RegenerateProgress.RecipeNameAvailable(progress.name))
-                        is ParseHtmlUseCase.ParseProgress.SavingRecipe ->
-                            onProgress(RegenerateProgress.SavingRecipe)
-                        is ParseHtmlUseCase.ParseProgress.Complete -> {}
-                    }
+        // Re-parse with AI (don't save yet, we need to adjust the recipe)
+        val parseResult = parseHtmlUseCase.parseHtml(
+            html = originalHtml,
+            sourceUrl = existingRecipe.sourceUrl,
+            imageUrl = existingRecipe.imageUrl,
+            saveRecipe = false,
+            model = model,
+            extendedThinking = extendedThinking,
+            onProgress = { progress ->
+                when (progress) {
+                    is ParseHtmlUseCase.ParseProgress.ExtractingContent -> {}
+                    is ParseHtmlUseCase.ParseProgress.ParsingRecipe ->
+                        onProgress(RegenerateProgress.ParsingRecipe)
+                    is ParseHtmlUseCase.ParseProgress.RecipeNameAvailable ->
+                        onProgress(RegenerateProgress.RecipeNameAvailable(progress.name))
+                    is ParseHtmlUseCase.ParseProgress.SavingRecipe ->
+                        onProgress(RegenerateProgress.SavingRecipe)
+                    is ParseHtmlUseCase.ParseProgress.Complete -> {}
                 }
-            )
-
-            return when (parseResult) {
-                is ParseHtmlUseCase.ParseResult.Success -> {
-                    // Overwrite with same ID, preserve createdAt and favorite status
-                    val regeneratedRecipe = parseResult.recipe.copy(
-                        id = existingRecipe.id,
-                        createdAt = existingRecipe.createdAt,
-                        updatedAt = Clock.System.now(),
-                        isFavorite = existingRecipe.isFavorite,
-                        sourceUrl = existingRecipe.sourceUrl,
-                        imageUrl = parseResult.recipe.imageUrl ?: existingRecipe.imageUrl
-                    )
-
-                    onProgress(RegenerateProgress.SavingRecipe)
-                    recipeRepository.saveRecipe(regeneratedRecipe, originalHtml = originalHtml)
-
-                    val result = RegenerateResult.Success(regeneratedRecipe)
-                    onProgress(RegenerateProgress.Complete(result))
-                    result
-                }
-                is ParseHtmlUseCase.ParseResult.Error ->
-                    RegenerateResult.Error(parseResult.message)
-                ParseHtmlUseCase.ParseResult.NoApiKey ->
-                    RegenerateResult.NoApiKey
             }
-        } finally {
-            // Restore previous settings
-            if (model != null) {
-                settingsDataStore.setAiModel(previousModel)
+        )
+
+        return when (parseResult) {
+            is ParseHtmlUseCase.ParseResult.Success -> {
+                // Overwrite with same ID, preserve createdAt and favorite status
+                val regeneratedRecipe = parseResult.recipe.copy(
+                    id = existingRecipe.id,
+                    createdAt = existingRecipe.createdAt,
+                    updatedAt = Clock.System.now(),
+                    isFavorite = existingRecipe.isFavorite,
+                    sourceUrl = existingRecipe.sourceUrl,
+                    imageUrl = parseResult.recipe.imageUrl ?: existingRecipe.imageUrl
+                )
+
+                onProgress(RegenerateProgress.SavingRecipe)
+                recipeRepository.saveRecipe(regeneratedRecipe, originalHtml = originalHtml)
+
+                val result = RegenerateResult.Success(regeneratedRecipe)
+                onProgress(RegenerateProgress.Complete(result))
+                result
             }
-            if (extendedThinking != null) {
-                settingsDataStore.setExtendedThinkingEnabled(previousThinking)
-            }
+            is ParseHtmlUseCase.ParseResult.Error ->
+                RegenerateResult.Error(parseResult.message)
+            ParseHtmlUseCase.ParseResult.NoApiKey ->
+                RegenerateResult.NoApiKey
         }
     }
 }

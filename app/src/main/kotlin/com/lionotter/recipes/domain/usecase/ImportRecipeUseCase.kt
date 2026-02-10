@@ -1,16 +1,13 @@
 package com.lionotter.recipes.domain.usecase
 
-import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.WebScraperService
 import com.lionotter.recipes.domain.model.Recipe
-import kotlinx.coroutines.flow.first
 import org.jsoup.Jsoup
 import javax.inject.Inject
 
 class ImportRecipeUseCase @Inject constructor(
     private val webScraperService: WebScraperService,
-    private val parseHtmlUseCase: ParseHtmlUseCase,
-    private val settingsDataStore: SettingsDataStore
+    private val parseHtmlUseCase: ParseHtmlUseCase
 ) {
     sealed class ImportResult {
         data class Success(val recipe: Recipe) : ImportResult()
@@ -31,12 +28,6 @@ class ImportRecipeUseCase @Inject constructor(
         url: String,
         onProgress: suspend (ImportProgress) -> Unit = {}
     ): ImportResult {
-        // Check for API key early
-        val apiKey = settingsDataStore.anthropicApiKey.first()
-        if (apiKey.isNullOrBlank()) {
-            return ImportResult.NoApiKey
-        }
-
         // Fetch page content
         onProgress(ImportProgress.FetchingPage)
         val pageResult = webScraperService.fetchPage(url)
@@ -52,7 +43,7 @@ class ImportRecipeUseCase @Inject constructor(
         ))
 
         // Use ParseHtmlUseCase to parse the HTML content
-        val parseResult = parseHtmlUseCase.execute(
+        val parseResult = parseHtmlUseCase.parseHtml(
             html = page.originalHtml,
             sourceUrl = url,
             imageUrl = page.imageUrl,
