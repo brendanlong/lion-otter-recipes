@@ -275,7 +275,7 @@ app: {
       }
       sync_drive: {
         label: SyncToGoogleDriveUseCase
-        tooltip: "Bidirectional sync: compares local vs remote recipes, uploads new, downloads new, updates changed (latest timestamp wins). Runs via WorkManager on startup and periodically."
+        tooltip: "Bidirectional sync: compares local vs remote recipes, uploads new, downloads new, updates changed (latest timestamp wins), deletes remote recipes that were soft-deleted locally. Runs via WorkManager on startup and periodically."
       }
       export_zip: {
         label: ExportToZipUseCase
@@ -393,7 +393,10 @@ app: {
         fill: "#ffffff"
       }
 
-      repo: RecipeRepository
+      repo: {
+        label: RecipeRepository
+        tooltip: "CRUD operations for recipes. Supports soft-delete for sync tracking, hard-delete for sync cleanup, and purge of soft-deleted entries after sync."
+      }
       import_debug_repo: {
         label: ImportDebugRepository
         tooltip: "CRUD operations for import debug entries. Supports listing all, getting by ID, saving, and deleting all entries."
@@ -431,7 +434,10 @@ app: {
         }
       }
       dao: RecipeDao
-      entity: RecipeEntity
+      entity: {
+        label: RecipeEntity
+        tooltip: "Room entity for recipes: id, name, sourceUrl, story, servings, times, JSON fields, imageUrl, originalHtml, createdAt, updatedAt, isFavorite, deleted (soft-delete flag for sync)"
+      }
       import_debug_dao: ImportDebugDao
       pending_import_dao: PendingImportDao
       pending_import_entity: {
@@ -616,7 +622,7 @@ legend: {
   }
   drive1: "User selects existing folder or creates new one via folder picker dialog"
   drive2: "Bidirectional sync on startup + every 6 hours (latest timestamp wins)"
-  drive3: "Uploads new local recipes, downloads new remote recipes, updates changed"
+  drive3: "Uploads new local recipes, downloads new remote recipes, updates changed, deletes soft-deleted recipes from Drive"
 
   drive1 -> drive2 -> drive3
 
