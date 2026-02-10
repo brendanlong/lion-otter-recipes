@@ -474,7 +474,7 @@ app: {
       }
       settings: {
         label: SettingsDataStore
-        tooltip: "Uses EncryptedSharedPreferences for API key, DataStore for non-sensitive settings (AI model, extended thinking enabled, keep screen on, theme mode, volume/weight unit system preferences, start of week, import debugging enabled, Google Drive sync enabled/folder/last sync timestamp)"
+        tooltip: "Uses EncryptedSharedPreferences for API key, DataStore for non-sensitive settings (AI model, extended thinking enabled, keep screen on, theme mode, volume/weight unit system preferences, grocery list volume/weight unit system preferences, start of week, import debugging enabled, Google Drive sync enabled/folder/last sync timestamp)"
       }
 
       dao -> room
@@ -593,7 +593,7 @@ app: {
   ui.viewmodels.grocery_list_vm -> data.repository.meal_plan_repo: meal plans
   ui.viewmodels.grocery_list_vm -> data.repository.repo: recipes
   ui.viewmodels.grocery_list_vm -> domain.usecases.aggregate_grocery: aggregate ingredients
-  ui.viewmodels.grocery_list_vm -> data.local.settings: unit prefs
+  ui.viewmodels.grocery_list_vm -> data.local.settings: grocery unit prefs
   domain.usecases.sync_drive -> domain.usecases.sync_meal_plans: sync meal plans
   domain.usecases.sync_meal_plans -> data.repository.meal_plan_repo: access data
   ui.viewmodels.settings_vm -> data.repository.import_debug_repo: delete debug data

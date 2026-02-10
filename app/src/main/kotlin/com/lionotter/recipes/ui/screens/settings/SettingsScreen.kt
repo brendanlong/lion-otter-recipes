@@ -64,6 +64,8 @@ fun SettingsScreen(
     val zipOperationState by zipViewModel.operationState.collectAsStateWithLifecycle()
     val volumeUnitSystem by viewModel.volumeUnitSystem.collectAsStateWithLifecycle()
     val weightUnitSystem by viewModel.weightUnitSystem.collectAsStateWithLifecycle()
+    val groceryVolumeUnitSystem by viewModel.groceryVolumeUnitSystem.collectAsStateWithLifecycle()
+    val groceryWeightUnitSystem by viewModel.groceryWeightUnitSystem.collectAsStateWithLifecycle()
     val startOfWeek by viewModel.startOfWeek.collectAsStateWithLifecycle()
     val importDebuggingEnabled by viewModel.importDebuggingEnabled.collectAsStateWithLifecycle()
 
@@ -197,7 +199,11 @@ fun SettingsScreen(
                 volumeUnitSystem = volumeUnitSystem,
                 onVolumeUnitSystemChange = viewModel::setVolumeUnitSystem,
                 weightUnitSystem = weightUnitSystem,
-                onWeightUnitSystemChange = viewModel::setWeightUnitSystem
+                onWeightUnitSystemChange = viewModel::setWeightUnitSystem,
+                groceryVolumeUnitSystem = groceryVolumeUnitSystem,
+                onGroceryVolumeUnitSystemChange = viewModel::setGroceryVolumeUnitSystem,
+                groceryWeightUnitSystem = groceryWeightUnitSystem,
+                onGroceryWeightUnitSystemChange = viewModel::setGroceryWeightUnitSystem
             )
 
             HorizontalDivider()

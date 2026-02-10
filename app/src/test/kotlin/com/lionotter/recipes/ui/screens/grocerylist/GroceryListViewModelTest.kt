@@ -49,8 +49,8 @@ class GroceryListViewModelTest {
         recipeRepository = mockk()
         settingsDataStore = mockk()
 
-        every { settingsDataStore.volumeUnitSystem } returns flowOf(UnitSystem.CUSTOMARY)
-        every { settingsDataStore.weightUnitSystem } returns flowOf(UnitSystem.METRIC)
+        every { settingsDataStore.groceryVolumeUnitSystem } returns flowOf(UnitSystem.CUSTOMARY)
+        every { settingsDataStore.groceryWeightUnitSystem } returns flowOf(UnitSystem.METRIC)
         coEvery { mealPlanRepository.getAllMealPlansOnce() } returns emptyList()
     }
 

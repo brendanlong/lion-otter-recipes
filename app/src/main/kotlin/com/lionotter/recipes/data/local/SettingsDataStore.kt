@@ -42,6 +42,8 @@ class SettingsDataStore @Inject constructor(
         val IMPORT_DEBUGGING_ENABLED = booleanPreferencesKey("import_debugging_enabled")
         val VOLUME_UNIT_SYSTEM = stringPreferencesKey("volume_unit_system")
         val WEIGHT_UNIT_SYSTEM = stringPreferencesKey("weight_unit_system")
+        val GROCERY_VOLUME_UNIT_SYSTEM = stringPreferencesKey("grocery_volume_unit_system")
+        val GROCERY_WEIGHT_UNIT_SYSTEM = stringPreferencesKey("grocery_weight_unit_system")
         val START_OF_WEEK = stringPreferencesKey("start_of_week")
         const val ENCRYPTED_API_KEY = "anthropic_api_key"
     }
@@ -121,6 +123,46 @@ class SettingsDataStore @Inject constructor(
             try { UnitSystem.valueOf(value) } catch (_: IllegalArgumentException) { UnitSystem.localeDefault() }
         } else {
             UnitSystem.localeDefault()
+        }
+    }
+
+    /**
+     * Grocery list volume unit system. Falls back to the recipe volume unit system
+     * when no grocery-specific preference has been set.
+     */
+    val groceryVolumeUnitSystem: Flow<UnitSystem> = context.dataStore.data.map { preferences ->
+        val groceryValue = preferences[Keys.GROCERY_VOLUME_UNIT_SYSTEM]
+        if (groceryValue != null) {
+            try { UnitSystem.valueOf(groceryValue) } catch (_: IllegalArgumentException) { null }
+        } else {
+            null
+        } ?: run {
+            val recipeValue = preferences[Keys.VOLUME_UNIT_SYSTEM]
+            if (recipeValue != null) {
+                try { UnitSystem.valueOf(recipeValue) } catch (_: IllegalArgumentException) { UnitSystem.localeDefault() }
+            } else {
+                UnitSystem.localeDefault()
+            }
+        }
+    }
+
+    /**
+     * Grocery list weight unit system. Falls back to the recipe weight unit system
+     * when no grocery-specific preference has been set.
+     */
+    val groceryWeightUnitSystem: Flow<UnitSystem> = context.dataStore.data.map { preferences ->
+        val groceryValue = preferences[Keys.GROCERY_WEIGHT_UNIT_SYSTEM]
+        if (groceryValue != null) {
+            try { UnitSystem.valueOf(groceryValue) } catch (_: IllegalArgumentException) { null }
+        } else {
+            null
+        } ?: run {
+            val recipeValue = preferences[Keys.WEIGHT_UNIT_SYSTEM]
+            if (recipeValue != null) {
+                try { UnitSystem.valueOf(recipeValue) } catch (_: IllegalArgumentException) { UnitSystem.localeDefault() }
+            } else {
+                UnitSystem.localeDefault()
+            }
         }
     }
 
@@ -212,6 +254,18 @@ class SettingsDataStore @Inject constructor(
     suspend fun setWeightUnitSystem(system: UnitSystem) {
         context.dataStore.edit { preferences ->
             preferences[Keys.WEIGHT_UNIT_SYSTEM] = system.name
+        }
+    }
+
+    suspend fun setGroceryVolumeUnitSystem(system: UnitSystem) {
+        context.dataStore.edit { preferences ->
+            preferences[Keys.GROCERY_VOLUME_UNIT_SYSTEM] = system.name
+        }
+    }
+
+    suspend fun setGroceryWeightUnitSystem(system: UnitSystem) {
+        context.dataStore.edit { preferences ->
+            preferences[Keys.GROCERY_WEIGHT_UNIT_SYSTEM] = system.name
         }
     }
 

@@ -42,6 +42,8 @@ class SettingsViewModelTest {
     private val importDebuggingEnabledFlow = MutableStateFlow(false)
     private val volumeUnitSystemFlow = MutableStateFlow(UnitSystem.CUSTOMARY)
     private val weightUnitSystemFlow = MutableStateFlow(UnitSystem.METRIC)
+    private val groceryVolumeUnitSystemFlow = MutableStateFlow(UnitSystem.CUSTOMARY)
+    private val groceryWeightUnitSystemFlow = MutableStateFlow(UnitSystem.METRIC)
     private val startOfWeekFlow = MutableStateFlow(StartOfWeek.LOCALE_DEFAULT)
 
     @Before
@@ -57,6 +59,8 @@ class SettingsViewModelTest {
         every { settingsDataStore.importDebuggingEnabled } returns importDebuggingEnabledFlow
         every { settingsDataStore.volumeUnitSystem } returns volumeUnitSystemFlow
         every { settingsDataStore.weightUnitSystem } returns weightUnitSystemFlow
+        every { settingsDataStore.groceryVolumeUnitSystem } returns groceryVolumeUnitSystemFlow
+        every { settingsDataStore.groceryWeightUnitSystem } returns groceryWeightUnitSystemFlow
         every { settingsDataStore.startOfWeek } returns startOfWeekFlow
         viewModel = SettingsViewModel(settingsDataStore, importDebugRepository)
     }

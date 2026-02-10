@@ -22,7 +22,11 @@ fun UnitPreferencesSection(
     volumeUnitSystem: UnitSystem,
     onVolumeUnitSystemChange: (UnitSystem) -> Unit,
     weightUnitSystem: UnitSystem,
-    onWeightUnitSystemChange: (UnitSystem) -> Unit
+    onWeightUnitSystemChange: (UnitSystem) -> Unit,
+    groceryVolumeUnitSystem: UnitSystem,
+    onGroceryVolumeUnitSystemChange: (UnitSystem) -> Unit,
+    groceryWeightUnitSystem: UnitSystem,
+    onGroceryWeightUnitSystemChange: (UnitSystem) -> Unit
 ) {
     val options = listOf(
         UnitSystem.CUSTOMARY to stringResource(R.string.unit_system_customary),
@@ -35,60 +39,96 @@ fun UnitPreferencesSection(
             style = MaterialTheme.typography.titleMedium
         )
 
+        // Recipe units subsection
+        Text(
+            text = stringResource(R.string.recipe_units),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
         // Volume unit system
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = stringResource(R.string.volume_units),
-                style = MaterialTheme.typography.bodyLarge
-            )
-            Text(
-                text = stringResource(R.string.volume_units_description),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            SingleChoiceSegmentedButtonRow(
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                options.forEachIndexed { index, (system, label) ->
-                    SegmentedButton(
-                        selected = volumeUnitSystem == system,
-                        onClick = { onVolumeUnitSystemChange(system) },
-                        shape = SegmentedButtonDefaults.itemShape(
-                            index = index,
-                            count = options.size
-                        )
-                    ) {
-                        Text(label)
-                    }
-                }
-            }
-        }
+        UnitSystemSelector(
+            label = stringResource(R.string.volume_units),
+            description = stringResource(R.string.volume_units_description),
+            selectedSystem = volumeUnitSystem,
+            onSystemChange = onVolumeUnitSystemChange,
+            options = options
+        )
 
         // Weight unit system
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = stringResource(R.string.weight_units),
-                style = MaterialTheme.typography.bodyLarge
-            )
-            Text(
-                text = stringResource(R.string.weight_units_description),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            SingleChoiceSegmentedButtonRow(
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                options.forEachIndexed { index, (system, label) ->
-                    SegmentedButton(
-                        selected = weightUnitSystem == system,
-                        onClick = { onWeightUnitSystemChange(system) },
-                        shape = SegmentedButtonDefaults.itemShape(
-                            index = index,
-                            count = options.size
-                        )
-                    ) {
-                        Text(label)
-                    }
+        UnitSystemSelector(
+            label = stringResource(R.string.weight_units),
+            description = stringResource(R.string.weight_units_description),
+            selectedSystem = weightUnitSystem,
+            onSystemChange = onWeightUnitSystemChange,
+            options = options
+        )
+
+        // Grocery list units subsection
+        Text(
+            text = stringResource(R.string.grocery_list_units),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Text(
+            text = stringResource(R.string.grocery_list_units_description),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        // Grocery volume unit system
+        UnitSystemSelector(
+            label = stringResource(R.string.volume_units),
+            description = stringResource(R.string.volume_units_description),
+            selectedSystem = groceryVolumeUnitSystem,
+            onSystemChange = onGroceryVolumeUnitSystemChange,
+            options = options
+        )
+
+        // Grocery weight unit system
+        UnitSystemSelector(
+            label = stringResource(R.string.weight_units),
+            description = stringResource(R.string.weight_units_description),
+            selectedSystem = groceryWeightUnitSystem,
+            onSystemChange = onGroceryWeightUnitSystemChange,
+            options = options
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun UnitSystemSelector(
+    label: String,
+    description: String,
+    selectedSystem: UnitSystem,
+    onSystemChange: (UnitSystem) -> Unit,
+    options: List<Pair<UnitSystem, String>>
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge
+        )
+        Text(
+            text = description,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        SingleChoiceSegmentedButtonRow(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            options.forEachIndexed { index, (system, systemLabel) ->
+                SegmentedButton(
+                    selected = selectedSystem == system,
+                    onClick = { onSystemChange(system) },
+                    shape = SegmentedButtonDefaults.itemShape(
+                        index = index,
+                        count = options.size
+                    )
+                ) {
+                    Text(systemLabel)
                 }
             }
         }
