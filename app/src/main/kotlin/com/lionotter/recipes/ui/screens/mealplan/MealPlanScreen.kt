@@ -139,52 +139,30 @@ fun MealPlanScreen(
 
             // Week content
             val days = (0..6).map { weekStart.plus(it, DateTimeUnit.DAY) }
-            val hasAnyMeals = weekMealPlans.isNotEmpty()
 
-            if (!hasAnyMeals) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = stringResource(R.string.no_meals_planned),
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = stringResource(R.string.tap_plus_to_add_meal),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+            LazyColumn(
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                for (day in days) {
+                    val meals = weekMealPlans[day]
+                    item(key = "header_$day") {
+                        DayHeader(date = day)
                     }
-                }
-            } else {
-                LazyColumn(
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    for (day in days) {
-                        val meals = weekMealPlans[day]
-                        if (meals != null && meals.isNotEmpty()) {
-                            item(key = "header_$day") {
-                                DayHeader(date = day)
-                            }
-                            items(
-                                items = meals,
-                                key = { it.id }
-                            ) { entry ->
-                                SwipeableMealPlanCard(
-                                    entry = entry,
-                                    onClick = { onRecipeClick(entry.recipeId) },
-                                    onDeleteRequest = { entryToDelete = entry }
-                                )
-                            }
-                            item(key = "spacer_$day") {
-                                Spacer(modifier = Modifier.height(8.dp))
-                            }
+                    if (meals != null && meals.isNotEmpty()) {
+                        items(
+                            items = meals,
+                            key = { it.id }
+                        ) { entry ->
+                            SwipeableMealPlanCard(
+                                entry = entry,
+                                onClick = { onRecipeClick(entry.recipeId) },
+                                onDeleteRequest = { entryToDelete = entry }
+                            )
                         }
+                    }
+                    item(key = "spacer_$day") {
+                        Spacer(modifier = Modifier.height(8.dp))
                     }
                 }
             }
