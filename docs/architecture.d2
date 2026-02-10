@@ -145,7 +145,7 @@ app: {
       }
       meal_plan_vm: {
         label: MealPlanViewModel
-        tooltip: "Manages weekly meal plan view state, recipe selection dialog, and CRUD operations for meal plan entries. Triggers incremental Google Drive sync on changes."
+        tooltip: "Manages weekly meal plan view state, recipe selection dialog, and CRUD operations for meal plan entries. Respects user's start-of-week setting from preferences. Triggers incremental Google Drive sync on changes."
       }
     }
 
@@ -359,6 +359,10 @@ app: {
         label: MealType
         tooltip: "Enum: BREAKFAST, LUNCH, SNACK, DINNER with displayOrder for sorting"
       }
+      start_of_week: {
+        label: StartOfWeek
+        tooltip: "Enum: LOCALE_DEFAULT, MONDAY..SUNDAY. User preference for which day the week starts on in the meal planner. LOCALE_DEFAULT resolves to device locale's first day of week."
+      }
       meal_plan_entry -> meal_type: type
 
       recipe -> section
@@ -455,7 +459,7 @@ app: {
       }
       settings: {
         label: SettingsDataStore
-        tooltip: "Uses EncryptedSharedPreferences for API key, DataStore for non-sensitive settings (AI model, extended thinking enabled, keep screen on, theme mode, volume/weight unit system preferences, import debugging enabled, Google Drive sync enabled/folder/last sync timestamp)"
+        tooltip: "Uses EncryptedSharedPreferences for API key, DataStore for non-sensitive settings (AI model, extended thinking enabled, keep screen on, theme mode, volume/weight unit system preferences, start of week, import debugging enabled, Google Drive sync enabled/folder/last sync timestamp)"
       }
 
       dao -> room
@@ -569,6 +573,7 @@ app: {
   ui.viewmodels.zip_vm -> background.worker.work_ext: observe export/import
   ui.viewmodels.meal_plan_vm -> data.repository.meal_plan_repo: CRUD
   ui.viewmodels.meal_plan_vm -> data.repository.repo: recipe list
+  ui.viewmodels.meal_plan_vm -> data.local.settings: start of week
   ui.viewmodels.meal_plan_vm -> domain.usecases.tags: top tags
   domain.usecases.sync_drive -> domain.usecases.sync_meal_plans: sync meal plans
   domain.usecases.sync_meal_plans -> data.repository.meal_plan_repo: access data

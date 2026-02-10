@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.repository.ImportDebugRepository
+import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -69,6 +70,13 @@ class SettingsViewModel @Inject constructor(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = UnitSystem.METRIC
+        )
+
+    val startOfWeek: StateFlow<StartOfWeek> = settingsDataStore.startOfWeek
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = StartOfWeek.LOCALE_DEFAULT
         )
 
     val importDebuggingEnabled: StateFlow<Boolean> = settingsDataStore.importDebuggingEnabled
@@ -148,6 +156,12 @@ class SettingsViewModel @Inject constructor(
     fun setWeightUnitSystem(system: UnitSystem) {
         viewModelScope.launch {
             settingsDataStore.setWeightUnitSystem(system)
+        }
+    }
+
+    fun setStartOfWeek(startOfWeek: StartOfWeek) {
+        viewModelScope.launch {
+            settingsDataStore.setStartOfWeek(startOfWeek)
         }
     }
 
