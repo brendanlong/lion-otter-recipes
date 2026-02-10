@@ -7,7 +7,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [RecipeEntity::class, ImportDebugEntity::class, PendingImportEntity::class, MealPlanEntity::class],
-    version = 6,
+    version = 7,
     exportSchema = true
 )
 abstract class RecipeDatabase : RoomDatabase() {
@@ -87,6 +87,12 @@ abstract class RecipeDatabase : RoomDatabase() {
                         deleted INTEGER NOT NULL DEFAULT 0
                     )
                 """.trimIndent())
+            }
+        }
+
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE recipes ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
             }
         }
     }
