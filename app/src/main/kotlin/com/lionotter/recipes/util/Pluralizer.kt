@@ -313,6 +313,12 @@ object Pluralizer {
             "wealth", "welfare", "whiting", "wildebeest", "wildlife", "you"
         ).forEach { addUncountableRule(it) }
 
+        // Unit abbreviations should not be pluralized (e.g. "oz" not "ozs", "mL" not "mLs")
+        listOf(
+            "mg", "g", "kg", "oz", "lb",
+            "ml", "l", "tsp", "tbsp", "fl_oz", "gal"
+        ).forEach { addUncountableRule(it) }
+
         // Regex uncountables
         listOf(
             Regex("""pok[eé]mon$""", RegexOption.IGNORE_CASE),

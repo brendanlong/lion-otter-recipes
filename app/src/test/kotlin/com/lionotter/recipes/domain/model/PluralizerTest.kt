@@ -39,6 +39,24 @@ class PluralizerTest {
     }
 
     @Test
+    fun `test unit abbreviations are not pluralized`() {
+        // Abbreviations should remain unchanged regardless of count
+        val abbreviations = listOf("mg", "g", "kg", "oz", "lb", "mL", "L", "tsp", "tbsp", "fl_oz", "gal")
+        for (abbr in abbreviations) {
+            assertEquals("$abbr should not change for count 1", abbr, abbr.singularize().pluralize(1))
+            assertEquals("$abbr should not change for count 2", abbr, abbr.singularize().pluralize(2))
+        }
+    }
+
+    @Test
+    fun `test words that should still pluralize`() {
+        // Full words like cup, pint, quart should still pluralize
+        assertEquals("cups", "cup".singularize().pluralize(2))
+        assertEquals("pints", "pint".singularize().pluralize(2))
+        assertEquals("quarts", "quart".singularize().pluralize(2))
+    }
+
+    @Test
     fun `test case preservation`() {
         assertEquals("Cups", "Cup".pluralize(2))
         assertEquals("CUPS", "CUP".pluralize(2))
