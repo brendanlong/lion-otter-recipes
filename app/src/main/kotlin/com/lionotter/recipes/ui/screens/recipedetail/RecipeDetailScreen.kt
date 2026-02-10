@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
@@ -231,23 +232,25 @@ fun RecipeDetailScreen(
                 CircularProgressIndicator()
             }
         } else {
-            RecipeContent(
-                recipe = recipe!!,
-                scale = scale,
-                onScaleIncrement = viewModel::incrementScale,
-                onScaleDecrement = viewModel::decrementScale,
-                measurementPreference = measurementPreference,
-                onMeasurementPreferenceChange = viewModel::setMeasurementPreference,
-                showMeasurementToggle = supportsConversion,
-                usedInstructionIngredients = usedInstructionIngredients,
-                globalIngredientUsage = globalIngredientUsage,
-                onToggleInstructionIngredient = viewModel::toggleInstructionIngredientUsed,
-                highlightedInstructionStep = highlightedInstructionStep,
-                onToggleHighlightedInstruction = viewModel::toggleHighlightedInstructionStep,
-                volumeUnitSystem = volumeUnitSystem,
-                weightUnitSystem = weightUnitSystem,
-                modifier = Modifier.padding(paddingValues)
-            )
+            SelectionContainer {
+                RecipeContent(
+                    recipe = recipe!!,
+                    scale = scale,
+                    onScaleIncrement = viewModel::incrementScale,
+                    onScaleDecrement = viewModel::decrementScale,
+                    measurementPreference = measurementPreference,
+                    onMeasurementPreferenceChange = viewModel::setMeasurementPreference,
+                    showMeasurementToggle = supportsConversion,
+                    usedInstructionIngredients = usedInstructionIngredients,
+                    globalIngredientUsage = globalIngredientUsage,
+                    onToggleInstructionIngredient = viewModel::toggleInstructionIngredientUsed,
+                    highlightedInstructionStep = highlightedInstructionStep,
+                    onToggleHighlightedInstruction = viewModel::toggleHighlightedInstructionStep,
+                    volumeUnitSystem = volumeUnitSystem,
+                    weightUnitSystem = weightUnitSystem,
+                    modifier = Modifier.padding(paddingValues)
+                )
+            }
         }
     }
 }
