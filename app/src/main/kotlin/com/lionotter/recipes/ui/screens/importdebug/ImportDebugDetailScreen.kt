@@ -3,6 +3,7 @@ package com.lionotter.recipes.ui.screens.importdebug
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -83,11 +84,13 @@ fun ImportDebugDetailScreen(
                 CircularProgressIndicator()
             }
         } else {
-            DebugDetailContent(
-                entry = currentEntry,
-                onNavigateToRecipe = onNavigateToRecipe,
-                modifier = Modifier.padding(paddingValues)
-            )
+            SelectionContainer {
+                DebugDetailContent(
+                    entry = currentEntry,
+                    onNavigateToRecipe = onNavigateToRecipe,
+                    modifier = Modifier.padding(paddingValues)
+                )
+            }
         }
     }
 }
