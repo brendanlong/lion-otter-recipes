@@ -1,7 +1,6 @@
 package com.lionotter.recipes.ui.screens.recipedetail.components
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Card
@@ -36,11 +35,10 @@ internal fun RecipeMetadata(recipe: Recipe, scale: Double) {
                 containerColor = MaterialTheme.colorScheme.primaryContainer
             )
         ) {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(12.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 items.forEach { item ->
                     Text(
