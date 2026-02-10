@@ -4,12 +4,10 @@ import android.util.Log
 import app.cash.turbine.test
 import com.lionotter.recipes.data.local.RecipeDao
 import com.lionotter.recipes.data.local.RecipeEntity
+import com.lionotter.recipes.domain.model.Amount
 import com.lionotter.recipes.domain.model.Ingredient
-import com.lionotter.recipes.domain.model.IngredientSection
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.InstructionStep
-import com.lionotter.recipes.domain.model.Measurement
-import com.lionotter.recipes.domain.model.MeasurementType
 import com.lionotter.recipes.domain.model.Recipe
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -249,21 +247,26 @@ class RecipeRepositoryTest {
     }
 
     @Test
-    fun `saveRecipe serializes ingredient sections`() = runTest {
+    fun `saveRecipe serializes instruction sections with ingredients`() = runTest {
         val entitySlot = slot<RecipeEntity>()
         coEvery { recipeDao.insertRecipe(capture(entitySlot)) } just runs
 
         val recipe = Recipe(
             id = "recipe-1",
             name = "Test",
-            ingredientSections = listOf(
-                IngredientSection(
+            instructionSections = listOf(
+                InstructionSection(
                     name = "Main",
-                    ingredients = listOf(
-                        Ingredient(
-                            name = "flour",
-                            amounts = listOf(
-                                Measurement(value = 2.0, unit = "cups", type = MeasurementType.VOLUME, isDefault = true)
+                    steps = listOf(
+                        InstructionStep(
+                            stepNumber = 1,
+                            instruction = "Mix ingredients",
+                            ingredients = listOf(
+                                Ingredient(
+                                    name = "flour",
+                                    amount = Amount(value = 2.0, unit = "cup"),
+                                    density = 0.51
+                                )
                             )
                         )
                     )
@@ -274,30 +277,8 @@ class RecipeRepositoryTest {
         )
         recipeRepository.saveRecipe(recipe)
 
-        assertTrue(entitySlot.captured.ingredientSectionsJson.contains("flour"))
-        assertTrue(entitySlot.captured.ingredientSectionsJson.contains("Main"))
-    }
-
-    @Test
-    fun `saveRecipe serializes instruction sections`() = runTest {
-        val entitySlot = slot<RecipeEntity>()
-        coEvery { recipeDao.insertRecipe(capture(entitySlot)) } just runs
-
-        val recipe = Recipe(
-            id = "recipe-1",
-            name = "Test",
-            instructionSections = listOf(
-                InstructionSection(
-                    steps = listOf(
-                        InstructionStep(stepNumber = 1, instruction = "Mix ingredients")
-                    )
-                )
-            ),
-            createdAt = Instant.fromEpochMilliseconds(1000L),
-            updatedAt = Instant.fromEpochMilliseconds(2000L)
-        )
-        recipeRepository.saveRecipe(recipe)
-
+        assertTrue(entitySlot.captured.instructionSectionsJson.contains("flour"))
+        assertTrue(entitySlot.captured.instructionSectionsJson.contains("Main"))
         assertTrue(entitySlot.captured.instructionSectionsJson.contains("Mix ingredients"))
     }
 
@@ -368,19 +349,6 @@ class RecipeRepositoryTest {
             assertEquals("https://example.com/image.jpg", recipe?.imageUrl)
             assertEquals(listOf("tag1", "tag2"), recipe?.tags)
             assertEquals(true, recipe?.isFavorite)
-            awaitComplete()
-        }
-    }
-
-    @Test
-    fun `entity to recipe mapping handles malformed ingredient json`() = runTest {
-        val entity = createTestEntity(ingredientSectionsJson = "not valid json")
-        every { recipeDao.getRecipeByIdFlow("recipe-1") } returns flowOf(entity)
-
-        recipeRepository.getRecipeById("recipe-1").test {
-            val recipe = awaitItem()
-            assertNotNull(recipe)
-            assertTrue(recipe?.ingredientSections?.isEmpty() == true)
             awaitComplete()
         }
     }

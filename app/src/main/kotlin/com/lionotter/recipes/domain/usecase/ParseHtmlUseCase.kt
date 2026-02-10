@@ -123,7 +123,6 @@ class ParseHtmlUseCase @Inject constructor(
             prepTime = parsed.prepTime,
             cookTime = parsed.cookTime,
             totalTime = parsed.totalTime,
-            ingredientSections = parsed.ingredientSections,
             instructionSections = parsed.instructionSections,
             tags = parsed.tags,
             imageUrl = extractedImageUrl,

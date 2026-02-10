@@ -35,7 +35,6 @@ import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.IngredientUsageStatus
 import com.lionotter.recipes.domain.model.InstructionIngredientKey
 import com.lionotter.recipes.domain.model.MeasurementPreference
-import com.lionotter.recipes.domain.model.MeasurementType
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.ui.screens.recipedetail.HighlightedInstructionStep
 
@@ -49,7 +48,6 @@ fun RecipeContent(
     measurementPreference: MeasurementPreference,
     onMeasurementPreferenceChange: (MeasurementPreference) -> Unit,
     showMeasurementToggle: Boolean,
-    availableMeasurementTypes: Set<MeasurementType>,
     usedInstructionIngredients: Set<InstructionIngredientKey>,
     globalIngredientUsage: Map<String, IngredientUsageStatus>,
     onToggleInstructionIngredient: (Int, Int, Int) -> Unit,
@@ -120,17 +118,16 @@ fun RecipeContent(
                 onDecrement = onScaleDecrement
             )
 
-            // Measurement toggle (only shown if recipe has multiple measurement types)
+            // Measurement toggle (only shown if recipe has ingredients with density for conversion)
             if (showMeasurementToggle) {
                 Spacer(modifier = Modifier.height(16.dp))
                 MeasurementToggle(
                     selectedPreference = measurementPreference,
-                    onPreferenceChange = onMeasurementPreferenceChange,
-                    availableMeasurementTypes = availableMeasurementTypes
+                    onPreferenceChange = onMeasurementPreferenceChange
                 )
             }
 
-            // Ingredients
+            // Ingredients (aggregated from steps)
             Spacer(modifier = Modifier.height(24.dp))
             Text(
                 text = stringResource(R.string.ingredients),
@@ -138,7 +135,8 @@ fun RecipeContent(
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.height(12.dp))
-            recipe.ingredientSections.forEach { section ->
+            val aggregatedSections = recipe.aggregateIngredients()
+            aggregatedSections.forEach { section ->
                 IngredientSectionContent(
                     section = section,
                     scale = scale,

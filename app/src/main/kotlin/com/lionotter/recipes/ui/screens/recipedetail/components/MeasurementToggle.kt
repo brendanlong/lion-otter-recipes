@@ -18,28 +18,18 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.MeasurementPreference
-import com.lionotter.recipes.domain.model.MeasurementType
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MeasurementToggle(
     selectedPreference: MeasurementPreference,
-    onPreferenceChange: (MeasurementPreference) -> Unit,
-    availableMeasurementTypes: Set<MeasurementType>
+    onPreferenceChange: (MeasurementPreference) -> Unit
 ) {
-    // Determine which options to show based on available measurement types
-    val hasVolume = MeasurementType.VOLUME in availableMeasurementTypes
-    val hasWeight = MeasurementType.WEIGHT in availableMeasurementTypes
-
-    // Build the list of options to display
-    val options = buildList {
-        add(MeasurementPreference.ORIGINAL to stringResource(R.string.original))
-        if (hasVolume) add(MeasurementPreference.VOLUME to stringResource(R.string.volume))
-        if (hasWeight) add(MeasurementPreference.WEIGHT to stringResource(R.string.weight))
-    }
-
-    // Only show toggle if there are at least 2 options (Original plus at least one conversion)
-    if (options.size < 2) return
+    val options = listOf(
+        MeasurementPreference.DEFAULT to stringResource(R.string.original),
+        MeasurementPreference.VOLUME to stringResource(R.string.volume),
+        MeasurementPreference.WEIGHT to stringResource(R.string.weight)
+    )
 
     Card(
         colors = CardDefaults.cardColors(

@@ -2,7 +2,6 @@ package com.lionotter.recipes.data.local
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
-import com.lionotter.recipes.domain.model.IngredientSection
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.Recipe
 import kotlinx.datetime.Instant
@@ -28,7 +27,6 @@ data class RecipeEntity(
     val isFavorite: Boolean = false
 ) {
     fun toRecipe(
-        ingredientSections: List<IngredientSection>,
         instructionSections: List<InstructionSection>,
         tags: List<String>
     ): Recipe {
@@ -41,7 +39,6 @@ data class RecipeEntity(
             prepTime = prepTime,
             cookTime = cookTime,
             totalTime = totalTime,
-            ingredientSections = ingredientSections,
             instructionSections = instructionSections,
             tags = tags,
             imageUrl = imageUrl,
@@ -54,7 +51,6 @@ data class RecipeEntity(
     companion object {
         fun fromRecipe(
             recipe: Recipe,
-            ingredientSectionsJson: String,
             instructionSectionsJson: String,
             tagsJson: String,
             originalHtml: String? = null
@@ -68,7 +64,7 @@ data class RecipeEntity(
                 prepTime = recipe.prepTime,
                 cookTime = recipe.cookTime,
                 totalTime = recipe.totalTime,
-                ingredientSectionsJson = ingredientSectionsJson,
+                ingredientSectionsJson = "[]",
                 instructionSectionsJson = instructionSectionsJson,
                 tagsJson = tagsJson,
                 imageUrl = recipe.imageUrl,

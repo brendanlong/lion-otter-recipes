@@ -1,11 +1,10 @@
 package com.lionotter.recipes.domain.util
 
+import com.lionotter.recipes.domain.model.Amount
 import com.lionotter.recipes.domain.model.Ingredient
 import com.lionotter.recipes.domain.model.IngredientSection
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.InstructionStep
-import com.lionotter.recipes.domain.model.Measurement
-import com.lionotter.recipes.domain.model.MeasurementPreference
 import com.lionotter.recipes.domain.model.Recipe
 
 /**
@@ -51,10 +50,11 @@ object RecipeMarkdownFormatter {
         appendLine("---")
         appendLine()
 
-        // Ingredients section
+        // Ingredients section (aggregated from steps)
         appendLine("## Ingredients")
         appendLine()
-        formatIngredientSections(recipe.ingredientSections)
+        val ingredientSections = recipe.aggregateIngredients()
+        formatIngredientSections(ingredientSections)
         appendLine()
 
         // Instructions section
@@ -87,20 +87,9 @@ object RecipeMarkdownFormatter {
     private fun formatIngredient(ingredient: Ingredient): String = buildString {
         append("- ")
 
-        // Format amounts
-        if (ingredient.amounts.isNotEmpty()) {
-            val formattedAmounts = ingredient.amounts.map { formatMeasurement(it) }
-
-            // Show default amount first, then alternatives
-            val defaultAmount = ingredient.amounts.find { it.isDefault }
-                ?: ingredient.amounts.firstOrNull()
-            val otherAmounts = ingredient.amounts.filter { it != defaultAmount }
-
-            defaultAmount?.let { append("${formatMeasurement(it)} ") }
-
-            if (otherAmounts.isNotEmpty()) {
-                append("(${otherAmounts.joinToString(" / ") { formatMeasurement(it) }}) ")
-            }
+        // Format amount
+        ingredient.amount?.let { amount ->
+            append("${formatAmount(amount)} ")
         }
 
         // Ingredient name
@@ -121,8 +110,8 @@ object RecipeMarkdownFormatter {
             append(" OR ")
             append(ingredient.alternates.joinToString(" OR ") { alt ->
                 buildString {
-                    if (alt.amounts.isNotEmpty()) {
-                        append("${formatMeasurement(alt.amounts.first())} ")
+                    alt.amount?.let { amount ->
+                        append("${formatAmount(amount)} ")
                     }
                     append(alt.name)
                     alt.notes?.let { append(", $it") }
@@ -131,10 +120,14 @@ object RecipeMarkdownFormatter {
         }
     }
 
-    private fun formatMeasurement(measurement: Measurement): String {
-        val value = measurement.value ?: return measurement.unit
+    private fun formatAmount(amount: Amount): String {
+        val value = amount.value ?: return amount.unit ?: ""
         val formattedValue = formatQuantity(value)
-        return "$formattedValue ${measurement.unit}"
+        return if (amount.unit != null) {
+            "$formattedValue ${amount.unit}"
+        } else {
+            formattedValue
+        }
     }
 
     private fun formatQuantity(qty: Double): String {

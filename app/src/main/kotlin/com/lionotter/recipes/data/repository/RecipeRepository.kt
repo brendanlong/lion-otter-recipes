@@ -3,7 +3,6 @@ package com.lionotter.recipes.data.repository
 import android.util.Log
 import com.lionotter.recipes.data.local.RecipeDao
 import com.lionotter.recipes.data.local.RecipeEntity
-import com.lionotter.recipes.domain.model.IngredientSection
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.Recipe
 import kotlinx.coroutines.flow.Flow
@@ -65,7 +64,6 @@ class RecipeRepository @Inject constructor(
     suspend fun saveRecipe(recipe: Recipe, originalHtml: String? = null) {
         val entity = RecipeEntity.fromRecipe(
             recipe = recipe,
-            ingredientSectionsJson = json.encodeToString(recipe.ingredientSections),
             instructionSectionsJson = json.encodeToString(recipe.instructionSections),
             tagsJson = json.encodeToString(recipe.tags),
             originalHtml = originalHtml
@@ -105,9 +103,6 @@ class RecipeRepository @Inject constructor(
         val failedFields = mutableListOf<String>()
         fun onError(field: String): () -> Unit = { failedFields.add(field) }
 
-        val ingredientSections: List<IngredientSection> = safeDecodeJson(
-            entity.ingredientSectionsJson, entity.name, entity.id, "ingredients", emptyList(), onError("ingredients")
-        )
         val instructionSections: List<InstructionSection> = safeDecodeJson(
             entity.instructionSectionsJson, entity.name, entity.id, "instructions", emptyList(), onError("instructions")
         )
@@ -126,7 +121,6 @@ class RecipeRepository @Inject constructor(
         }
 
         return entity.toRecipe(
-            ingredientSections = ingredientSections,
             instructionSections = instructionSections,
             tags = tags
         )
@@ -137,9 +131,6 @@ class RecipeRepository @Inject constructor(
      * Logs errors but cannot emit to the error flow.
      */
     private fun entityToRecipe(entity: RecipeEntity): Recipe {
-        val ingredientSections: List<IngredientSection> = safeDecodeJson(
-            entity.ingredientSectionsJson, entity.name, entity.id, "ingredients", emptyList()
-        )
         val instructionSections: List<InstructionSection> = safeDecodeJson(
             entity.instructionSectionsJson, entity.name, entity.id, "instructions", emptyList()
         )
@@ -148,7 +139,6 @@ class RecipeRepository @Inject constructor(
         )
 
         return entity.toRecipe(
-            ingredientSections = ingredientSections,
             instructionSections = instructionSections,
             tags = tags
         )

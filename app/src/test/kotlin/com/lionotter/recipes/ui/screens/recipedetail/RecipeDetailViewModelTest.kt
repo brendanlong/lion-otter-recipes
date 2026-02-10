@@ -4,13 +4,11 @@ import androidx.lifecycle.SavedStateHandle
 import app.cash.turbine.test
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.repository.RecipeRepository
+import com.lionotter.recipes.domain.model.Amount
 import com.lionotter.recipes.domain.model.Ingredient
-import com.lionotter.recipes.domain.model.IngredientSection
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.InstructionStep
-import com.lionotter.recipes.domain.model.Measurement
 import com.lionotter.recipes.domain.model.MeasurementPreference
-import com.lionotter.recipes.domain.model.MeasurementType
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.createInstructionIngredientKey
 import com.lionotter.recipes.domain.usecase.CalculateIngredientUsageUseCase
@@ -49,23 +47,15 @@ class RecipeDetailViewModelTest {
         id: String = "recipe-1",
         name: String = "Test Recipe",
         isFavorite: Boolean = false,
-        ingredientSections: List<IngredientSection> = emptyList(),
         instructionSections: List<InstructionSection> = emptyList()
     ) = Recipe(
         id = id,
         name = name,
         isFavorite = isFavorite,
-        ingredientSections = ingredientSections,
         instructionSections = instructionSections,
         createdAt = Instant.fromEpochMilliseconds(1000),
         updatedAt = Instant.fromEpochMilliseconds(2000)
     )
-
-    private fun volumeMeasurement(value: Double, unit: String, isDefault: Boolean = true) =
-        Measurement(value = value, unit = unit, type = MeasurementType.VOLUME, isDefault = isDefault)
-
-    private fun weightMeasurement(value: Double, unit: String, isDefault: Boolean = false) =
-        Measurement(value = value, unit = unit, type = MeasurementType.WEIGHT, isDefault = isDefault)
 
     @Before
     fun setup() {
@@ -169,11 +159,11 @@ class RecipeDetailViewModelTest {
     }
 
     @Test
-    fun `initial measurementPreference is ORIGINAL`() = runTest {
+    fun `initial measurementPreference is DEFAULT`() = runTest {
         viewModel = createViewModel()
 
         viewModel.measurementPreference.test {
-            assertEquals(MeasurementPreference.ORIGINAL, awaitItem())
+            assertEquals(MeasurementPreference.DEFAULT, awaitItem())
             cancelAndIgnoreRemainingEvents()
         }
     }
@@ -183,7 +173,7 @@ class RecipeDetailViewModelTest {
         viewModel = createViewModel()
 
         viewModel.measurementPreference.test {
-            assertEquals(MeasurementPreference.ORIGINAL, awaitItem())
+            assertEquals(MeasurementPreference.DEFAULT, awaitItem())
 
             viewModel.setMeasurementPreference(MeasurementPreference.WEIGHT)
             assertEquals(MeasurementPreference.WEIGHT, awaitItem())
@@ -334,29 +324,33 @@ class RecipeDetailViewModelTest {
     }
 
     @Test
-    fun `hasMultipleMeasurementTypes is false for empty recipe`() = runTest {
-        val recipe = createTestRecipe(ingredientSections = emptyList())
+    fun `supportsConversion is false for empty recipe`() = runTest {
+        val recipe = createTestRecipe(instructionSections = emptyList())
         every { recipeRepository.getRecipeById("recipe-1") } returns flowOf(recipe)
 
         viewModel = createViewModel()
 
-        viewModel.hasMultipleMeasurementTypes.test {
+        viewModel.supportsConversion.test {
             assertEquals(false, awaitItem())
             cancelAndIgnoreRemainingEvents()
         }
     }
 
     @Test
-    fun `hasMultipleMeasurementTypes is true when ingredient has multiple types`() = runTest {
+    fun `supportsConversion is true when ingredient has density`() = runTest {
         val recipe = createTestRecipe(
-            ingredientSections = listOf(
-                IngredientSection(
-                    ingredients = listOf(
-                        Ingredient(
-                            name = "flour",
-                            amounts = listOf(
-                                volumeMeasurement(2.0, "cups"),
-                                weightMeasurement(250.0, "grams")
+            instructionSections = listOf(
+                InstructionSection(
+                    steps = listOf(
+                        InstructionStep(
+                            stepNumber = 1,
+                            instruction = "Mix",
+                            ingredients = listOf(
+                                Ingredient(
+                                    name = "flour",
+                                    amount = Amount(value = 2.0, unit = "cup"),
+                                    density = 0.51
+                                )
                             )
                         )
                     )
@@ -368,38 +362,8 @@ class RecipeDetailViewModelTest {
         viewModel = createViewModel()
         testDispatcher.scheduler.advanceUntilIdle()
 
-        viewModel.hasMultipleMeasurementTypes.test {
+        viewModel.supportsConversion.test {
             assertEquals(true, awaitItem())
-            cancelAndIgnoreRemainingEvents()
-        }
-    }
-
-    @Test
-    fun `availableMeasurementTypes returns all types in recipe`() = runTest {
-        val recipe = createTestRecipe(
-            ingredientSections = listOf(
-                IngredientSection(
-                    ingredients = listOf(
-                        Ingredient(
-                            name = "flour",
-                            amounts = listOf(
-                                volumeMeasurement(2.0, "cups"),
-                                weightMeasurement(250.0, "grams")
-                            )
-                        )
-                    )
-                )
-            )
-        )
-        every { recipeRepository.getRecipeById("recipe-1") } returns flowOf(recipe)
-
-        viewModel = createViewModel()
-        testDispatcher.scheduler.advanceUntilIdle()
-
-        viewModel.availableMeasurementTypes.test {
-            val types = awaitItem()
-            assertTrue(types.contains(MeasurementType.VOLUME))
-            assertTrue(types.contains(MeasurementType.WEIGHT))
             cancelAndIgnoreRemainingEvents()
         }
     }

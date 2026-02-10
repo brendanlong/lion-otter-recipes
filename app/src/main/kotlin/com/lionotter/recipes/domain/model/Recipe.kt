@@ -5,42 +5,16 @@ import androidx.compose.runtime.Stable
 import com.lionotter.recipes.util.pluralize
 import com.lionotter.recipes.util.singularize
 import kotlinx.datetime.Instant
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-
-/**
- * Represents the type of measurement for an ingredient amount.
- */
-@Serializable
-enum class MeasurementType {
-    @SerialName("volume")
-    VOLUME,
-    @SerialName("weight")
-    WEIGHT,
-    @SerialName("count")
-    COUNT
-}
-
-/**
- * Represents a single measurement amount with its unit and type.
- */
-@Immutable
-@Serializable
-data class Measurement(
-    val value: Double?,
-    val unit: String,
-    val type: MeasurementType,
-    val isDefault: Boolean = false
-)
 
 /**
  * User preference for how measurements should be displayed.
  */
 @Stable
 enum class MeasurementPreference {
-    ORIGINAL,  // Show the default measurement from the recipe
-    VOLUME,    // Prefer volume measurements
-    WEIGHT     // Prefer weight measurements
+    DEFAULT,   // Show the measurement as provided by the recipe
+    VOLUME,    // Convert to volume using density
+    WEIGHT     // Convert to weight using density
 }
 
 @Immutable
@@ -54,14 +28,90 @@ data class Recipe(
     val prepTime: String? = null,
     val cookTime: String? = null,
     val totalTime: String? = null,
-    val ingredientSections: List<IngredientSection> = emptyList(),
     val instructionSections: List<InstructionSection> = emptyList(),
     val tags: List<String> = emptyList(),
     val imageUrl: String? = null,
     val createdAt: Instant,
     val updatedAt: Instant,
     val isFavorite: Boolean = false
-)
+) {
+    /**
+     * Aggregates all ingredients from all steps across all instruction sections.
+     * Combines amounts for the same ingredient name (case-insensitive),
+     * respecting the yields multiplier on each step.
+     * Returns grouped by instruction section name for display.
+     */
+    fun aggregateIngredients(): List<IngredientSection> {
+        val sectionMap = linkedMapOf<String?, MutableMap<String, AggregatedIngredient>>()
+
+        for (section in instructionSections) {
+            val sectionIngredients = sectionMap.getOrPut(section.name) { linkedMapOf() }
+            for (step in section.steps) {
+                val yields = step.yields
+                for (ingredient in step.ingredients) {
+                    addToAggregation(sectionIngredients, ingredient, yields)
+                    for (alt in ingredient.alternates) {
+                        // Don't aggregate alternates into the main map - they stay on the ingredient
+                    }
+                }
+            }
+        }
+
+        return sectionMap.map { (sectionName, ingredients) ->
+            IngredientSection(
+                name = sectionName,
+                ingredients = ingredients.values.map { it.toIngredient() }
+            )
+        }
+    }
+
+    private fun addToAggregation(
+        map: MutableMap<String, AggregatedIngredient>,
+        ingredient: Ingredient,
+        yields: Int
+    ) {
+        val key = ingredient.name.lowercase()
+        val existing = map[key]
+        if (existing != null) {
+            // Add to existing amount
+            val additionalAmount = ingredient.amount?.let { it.value?.let { v -> v * yields } }
+            existing.totalAmount = when {
+                existing.totalAmount == null || additionalAmount == null -> null
+                else -> existing.totalAmount!! + additionalAmount
+            }
+        } else {
+            val totalAmount = ingredient.amount?.let { it.value?.let { v -> v * yields } }
+            map[key] = AggregatedIngredient(
+                name = ingredient.name,
+                notes = ingredient.notes,
+                amount = ingredient.amount?.let { Amount(value = totalAmount, unit = it.unit) },
+                density = ingredient.density,
+                optional = ingredient.optional,
+                alternates = ingredient.alternates
+            )
+        }
+    }
+}
+
+private data class AggregatedIngredient(
+    val name: String,
+    val notes: String?,
+    var amount: Amount?,
+    val density: Double?,
+    val optional: Boolean,
+    val alternates: List<Ingredient>
+) {
+    var totalAmount: Double? = amount?.value
+
+    fun toIngredient(): Ingredient = Ingredient(
+        name = name,
+        notes = notes,
+        alternates = alternates,
+        amount = amount?.let { Amount(value = totalAmount, unit = it.unit) },
+        density = density,
+        optional = optional
+    )
+}
 
 @Immutable
 @Serializable
@@ -70,61 +120,49 @@ data class IngredientSection(
     val ingredients: List<Ingredient> = emptyList()
 )
 
+/**
+ * A single measurement amount with value and unit.
+ * Unit is one of: mg, g, kg, oz, lb (weight), mL, L, tsp, tbsp, cup, fl_oz, pint, quart, gal (volume),
+ * or omitted for count items.
+ */
+@Immutable
+@Serializable
+data class Amount(
+    val value: Double? = null,
+    val unit: String? = null
+)
+
 @Immutable
 @Serializable
 data class Ingredient(
     val name: String,
     val notes: String? = null,
     val alternates: List<Ingredient> = emptyList(),
-    val amounts: List<Measurement> = emptyList(),
+    val amount: Amount? = null,
+    val density: Double? = null,
     val optional: Boolean = false
 ) {
     /**
-     * Returns the measurement to display based on user preference.
-     * Falls back to original measurement if preferred type is not available.
-     */
-    fun getPreferredMeasurement(preference: MeasurementPreference): Measurement? {
-        if (amounts.isEmpty()) return null
-
-        return when (preference) {
-            MeasurementPreference.ORIGINAL -> amounts.find { it.isDefault } ?: amounts.firstOrNull()
-            MeasurementPreference.VOLUME -> amounts.find { it.type == MeasurementType.VOLUME }
-                ?: amounts.find { it.isDefault } ?: amounts.firstOrNull()
-            MeasurementPreference.WEIGHT -> amounts.find { it.type == MeasurementType.WEIGHT }
-                ?: amounts.find { it.isDefault } ?: amounts.firstOrNull()
-        }
-    }
-
-    /**
-     * Returns true if this ingredient has multiple measurement types available.
-     */
-    fun hasMultipleMeasurementTypes(): Boolean {
-        return amounts.map { it.type }.distinct().size > 1
-    }
-
-    /**
-     * Returns the available measurement types for this ingredient.
-     */
-    fun availableMeasurementTypes(): Set<MeasurementType> {
-        return amounts.map { it.type }.toSet()
-    }
-
-    /**
      * Format the ingredient for display.
      */
-    fun format(scale: Double = 1.0, preference: MeasurementPreference = MeasurementPreference.ORIGINAL): String {
-        val measurement = getPreferredMeasurement(preference)
+    fun format(
+        scale: Double = 1.0,
+        preference: MeasurementPreference = MeasurementPreference.DEFAULT
+    ): String {
+        val displayAmount = getDisplayAmount(scale, preference)
             ?: return name + (notes?.let { ", $it" } ?: "")
 
-        val value = measurement.value ?: return name + (notes?.let { ", $it" } ?: "")
-        val scaledQty = value * scale
+        val value = displayAmount.value
+            ?: return name + (notes?.let { ", $it" } ?: "")
+
         return buildString {
-            append(formatQuantity(scaledQty))
-            append(" ")
-            // Use 1 for singular (qty <= 1), 2 for plural (qty > 1)
-            val count = if (scaledQty > 1.0) 2 else 1
-            // Normalize to singular first, then pluralize based on count
-            append(measurement.unit.singularize().pluralize(count))
+            append(formatQuantity(value))
+            val unit = displayAmount.unit
+            if (unit != null) {
+                append(" ")
+                val count = if (value > 1.0) 2 else 1
+                append(unit.singularize().pluralize(count))
+            }
             append(" ")
             append(name)
             notes?.let {
@@ -134,11 +172,47 @@ data class Ingredient(
         }
     }
 
+    /**
+     * Get the amount to display based on user preference and density.
+     * Returns the converted amount, or the original if conversion isn't possible.
+     */
+    fun getDisplayAmount(
+        scale: Double = 1.0,
+        preference: MeasurementPreference = MeasurementPreference.DEFAULT
+    ): Amount? {
+        val amt = amount ?: return null
+        val scaledValue = amt.value?.let { it * scale }
+
+        if (preference == MeasurementPreference.DEFAULT || density == null || amt.unit == null) {
+            return Amount(value = scaledValue, unit = amt.unit)
+        }
+
+        val currentType = unitType(amt.unit)
+        val wantType = when (preference) {
+            MeasurementPreference.VOLUME -> UnitCategory.VOLUME
+            MeasurementPreference.WEIGHT -> UnitCategory.WEIGHT
+            MeasurementPreference.DEFAULT -> return Amount(value = scaledValue, unit = amt.unit)
+        }
+
+        // If it's a count or already the right type, return as-is
+        if (currentType == null || currentType == wantType || scaledValue == null) {
+            return Amount(value = scaledValue, unit = amt.unit)
+        }
+
+        return convertAmount(scaledValue, amt.unit, currentType, wantType, density)
+    }
+
+    /**
+     * Returns true if this ingredient supports unit conversion (has density and a convertible unit).
+     */
+    fun supportsConversion(): Boolean {
+        return density != null && amount?.unit != null && unitType(amount.unit) != null
+    }
+
     private fun formatQuantity(qty: Double): String {
         return if (qty == qty.toLong().toDouble()) {
             qty.toLong().toString()
         } else {
-            // Convert to fractions for common values
             val fractions = mapOf(
                 0.25 to "1/4",
                 0.33 to "1/3",
@@ -176,15 +250,133 @@ data class InstructionSection(
 data class InstructionStep(
     val stepNumber: Int,
     val instruction: String,
-    val ingredientReferences: List<IngredientReference> = emptyList(),
     val ingredients: List<Ingredient> = emptyList(),
+    val yields: Int = 1,
     val optional: Boolean = false
 )
 
-@Immutable
-@Serializable
-data class IngredientReference(
-    val ingredientName: String,
-    val quantity: Double? = null,
-    val unit: String? = null
+// --- Unit conversion utilities ---
+
+enum class UnitCategory { WEIGHT, VOLUME }
+
+private val WEIGHT_UNITS = setOf("mg", "g", "kg", "oz", "lb")
+private val VOLUME_UNITS = setOf("mL", "L", "tsp", "tbsp", "cup", "fl_oz", "pint", "quart", "gal")
+
+// Conversion factors to base units (grams for weight, mL for volume)
+private val TO_GRAMS = mapOf(
+    "mg" to 0.001,
+    "g" to 1.0,
+    "kg" to 1000.0,
+    "oz" to 28.3495,
+    "lb" to 453.592
 )
+
+private val TO_ML = mapOf(
+    "mL" to 1.0,
+    "L" to 1000.0,
+    "tsp" to 4.929,
+    "tbsp" to 14.787,
+    "cup" to 236.588,
+    "fl_oz" to 29.574,
+    "pint" to 473.176,
+    "quart" to 946.353,
+    "gal" to 3785.41
+)
+
+internal fun unitType(unit: String): UnitCategory? {
+    // Case-insensitive matching for robustness
+    val lower = unit.lowercase()
+    return when {
+        WEIGHT_UNITS.any { it.lowercase() == lower } -> UnitCategory.WEIGHT
+        VOLUME_UNITS.any { it.lowercase() == lower } -> UnitCategory.VOLUME
+        else -> null
+    }
+}
+
+/**
+ * Convert an amount between weight and volume using density (g/mL).
+ * Returns the best unit for the result (e.g. uses cups instead of mL for US cooking).
+ */
+private fun convertAmount(
+    value: Double,
+    fromUnit: String,
+    fromType: UnitCategory,
+    toType: UnitCategory,
+    density: Double
+): Amount {
+    return when {
+        fromType == UnitCategory.VOLUME && toType == UnitCategory.WEIGHT -> {
+            // volume → mL → grams (via density) → best weight unit
+            val mL = value * (TO_ML[fromUnit] ?: return Amount(value, fromUnit))
+            val grams = mL * density
+            bestUnit(grams, TO_GRAMS)
+        }
+        fromType == UnitCategory.WEIGHT && toType == UnitCategory.VOLUME -> {
+            // weight → grams → mL (via density) → best volume unit
+            val grams = value * (TO_GRAMS[fromUnit] ?: return Amount(value, fromUnit))
+            val mL = grams / density
+            bestUnit(mL, TO_ML)
+        }
+        else -> Amount(value, fromUnit)
+    }
+}
+
+/**
+ * Find the best unit for a given amount in base units (g or mL).
+ * Prefers common cooking units and values between 0.25 and 999.
+ */
+private fun bestUnit(baseValue: Double, conversions: Map<String, Double>): Amount {
+    // Preferred order: for cooking, prefer common units
+    val preferred = if (conversions === TO_ML) {
+        listOf("tsp", "tbsp", "cup", "fl_oz", "pint", "quart", "mL", "L", "gal")
+    } else {
+        listOf("g", "oz", "lb", "kg", "mg")
+    }
+
+    var bestUnit = preferred.first()
+    var bestValue = baseValue / conversions[bestUnit]!!
+    var bestScore = unitScore(bestValue)
+
+    for (unit in preferred) {
+        val factor = conversions[unit] ?: continue
+        val converted = baseValue / factor
+        val score = unitScore(converted)
+        if (score > bestScore) {
+            bestScore = score
+            bestUnit = unit
+            bestValue = converted
+        }
+    }
+
+    // Round to reasonable precision
+    val rounded = kotlin.math.round(bestValue * 100) / 100
+    return Amount(rounded, bestUnit)
+}
+
+/**
+ * Score how "nice" a value is for display. Higher is better.
+ * Prefers values like 1, 2, 0.5, 0.25 in a reasonable range.
+ */
+private fun unitScore(value: Double): Double {
+    if (value <= 0) return -1000.0
+    if (value > 999) return -100.0
+    if (value < 0.125) return -50.0
+
+    // Prefer values in common cooking range (0.25 to 16)
+    val rangeScore = when {
+        value in 0.25..16.0 -> 10.0
+        value in 0.125..100.0 -> 5.0
+        else -> 0.0
+    }
+
+    // Prefer "round" values (whole, half, quarter, third)
+    val roundness = when {
+        value == kotlin.math.round(value) -> 5.0
+        kotlin.math.abs(value * 2 - kotlin.math.round(value * 2)) < 0.01 -> 4.0
+        kotlin.math.abs(value * 4 - kotlin.math.round(value * 4)) < 0.01 -> 3.0
+        kotlin.math.abs(value * 3 - kotlin.math.round(value * 3)) < 0.01 -> 2.0
+        else -> 0.0
+    }
+
+    return rangeScore + roundness
+}
