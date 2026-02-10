@@ -4,6 +4,7 @@ import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.WebScraperService
 import com.lionotter.recipes.domain.model.Recipe
 import kotlinx.coroutines.flow.first
+import org.jsoup.Jsoup
 import javax.inject.Inject
 
 class ImportRecipeUseCase @Inject constructor(
@@ -19,6 +20,7 @@ class ImportRecipeUseCase @Inject constructor(
 
     sealed class ImportProgress {
         object FetchingPage : ImportProgress()
+        data class PageMetadataAvailable(val title: String?, val imageUrl: String?) : ImportProgress()
         object ParsingRecipe : ImportProgress()
         data class RecipeNameAvailable(val name: String) : ImportProgress()
         object SavingRecipe : ImportProgress()
@@ -42,6 +44,12 @@ class ImportRecipeUseCase @Inject constructor(
             return ImportResult.Error("Failed to fetch page: ${pageResult.exceptionOrNull()?.message}")
         }
         val page = pageResult.getOrThrow()
+
+        // Report page metadata (title + image) before expensive AI parsing
+        onProgress(ImportProgress.PageMetadataAvailable(
+            title = extractPageTitle(page.originalHtml),
+            imageUrl = page.imageUrl
+        ))
 
         // Use ParseHtmlUseCase to parse the HTML content
         val parseResult = parseHtmlUseCase.execute(
@@ -81,6 +89,18 @@ class ImportRecipeUseCase @Inject constructor(
             ParseHtmlUseCase.ParseResult.NoApiKey -> {
                 ImportResult.NoApiKey
             }
+        }
+    }
+
+    private fun extractPageTitle(html: String): String? {
+        return try {
+            val doc = Jsoup.parse(html)
+            // Try og:title first, then regular title tag
+            doc.selectFirst("meta[property=og:title]")?.attr("content")
+                ?.takeIf { it.isNotBlank() }
+                ?: doc.title().takeIf { it.isNotBlank() }
+        } catch (e: Exception) {
+            null
         }
     }
 }

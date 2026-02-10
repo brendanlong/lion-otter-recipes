@@ -152,4 +152,8 @@ class RecipeListViewModel @Inject constructor(
             }
         }
     }
+
+    fun cancelImport(importId: String) {
+        inProgressRecipeManager.cancelImport(importId)
+    }
 }

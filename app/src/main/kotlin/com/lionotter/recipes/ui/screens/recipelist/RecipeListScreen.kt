@@ -43,10 +43,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
 import com.lionotter.recipes.data.repository.RepositoryError
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.ui.components.CancelImportConfirmationDialog
 import com.lionotter.recipes.ui.components.DeleteConfirmationDialog
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.screens.recipelist.components.InProgressRecipeCard
 import com.lionotter.recipes.ui.screens.recipelist.components.SwipeableRecipeCard
+import com.lionotter.recipes.ui.state.InProgressRecipe
 import com.lionotter.recipes.ui.state.RecipeListItem
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -78,6 +80,9 @@ fun RecipeListScreen(
     // State for delete confirmation dialog
     var recipeToDelete by remember { mutableStateOf<Recipe?>(null) }
 
+    // State for cancel import confirmation dialog
+    var importToCancel by remember { mutableStateOf<InProgressRecipe?>(null) }
+
     // Delete confirmation dialog
     recipeToDelete?.let { recipe ->
         DeleteConfirmationDialog(
@@ -87,6 +92,18 @@ fun RecipeListScreen(
                 recipeToDelete = null
             },
             onDismiss = { recipeToDelete = null }
+        )
+    }
+
+    // Cancel import confirmation dialog
+    importToCancel?.let { importRecipe ->
+        CancelImportConfirmationDialog(
+            recipeName = importRecipe.name,
+            onConfirm = {
+                viewModel.cancelImport(importRecipe.id)
+                importToCancel = null
+            },
+            onDismiss = { importToCancel = null }
         )
     }
 
@@ -198,7 +215,8 @@ fun RecipeListScreen(
                             }
                             is RecipeListItem.InProgress -> {
                                 InProgressRecipeCard(
-                                    name = item.name
+                                    inProgressRecipe = item.inProgressRecipe,
+                                    onCancelRequest = { importToCancel = item.inProgressRecipe }
                                 )
                             }
                         }

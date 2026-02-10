@@ -211,7 +211,7 @@ class AddRecipeViewModel @Inject constructor(
 
         // Generate ID for tracking this import in the recipe list
         currentImportId = UUID.randomUUID().toString()
-        inProgressRecipeManager.addInProgressRecipe(currentImportId!!, "Importing recipe...")
+        inProgressRecipeManager.addInProgressRecipe(currentImportId!!, "Importing recipe...", url = currentUrl)
 
         // Enqueue the work with a tag for tracking multiple concurrent imports
         val workRequest = OneTimeWorkRequestBuilder<RecipeImportWorker>()

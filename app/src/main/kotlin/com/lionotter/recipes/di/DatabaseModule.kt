@@ -3,6 +3,7 @@ package com.lionotter.recipes.di
 import android.content.Context
 import androidx.room.Room
 import com.lionotter.recipes.data.local.ImportDebugDao
+import com.lionotter.recipes.data.local.PendingImportDao
 import com.lionotter.recipes.data.local.RecipeDao
 import com.lionotter.recipes.data.local.RecipeDatabase
 import dagger.Module
@@ -26,7 +27,12 @@ object DatabaseModule {
             RecipeDatabase::class.java,
             "recipes.db"
         )
-            .addMigrations(RecipeDatabase.MIGRATION_1_2, RecipeDatabase.MIGRATION_2_3, RecipeDatabase.MIGRATION_3_4)
+            .addMigrations(
+                RecipeDatabase.MIGRATION_1_2,
+                RecipeDatabase.MIGRATION_2_3,
+                RecipeDatabase.MIGRATION_3_4,
+                RecipeDatabase.MIGRATION_4_5
+            )
             .build()
     }
 
@@ -40,5 +46,11 @@ object DatabaseModule {
     @Singleton
     fun provideImportDebugDao(database: RecipeDatabase): ImportDebugDao {
         return database.importDebugDao()
+    }
+
+    @Provides
+    @Singleton
+    fun providePendingImportDao(database: RecipeDatabase): PendingImportDao {
+        return database.pendingImportDao()
     }
 }

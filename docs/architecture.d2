@@ -101,6 +101,7 @@ app: {
       progress_card: ProgressCard
       status_card: StatusCard
       delete_dialog: DeleteConfirmationDialog
+      cancel_import_dialog: CancelImportConfirmationDialog
     }
 
     screens -> components: uses
@@ -141,7 +142,7 @@ app: {
 
       in_progress_mgr: {
         label: InProgressRecipeManager
-        tooltip: "Tracks recipes currently being imported. Observes WorkManager directly to auto-clean orphaned entries on completion/failure/cancellation, regardless of which screens are active."
+        tooltip: "Database-backed import queue. Tracks recipes currently being imported via PendingImportEntity in Room. Observes WorkManager to update import status (metadata fetch, AI parsing, saving) and auto-clean completed entries. Supports canceling individual imports. Persists across app restarts."
       }
     }
 
@@ -153,9 +154,10 @@ app: {
     screens.settings -> viewmodels.zip_vm: backup/restore
     screens.import_debug_list -> viewmodels.import_debug_list_vm
     screens.import_debug_detail -> viewmodels.import_debug_detail_vm
-    viewmodels.list_vm -> state.in_progress_mgr: observes
+    viewmodels.list_vm -> state.in_progress_mgr: observes, cancel
     viewmodels.add_vm -> state.in_progress_mgr: adds entries
     state.in_progress_mgr -> background.worker: observes status
+    state.in_progress_mgr -> data.repository.pending_import_repo: CRUD
   }
 
   # Background Processing Layer
@@ -351,6 +353,10 @@ app: {
         label: ImportDebugRepository
         tooltip: "CRUD operations for import debug entries. Supports listing all, getting by ID, saving, and deleting all entries."
       }
+      pending_import_repo: {
+        label: PendingImportRepository
+        tooltip: "Database-backed import queue. CRUD operations for pending recipe imports. Tracks URL, page metadata (title, image), import status, and WorkManager job ID."
+      }
     }
 
     local: {
@@ -378,6 +384,11 @@ app: {
       dao: RecipeDao
       entity: RecipeEntity
       import_debug_dao: ImportDebugDao
+      pending_import_dao: PendingImportDao
+      pending_import_entity: {
+        label: PendingImportEntity
+        tooltip: "Room entity for the import queue: id, url, name, imageUrl, status, workManagerId, errorMessage, createdAt"
+      }
       import_debug_entity: {
         label: ImportDebugEntity
         tooltip: "Room entity storing import debug data: source URL, original/cleaned HTML, AI output JSON, token counts, model, error info, linked recipe ID"
@@ -391,6 +402,8 @@ app: {
       entity -> room
       import_debug_dao -> room
       import_debug_entity -> room
+      pending_import_dao -> room
+      pending_import_entity -> room
       settings -> datastore: non-sensitive settings
       settings -> encrypted_prefs: API key
     }
@@ -434,6 +447,7 @@ app: {
     repository.repo -> local.dao
     repository.repo -> local.settings
     repository.import_debug_repo -> local.import_debug_dao
+    repository.pending_import_repo -> local.pending_import_dao
   }
 
   # Performance
@@ -568,7 +582,7 @@ legend: {
   pap1 -> pap2 -> pap3 -> pap4 -> pap5
 
   note: {
-    label: "Import runs in background via WorkManager. Supports multiple concurrent imports. Google Drive sync, ZIP export/import, and Paprika import run in background with progress notifications. Sync runs on app startup and every 6 hours when enabled. Paprika import can be cancelled mid-way, keeping already-imported recipes. ZIP export uses the same folder format as sync via RecipeSerializer."
+    label: "Import runs in background via WorkManager. Import queue is database-backed (PendingImportEntity) and persists across app restarts. Supports multiple concurrent imports with individual cancellation from the recipe list via swipe-to-dismiss. Page metadata (title, image) is fetched cheaply before AI parsing begins. Google Drive sync, ZIP export/import, and Paprika import run in background with progress notifications. Sync runs on app startup and every 6 hours when enabled. Paprika import can be cancelled mid-way, keeping already-imported recipes. ZIP export uses the same folder format as sync via RecipeSerializer."
     style: {
       font-size: 12
       italic: true

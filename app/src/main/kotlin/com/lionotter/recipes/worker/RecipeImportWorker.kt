@@ -27,6 +27,8 @@ class RecipeImportWorker @AssistedInject constructor(
         const val KEY_IMPORT_ID = "import_id"
         const val KEY_RECIPE_ID = "recipe_id"
         const val KEY_RECIPE_NAME = "recipe_name"
+        const val KEY_PAGE_TITLE = "page_title"
+        const val KEY_IMAGE_URL = "image_url"
         const val KEY_ERROR_MESSAGE = "error_message"
         const val KEY_PROGRESS = "progress"
         const val KEY_RESULT_TYPE = "result_type"
@@ -36,6 +38,7 @@ class RecipeImportWorker @AssistedInject constructor(
         const val RESULT_NO_API_KEY = "no_api_key"
 
         const val PROGRESS_FETCHING = "fetching"
+        const val PROGRESS_METADATA_AVAILABLE = "metadata_available"
         const val PROGRESS_PARSING = "parsing"
         const val PROGRESS_SAVING = "saving"
 
@@ -70,6 +73,15 @@ class RecipeImportWorker @AssistedInject constructor(
                             KEY_PROGRESS to PROGRESS_FETCHING
                         ))
                         "Fetching recipe page..."
+                    }
+                    is ImportRecipeUseCase.ImportProgress.PageMetadataAvailable -> {
+                        setProgress(workDataOf(
+                            KEY_IMPORT_ID to importId,
+                            KEY_PROGRESS to PROGRESS_METADATA_AVAILABLE,
+                            KEY_PAGE_TITLE to progress.title,
+                            KEY_IMAGE_URL to progress.imageUrl
+                        ))
+                        "Analyzing recipe..."
                     }
                     is ImportRecipeUseCase.ImportProgress.ParsingRecipe -> {
                         setProgress(workDataOf(
