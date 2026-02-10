@@ -183,6 +183,7 @@ For successful parsing, return:
             "stepNumber": 3,
             "instruction": "Add wet ingredients and mix until combined.",
             "ingredients": [
+              { "name": "butter", "amount": { "value": 8.0, "unit": "oz" }, "density": 0.96, "notes": "melted" },
               { "name": "eggs", "amount": { "value": 3.0 }, "notes": "room temperature" },
               { "name": "milk", "amount": { "value": 1.0, "unit": "cup" }, "density": 0.96 },
               {
@@ -225,10 +226,10 @@ Return an error response when:
 INGREDIENT FORMAT:
 - Each ingredient has a single "amount" object with "value" (decimal number) and "unit" (string).
 - For countable items (eggs, lemons, cloves), omit the "unit" field — just include "value".
-- Include a "density" field (g/mL) so the app can convert between volume and weight.
-- For countable items, omit "density".
+- ALWAYS include a "density" field (g/mL) for ANY ingredient measured by weight or volume. The app uses density to let users convert between weight and volume, so density is required regardless of which unit the recipe uses. For example, "8 oz butter" still needs "density": 0.96 so the app can show the equivalent volume.
+- Only omit "density" for countable items (no unit) or ingredients with no meaningful density (e.g., "a pinch of saffron threads").
 - If the recipe provides both weight and volume, prefer weight.
-- Estimate density for uncommon ingredients — cooking precision doesn't require exactness.
+- Use the density reference table below. For ingredients not listed, estimate a reasonable density — cooking precision doesn't require exactness.
 
 SUPPORTED UNITS (use exactly these strings):
 - Weight: mg, g, kg, oz, lb
