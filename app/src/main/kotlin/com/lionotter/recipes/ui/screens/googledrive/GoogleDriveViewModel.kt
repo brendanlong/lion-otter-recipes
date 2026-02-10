@@ -8,7 +8,8 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import com.google.android.gms.auth.api.signin.GoogleSignInAccount
+import com.google.android.gms.auth.api.identity.AuthorizationResult
+import com.google.android.gms.common.api.ApiException
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.GoogleDriveService
 import com.lionotter.recipes.ui.screens.settings.components.FolderPickerState
@@ -59,6 +60,13 @@ class GoogleDriveViewModel @Inject constructor(
     private val _showFolderPicker = MutableStateFlow(false)
     val showFolderPicker: StateFlow<Boolean> = _showFolderPicker.asStateFlow()
 
+    /**
+     * Emitted when the authorization flow requires user consent via a PendingIntent.
+     * The UI should launch this intent and pass the result back via [handleAuthorizationIntent].
+     */
+    private val _authorizationPendingIntent = MutableStateFlow<android.app.PendingIntent?>(null)
+    val authorizationPendingIntent: StateFlow<android.app.PendingIntent?> = _authorizationPendingIntent.asStateFlow()
+
     private var currentWorkId: UUID? = null
 
     init {
@@ -69,8 +77,7 @@ class GoogleDriveViewModel @Inject constructor(
     private fun checkSignInStatus() {
         viewModelScope.launch {
             if (googleDriveService.isSignedIn()) {
-                val email = googleDriveService.getSignedInEmail()
-                _uiState.value = GoogleDriveUiState.SignedIn(email ?: "Unknown")
+                _uiState.value = GoogleDriveUiState.SignedIn
             } else {
                 _uiState.value = GoogleDriveUiState.SignedOut
             }
@@ -85,24 +92,69 @@ class GoogleDriveViewModel @Inject constructor(
         checkSignInStatus()
     }
 
-    fun getSignInIntent(): Intent {
-        return googleDriveService.getSignInIntent()
+    /**
+     * Initiate the sign-in/authorization flow.
+     * If consent is needed, emits a PendingIntent via [authorizationPendingIntent].
+     */
+    fun signIn() {
+        viewModelScope.launch {
+            try {
+                val result = googleDriveService.authorize()
+                if (result.hasResolution()) {
+                    // User needs to grant consent
+                    _authorizationPendingIntent.value = result.pendingIntent
+                } else {
+                    // Already authorized
+                    handleAuthorizationSuccess(result)
+                }
+            } catch (e: Exception) {
+                val message = when (e) {
+                    is ApiException -> when (e.statusCode) {
+                        7 -> "Network error. Please check your internet connection."
+                        else -> "Sign in failed (code ${e.statusCode})"
+                    }
+                    else -> "Sign in failed: ${e.message}"
+                }
+                _uiState.value = GoogleDriveUiState.Error(message)
+            }
+        }
     }
 
-    fun handleSignInResult(account: GoogleSignInAccount?) {
+    /**
+     * Handle the result from the authorization consent intent.
+     */
+    fun handleAuthorizationIntent(data: Intent?) {
+        _authorizationPendingIntent.value = null
         viewModelScope.launch {
-            val success = googleDriveService.handleSignInResult(account)
-            if (success) {
-                val email = googleDriveService.getSignedInEmail()
-                _uiState.value = GoogleDriveUiState.SignedIn(email ?: "Unknown")
-            } else {
-                _uiState.value = GoogleDriveUiState.Error("Sign in failed - account was null")
+            try {
+                val result = googleDriveService.getAuthorizationResultFromIntent(data)
+                handleAuthorizationSuccess(result)
+            } catch (e: ApiException) {
+                handleSignInError("Sign in failed (code ${e.statusCode})")
+            } catch (e: Exception) {
+                handleSignInError("Sign in failed: ${e.message}")
             }
+        }
+    }
+
+    private suspend fun handleAuthorizationSuccess(result: AuthorizationResult) {
+        val success = googleDriveService.handleAuthorizationResult(result)
+        if (success) {
+            _uiState.value = GoogleDriveUiState.SignedIn
+        } else {
+            _uiState.value = GoogleDriveUiState.Error("Sign in failed - could not initialize Drive access")
         }
     }
 
     fun handleSignInError(errorMessage: String) {
         _uiState.value = GoogleDriveUiState.Error(errorMessage)
+    }
+
+    /**
+     * Called after the authorization PendingIntent has been consumed by the UI.
+     */
+    fun clearAuthorizationPendingIntent() {
+        _authorizationPendingIntent.value = null
     }
 
     fun signOut() {
@@ -296,7 +348,7 @@ class GoogleDriveViewModel @Inject constructor(
 sealed class GoogleDriveUiState {
     object Loading : GoogleDriveUiState()
     object SignedOut : GoogleDriveUiState()
-    data class SignedIn(val email: String) : GoogleDriveUiState()
+    object SignedIn : GoogleDriveUiState()
     data class Error(val message: String) : GoogleDriveUiState()
 }
 

@@ -149,6 +149,9 @@ dependencies {
 
     // Google Drive
     implementation(libs.play.services.auth)
+    implementation(libs.credentials)
+    implementation(libs.credentials.play.services.auth)
+    implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.google.api.client)
     implementation(libs.google.drive.api) {
         exclude(group = "org.apache.httpcomponents")

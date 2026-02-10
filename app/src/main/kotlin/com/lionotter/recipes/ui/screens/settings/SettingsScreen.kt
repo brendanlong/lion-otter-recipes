@@ -1,6 +1,7 @@
 package com.lionotter.recipes.ui.screens.settings
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -22,8 +23,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.common.api.ApiException
 import com.lionotter.recipes.R
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.screens.googledrive.GoogleDriveViewModel
@@ -60,6 +59,7 @@ fun SettingsScreen(
     val operationState by googleDriveViewModel.operationState.collectAsStateWithLifecycle()
     val showFolderPicker by googleDriveViewModel.showFolderPicker.collectAsStateWithLifecycle()
     val folderPickerState by googleDriveViewModel.folderPickerState.collectAsStateWithLifecycle()
+    val authPendingIntent by googleDriveViewModel.authorizationPendingIntent.collectAsStateWithLifecycle()
     val zipOperationState by zipViewModel.operationState.collectAsStateWithLifecycle()
     val volumeUnitSystem by viewModel.volumeUnitSystem.collectAsStateWithLifecycle()
     val weightUnitSystem by viewModel.weightUnitSystem.collectAsStateWithLifecycle()
@@ -68,24 +68,20 @@ fun SettingsScreen(
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // Google Sign-In launcher - always try to get the account, don't check result code
-    val signInLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
+    // Authorization consent launcher - handles the PendingIntent from AuthorizationClient
+    val authorizationLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
-        val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
-        try {
-            val account = task.getResult(ApiException::class.java)
-            googleDriveViewModel.handleSignInResult(account)
-        } catch (e: ApiException) {
-            // Provide helpful error messages for common error codes
-            val errorMessage = when (e.statusCode) {
-                10 -> context.getString(R.string.oauth_not_configured)
-                12501 -> context.getString(R.string.sign_in_cancelled)
-                12502 -> context.getString(R.string.sign_in_in_progress)
-                7 -> context.getString(R.string.network_error)
-                else -> context.getString(R.string.sign_in_failed, e.statusCode)
-            }
-            googleDriveViewModel.handleSignInError(errorMessage)
+        googleDriveViewModel.handleAuthorizationIntent(result.data)
+    }
+
+    // Launch authorization intent when the ViewModel signals it
+    LaunchedEffect(authPendingIntent) {
+        authPendingIntent?.let { pendingIntent ->
+            googleDriveViewModel.clearAuthorizationPendingIntent()
+            authorizationLauncher.launch(
+                IntentSenderRequest.Builder(pendingIntent.intentSender).build()
+            )
         }
     }
 
@@ -224,9 +220,7 @@ fun SettingsScreen(
                 syncFolderName = syncFolderName,
                 lastSyncTimestamp = lastSyncTimestamp,
                 operationState = operationState,
-                onSignInClick = {
-                    signInLauncher.launch(googleDriveViewModel.getSignInIntent())
-                },
+                onSignInClick = googleDriveViewModel::signIn,
                 onSignOutClick = googleDriveViewModel::signOut,
                 onEnableSyncClick = googleDriveViewModel::enableSync,
                 onDisableSyncClick = googleDriveViewModel::disableSync,
