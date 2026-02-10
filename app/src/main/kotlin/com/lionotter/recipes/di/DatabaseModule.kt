@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.lionotter.recipes.data.local.ImportDebugDao
 import com.lionotter.recipes.data.local.MealPlanDao
+import com.lionotter.recipes.data.local.PendingDeleteDao
 import com.lionotter.recipes.data.local.PendingImportDao
 import com.lionotter.recipes.data.local.RecipeDao
 import com.lionotter.recipes.data.local.RecipeDatabase
@@ -33,7 +34,8 @@ object DatabaseModule {
                 RecipeDatabase.MIGRATION_2_3,
                 RecipeDatabase.MIGRATION_3_4,
                 RecipeDatabase.MIGRATION_4_5,
-                RecipeDatabase.MIGRATION_5_6
+                RecipeDatabase.MIGRATION_5_6,
+                RecipeDatabase.MIGRATION_6_7
             )
             .build()
     }
@@ -60,5 +62,11 @@ object DatabaseModule {
     @Singleton
     fun provideMealPlanDao(database: RecipeDatabase): MealPlanDao {
         return database.mealPlanDao()
+    }
+
+    @Provides
+    @Singleton
+    fun providePendingDeleteDao(database: RecipeDatabase): PendingDeleteDao {
+        return database.pendingDeleteDao()
     }
 }

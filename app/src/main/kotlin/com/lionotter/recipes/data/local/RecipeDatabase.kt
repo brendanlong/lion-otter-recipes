@@ -6,8 +6,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [RecipeEntity::class, ImportDebugEntity::class, PendingImportEntity::class, MealPlanEntity::class],
-    version = 6,
+    entities = [RecipeEntity::class, ImportDebugEntity::class, PendingImportEntity::class, MealPlanEntity::class, PendingDeleteEntity::class],
+    version = 7,
     exportSchema = true
 )
 abstract class RecipeDatabase : RoomDatabase() {
@@ -15,6 +15,7 @@ abstract class RecipeDatabase : RoomDatabase() {
     abstract fun importDebugDao(): ImportDebugDao
     abstract fun pendingImportDao(): PendingImportDao
     abstract fun mealPlanDao(): MealPlanDao
+    abstract fun pendingDeleteDao(): PendingDeleteDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -85,6 +86,18 @@ abstract class RecipeDatabase : RoomDatabase() {
                         createdAt INTEGER NOT NULL,
                         updatedAt INTEGER NOT NULL,
                         deleted INTEGER NOT NULL DEFAULT 0
+                    )
+                """.trimIndent())
+            }
+        }
+
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS pending_deletes (
+                        recipeId TEXT NOT NULL PRIMARY KEY,
+                        recipeName TEXT NOT NULL,
+                        deletedAt INTEGER NOT NULL
                     )
                 """.trimIndent())
             }

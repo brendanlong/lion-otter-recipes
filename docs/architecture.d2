@@ -208,7 +208,7 @@ app: {
       }
       sync_worker: {
         label: GoogleDriveSyncWorker
-        tooltip: "Bidirectional sync with Google Drive. Runs on app startup and periodically (every 6 hours). Uploads new local recipes, downloads new remote recipes, updates changed recipes using latest-timestamp-wins conflict resolution."
+        tooltip: "Bidirectional sync with Google Drive. Runs on app startup and periodically (every 6 hours). Uploads new local recipes, downloads new remote recipes, updates changed recipes using latest-timestamp-wins conflict resolution, deletes remote recipes that were deleted locally (tracked via pending_deletes table)."
       }
       zip_export_worker: {
         label: ZipExportWorker
@@ -275,7 +275,7 @@ app: {
       }
       sync_drive: {
         label: SyncToGoogleDriveUseCase
-        tooltip: "Bidirectional sync: compares local vs remote recipes, uploads new, downloads new, updates changed (latest timestamp wins). Runs via WorkManager on startup and periodically."
+        tooltip: "Bidirectional sync: compares local vs remote recipes, uploads new, downloads new, updates changed (latest timestamp wins), deletes remotely when locally deleted (via pending_deletes queue). Runs via WorkManager on startup and periodically."
       }
       export_zip: {
         label: ExportToZipUseCase
@@ -438,6 +438,11 @@ app: {
         label: PendingImportEntity
         tooltip: "Room entity for the import queue: id, url, name, imageUrl, status, workManagerId, errorMessage, createdAt"
       }
+      pending_delete_dao: PendingDeleteDao
+      pending_delete_entity: {
+        label: PendingDeleteEntity
+        tooltip: "Room entity tracking locally-deleted recipes that need to be deleted from Google Drive on next sync: recipeId, recipeName, deletedAt"
+      }
       import_debug_entity: {
         label: ImportDebugEntity
         tooltip: "Room entity storing import debug data: source URL, original/cleaned HTML, AI output JSON, token counts, model, error info, linked recipe ID"
@@ -460,6 +465,8 @@ app: {
       pending_import_entity -> room
       meal_plan_dao -> room
       meal_plan_entity -> room
+      pending_delete_dao -> room
+      pending_delete_entity -> room
       settings -> datastore: non-sensitive settings
       settings -> encrypted_prefs: API key
     }
@@ -501,6 +508,7 @@ app: {
     }
 
     repository.repo -> local.dao
+    repository.repo -> local.pending_delete_dao: pending deletes
     repository.repo -> local.settings
     repository.import_debug_repo -> local.import_debug_dao
     repository.pending_import_repo -> local.pending_import_dao
@@ -617,8 +625,9 @@ legend: {
   drive1: "User selects existing folder or creates new one via folder picker dialog"
   drive2: "Bidirectional sync on startup + every 6 hours (latest timestamp wins)"
   drive3: "Uploads new local recipes, downloads new remote recipes, updates changed"
+  drive4: "Locally deleted recipes tracked in pending_deletes table, deleted from Drive on next sync"
 
-  drive1 -> drive2 -> drive3
+  drive1 -> drive2 -> drive3 -> drive4
 
   zip_flow: {
     label: "ZIP Export/Import Flow"
@@ -664,7 +673,7 @@ legend: {
   share1 -> share2 -> share3 -> share4
 
   note: {
-    label: "Import runs in background via WorkManager. Import queue is database-backed (PendingImportEntity) and persists across app restarts. Supports multiple concurrent imports with individual cancellation from the recipe list via swipe-to-dismiss. Page metadata (title, image) is fetched cheaply before AI parsing begins. Google Drive sync, ZIP export/import, and Paprika import run in background with progress notifications. Sync runs on app startup and every 6 hours when enabled. Paprika import can be cancelled mid-way, keeping already-imported recipes. ZIP export uses the same folder format as sync via RecipeSerializer."
+    label: "Import runs in background via WorkManager. Import queue is database-backed (PendingImportEntity) and persists across app restarts. Supports multiple concurrent imports with individual cancellation from the recipe list via swipe-to-dismiss. Page metadata (title, image) is fetched cheaply before AI parsing begins. Google Drive sync, ZIP export/import, and Paprika import run in background with progress notifications. Sync runs on app startup and every 6 hours when enabled. Locally deleted recipes are tracked in the pending_deletes table and deleted from Google Drive on the next sync. Paprika import can be cancelled mid-way, keeping already-imported recipes. ZIP export uses the same folder format as sync via RecipeSerializer."
     style: {
       font-size: 12
       italic: true

@@ -2,6 +2,8 @@ package com.lionotter.recipes.data.repository
 
 import android.util.Log
 import app.cash.turbine.test
+import com.lionotter.recipes.data.local.PendingDeleteDao
+import com.lionotter.recipes.data.local.PendingDeleteEntity
 import com.lionotter.recipes.data.local.RecipeDao
 import com.lionotter.recipes.data.local.RecipeEntity
 import com.lionotter.recipes.domain.model.Amount
@@ -33,6 +35,7 @@ import org.junit.Test
 class RecipeRepositoryTest {
 
     private lateinit var recipeDao: RecipeDao
+    private lateinit var pendingDeleteDao: PendingDeleteDao
     private lateinit var json: Json
     private lateinit var recipeRepository: RecipeRepository
 
@@ -46,8 +49,9 @@ class RecipeRepositoryTest {
         every { Log.w(any(), any<String>(), any()) } returns 0
 
         recipeDao = mockk()
+        pendingDeleteDao = mockk()
         json = Json { ignoreUnknownKeys = true }
-        recipeRepository = RecipeRepository(recipeDao, json)
+        recipeRepository = RecipeRepository(recipeDao, pendingDeleteDao, json)
     }
 
     @After
@@ -296,11 +300,26 @@ class RecipeRepositoryTest {
     }
 
     @Test
-    fun `deleteRecipe calls dao deleteRecipeById`() = runTest {
+    fun `deleteRecipe records pending delete and calls dao deleteRecipeById`() = runTest {
+        val entity = createTestEntity(id = "recipe-1", name = "Test Recipe")
+        coEvery { recipeDao.getRecipeById("recipe-1") } returns entity
+        coEvery { pendingDeleteDao.insertPendingDelete(any()) } just runs
         coEvery { recipeDao.deleteRecipeById("recipe-1") } just runs
 
         recipeRepository.deleteRecipe("recipe-1")
 
+        coVerify { pendingDeleteDao.insertPendingDelete(match { it.recipeId == "recipe-1" && it.recipeName == "Test Recipe" }) }
+        coVerify { recipeDao.deleteRecipeById("recipe-1") }
+    }
+
+    @Test
+    fun `deleteRecipe still deletes when recipe not found in db`() = runTest {
+        coEvery { recipeDao.getRecipeById("recipe-1") } returns null
+        coEvery { recipeDao.deleteRecipeById("recipe-1") } just runs
+
+        recipeRepository.deleteRecipe("recipe-1")
+
+        coVerify(exactly = 0) { pendingDeleteDao.insertPendingDelete(any()) }
         coVerify { recipeDao.deleteRecipeById("recipe-1") }
     }
 

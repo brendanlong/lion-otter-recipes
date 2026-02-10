@@ -111,6 +111,10 @@ class SyncToGoogleDriveUseCase @Inject constructor(
         val localRecipes = recipeRepository.getAllRecipes().first()
         val localRecipeMap = localRecipes.associateBy { it.id }
 
+        // Get pending deletes (recipes deleted locally that need to be deleted from Drive)
+        val pendingDeletes = recipeRepository.getPendingDeletes()
+        val pendingDeleteIds = pendingDeletes.map { it.recipeId }.toSet()
+
         // Get remote recipe folders
         val remoteFoldersResult = googleDriveService.listFolders(syncFolderId)
         if (remoteFoldersResult.isFailure) {
@@ -144,10 +148,12 @@ class SyncToGoogleDriveUseCase @Inject constructor(
 
         // Recipes only on local -> upload
         val toUpload = localIds - remoteIds
-        // Recipes only on remote -> download
-        val toDownload = remoteIds - localIds
+        // Recipes only on remote that are NOT pending deletion -> download
+        val toDownload = remoteIds - localIds - pendingDeleteIds
         // Recipes on both -> check for updates
         val onBoth = localIds.intersect(remoteIds)
+        // Recipes pending deletion that exist on Drive -> delete from Drive
+        val toDeleteFromDrive = pendingDeleteIds.filter { it in remoteIds }
 
         var uploaded = 0
         var downloaded = 0
@@ -201,18 +207,29 @@ class SyncToGoogleDriveUseCase @Inject constructor(
             // If equal timestamps, no update needed
         }
 
-        // Delete remote recipes that were deleted locally
-        // (recipes on Drive that aren't in local DB and were previously synced)
-        // We detect this by checking if there are remote folders with no matching local recipe
-        // Since we already handled "download new" above, any remaining remote-only recipes
-        // after this sync cycle were deliberately deleted locally
-        // However, on first sync we should NOT delete remote recipes - only download them
-        // We use the last sync timestamp to determine if this is the first sync
-        val lastSyncTimestamp = settingsDataStore.googleDriveLastSyncTimestamp.first()
-        if (lastSyncTimestamp != null && toDownload.isEmpty()) {
-            // Not the first sync, and we already processed downloads above
-            // Any remote-only recipes that we just downloaded shouldn't be deleted
-            // This is handled by the toDownload set being processed first
+        // Delete remote recipes that were deleted locally (tracked via pending_deletes table)
+        val deleteList = toDeleteFromDrive.mapNotNull { id ->
+            val pendingDelete = pendingDeletes.find { it.recipeId == id }
+            val remoteEntry = remoteRecipeMap[id]
+            if (pendingDelete != null && remoteEntry != null) {
+                pendingDelete to remoteEntry.first
+            } else null
+        }
+        deleteList.forEachIndexed { index, (pendingDelete, remoteFolder) ->
+            onProgress(SyncProgress.Deleting(pendingDelete.recipeName, index + 1, deleteList.size))
+            val deleteResult = googleDriveService.deleteFile(remoteFolder.id)
+            if (deleteResult.isSuccess) {
+                recipeRepository.removePendingDelete(pendingDelete.recipeId)
+                deleted++
+            } else {
+                Log.w(TAG, "Failed to delete remote recipe ${pendingDelete.recipeName}")
+            }
+        }
+
+        // Clear pending deletes that don't exist on Drive (already deleted or never synced)
+        val pendingDeletesNotOnDrive = pendingDeleteIds - remoteIds
+        for (id in pendingDeletesNotOnDrive) {
+            recipeRepository.removePendingDelete(id)
         }
 
         // Sync meal plans

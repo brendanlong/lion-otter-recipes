@@ -1,6 +1,8 @@
 package com.lionotter.recipes.data.repository
 
 import android.util.Log
+import com.lionotter.recipes.data.local.PendingDeleteDao
+import com.lionotter.recipes.data.local.PendingDeleteEntity
 import com.lionotter.recipes.data.local.RecipeDao
 import com.lionotter.recipes.data.local.RecipeEntity
 import com.lionotter.recipes.domain.model.InstructionSection
@@ -18,6 +20,7 @@ import javax.inject.Singleton
 @Singleton
 class RecipeRepository @Inject constructor(
     private val recipeDao: RecipeDao,
+    private val pendingDeleteDao: PendingDeleteDao,
     private val json: Json
 ) {
     private val _errors = MutableSharedFlow<RepositoryError>()
@@ -72,11 +75,31 @@ class RecipeRepository @Inject constructor(
     }
 
     suspend fun deleteRecipe(id: String) {
+        // Record pending delete so sync can propagate the deletion to Google Drive.
+        // We need the recipe name before deleting it from the DB.
+        val recipe = recipeDao.getRecipeById(id)
+        if (recipe != null) {
+            pendingDeleteDao.insertPendingDelete(
+                PendingDeleteEntity(
+                    recipeId = id,
+                    recipeName = recipe.name,
+                    deletedAt = System.currentTimeMillis()
+                )
+            )
+        }
         recipeDao.deleteRecipeById(id)
     }
 
     suspend fun setFavorite(id: String, isFavorite: Boolean) {
         recipeDao.setFavorite(id, isFavorite)
+    }
+
+    suspend fun getPendingDeletes(): List<PendingDeleteEntity> {
+        return pendingDeleteDao.getAllPendingDeletes()
+    }
+
+    suspend fun removePendingDelete(recipeId: String) {
+        pendingDeleteDao.deletePendingDelete(recipeId)
     }
 
     private inline fun <reified T> safeDecodeJson(
