@@ -1,6 +1,7 @@
 package com.lionotter.recipes.ui.screens.recipedetail
 
 import androidx.lifecycle.SavedStateHandle
+import androidx.work.WorkManager
 import app.cash.turbine.test
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.repository.RecipeRepository
@@ -41,6 +42,7 @@ class RecipeDetailViewModelTest {
     private lateinit var savedStateHandle: SavedStateHandle
     private lateinit var recipeRepository: RecipeRepository
     private lateinit var settingsDataStore: SettingsDataStore
+    private lateinit var workManager: WorkManager
     private lateinit var viewModel: RecipeDetailViewModel
     private val testDispatcher = StandardTestDispatcher()
 
@@ -64,12 +66,17 @@ class RecipeDetailViewModelTest {
         savedStateHandle = SavedStateHandle(mapOf("recipeId" to "recipe-1"))
         recipeRepository = mockk()
         settingsDataStore = mockk()
+        workManager = mockk()
 
         // Default mock setup
         every { recipeRepository.getRecipeById("recipe-1") } returns flowOf(createTestRecipe())
+        coEvery { recipeRepository.getOriginalHtml("recipe-1") } returns null
         every { settingsDataStore.keepScreenOn } returns flowOf(true)
         every { settingsDataStore.volumeUnitSystem } returns flowOf(UnitSystem.CUSTOMARY)
         every { settingsDataStore.weightUnitSystem } returns flowOf(UnitSystem.METRIC)
+        every { settingsDataStore.aiModel } returns flowOf("claude-sonnet-4-5")
+        every { settingsDataStore.extendedThinkingEnabled } returns flowOf(true)
+        every { workManager.getWorkInfosByTagFlow(any()) } returns flowOf(emptyList())
     }
 
     @After
@@ -82,7 +89,8 @@ class RecipeDetailViewModelTest {
             savedStateHandle = savedStateHandle,
             recipeRepository = recipeRepository,
             settingsDataStore = settingsDataStore,
-            calculateIngredientUsage = CalculateIngredientUsageUseCase()
+            calculateIngredientUsage = CalculateIngredientUsageUseCase(),
+            workManager = workManager
         )
     }
 

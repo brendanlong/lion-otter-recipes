@@ -3,7 +3,11 @@ package com.lionotter.recipes.ui.screens.recipedetail
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import com.lionotter.recipes.data.local.SettingsDataStore
+import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.IngredientUsageStatus
 import com.lionotter.recipes.domain.model.InstructionIngredientKey
@@ -12,6 +16,8 @@ import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.domain.model.createInstructionIngredientKey
 import com.lionotter.recipes.domain.usecase.CalculateIngredientUsageUseCase
+import com.lionotter.recipes.worker.RecipeRegenerateWorker
+import com.lionotter.recipes.worker.observeWorkByTag
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,9 +27,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.util.UUID
 import javax.inject.Inject
 
 /**
@@ -34,12 +42,20 @@ data class HighlightedInstructionStep(
     val stepIndex: Int
 )
 
+sealed class RegenerateUiState {
+    object Idle : RegenerateUiState()
+    data class Loading(val progress: String) : RegenerateUiState()
+    object Success : RegenerateUiState()
+    data class Error(val message: String) : RegenerateUiState()
+}
+
 @HiltViewModel
 class RecipeDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val recipeRepository: RecipeRepository,
-    settingsDataStore: SettingsDataStore,
-    private val calculateIngredientUsage: CalculateIngredientUsageUseCase
+    private val settingsDataStore: SettingsDataStore,
+    private val calculateIngredientUsage: CalculateIngredientUsageUseCase,
+    private val workManager: WorkManager
 ) : ViewModel() {
 
     private val recipeId: String
@@ -47,6 +63,9 @@ class RecipeDetailViewModel @Inject constructor(
     init {
         recipeId = savedStateHandle.get<String>("recipeId")
             ?: throw IllegalArgumentException("RecipeDetailViewModel requires a 'recipeId' argument in SavedStateHandle")
+        observeRegenerateWorkStatus()
+        loadRegenerateDefaults()
+        checkOriginalHtml()
     }
 
     private val _recipeDeleted = MutableSharedFlow<Unit>()
@@ -223,6 +242,103 @@ class RecipeDetailViewModel @Inject constructor(
         viewModelScope.launch {
             recipeRepository.deleteRecipe(recipeId)
             _recipeDeleted.emit(Unit)
+        }
+    }
+
+    // --- Regeneration ---
+
+    private var currentRegenerateWorkId: UUID? = null
+
+    private val _regenerateState = MutableStateFlow<RegenerateUiState>(RegenerateUiState.Idle)
+    val regenerateState: StateFlow<RegenerateUiState> = _regenerateState.asStateFlow()
+
+    private val _regenerateModel = MutableStateFlow(AnthropicService.DEFAULT_MODEL)
+    val regenerateModel: StateFlow<String> = _regenerateModel.asStateFlow()
+
+    private val _regenerateThinking = MutableStateFlow(true)
+    val regenerateThinking: StateFlow<Boolean> = _regenerateThinking.asStateFlow()
+
+    val hasOriginalHtml: StateFlow<Boolean> = MutableStateFlow(false)
+
+    private fun loadRegenerateDefaults() {
+        viewModelScope.launch {
+            _regenerateModel.value = settingsDataStore.aiModel.first()
+            _regenerateThinking.value = settingsDataStore.extendedThinkingEnabled.first()
+        }
+    }
+
+    private fun checkOriginalHtml() {
+        viewModelScope.launch {
+            val html = recipeRepository.getOriginalHtml(recipeId)
+            (hasOriginalHtml as MutableStateFlow).value = !html.isNullOrBlank()
+        }
+    }
+
+    fun setRegenerateModel(model: String) {
+        _regenerateModel.value = model
+    }
+
+    fun setRegenerateThinking(enabled: Boolean) {
+        _regenerateThinking.value = enabled
+    }
+
+    fun regenerateRecipe() {
+        val workRequest = OneTimeWorkRequestBuilder<RecipeRegenerateWorker>()
+            .setInputData(
+                RecipeRegenerateWorker.createInputData(
+                    recipeId = recipeId,
+                    model = _regenerateModel.value,
+                    extendedThinking = _regenerateThinking.value
+                )
+            )
+            .addTag(RecipeRegenerateWorker.TAG_RECIPE_REGENERATE)
+            .build()
+
+        currentRegenerateWorkId = workRequest.id
+        workManager.enqueue(workRequest)
+        _regenerateState.value = RegenerateUiState.Loading("Preparing...")
+    }
+
+    fun resetRegenerateState() {
+        _regenerateState.value = RegenerateUiState.Idle
+    }
+
+    private fun observeRegenerateWorkStatus() {
+        viewModelScope.launch {
+            workManager.observeWorkByTag(RecipeRegenerateWorker.TAG_RECIPE_REGENERATE) { currentRegenerateWorkId }
+                .collect { workInfo ->
+                    when (workInfo.state) {
+                        WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> {
+                            _regenerateState.value = RegenerateUiState.Loading("Preparing...")
+                        }
+                        WorkInfo.State.RUNNING -> {
+                            val progress = workInfo.progress.getString(RecipeRegenerateWorker.KEY_PROGRESS)
+                            val message = when (progress) {
+                                RecipeRegenerateWorker.PROGRESS_PARSING -> "AI is re-analyzing..."
+                                RecipeRegenerateWorker.PROGRESS_SAVING -> "Saving recipe..."
+                                else -> "Starting..."
+                            }
+                            _regenerateState.value = RegenerateUiState.Loading(message)
+                        }
+                        WorkInfo.State.SUCCEEDED -> {
+                            _regenerateState.value = RegenerateUiState.Success
+                            currentRegenerateWorkId = null
+                            workManager.pruneWork()
+                        }
+                        WorkInfo.State.FAILED -> {
+                            val errorMessage = workInfo.outputData.getString(RecipeRegenerateWorker.KEY_ERROR_MESSAGE)
+                                ?: "Unknown error"
+                            _regenerateState.value = RegenerateUiState.Error(errorMessage)
+                            currentRegenerateWorkId = null
+                            workManager.pruneWork()
+                        }
+                        WorkInfo.State.CANCELLED -> {
+                            _regenerateState.value = RegenerateUiState.Idle
+                            currentRegenerateWorkId = null
+                            workManager.pruneWork()
+                        }
+                    }
+                }
         }
     }
 }
