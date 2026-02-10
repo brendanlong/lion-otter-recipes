@@ -376,4 +376,267 @@ class IngredientTest {
         assertNull(unitType("pinch"))
         assertNull(unitType("bunch"))
     }
+
+    // --- Weight unit display tests ---
+
+    @Test
+    fun `weight format uses decimals not fractions for grams`() {
+        val ingredient = Ingredient(
+            name = "salt",
+            amount = Amount(value = 2.67, unit = "g")
+        )
+        // Should show "2.7 g" not "2 2/3 g"
+        assertEquals("2.7 g salt", ingredient.format())
+    }
+
+    @Test
+    fun `weight format uses decimals not fractions for kg`() {
+        val ingredient = Ingredient(
+            name = "flour",
+            amount = Amount(value = 10.25, unit = "kg")
+        )
+        assertEquals("10 kg flour", ingredient.format())
+    }
+
+    @Test
+    fun `quarter kg converts to 250 grams in metric`() {
+        // 0.25 kg = 250 g, should show "250 g" not "1/4 kg"
+        val ingredient = Ingredient(
+            name = "butter",
+            amount = Amount(value = 0.25, unit = "kg")
+        )
+        val result = ingredient.getDisplayAmount(
+            preference = MeasurementPreference.DEFAULT,
+            weightSystem = UnitSystem.METRIC
+        )
+        assertNotNull(result)
+        assertEquals(250.0, result!!.value!!, 0.01)
+        assertEquals("g", result.unit)
+    }
+
+    @Test
+    fun `quarter kg butter formats as 250 g`() {
+        val ingredient = Ingredient(
+            name = "butter",
+            amount = Amount(value = 0.25, unit = "kg")
+        )
+        assertEquals(
+            "250 g butter",
+            ingredient.format(weightSystem = UnitSystem.METRIC)
+        )
+    }
+
+    @Test
+    fun `0_14 kg sugar formats as 140 g`() {
+        val ingredient = Ingredient(
+            name = "sugar",
+            amount = Amount(value = 0.14, unit = "kg")
+        )
+        assertEquals(
+            "140 g sugar",
+            ingredient.format(weightSystem = UnitSystem.METRIC)
+        )
+    }
+
+    @Test
+    fun `9_33 g vanilla formats without fractions`() {
+        val ingredient = Ingredient(
+            name = "vanilla extract",
+            amount = Amount(value = 9.33, unit = "g")
+        )
+        // Should show "9 g" (rounded since >= 10 threshold is close), actually 9.33 < 10 so 9.3
+        assertEquals("9.3 g vanilla extract", ingredient.format())
+    }
+
+    @Test
+    fun `weight amount under 1g shows mg`() {
+        // 0.5 g = 500 mg when converting
+        val ingredient = Ingredient(
+            name = "saffron",
+            amount = Amount(value = 500.0, unit = "mg")
+        )
+        assertEquals("500 mg saffron", ingredient.format())
+    }
+
+    @Test
+    fun `convertToSystem converts small kg to grams`() {
+        val result = convertToSystem(0.25, "kg", weightSystem = UnitSystem.METRIC)
+        assertEquals(250.0, result.value!!, 0.01)
+        assertEquals("g", result.unit)
+    }
+
+    @Test
+    fun `convertToSystem keeps grams for moderate amounts`() {
+        val result = convertToSystem(500.0, "g", weightSystem = UnitSystem.METRIC)
+        assertEquals(500.0, result.value!!, 0.01)
+        assertEquals("g", result.unit)
+    }
+
+    @Test
+    fun `convertToSystem converts large grams to kg`() {
+        val result = convertToSystem(15000.0, "g", weightSystem = UnitSystem.METRIC)
+        assertEquals(15.0, result.value!!, 0.01)
+        assertEquals("kg", result.unit)
+    }
+
+    @Test
+    fun `convertToSystem converts sub-gram to mg`() {
+        val result = convertToSystem(0.5, "g", weightSystem = UnitSystem.METRIC)
+        assertEquals(500.0, result.value!!, 0.01)
+        assertEquals("mg", result.unit)
+    }
+
+    @Test
+    fun `weight preference converts cups flour to grams`() {
+        val ingredient = Ingredient(
+            name = "flour",
+            amount = Amount(value = 2.0, unit = "cup"),
+            density = 0.51
+        )
+        val result = ingredient.getDisplayAmount(
+            preference = MeasurementPreference.WEIGHT,
+            weightSystem = UnitSystem.METRIC
+        )
+        assertNotNull(result)
+        // 2 cups = 2 * 236.588 mL * 0.51 density = 241.32 g
+        assertEquals("g", result!!.unit)
+        assertTrue(result.value!! > 200 && result.value!! < 300)
+    }
+
+    @Test
+    fun `weight preference converts cups flour to oz when customary`() {
+        val ingredient = Ingredient(
+            name = "flour",
+            amount = Amount(value = 2.0, unit = "cup"),
+            density = 0.51
+        )
+        val result = ingredient.getDisplayAmount(
+            preference = MeasurementPreference.WEIGHT,
+            weightSystem = UnitSystem.CUSTOMARY
+        )
+        assertNotNull(result)
+        assertEquals("oz", result!!.unit)
+    }
+
+    @Test
+    fun `customary weight uses oz for small amounts`() {
+        // 100g should be about 3.5 oz
+        val ingredient = Ingredient(
+            name = "cheese",
+            amount = Amount(value = 100.0, unit = "g")
+        )
+        val result = ingredient.getDisplayAmount(
+            preference = MeasurementPreference.DEFAULT,
+            weightSystem = UnitSystem.CUSTOMARY
+        )
+        assertNotNull(result)
+        assertEquals("oz", result!!.unit)
+        assertEquals(3.53, result.value!!, 0.01)
+    }
+
+    @Test
+    fun `customary weight returns oz for large amounts`() {
+        // 1000g should be about 35.27 oz - the format layer handles lb+oz display
+        val ingredient = Ingredient(
+            name = "chicken",
+            amount = Amount(value = 1000.0, unit = "g")
+        )
+        val result = ingredient.getDisplayAmount(
+            preference = MeasurementPreference.DEFAULT,
+            weightSystem = UnitSystem.CUSTOMARY
+        )
+        assertNotNull(result)
+        assertEquals("oz", result!!.unit)
+        assertEquals(35.27, result.value!!, 0.01)
+    }
+
+    @Test
+    fun `whole gram values display without decimals`() {
+        val ingredient = Ingredient(
+            name = "sugar",
+            amount = Amount(value = 100.0, unit = "g")
+        )
+        assertEquals("100 g sugar", ingredient.format())
+    }
+
+    @Test
+    fun `gram values between 1 and 10 show one decimal`() {
+        val ingredient = Ingredient(
+            name = "salt",
+            amount = Amount(value = 2.5, unit = "g")
+        )
+        assertEquals("2.5 g salt", ingredient.format())
+    }
+
+    @Test
+    fun `gram values 10 and above round to whole number`() {
+        val ingredient = Ingredient(
+            name = "sugar",
+            amount = Amount(value = 15.7, unit = "g")
+        )
+        assertEquals("16 g sugar", ingredient.format())
+    }
+
+    @Test
+    fun `volume units still use fractions`() {
+        // Ensure volume formatting is unchanged
+        val ingredient = Ingredient(
+            name = "milk",
+            amount = Amount(value = 0.25, unit = "cup")
+        )
+        assertEquals("1/4 cup milk", ingredient.format())
+    }
+
+    // --- Compound lb+oz display tests ---
+
+    @Test
+    fun `customary weight formats as lb oz for amounts over 1 lb`() {
+        // 1000g = ~35.27 oz = 2 lbs 3.3 oz
+        val ingredient = Ingredient(
+            name = "chicken",
+            amount = Amount(value = 1000.0, unit = "g")
+        )
+        val formatted = ingredient.format(weightSystem = UnitSystem.CUSTOMARY)
+        assertTrue("Expected lb+oz format, got: $formatted", formatted.contains("lb"))
+        assertTrue("Expected lb+oz format, got: $formatted", formatted.contains("oz"))
+        assertEquals("2 lb 3.3 oz chicken", formatted)
+    }
+
+    @Test
+    fun `customary weight shows exact lbs without oz when even`() {
+        // 32 oz = exactly 2 lbs
+        val ingredient = Ingredient(
+            name = "beef",
+            amount = Amount(value = 32.0, unit = "oz")
+        )
+        assertEquals("2 lb beef", ingredient.format(weightSystem = UnitSystem.CUSTOMARY))
+    }
+
+    @Test
+    fun `customary weight shows 1 lb singular`() {
+        // 16 oz = exactly 1 lb
+        val ingredient = Ingredient(
+            name = "butter",
+            amount = Amount(value = 16.0, unit = "oz")
+        )
+        assertEquals("1 lb butter", ingredient.format(weightSystem = UnitSystem.CUSTOMARY))
+    }
+
+    @Test
+    fun `customary weight shows lb and oz for 1 lb 4 oz`() {
+        val ingredient = Ingredient(
+            name = "butter",
+            amount = Amount(value = 20.0, unit = "oz")
+        )
+        assertEquals("1 lb 4 oz butter", ingredient.format(weightSystem = UnitSystem.CUSTOMARY))
+    }
+
+    @Test
+    fun `customary weight under 16 oz shows just oz`() {
+        val ingredient = Ingredient(
+            name = "cheese",
+            amount = Amount(value = 8.0, unit = "oz")
+        )
+        assertEquals("8 oz cheese", ingredient.format(weightSystem = UnitSystem.CUSTOMARY))
+    }
 }
