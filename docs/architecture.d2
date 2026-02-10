@@ -83,7 +83,7 @@ app: {
 
       meal_plan: {
         label: MealPlanScreen
-        tooltip: "Weekly meal planner view. Shows meals grouped by day with swipe-to-delete and long-press menu. Recipe selector bottom sheet with search, tag filter, date picker, meal type selector, and servings."
+        tooltip: "Weekly meal planner view. Shows meals grouped by day with swipe-to-delete, swipe-to-edit, and long-press menu (edit/delete). Recipe selector bottom sheet with search, tag filter, date picker, meal type selector, and servings. Supports edit mode to modify date, meal type, servings, and recipe of existing entries."
       }
 
       list -> detail: tap recipe
@@ -145,7 +145,7 @@ app: {
       }
       meal_plan_vm: {
         label: MealPlanViewModel
-        tooltip: "Manages weekly meal plan view state, recipe selection dialog, and CRUD operations for meal plan entries. Respects user's start-of-week setting from preferences. Triggers incremental Google Drive sync on changes."
+        tooltip: "Manages weekly meal plan view state, add/edit dialog, and CRUD operations for meal plan entries. Supports editing existing entries (date, meal type, servings, recipe). Respects user's start-of-week setting from preferences. Triggers incremental Google Drive sync on changes."
       }
     }
 

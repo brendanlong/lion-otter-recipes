@@ -244,5 +244,8 @@
     <string name="next_week">Next week</string>
     <string name="servings_format">%1$sx</string>
     <string name="remove">Remove</string>
+    <string name="edit">Edit</string>
+    <string name="edit_meal_plan">Edit Meal Plan</string>
+    <string name="save">Save</string>
     <string name="recipes">Recipes</string>
 </resources>

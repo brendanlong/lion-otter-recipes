@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -157,6 +158,7 @@ fun MealPlanScreen(
                             SwipeableMealPlanCard(
                                 entry = entry,
                                 onClick = { onRecipeClick(entry.recipeId) },
+                                onEditRequest = { viewModel.openEditDialog(entry) },
                                 onDeleteRequest = { entryToDelete = entry }
                             )
                         }
@@ -238,16 +240,22 @@ private fun DayHeader(date: LocalDate) {
 private fun SwipeableMealPlanCard(
     entry: MealPlanEntry,
     onClick: () -> Unit,
+    onEditRequest: () -> Unit,
     onDeleteRequest: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
-            if (value == SwipeToDismissBoxValue.EndToStart) {
-                onDeleteRequest()
-                false
-            } else {
-                false
+            when (value) {
+                SwipeToDismissBoxValue.EndToStart -> {
+                    onDeleteRequest()
+                    false
+                }
+                SwipeToDismissBoxValue.StartToEnd -> {
+                    onEditRequest()
+                    false
+                }
+                else -> false
             }
         }
     )
@@ -255,20 +263,31 @@ private fun SwipeableMealPlanCard(
     SwipeToDismissBox(
         state = dismissState,
         backgroundContent = {
+            val alignment = when (dismissState.dismissDirection) {
+                SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
+                else -> Alignment.CenterEnd
+            }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 16.dp),
-                contentAlignment = Alignment.CenterEnd
+                contentAlignment = alignment
             ) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = stringResource(R.string.delete),
-                    tint = MaterialTheme.colorScheme.error
-                )
+                when (dismissState.dismissDirection) {
+                    SwipeToDismissBoxValue.StartToEnd -> Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = stringResource(R.string.edit),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    else -> Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = stringResource(R.string.delete),
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
             }
         },
-        enableDismissFromStartToEnd = false
+        enableDismissFromStartToEnd = true
     ) {
         MealPlanCard(
             entry = entry,
@@ -276,6 +295,7 @@ private fun SwipeableMealPlanCard(
             onLongClick = { showMenu = true },
             showMenu = showMenu,
             onDismissMenu = { showMenu = false },
+            onEditRequest = onEditRequest,
             onDeleteRequest = onDeleteRequest
         )
     }
@@ -289,6 +309,7 @@ private fun MealPlanCard(
     onLongClick: () -> Unit,
     showMenu: Boolean,
     onDismissMenu: () -> Unit,
+    onEditRequest: () -> Unit,
     onDeleteRequest: () -> Unit
 ) {
     val mealTypeLabel = when (entry.mealType) {
@@ -363,6 +384,19 @@ private fun MealPlanCard(
             expanded = showMenu,
             onDismissRequest = onDismissMenu
         ) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.edit)) },
+                onClick = {
+                    onDismissMenu()
+                    onEditRequest()
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = null
+                    )
+                }
+            )
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.remove)) },
                 onClick = {
