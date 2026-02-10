@@ -28,6 +28,7 @@ import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -384,6 +385,251 @@ class GroceryListViewModelTest {
 
             assertEquals(1, items.size)
             assertEquals("5", items[0].totalAmount)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `checking top-level item checks all sub-sources`() = runTest {
+        val recipe1 = createRecipe(
+            id = "r1",
+            name = "Recipe A",
+            ingredients = listOf(
+                Ingredient(name = "sugar", amount = Amount(value = 2.0, unit = "tbsp"))
+            )
+        )
+        val recipe2 = createRecipe(
+            id = "r2",
+            name = "Recipe B",
+            ingredients = listOf(
+                Ingredient(name = "sugar", amount = Amount(value = 3.0, unit = "tbsp"))
+            )
+        )
+
+        val entry1 = createEntry("e1", "r1", "Recipe A")
+        val entry2 = createEntry("e2", "r2", "Recipe B")
+
+        coEvery { recipeRepository.getRecipeByIdOnce("r1") } returns recipe1
+        coEvery { recipeRepository.getRecipeByIdOnce("r2") } returns recipe2
+
+        val viewModel = createViewModel(listOf(entry1, entry2))
+        advanceUntilIdle()
+
+        viewModel.displayGroceryItems.test {
+            awaitItem() // initial empty
+
+            viewModel.generateGroceryList()
+            val items = awaitItem()
+            assertEquals(1, items.size)
+            val itemKey = items[0].key
+
+            // Check the top-level item
+            viewModel.toggleItemChecked(itemKey)
+            val checkedItems = awaitItem()
+            val checkedItem = checkedItems[0]
+
+            assertTrue("Top-level item should be checked", checkedItem.isChecked)
+            assertTrue("All sources should be checked",
+                checkedItem.sources.all { it.isChecked })
+
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `unchecking top-level item unchecks all sub-sources`() = runTest {
+        val recipe1 = createRecipe(
+            id = "r1",
+            name = "Recipe A",
+            ingredients = listOf(
+                Ingredient(name = "sugar", amount = Amount(value = 2.0, unit = "tbsp"))
+            )
+        )
+        val recipe2 = createRecipe(
+            id = "r2",
+            name = "Recipe B",
+            ingredients = listOf(
+                Ingredient(name = "sugar", amount = Amount(value = 3.0, unit = "tbsp"))
+            )
+        )
+
+        val entry1 = createEntry("e1", "r1", "Recipe A")
+        val entry2 = createEntry("e2", "r2", "Recipe B")
+
+        coEvery { recipeRepository.getRecipeByIdOnce("r1") } returns recipe1
+        coEvery { recipeRepository.getRecipeByIdOnce("r2") } returns recipe2
+
+        val viewModel = createViewModel(listOf(entry1, entry2))
+        advanceUntilIdle()
+
+        viewModel.displayGroceryItems.test {
+            awaitItem() // initial empty
+
+            viewModel.generateGroceryList()
+            val items = awaitItem()
+            val itemKey = items[0].key
+
+            // Check then uncheck
+            viewModel.toggleItemChecked(itemKey)
+            awaitItem()
+
+            viewModel.toggleItemChecked(itemKey)
+            val uncheckedItems = awaitItem()
+            val uncheckedItem = uncheckedItems[0]
+
+            assertFalse("Top-level item should be unchecked", uncheckedItem.isChecked)
+            assertTrue("All sources should be unchecked",
+                uncheckedItem.sources.none { it.isChecked })
+
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `checking all sub-sources checks the top-level item`() = runTest {
+        val recipe1 = createRecipe(
+            id = "r1",
+            name = "Recipe A",
+            ingredients = listOf(
+                Ingredient(name = "sugar", amount = Amount(value = 2.0, unit = "tbsp"))
+            )
+        )
+        val recipe2 = createRecipe(
+            id = "r2",
+            name = "Recipe B",
+            ingredients = listOf(
+                Ingredient(name = "sugar", amount = Amount(value = 3.0, unit = "tbsp"))
+            )
+        )
+
+        val entry1 = createEntry("e1", "r1", "Recipe A")
+        val entry2 = createEntry("e2", "r2", "Recipe B")
+
+        coEvery { recipeRepository.getRecipeByIdOnce("r1") } returns recipe1
+        coEvery { recipeRepository.getRecipeByIdOnce("r2") } returns recipe2
+
+        val viewModel = createViewModel(listOf(entry1, entry2))
+        advanceUntilIdle()
+
+        viewModel.displayGroceryItems.test {
+            awaitItem() // initial empty
+
+            viewModel.generateGroceryList()
+            val items = awaitItem()
+            val source1Key = items[0].sources[0].key
+            val source2Key = items[0].sources[1].key
+
+            // Check first source
+            viewModel.toggleSourceChecked(source1Key)
+            val afterFirst = awaitItem()
+            assertFalse("Top-level should NOT be checked yet", afterFirst[0].isChecked)
+            assertTrue("First source should be checked", afterFirst[0].sources[0].isChecked)
+            assertFalse("Second source should NOT be checked", afterFirst[0].sources[1].isChecked)
+
+            // Check second source - should auto-check top-level
+            viewModel.toggleSourceChecked(source2Key)
+            val afterSecond = awaitItem()
+            assertTrue("Top-level should now be checked", afterSecond[0].isChecked)
+            assertTrue("All sources should be checked",
+                afterSecond[0].sources.all { it.isChecked })
+
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `unchecking one sub-source unchecks the top-level item`() = runTest {
+        val recipe1 = createRecipe(
+            id = "r1",
+            name = "Recipe A",
+            ingredients = listOf(
+                Ingredient(name = "sugar", amount = Amount(value = 2.0, unit = "tbsp"))
+            )
+        )
+        val recipe2 = createRecipe(
+            id = "r2",
+            name = "Recipe B",
+            ingredients = listOf(
+                Ingredient(name = "sugar", amount = Amount(value = 3.0, unit = "tbsp"))
+            )
+        )
+
+        val entry1 = createEntry("e1", "r1", "Recipe A")
+        val entry2 = createEntry("e2", "r2", "Recipe B")
+
+        coEvery { recipeRepository.getRecipeByIdOnce("r1") } returns recipe1
+        coEvery { recipeRepository.getRecipeByIdOnce("r2") } returns recipe2
+
+        val viewModel = createViewModel(listOf(entry1, entry2))
+        advanceUntilIdle()
+
+        viewModel.displayGroceryItems.test {
+            awaitItem() // initial empty
+
+            viewModel.generateGroceryList()
+            val items = awaitItem()
+            val itemKey = items[0].key
+            val source1Key = items[0].sources[0].key
+
+            // Check all via top-level
+            viewModel.toggleItemChecked(itemKey)
+            awaitItem()
+
+            // Uncheck one source - should uncheck top-level too
+            viewModel.toggleSourceChecked(source1Key)
+            val afterUncheck = awaitItem()
+            assertFalse("Top-level should be unchecked", afterUncheck[0].isChecked)
+            assertFalse("First source should be unchecked", afterUncheck[0].sources[0].isChecked)
+            assertTrue("Second source should still be checked", afterUncheck[0].sources[1].isChecked)
+
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `share text excludes checked sources but includes unchecked ones`() = runTest {
+        val recipe1 = createRecipe(
+            id = "r1",
+            name = "Recipe A",
+            ingredients = listOf(
+                Ingredient(name = "sugar", amount = Amount(value = 2.0, unit = "tbsp"))
+            )
+        )
+        val recipe2 = createRecipe(
+            id = "r2",
+            name = "Recipe B",
+            ingredients = listOf(
+                Ingredient(name = "sugar", amount = Amount(value = 3.0, unit = "tbsp"))
+            )
+        )
+
+        val entry1 = createEntry("e1", "r1", "Recipe A")
+        val entry2 = createEntry("e2", "r2", "Recipe B")
+
+        coEvery { recipeRepository.getRecipeByIdOnce("r1") } returns recipe1
+        coEvery { recipeRepository.getRecipeByIdOnce("r2") } returns recipe2
+
+        val viewModel = createViewModel(listOf(entry1, entry2))
+        advanceUntilIdle()
+
+        viewModel.displayGroceryItems.test {
+            awaitItem() // initial empty
+
+            viewModel.generateGroceryList()
+            val items = awaitItem()
+            val source1Key = items[0].sources[0].key
+
+            // Check one source
+            viewModel.toggleSourceChecked(source1Key)
+            awaitItem()
+
+            val shareText = viewModel.getShareText()
+            // Should only have one source (the unchecked one)
+            assertTrue("Share text should contain Recipe B",
+                shareText.contains("Recipe B"))
+            assertFalse("Share text should NOT contain Recipe A",
+                shareText.contains("Recipe A"))
+
             cancelAndIgnoreRemainingEvents()
         }
     }
