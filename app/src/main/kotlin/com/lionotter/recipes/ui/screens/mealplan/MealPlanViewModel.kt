@@ -148,7 +148,7 @@ class MealPlanViewModel @Inject constructor(
     }
 
     fun openAddDialog() {
-        _selectedDate.value = today
+        _selectedDate.value = currentWeekStart.value
         _selectedMealType.value = MealType.DINNER
         _selectedServings.value = 1.0
         _recipeSearchQuery.value = ""
