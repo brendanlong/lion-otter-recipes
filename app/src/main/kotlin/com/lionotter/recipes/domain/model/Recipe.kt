@@ -389,6 +389,26 @@ internal fun convertToSystem(
 }
 
 /**
+ * Convert a display amount to its base unit value (grams for weight, mL for volume).
+ * Returns null if the unit is unrecognized.
+ */
+internal fun toBaseUnitValue(value: Double, unit: String): Double? {
+    return TO_GRAMS[unit]?.let { value * it }
+        ?: TO_ML[unit]?.let { value * it }
+}
+
+/**
+ * Convert a base unit value (grams or mL) back to a display amount using the best unit
+ * for the given unit category and target system.
+ */
+internal fun fromBaseUnit(baseValue: Double, category: UnitCategory, volumeSystem: UnitSystem, weightSystem: UnitSystem): Amount {
+    return when (category) {
+        UnitCategory.WEIGHT -> bestUnit(baseValue, TO_GRAMS, weightSystem)
+        UnitCategory.VOLUME -> bestUnit(baseValue, TO_ML, volumeSystem)
+    }
+}
+
+/**
  * Find the best unit for a given amount in base units (g or mL).
  * Filters to only units in the target system.
  * Prefers common cooking units and values between 0.25 and 999.

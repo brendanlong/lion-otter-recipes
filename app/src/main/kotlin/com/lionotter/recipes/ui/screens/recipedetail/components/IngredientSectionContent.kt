@@ -68,7 +68,7 @@ internal fun IngredientSectionContent(
                     // Show remaining amount if partially used
                     if (hasPartialUsage && usage?.remainingAmount != null && usage.remainingAmount > 0) {
                         Text(
-                            text = formatRemainingAmount(usage.remainingAmount, usage.unit),
+                            text = formatRemainingAmount(usage.remainingAmount, usage.remainingUnit),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.secondary
                         )
@@ -103,7 +103,7 @@ internal fun IngredientSectionContent(
                         // Show remaining amount if partially used
                         if (altHasPartialUsage && altUsage?.remainingAmount != null && altUsage.remainingAmount > 0) {
                             Text(
-                                text = formatRemainingAmount(altUsage.remainingAmount, altUsage.unit),
+                                text = formatRemainingAmount(altUsage.remainingAmount, altUsage.remainingUnit),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.secondary
                             )

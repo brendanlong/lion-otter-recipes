@@ -11,7 +11,8 @@ data class IngredientUsageStatus(
     val usedAmount: Double,
     val unit: String?,
     val isFullyUsed: Boolean,
-    val remainingAmount: Double?
+    val remainingAmount: Double?,
+    val remainingUnit: String? = unit
 )
 
 /**
