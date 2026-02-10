@@ -1,7 +1,6 @@
 package com.lionotter.recipes.ui.screens.grocerylist
 
 import android.content.Intent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -306,8 +305,6 @@ private fun GroceryItemRow(
     onItemToggle: () -> Unit,
     onSourceToggle: (String) -> Unit
 ) {
-    val uncheckedSources = item.sources.filter { !it.isChecked }
-
     // If only one source total, show it directly
     if (item.sources.size <= 1) {
         val source = item.sources.firstOrNull() ?: return
@@ -317,32 +314,19 @@ private fun GroceryItemRow(
             isChecked = item.isChecked || source.isChecked,
             onToggle = onItemToggle
         )
-    } else if (uncheckedSources.size == 1 && !item.isChecked) {
-        // Multiple sources but only one remaining unchecked - collapse to single item
-        val source = uncheckedSources.first()
-        SingleIngredientRow(
-            source = source,
-            recipeName = source.recipeName,
-            isChecked = false,
-            onToggle = { onSourceToggle(source.key) }
-        )
     } else {
-        // Multiple unchecked sources - show aggregate header with sub-items
-        AnimatedVisibility(visible = !item.isChecked) {
-            Column {
-                AggregateIngredientHeader(
-                    item = item,
-                    onToggle = onItemToggle
+        // Multiple sources - show aggregate header with sub-items
+        Column {
+            AggregateIngredientHeader(
+                item = item,
+                onToggle = onItemToggle
+            )
+            // Sub-items
+            for (source in item.sources) {
+                SubIngredientRow(
+                    source = source,
+                    onToggle = { onSourceToggle(source.key) }
                 )
-                // Sub-items
-                for (source in item.sources) {
-                    AnimatedVisibility(visible = !source.isChecked) {
-                        SubIngredientRow(
-                            source = source,
-                            onToggle = { onSourceToggle(source.key) }
-                        )
-                    }
-                }
             }
         }
     }
@@ -404,6 +388,8 @@ private fun AggregateIngredientHeader(
             text = headerText,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Bold,
+            textDecoration = if (item.isChecked) TextDecoration.LineThrough else TextDecoration.None,
+            color = if (item.isChecked) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f)
         )
     }

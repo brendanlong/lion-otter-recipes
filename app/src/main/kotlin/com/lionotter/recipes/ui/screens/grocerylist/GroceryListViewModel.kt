@@ -183,19 +183,47 @@ class GroceryListViewModel @Inject constructor(
 
     fun toggleItemChecked(key: String) {
         val current = _checkedItems.value
-        _checkedItems.value = if (key in current) {
-            current - key
-        } else {
+        val isNowChecked = key !in current
+        _checkedItems.value = if (isNowChecked) {
             current + key
+        } else {
+            current - key
+        }
+        // Synchronize all sub-sources with the parent state
+        val item = _groceryItems.value.find { it.normalizedName.lowercase() == key }
+        if (item != null) {
+            val sourceKeys = item.sources.map { sourceKey(key, it) }.toSet()
+            _checkedSources.value = if (isNowChecked) {
+                _checkedSources.value + sourceKeys
+            } else {
+                _checkedSources.value - sourceKeys
+            }
         }
     }
 
     fun toggleSourceChecked(key: String) {
         val current = _checkedSources.value
-        _checkedSources.value = if (key in current) {
-            current - key
-        } else {
+        val isNowChecked = key !in current
+        _checkedSources.value = if (isNowChecked) {
             current + key
+        } else {
+            current - key
+        }
+        // Synchronize the parent item: checked if all sources checked, unchecked otherwise
+        val item = _groceryItems.value.find { groceryItem ->
+            val itemKey = groceryItem.normalizedName.lowercase()
+            groceryItem.sources.any { sourceKey(itemKey, it) == key }
+        }
+        if (item != null) {
+            val itemKey = item.normalizedName.lowercase()
+            val allSourceKeys = item.sources.map { sourceKey(itemKey, it) }
+            val updatedSources = _checkedSources.value
+            val allChecked = allSourceKeys.all { it in updatedSources }
+            _checkedItems.value = if (allChecked) {
+                _checkedItems.value + itemKey
+            } else {
+                _checkedItems.value - itemKey
+            }
         }
     }
 
