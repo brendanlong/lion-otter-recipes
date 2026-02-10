@@ -279,6 +279,10 @@ class GroceryListViewModel @Inject constructor(
      * Calculate the aggregate display amount by summing all unchecked sources.
      * Uses Ingredient.getDisplayAmount() to get each source's scaled amount,
      * then converts to base units to sum, then back to a display unit.
+     *
+     * When sources have mixed unit categories (e.g. some in volume, some in weight),
+     * converts everything to weight (grams) using ingredient density where available.
+     * If all sources share the same category, sums in that category directly.
      */
     private fun calculateTotalDisplay(
         sources: List<GroceryIngredientSource>,
@@ -287,10 +291,15 @@ class GroceryListViewModel @Inject constructor(
         volumeSystem: UnitSystem,
         weightSystem: UnitSystem
     ): String? {
-        var totalBase = 0.0
-        var unitCategory: UnitCategory? = null
+        data class SourceAmount(
+            val value: Double,
+            val unit: String?,
+            val category: UnitCategory?,
+            val density: Double?
+        )
+
+        val amounts = mutableListOf<SourceAmount>()
         var countTotal = 0.0
-        var hasUnit = false
         var hasCountOnly = false
         var anyUnchecked = false
 
@@ -308,15 +317,8 @@ class GroceryListViewModel @Inject constructor(
             val value = displayAmount.value ?: continue
 
             if (displayAmount.unit != null) {
-                hasUnit = true
                 val cat = unitType(displayAmount.unit)
-                if (cat != null) {
-                    if (unitCategory == null) unitCategory = cat
-                    if (cat == unitCategory) {
-                        val base = toBaseUnitValue(value, displayAmount.unit)
-                        if (base != null) totalBase += base
-                    }
-                }
+                amounts.add(SourceAmount(value, displayAmount.unit, cat, source.ingredient.density))
             } else {
                 // Count item (no unit, like "3 eggs")
                 hasCountOnly = true
@@ -326,15 +328,57 @@ class GroceryListViewModel @Inject constructor(
 
         if (!anyUnchecked) return null
 
-        return when {
-            hasUnit && unitCategory != null && totalBase > 0 -> {
-                val displayAmount = fromBaseUnit(totalBase, unitCategory, volumeSystem, weightSystem)
-                formatAmountForDisplay(displayAmount)
+        if (amounts.isNotEmpty()) {
+            val categories = amounts.mapNotNull { it.category }.toSet()
+
+            val (totalBase, resultCategory) = if (categories.size <= 1) {
+                // All same category (or all unknown) — sum directly
+                val cat = categories.firstOrNull()
+                var total = 0.0
+                for (a in amounts) {
+                    if (a.unit != null && a.category == cat) {
+                        val base = toBaseUnitValue(a.value, a.unit)
+                        if (base != null) total += base
+                    }
+                }
+                total to cat
+            } else {
+                // Mixed categories — convert everything to weight (grams).
+                // Since all sources are the same ingredient, use any available
+                // density for volume→weight conversion.
+                val sharedDensity = amounts.firstNotNullOfOrNull { it.density }
+                var totalGrams = 0.0
+                for (a in amounts) {
+                    if (a.unit == null) continue
+                    when (a.category) {
+                        UnitCategory.WEIGHT -> {
+                            val base = toBaseUnitValue(a.value, a.unit)
+                            if (base != null) totalGrams += base
+                        }
+                        UnitCategory.VOLUME -> {
+                            // Convert volume to mL, then to grams via density
+                            val density = a.density ?: sharedDensity
+                            val mL = toBaseUnitValue(a.value, a.unit)
+                            if (mL != null && density != null) {
+                                totalGrams += mL * density
+                            }
+                        }
+                        null -> { /* unknown unit category, skip */ }
+                    }
+                }
+                totalGrams to UnitCategory.WEIGHT
             }
-            !hasUnit && hasCountOnly && countTotal > 0 -> {
-                formatCountForDisplay(countTotal)
+
+            if (resultCategory != null && totalBase > 0) {
+                val displayAmount = fromBaseUnit(totalBase, resultCategory, volumeSystem, weightSystem)
+                return formatAmountForDisplay(displayAmount)
             }
-            else -> null
+        }
+
+        return if (!amounts.any { it.category != null } && hasCountOnly && countTotal > 0) {
+            formatCountForDisplay(countTotal)
+        } else {
+            null
         }
     }
 
