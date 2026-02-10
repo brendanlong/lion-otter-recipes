@@ -36,6 +36,7 @@ import com.lionotter.recipes.ui.screens.settings.components.GoogleDriveSection
 import com.lionotter.recipes.ui.screens.settings.components.ImportDebuggingSection
 import com.lionotter.recipes.ui.screens.settings.components.ModelSelectionSection
 import com.lionotter.recipes.ui.screens.settings.components.ThemeSection
+import com.lionotter.recipes.ui.screens.settings.components.UnitPreferencesSection
 
 @Composable
 fun SettingsScreen(
@@ -60,6 +61,8 @@ fun SettingsScreen(
     val showFolderPicker by googleDriveViewModel.showFolderPicker.collectAsStateWithLifecycle()
     val folderPickerState by googleDriveViewModel.folderPickerState.collectAsStateWithLifecycle()
     val zipOperationState by zipViewModel.operationState.collectAsStateWithLifecycle()
+    val volumeUnitSystem by viewModel.volumeUnitSystem.collectAsStateWithLifecycle()
+    val weightUnitSystem by viewModel.weightUnitSystem.collectAsStateWithLifecycle()
     val importDebuggingEnabled by viewModel.importDebuggingEnabled.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
@@ -187,6 +190,16 @@ fun SettingsScreen(
             DisplaySection(
                 keepScreenOn = keepScreenOn,
                 onKeepScreenOnChange = viewModel::setKeepScreenOn
+            )
+
+            HorizontalDivider()
+
+            // Unit Preferences Section
+            UnitPreferencesSection(
+                volumeUnitSystem = volumeUnitSystem,
+                onVolumeUnitSystemChange = viewModel::setVolumeUnitSystem,
+                weightUnitSystem = weightUnitSystem,
+                onWeightUnitSystemChange = viewModel::setWeightUnitSystem
             )
 
             HorizontalDivider()

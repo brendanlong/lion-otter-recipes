@@ -307,6 +307,10 @@ app: {
       measurement: Measurement
       measurement_type: MeasurementType
       measurement_pref: MeasurementPreference
+      unit_system: {
+        label: UnitSystem
+        tooltip: "Enum: METRIC, CUSTOMARY. Used for volume and weight unit preferences separately."
+      }
       usage_status: {
         label: IngredientUsageStatus
         tooltip: "@Immutable. Fields: totalAmount, usedAmount, unit, isFullyUsed, remainingAmount"
@@ -380,7 +384,7 @@ app: {
       }
       settings: {
         label: SettingsDataStore
-        tooltip: "Uses EncryptedSharedPreferences for API key, DataStore for non-sensitive settings (AI model, extended thinking enabled, keep screen on, theme mode, import debugging enabled, Google Drive sync enabled/folder/last sync timestamp)"
+        tooltip: "Uses EncryptedSharedPreferences for API key, DataStore for non-sensitive settings (AI model, extended thinking enabled, keep screen on, theme mode, volume/weight unit system preferences, import debugging enabled, Google Drive sync enabled/folder/last sync timestamp)"
       }
 
       dao -> room
@@ -472,7 +476,7 @@ app: {
   ui.viewmodels.list_vm -> domain.usecases.tags: top tags
   ui.viewmodels.detail_vm -> data.repository.repo: recipe, delete, favorite
   ui.viewmodels.detail_vm -> domain.usecases.calc_usage: ingredient usage
-  ui.viewmodels.detail_vm -> data.local.settings: keep screen on
+  ui.viewmodels.detail_vm -> data.local.settings: keep screen on, unit prefs
   ui.viewmodels.add_vm -> background.worker: enqueue work
   ui.viewmodels.add_vm -> background.worker.work_ext: observe import
   ui.viewmodels.drive_vm -> background.worker.sync_worker: sync

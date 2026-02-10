@@ -6,6 +6,7 @@ import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.domain.model.ThemeMode
+import com.lionotter.recipes.domain.model.UnitSystem
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -54,6 +55,20 @@ class SettingsViewModel @Inject constructor(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = ThemeMode.AUTO
+        )
+
+    val volumeUnitSystem: StateFlow<UnitSystem> = settingsDataStore.volumeUnitSystem
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = UnitSystem.CUSTOMARY
+        )
+
+    val weightUnitSystem: StateFlow<UnitSystem> = settingsDataStore.weightUnitSystem
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = UnitSystem.METRIC
         )
 
     val importDebuggingEnabled: StateFlow<Boolean> = settingsDataStore.importDebuggingEnabled
@@ -121,6 +136,18 @@ class SettingsViewModel @Inject constructor(
     fun setThemeMode(mode: ThemeMode) {
         viewModelScope.launch {
             settingsDataStore.setThemeMode(mode)
+        }
+    }
+
+    fun setVolumeUnitSystem(system: UnitSystem) {
+        viewModelScope.launch {
+            settingsDataStore.setVolumeUnitSystem(system)
+        }
+    }
+
+    fun setWeightUnitSystem(system: UnitSystem) {
+        viewModelScope.launch {
+            settingsDataStore.setWeightUnitSystem(system)
         }
     }
 

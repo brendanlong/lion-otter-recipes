@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.domain.model.ThemeMode
+import com.lionotter.recipes.domain.model.UnitSystem
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -38,6 +39,8 @@ class SettingsDataStore @Inject constructor(
         val GOOGLE_DRIVE_SYNC_FOLDER_NAME = stringPreferencesKey("google_drive_sync_folder_name")
         val GOOGLE_DRIVE_LAST_SYNC_TIMESTAMP = stringPreferencesKey("google_drive_last_sync_timestamp")
         val IMPORT_DEBUGGING_ENABLED = booleanPreferencesKey("import_debugging_enabled")
+        val VOLUME_UNIT_SYSTEM = stringPreferencesKey("volume_unit_system")
+        val WEIGHT_UNIT_SYSTEM = stringPreferencesKey("weight_unit_system")
         const val ENCRYPTED_API_KEY = "anthropic_api_key"
     }
 
@@ -99,6 +102,24 @@ class SettingsDataStore @Inject constructor(
 
     val googleDriveLastSyncTimestamp: Flow<String?> = context.dataStore.data.map { preferences ->
         preferences[Keys.GOOGLE_DRIVE_LAST_SYNC_TIMESTAMP]
+    }
+
+    val volumeUnitSystem: Flow<UnitSystem> = context.dataStore.data.map { preferences ->
+        val value = preferences[Keys.VOLUME_UNIT_SYSTEM]
+        if (value != null) {
+            try { UnitSystem.valueOf(value) } catch (_: IllegalArgumentException) { UnitSystem.CUSTOMARY }
+        } else {
+            UnitSystem.CUSTOMARY
+        }
+    }
+
+    val weightUnitSystem: Flow<UnitSystem> = context.dataStore.data.map { preferences ->
+        val value = preferences[Keys.WEIGHT_UNIT_SYSTEM]
+        if (value != null) {
+            try { UnitSystem.valueOf(value) } catch (_: IllegalArgumentException) { UnitSystem.METRIC }
+        } else {
+            UnitSystem.METRIC
+        }
     }
 
     val importDebuggingEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -168,6 +189,18 @@ class SettingsDataStore @Inject constructor(
     suspend fun setGoogleDriveLastSyncTimestamp(timestamp: String) {
         context.dataStore.edit { preferences ->
             preferences[Keys.GOOGLE_DRIVE_LAST_SYNC_TIMESTAMP] = timestamp
+        }
+    }
+
+    suspend fun setVolumeUnitSystem(system: UnitSystem) {
+        context.dataStore.edit { preferences ->
+            preferences[Keys.VOLUME_UNIT_SYSTEM] = system.name
+        }
+    }
+
+    suspend fun setWeightUnitSystem(system: UnitSystem) {
+        context.dataStore.edit { preferences ->
+            preferences[Keys.WEIGHT_UNIT_SYSTEM] = system.name
         }
     }
 
