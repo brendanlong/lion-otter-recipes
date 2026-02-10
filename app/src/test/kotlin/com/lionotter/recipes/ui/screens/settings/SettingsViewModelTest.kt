@@ -5,6 +5,7 @@ import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.domain.model.ThemeMode
+import com.lionotter.recipes.domain.model.UnitSystem
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -38,6 +39,8 @@ class SettingsViewModelTest {
     private val keepScreenOnFlow = MutableStateFlow(true)
     private val themeModeFlow = MutableStateFlow(ThemeMode.AUTO)
     private val importDebuggingEnabledFlow = MutableStateFlow(false)
+    private val volumeUnitSystemFlow = MutableStateFlow(UnitSystem.CUSTOMARY)
+    private val weightUnitSystemFlow = MutableStateFlow(UnitSystem.METRIC)
 
     @Before
     fun setup() {
@@ -50,6 +53,8 @@ class SettingsViewModelTest {
         every { settingsDataStore.keepScreenOn } returns keepScreenOnFlow
         every { settingsDataStore.themeMode } returns themeModeFlow
         every { settingsDataStore.importDebuggingEnabled } returns importDebuggingEnabledFlow
+        every { settingsDataStore.volumeUnitSystem } returns volumeUnitSystemFlow
+        every { settingsDataStore.weightUnitSystem } returns weightUnitSystemFlow
         viewModel = SettingsViewModel(settingsDataStore, importDebugRepository)
     }
 

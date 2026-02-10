@@ -18,6 +18,7 @@ import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.IngredientSection
 import com.lionotter.recipes.domain.model.IngredientUsageStatus
 import com.lionotter.recipes.domain.model.MeasurementPreference
+import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.util.pluralize
 import com.lionotter.recipes.util.singularize
 
@@ -26,7 +27,9 @@ internal fun IngredientSectionContent(
     section: IngredientSection,
     scale: Double,
     measurementPreference: MeasurementPreference,
-    globalIngredientUsage: Map<String, IngredientUsageStatus>
+    globalIngredientUsage: Map<String, IngredientUsageStatus>,
+    volumeUnitSystem: UnitSystem = UnitSystem.CUSTOMARY,
+    weightUnitSystem: UnitSystem = UnitSystem.METRIC
 ) {
     Column {
         section.name?.let { name ->
@@ -57,7 +60,7 @@ internal fun IngredientSectionContent(
                 )
                 Column {
                     Text(
-                        text = ingredient.format(scale, measurementPreference),
+                        text = ingredient.format(scale, measurementPreference, volumeUnitSystem, weightUnitSystem),
                         style = MaterialTheme.typography.bodyLarge,
                         textDecoration = if (isFullyUsed) TextDecoration.LineThrough else TextDecoration.None,
                         color = if (isFullyUsed) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface
@@ -92,7 +95,7 @@ internal fun IngredientSectionContent(
                     )
                     Column {
                         Text(
-                            text = alternate.format(scale, measurementPreference),
+                            text = alternate.format(scale, measurementPreference, volumeUnitSystem, weightUnitSystem),
                             style = MaterialTheme.typography.bodyMedium,
                             textDecoration = if (altIsFullyUsed) TextDecoration.LineThrough else TextDecoration.None,
                             color = if (altIsFullyUsed) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurfaceVariant

@@ -24,6 +24,7 @@ import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.InstructionIngredientKey
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.MeasurementPreference
+import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.domain.model.createInstructionIngredientKey
 import com.lionotter.recipes.ui.screens.recipedetail.HighlightedInstructionStep
 
@@ -36,7 +37,9 @@ internal fun InstructionSectionContent(
     usedInstructionIngredients: Set<InstructionIngredientKey>,
     onToggleIngredient: (Int, Int, Int) -> Unit,
     highlightedInstructionStep: HighlightedInstructionStep?,
-    onToggleHighlightedInstruction: (Int, Int) -> Unit
+    onToggleHighlightedInstruction: (Int, Int) -> Unit,
+    volumeUnitSystem: UnitSystem = UnitSystem.CUSTOMARY,
+    weightUnitSystem: UnitSystem = UnitSystem.METRIC
 ) {
     Column {
         section.name?.let { name ->
@@ -128,7 +131,7 @@ internal fun InstructionSectionContent(
                                     modifier = Modifier.padding(end = 8.dp)
                                 )
                                 Text(
-                                    text = ingredient.format(scale, measurementPreference),
+                                    text = ingredient.format(scale, measurementPreference, volumeUnitSystem, weightUnitSystem),
                                     style = MaterialTheme.typography.bodyMedium,
                                     textDecoration = if (isUsed) TextDecoration.LineThrough else TextDecoration.None,
                                     color = if (isUsed) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface
@@ -151,7 +154,7 @@ internal fun InstructionSectionContent(
                                         modifier = Modifier.padding(end = 8.dp)
                                     )
                                     Text(
-                                        text = alternate.format(scale, measurementPreference),
+                                        text = alternate.format(scale, measurementPreference, volumeUnitSystem, weightUnitSystem),
                                         style = MaterialTheme.typography.bodySmall,
                                         textDecoration = if (isUsed) TextDecoration.LineThrough else TextDecoration.None,
                                         color = if (isUsed) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurfaceVariant

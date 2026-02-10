@@ -10,6 +10,7 @@ import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.InstructionStep
 import com.lionotter.recipes.domain.model.MeasurementPreference
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.domain.model.createInstructionIngredientKey
 import com.lionotter.recipes.domain.usecase.CalculateIngredientUsageUseCase
 import io.mockk.coEvery
@@ -67,6 +68,8 @@ class RecipeDetailViewModelTest {
         // Default mock setup
         every { recipeRepository.getRecipeById("recipe-1") } returns flowOf(createTestRecipe())
         every { settingsDataStore.keepScreenOn } returns flowOf(true)
+        every { settingsDataStore.volumeUnitSystem } returns flowOf(UnitSystem.CUSTOMARY)
+        every { settingsDataStore.weightUnitSystem } returns flowOf(UnitSystem.METRIC)
     }
 
     @After

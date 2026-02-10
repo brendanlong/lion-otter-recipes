@@ -36,6 +36,7 @@ import com.lionotter.recipes.domain.model.IngredientUsageStatus
 import com.lionotter.recipes.domain.model.InstructionIngredientKey
 import com.lionotter.recipes.domain.model.MeasurementPreference
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.ui.screens.recipedetail.HighlightedInstructionStep
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -53,6 +54,8 @@ fun RecipeContent(
     onToggleInstructionIngredient: (Int, Int, Int) -> Unit,
     highlightedInstructionStep: HighlightedInstructionStep?,
     onToggleHighlightedInstruction: (Int, Int) -> Unit,
+    volumeUnitSystem: UnitSystem = UnitSystem.CUSTOMARY,
+    weightUnitSystem: UnitSystem = UnitSystem.METRIC,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -141,7 +144,9 @@ fun RecipeContent(
                     section = section,
                     scale = scale,
                     measurementPreference = measurementPreference,
-                    globalIngredientUsage = globalIngredientUsage
+                    globalIngredientUsage = globalIngredientUsage,
+                    volumeUnitSystem = volumeUnitSystem,
+                    weightUnitSystem = weightUnitSystem
                 )
             }
 
@@ -162,7 +167,9 @@ fun RecipeContent(
                     usedInstructionIngredients = usedInstructionIngredients,
                     onToggleIngredient = onToggleInstructionIngredient,
                     highlightedInstructionStep = highlightedInstructionStep,
-                    onToggleHighlightedInstruction = onToggleHighlightedInstruction
+                    onToggleHighlightedInstruction = onToggleHighlightedInstruction,
+                    volumeUnitSystem = volumeUnitSystem,
+                    weightUnitSystem = weightUnitSystem
                 )
             }
 

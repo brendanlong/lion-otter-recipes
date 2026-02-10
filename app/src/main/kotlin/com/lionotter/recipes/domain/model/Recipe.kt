@@ -147,9 +147,11 @@ data class Ingredient(
      */
     fun format(
         scale: Double = 1.0,
-        preference: MeasurementPreference = MeasurementPreference.DEFAULT
+        preference: MeasurementPreference = MeasurementPreference.DEFAULT,
+        volumeSystem: UnitSystem = UnitSystem.CUSTOMARY,
+        weightSystem: UnitSystem = UnitSystem.METRIC
     ): String {
-        val displayAmount = getDisplayAmount(scale, preference)
+        val displayAmount = getDisplayAmount(scale, preference, volumeSystem, weightSystem)
             ?: return name + (notes?.let { ", $it" } ?: "")
 
         val value = displayAmount.value
@@ -173,33 +175,40 @@ data class Ingredient(
     }
 
     /**
-     * Get the amount to display based on user preference and density.
-     * Returns the converted amount, or the original if conversion isn't possible.
+     * Get the amount to display based on user preferences.
+     * Handles both cross-category conversion (volume↔weight via density) and
+     * within-category system conversion (customary↔metric).
      */
     fun getDisplayAmount(
         scale: Double = 1.0,
-        preference: MeasurementPreference = MeasurementPreference.DEFAULT
+        preference: MeasurementPreference = MeasurementPreference.DEFAULT,
+        volumeSystem: UnitSystem = UnitSystem.CUSTOMARY,
+        weightSystem: UnitSystem = UnitSystem.METRIC
     ): Amount? {
         val amt = amount ?: return null
         val scaledValue = amt.value?.let { it * scale }
 
-        if (preference == MeasurementPreference.DEFAULT || density == null || amt.unit == null) {
+        // If no unit, return as-is (count items like "3 eggs")
+        if (amt.unit == null) {
             return Amount(value = scaledValue, unit = amt.unit)
         }
 
-        val currentType = unitType(amt.unit)
-        val wantType = when (preference) {
-            MeasurementPreference.VOLUME -> UnitCategory.VOLUME
-            MeasurementPreference.WEIGHT -> UnitCategory.WEIGHT
-            MeasurementPreference.DEFAULT -> return Amount(value = scaledValue, unit = amt.unit)
+        // Handle cross-category conversion first (volume↔weight)
+        if (preference != MeasurementPreference.DEFAULT && density != null && scaledValue != null) {
+            val currentType = unitType(amt.unit)
+            val wantType = when (preference) {
+                MeasurementPreference.VOLUME -> UnitCategory.VOLUME
+                MeasurementPreference.WEIGHT -> UnitCategory.WEIGHT
+                MeasurementPreference.DEFAULT -> null
+            }
+
+            if (currentType != null && wantType != null && currentType != wantType) {
+                return convertAmount(scaledValue, amt.unit, currentType, wantType, density, volumeSystem, weightSystem)
+            }
         }
 
-        // If it's a count or already the right type, return as-is
-        if (currentType == null || currentType == wantType || scaledValue == null) {
-            return Amount(value = scaledValue, unit = amt.unit)
-        }
-
-        return convertAmount(scaledValue, amt.unit, currentType, wantType, density)
+        // Apply within-category unit system conversion
+        return convertToSystem(scaledValue, amt.unit, volumeSystem, weightSystem)
     }
 
     /**
@@ -262,6 +271,12 @@ enum class UnitCategory { WEIGHT, VOLUME }
 private val WEIGHT_UNITS = setOf("mg", "g", "kg", "oz", "lb")
 private val VOLUME_UNITS = setOf("mL", "L", "tsp", "tbsp", "cup", "fl_oz", "pint", "quart", "gal")
 
+// Which units belong to which system
+private val METRIC_WEIGHT_UNITS = setOf("mg", "g", "kg")
+private val CUSTOMARY_WEIGHT_UNITS = setOf("oz", "lb")
+private val METRIC_VOLUME_UNITS = setOf("mL", "L")
+private val CUSTOMARY_VOLUME_UNITS = setOf("tsp", "tbsp", "cup", "fl_oz", "pint", "quart", "gal")
+
 // Conversion factors to base units (grams for weight, mL for volume)
 private val TO_GRAMS = mapOf(
     "mg" to 0.001,
@@ -294,47 +309,120 @@ internal fun unitType(unit: String): UnitCategory? {
 }
 
 /**
+ * Returns the UnitSystem that a given unit belongs to, or null if unrecognized.
+ */
+private fun unitSystem(unit: String): UnitSystem? {
+    val lower = unit.lowercase()
+    return when {
+        METRIC_WEIGHT_UNITS.any { it.lowercase() == lower } -> UnitSystem.METRIC
+        CUSTOMARY_WEIGHT_UNITS.any { it.lowercase() == lower } -> UnitSystem.CUSTOMARY
+        METRIC_VOLUME_UNITS.any { it.lowercase() == lower } -> UnitSystem.METRIC
+        CUSTOMARY_VOLUME_UNITS.any { it.lowercase() == lower } -> UnitSystem.CUSTOMARY
+        else -> null
+    }
+}
+
+/**
  * Convert an amount between weight and volume using density (g/mL).
- * Returns the best unit for the result (e.g. uses cups instead of mL for US cooking).
+ * The result uses the best unit in the target system (e.g. metric weight → grams/kg).
  */
 private fun convertAmount(
     value: Double,
     fromUnit: String,
     fromType: UnitCategory,
     toType: UnitCategory,
-    density: Double
+    density: Double,
+    volumeSystem: UnitSystem = UnitSystem.CUSTOMARY,
+    weightSystem: UnitSystem = UnitSystem.METRIC
 ): Amount {
     return when {
         fromType == UnitCategory.VOLUME && toType == UnitCategory.WEIGHT -> {
             // volume → mL → grams (via density) → best weight unit
             val mL = value * (TO_ML[fromUnit] ?: return Amount(value, fromUnit))
             val grams = mL * density
-            bestUnit(grams, TO_GRAMS)
+            bestUnit(grams, TO_GRAMS, weightSystem)
         }
         fromType == UnitCategory.WEIGHT && toType == UnitCategory.VOLUME -> {
             // weight → grams → mL (via density) → best volume unit
             val grams = value * (TO_GRAMS[fromUnit] ?: return Amount(value, fromUnit))
             val mL = grams / density
-            bestUnit(mL, TO_ML)
+            bestUnit(mL, TO_ML, volumeSystem)
         }
         else -> Amount(value, fromUnit)
     }
 }
 
 /**
- * Find the best unit for a given amount in base units (g or mL).
- * Prefers common cooking units and values between 0.25 and 999.
+ * Convert a unit within the same category to the preferred unit system.
+ * For example, cups → mL when metric volume is preferred, or grams → oz when customary weight is preferred.
+ * Returns the original amount if no conversion is needed or the unit is unrecognized.
  */
-private fun bestUnit(baseValue: Double, conversions: Map<String, Double>): Amount {
-    // Preferred order: for cooking, prefer common units
-    val preferred = if (conversions === TO_ML) {
-        listOf("tsp", "tbsp", "cup", "fl_oz", "pint", "quart", "mL", "L", "gal")
-    } else {
-        listOf("g", "oz", "lb", "kg", "mg")
+internal fun convertToSystem(
+    value: Double?,
+    unit: String,
+    volumeSystem: UnitSystem = UnitSystem.CUSTOMARY,
+    weightSystem: UnitSystem = UnitSystem.METRIC
+): Amount {
+    if (value == null) return Amount(value, unit)
+
+    val category = unitType(unit) ?: return Amount(value, unit)
+    val currentSystem = unitSystem(unit) ?: return Amount(value, unit)
+    val targetSystem = when (category) {
+        UnitCategory.VOLUME -> volumeSystem
+        UnitCategory.WEIGHT -> weightSystem
     }
 
-    var bestUnit = preferred.first()
-    var bestValue = baseValue / conversions[bestUnit]!!
+    // Already in the right system
+    if (currentSystem == targetSystem) return Amount(value, unit)
+
+    // Convert to base units, then find best unit in target system
+    return when (category) {
+        UnitCategory.WEIGHT -> {
+            val grams = value * (TO_GRAMS[unit] ?: return Amount(value, unit))
+            bestUnit(grams, TO_GRAMS, targetSystem)
+        }
+        UnitCategory.VOLUME -> {
+            val mL = value * (TO_ML[unit] ?: return Amount(value, unit))
+            bestUnit(mL, TO_ML, targetSystem)
+        }
+    }
+}
+
+/**
+ * Find the best unit for a given amount in base units (g or mL).
+ * Filters to only units in the target system.
+ * Prefers common cooking units and values between 0.25 and 999.
+ */
+private fun bestUnit(
+    baseValue: Double,
+    conversions: Map<String, Double>,
+    targetSystem: UnitSystem
+): Amount {
+    val systemUnits = when {
+        conversions === TO_ML && targetSystem == UnitSystem.CUSTOMARY -> CUSTOMARY_VOLUME_UNITS
+        conversions === TO_ML && targetSystem == UnitSystem.METRIC -> METRIC_VOLUME_UNITS
+        conversions === TO_GRAMS && targetSystem == UnitSystem.CUSTOMARY -> CUSTOMARY_WEIGHT_UNITS
+        conversions === TO_GRAMS && targetSystem == UnitSystem.METRIC -> METRIC_WEIGHT_UNITS
+        else -> conversions.keys
+    }
+
+    // Preferred order within each system
+    val preferred = when {
+        conversions === TO_ML && targetSystem == UnitSystem.CUSTOMARY ->
+            listOf("tsp", "tbsp", "cup", "fl_oz", "pint", "quart", "gal")
+        conversions === TO_ML && targetSystem == UnitSystem.METRIC ->
+            listOf("mL", "L")
+        conversions === TO_GRAMS && targetSystem == UnitSystem.CUSTOMARY ->
+            listOf("oz", "lb")
+        conversions === TO_GRAMS && targetSystem == UnitSystem.METRIC ->
+            listOf("g", "kg", "mg")
+        else -> conversions.keys.toList()
+    }.filter { it in systemUnits }
+
+    if (preferred.isEmpty()) return Amount(baseValue, conversions.entries.first().key)
+
+    var bestUnitName = preferred.first()
+    var bestValue = baseValue / conversions[bestUnitName]!!
     var bestScore = unitScore(bestValue)
 
     for (unit in preferred) {
@@ -343,14 +431,14 @@ private fun bestUnit(baseValue: Double, conversions: Map<String, Double>): Amoun
         val score = unitScore(converted)
         if (score > bestScore) {
             bestScore = score
-            bestUnit = unit
+            bestUnitName = unit
             bestValue = converted
         }
     }
 
     // Round to reasonable precision
     val rounded = kotlin.math.round(bestValue * 100) / 100
-    return Amount(rounded, bestUnit)
+    return Amount(rounded, bestUnitName)
 }
 
 /**

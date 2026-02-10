@@ -9,6 +9,7 @@ import com.lionotter.recipes.domain.model.IngredientUsageStatus
 import com.lionotter.recipes.domain.model.InstructionIngredientKey
 import com.lionotter.recipes.domain.model.MeasurementPreference
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.domain.model.createInstructionIngredientKey
 import com.lionotter.recipes.domain.usecase.CalculateIngredientUsageUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -63,6 +64,20 @@ class RecipeDetailViewModel @Inject constructor(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = true
+        )
+
+    val volumeUnitSystem: StateFlow<UnitSystem> = settingsDataStore.volumeUnitSystem
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = UnitSystem.CUSTOMARY
+        )
+
+    val weightUnitSystem: StateFlow<UnitSystem> = settingsDataStore.weightUnitSystem
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = UnitSystem.METRIC
         )
 
     private val _scale = MutableStateFlow(1.0)
@@ -151,10 +166,19 @@ class RecipeDetailViewModel @Inject constructor(
         recipe,
         _usedInstructionIngredients,
         _scale,
-        _measurementPreference
-    ) { recipe, usedKeys, scale, preference ->
+        _measurementPreference,
+        volumeUnitSystem,
+        weightUnitSystem
+    ) { args ->
+        @Suppress("UNCHECKED_CAST")
+        val recipe = args[0] as Recipe?
+        val usedKeys = args[1] as Set<InstructionIngredientKey>
+        val scale = args[2] as Double
+        val preference = args[3] as MeasurementPreference
+        val volSystem = args[4] as UnitSystem
+        val wtSystem = args[5] as UnitSystem
         if (recipe == null) return@combine emptyMap()
-        calculateIngredientUsage.execute(recipe, usedKeys, scale, preference)
+        calculateIngredientUsage.execute(recipe, usedKeys, scale, preference, volSystem, wtSystem)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),

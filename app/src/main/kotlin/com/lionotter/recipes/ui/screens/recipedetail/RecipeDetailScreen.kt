@@ -47,6 +47,8 @@ fun RecipeDetailScreen(
     val globalIngredientUsage by viewModel.globalIngredientUsage.collectAsStateWithLifecycle()
     val highlightedInstructionStep by viewModel.highlightedInstructionStep.collectAsStateWithLifecycle()
     val keepScreenOn by viewModel.keepScreenOn.collectAsStateWithLifecycle()
+    val volumeUnitSystem by viewModel.volumeUnitSystem.collectAsStateWithLifecycle()
+    val weightUnitSystem by viewModel.weightUnitSystem.collectAsStateWithLifecycle()
 
     // Keep screen on while viewing a recipe if the setting is enabled
     val view = LocalView.current
@@ -144,6 +146,8 @@ fun RecipeDetailScreen(
                 onToggleInstructionIngredient = viewModel::toggleInstructionIngredientUsed,
                 highlightedInstructionStep = highlightedInstructionStep,
                 onToggleHighlightedInstruction = viewModel::toggleHighlightedInstructionStep,
+                volumeUnitSystem = volumeUnitSystem,
+                weightUnitSystem = weightUnitSystem,
                 modifier = Modifier.padding(paddingValues)
             )
         }
