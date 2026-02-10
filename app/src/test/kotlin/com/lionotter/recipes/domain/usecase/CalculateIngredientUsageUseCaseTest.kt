@@ -74,7 +74,9 @@ class CalculateIngredientUsageUseCaseTest {
             recipe = recipe,
             usedInstructionIngredients = usedKeys,
             scale = 1.0,
-            measurementPreference = MeasurementPreference.DEFAULT
+            measurementPreference = MeasurementPreference.DEFAULT,
+            volumeSystem = UnitSystem.CUSTOMARY,
+            weightSystem = UnitSystem.METRIC
         )
 
         val flour = result["flour"]
@@ -98,7 +100,9 @@ class CalculateIngredientUsageUseCaseTest {
             recipe = recipe,
             usedInstructionIngredients = usedKeys,
             scale = 1.0,
-            measurementPreference = MeasurementPreference.WEIGHT
+            measurementPreference = MeasurementPreference.WEIGHT,
+            volumeSystem = UnitSystem.CUSTOMARY,
+            weightSystem = UnitSystem.METRIC
         )
 
         val flour = result["flour"]
@@ -125,7 +129,9 @@ class CalculateIngredientUsageUseCaseTest {
             recipe = recipe,
             usedInstructionIngredients = usedKeys,
             scale = 1.0,
-            measurementPreference = MeasurementPreference.DEFAULT
+            measurementPreference = MeasurementPreference.DEFAULT,
+            volumeSystem = UnitSystem.CUSTOMARY,
+            weightSystem = UnitSystem.METRIC
         )
 
         val flour = result["flour"]
@@ -145,7 +151,9 @@ class CalculateIngredientUsageUseCaseTest {
             recipe = recipe,
             usedInstructionIngredients = emptySet(),
             scale = 1.0,
-            measurementPreference = MeasurementPreference.DEFAULT
+            measurementPreference = MeasurementPreference.DEFAULT,
+            volumeSystem = UnitSystem.CUSTOMARY,
+            weightSystem = UnitSystem.METRIC
         )
 
         val sugar = result["sugar"]
@@ -166,7 +174,9 @@ class CalculateIngredientUsageUseCaseTest {
             recipe = recipe,
             usedInstructionIngredients = usedKeys,
             scale = 1.0,
-            measurementPreference = MeasurementPreference.DEFAULT
+            measurementPreference = MeasurementPreference.DEFAULT,
+            volumeSystem = UnitSystem.CUSTOMARY,
+            weightSystem = UnitSystem.METRIC
         )
 
         val sugar = result["sugar"]
@@ -189,7 +199,9 @@ class CalculateIngredientUsageUseCaseTest {
             recipe = recipe,
             usedInstructionIngredients = usedKeys,
             scale = 1.0,
-            measurementPreference = MeasurementPreference.DEFAULT
+            measurementPreference = MeasurementPreference.DEFAULT,
+            volumeSystem = UnitSystem.CUSTOMARY,
+            weightSystem = UnitSystem.METRIC
         )
 
         val eggs = result["eggs"]
@@ -215,7 +227,9 @@ class CalculateIngredientUsageUseCaseTest {
             recipe = recipe,
             usedInstructionIngredients = usedKeys,
             scale = 1.0,
-            measurementPreference = MeasurementPreference.DEFAULT
+            measurementPreference = MeasurementPreference.DEFAULT,
+            volumeSystem = UnitSystem.CUSTOMARY,
+            weightSystem = UnitSystem.METRIC
         )
 
         val butter = result["butter"]
@@ -238,7 +252,9 @@ class CalculateIngredientUsageUseCaseTest {
             recipe = recipe,
             usedInstructionIngredients = emptySet(),
             scale = 2.0,
-            measurementPreference = MeasurementPreference.DEFAULT
+            measurementPreference = MeasurementPreference.DEFAULT,
+            volumeSystem = UnitSystem.CUSTOMARY,
+            weightSystem = UnitSystem.METRIC
         )
 
         val salt = result["salt"]
@@ -260,7 +276,9 @@ class CalculateIngredientUsageUseCaseTest {
             recipe = recipe,
             usedInstructionIngredients = emptySet(),
             scale = 1.0,
-            measurementPreference = MeasurementPreference.DEFAULT
+            measurementPreference = MeasurementPreference.DEFAULT,
+            volumeSystem = UnitSystem.CUSTOMARY,
+            weightSystem = UnitSystem.METRIC
         )
 
         val flour = result["flour"]
@@ -285,7 +303,9 @@ class CalculateIngredientUsageUseCaseTest {
             recipe = recipe,
             usedInstructionIngredients = usedKeys,
             scale = 1.0,
-            measurementPreference = MeasurementPreference.DEFAULT
+            measurementPreference = MeasurementPreference.DEFAULT,
+            volumeSystem = UnitSystem.CUSTOMARY,
+            weightSystem = UnitSystem.METRIC
         )
 
         val flour = result["flour"]
@@ -311,7 +331,9 @@ class CalculateIngredientUsageUseCaseTest {
             recipe = recipe,
             usedInstructionIngredients = usedKeys,
             scale = 1.0,
-            measurementPreference = MeasurementPreference.DEFAULT
+            measurementPreference = MeasurementPreference.DEFAULT,
+            volumeSystem = UnitSystem.CUSTOMARY,
+            weightSystem = UnitSystem.METRIC
         )
 
         val flour = result["flour"]
@@ -336,7 +358,9 @@ class CalculateIngredientUsageUseCaseTest {
             recipe = recipe,
             usedInstructionIngredients = usedKeys,
             scale = 1.0,
-            measurementPreference = MeasurementPreference.DEFAULT
+            measurementPreference = MeasurementPreference.DEFAULT,
+            volumeSystem = UnitSystem.CUSTOMARY,
+            weightSystem = UnitSystem.METRIC
         )
 
         val salt = result["salt"]
@@ -378,7 +402,9 @@ class CalculateIngredientUsageUseCaseTest {
             recipe = recipe,
             usedInstructionIngredients = usedKeys,
             scale = 1.0,
-            measurementPreference = MeasurementPreference.DEFAULT
+            measurementPreference = MeasurementPreference.DEFAULT,
+            volumeSystem = UnitSystem.CUSTOMARY,
+            weightSystem = UnitSystem.METRIC
         )
 
         val kosherSalt = result["kosher salt"]
