@@ -157,13 +157,20 @@ data class Ingredient(
         val value = displayAmount.value
             ?: return name + (notes?.let { ", $it" } ?: "")
 
+        val isWeight = displayAmount.unit != null && unitType(displayAmount.unit) == UnitCategory.WEIGHT
+
         return buildString {
-            append(formatQuantity(value))
-            val unit = displayAmount.unit
-            if (unit != null) {
-                append(" ")
-                val count = if (value > 1.0) 2 else 1
-                append(unit.singularize().pluralize(count))
+            // Compound lb+oz display for customary weight >= 16 oz
+            if (displayAmount.unit == "oz" && value >= 16) {
+                append(formatLbOz(value))
+            } else {
+                append(if (isWeight) formatWeightQuantity(value) else formatQuantity(value))
+                val unit = displayAmount.unit
+                if (unit != null) {
+                    append(" ")
+                    val count = if (value > 1.0) 2 else 1
+                    append(unit.singularize().pluralize(count))
+                }
             }
             append(" ")
             append(name)
@@ -242,6 +249,39 @@ data class Ingredient(
                 fraction != null && whole > 0 -> "$whole $fraction"
                 fraction != null -> fraction
                 else -> "%.2f".format(qty).trimEnd('0').trimEnd('.')
+            }
+        }
+    }
+
+    /**
+     * Format a weight quantity using decimals instead of fractions.
+     * People think about weights in decimals (2.5 g, 250 g), not fractions (1/4 kg).
+     */
+    private fun formatWeightQuantity(qty: Double): String {
+        return when {
+            qty == qty.toLong().toDouble() -> qty.toLong().toString()
+            qty >= 10 -> kotlin.math.round(qty).toLong().toString()
+            qty >= 1 -> "%.1f".format(qty).trimEnd('0').trimEnd('.')
+            else -> "%.2f".format(qty).trimEnd('0').trimEnd('.')
+        }
+    }
+
+    /**
+     * Format ounces as compound "X lbs Y oz" like a kitchen scale would show.
+     * Drops the oz part if it rounds to 0.
+     */
+    private fun formatLbOz(totalOz: Double): String {
+        val wholeLbs = (totalOz / 16).toLong()
+        val remainingOz = totalOz - wholeLbs * 16
+        val roundedOz = kotlin.math.round(remainingOz * 10) / 10
+
+        return buildString {
+            append(wholeLbs)
+            append(" lb")
+            if (roundedOz >= 0.1) {
+                append(" ")
+                append(formatWeightQuantity(roundedOz))
+                append(" oz")
             }
         }
     }
@@ -355,6 +395,8 @@ private fun convertAmount(
 /**
  * Convert a unit within the same category to the preferred unit system.
  * For example, cups → mL when metric volume is preferred, or grams → oz when customary weight is preferred.
+ * For weight units, always re-evaluates the best unit even within the same system
+ * (e.g., 0.25 kg → 250 g) since weight display rules differ from volume.
  * Returns the original amount if no conversion is needed or the unit is unrecognized.
  */
 internal fun convertToSystem(
@@ -372,8 +414,8 @@ internal fun convertToSystem(
         UnitCategory.WEIGHT -> weightSystem
     }
 
-    // Already in the right system
-    if (currentSystem == targetSystem) return Amount(value, unit)
+    // For volume, skip if already in the right system
+    if (category == UnitCategory.VOLUME && currentSystem == targetSystem) return Amount(value, unit)
 
     // Convert to base units, then find best unit in target system
     return when (category) {
@@ -418,11 +460,14 @@ private fun bestUnit(
     conversions: Map<String, Double>,
     targetSystem: UnitSystem
 ): Amount {
+    // Use weight-specific logic for weight units
+    if (conversions === TO_GRAMS) {
+        return bestWeightUnit(baseValue, targetSystem)
+    }
+
     val systemUnits = when {
         conversions === TO_ML && targetSystem == UnitSystem.CUSTOMARY -> CUSTOMARY_VOLUME_UNITS
         conversions === TO_ML && targetSystem == UnitSystem.METRIC -> METRIC_VOLUME_UNITS
-        conversions === TO_GRAMS && targetSystem == UnitSystem.CUSTOMARY -> CUSTOMARY_WEIGHT_UNITS
-        conversions === TO_GRAMS && targetSystem == UnitSystem.METRIC -> METRIC_WEIGHT_UNITS
         else -> conversions.keys
     }
 
@@ -432,10 +477,6 @@ private fun bestUnit(
             listOf("tsp", "tbsp", "cup", "fl_oz", "pint", "quart", "gal")
         conversions === TO_ML && targetSystem == UnitSystem.METRIC ->
             listOf("mL", "L")
-        conversions === TO_GRAMS && targetSystem == UnitSystem.CUSTOMARY ->
-            listOf("oz", "lb")
-        conversions === TO_GRAMS && targetSystem == UnitSystem.METRIC ->
-            listOf("g", "kg", "mg")
         else -> conversions.keys.toList()
     }.filter { it in systemUnits }
 
@@ -459,6 +500,51 @@ private fun bestUnit(
     // Round to reasonable precision
     val rounded = kotlin.math.round(bestValue * 100) / 100
     return Amount(rounded, bestUnitName)
+}
+
+/**
+ * Weight-specific unit selection that reflects how people think about weights.
+ *
+ * Metric: Use grams for most cooking weights (under 10 kg), kg with decimals above that,
+ * and mg for tiny amounts under 1g.
+ *
+ * Customary: Use oz for amounts under 1 lb, lb with decimals above that.
+ */
+private fun bestWeightUnit(gramsValue: Double, targetSystem: UnitSystem): Amount {
+    return if (targetSystem == UnitSystem.METRIC) {
+        bestMetricWeightUnit(gramsValue)
+    } else {
+        bestCustomaryWeightUnit(gramsValue)
+    }
+}
+
+private fun bestMetricWeightUnit(grams: Double): Amount {
+    return when {
+        // Tiny amounts: use mg
+        grams < 1.0 -> {
+            val mg = grams * 1000.0
+            val rounded = kotlin.math.round(mg * 100) / 100
+            Amount(rounded, "mg")
+        }
+        // Under 10 kg: use grams (this covers the vast majority of cooking)
+        grams < 10_000.0 -> {
+            val rounded = kotlin.math.round(grams * 100) / 100
+            Amount(rounded, "g")
+        }
+        // 10 kg and above: use kg with decimals
+        else -> {
+            val kg = grams / 1000.0
+            val rounded = kotlin.math.round(kg * 100) / 100
+            Amount(rounded, "kg")
+        }
+    }
+}
+
+private fun bestCustomaryWeightUnit(grams: Double): Amount {
+    val oz = grams / TO_GRAMS["oz"]!!
+    // Always return in oz; the formatting layer handles lb+oz compound display
+    val rounded = kotlin.math.round(oz * 100) / 100
+    return Amount(rounded, "oz")
 }
 
 /**
