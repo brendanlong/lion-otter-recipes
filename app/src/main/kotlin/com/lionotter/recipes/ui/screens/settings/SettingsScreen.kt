@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.lionotter.recipes.ui.screens.settings
 
 import androidx.activity.compose.rememberLauncherForActivityResult

@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.lionotter.recipes.data.remote
 
 import android.content.Context

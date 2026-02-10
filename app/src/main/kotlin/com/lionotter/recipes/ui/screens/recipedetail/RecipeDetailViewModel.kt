@@ -182,20 +182,13 @@ class RecipeDetailViewModel @Inject constructor(
      * Value: IngredientUsageStatus with total, used, and remaining amounts
      */
     val globalIngredientUsage: StateFlow<Map<String, IngredientUsageStatus>> = combine(
-        recipe,
-        _usedInstructionIngredients,
-        _scale,
-        _measurementPreference,
-        volumeUnitSystem,
-        weightUnitSystem
-    ) { args ->
-        @Suppress("UNCHECKED_CAST")
-        val recipe = args[0] as Recipe?
-        val usedKeys = args[1] as Set<InstructionIngredientKey>
-        val scale = args[2] as Double
-        val preference = args[3] as MeasurementPreference
-        val volSystem = args[4] as UnitSystem
-        val wtSystem = args[5] as UnitSystem
+        combine(recipe, _usedInstructionIngredients, _scale) { recipe, usedKeys, scale ->
+            Triple(recipe, usedKeys, scale)
+        },
+        combine(_measurementPreference, volumeUnitSystem, weightUnitSystem) { preference, volSystem, wtSystem ->
+            Triple(preference, volSystem, wtSystem)
+        }
+    ) { (recipe, usedKeys, scale), (preference, volSystem, wtSystem) ->
         if (recipe == null) return@combine emptyMap()
         calculateIngredientUsage.execute(recipe, usedKeys, scale, preference, volSystem, wtSystem)
     }.stateIn(
