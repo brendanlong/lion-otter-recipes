@@ -66,7 +66,10 @@ app: {
       }
 
       list: RecipeListScreen
-      detail: RecipeDetailScreen
+      detail: {
+        label: RecipeDetailScreen
+        tooltip: "Displays recipe details with share button (exports as Markdown via Android share sheet). All text is selectable."
+      }
       add: AddRecipeScreen
       settings: SettingsScreen
       import_debug_list: {
@@ -75,7 +78,7 @@ app: {
       }
       import_debug_detail: {
         label: ImportDebugDetailScreen
-        tooltip: "Tabbed detail view for a single import debug entry. Tabs: Summary (URL, lengths, tokens, model, cost, recipe link), Original Content (HTML with source toggle), Cleaned Content (HTML with source toggle), AI Output (JSON tree view)."
+        tooltip: "Tabbed detail view for a single import debug entry. Tabs: Summary (URL, lengths, tokens, model, cost, recipe link), Original Content (HTML with source toggle), Cleaned Content (HTML with source toggle), AI Output (JSON tree view with copy-to-clipboard button). All text is selectable."
       }
 
       list -> detail: tap recipe

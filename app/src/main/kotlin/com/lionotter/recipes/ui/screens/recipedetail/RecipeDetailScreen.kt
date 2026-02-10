@@ -1,10 +1,12 @@
 package com.lionotter.recipes.ui.screens.recipedetail
 
+import android.content.Intent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.CircularProgressIndicator
@@ -21,11 +23,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
+import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
 import com.lionotter.recipes.ui.components.DeleteConfirmationDialog
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.screens.recipedetail.components.RecipeContent
@@ -75,6 +79,8 @@ fun RecipeDetailScreen(
         )
     }
 
+    val context = LocalContext.current
+
     Scaffold(
         topBar = {
             RecipeTopAppBar(
@@ -82,6 +88,22 @@ fun RecipeDetailScreen(
                 onBackClick = onBackClick,
                 actions = {
                     if (recipe != null) {
+                        IconButton(onClick = {
+                            val markdown = RecipeMarkdownFormatter.format(recipe!!)
+                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_SUBJECT, recipe!!.name)
+                                putExtra(Intent.EXTRA_TEXT, markdown)
+                            }
+                            context.startActivity(
+                                Intent.createChooser(shareIntent, null)
+                            )
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = stringResource(R.string.share_recipe)
+                            )
+                        }
                         IconButton(onClick = { viewModel.toggleFavorite() }) {
                             Icon(
                                 imageVector = if (recipe!!.isFavorite) Icons.Filled.Star else Icons.Outlined.StarOutline,
