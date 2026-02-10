@@ -100,12 +100,15 @@
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>
     <string name="unit_preferences">Unit Preferences</string>
+    <string name="recipe_units">Recipe units</string>
     <string name="volume_units">Volume units</string>
     <string name="weight_units">Weight units</string>
     <string name="unit_system_customary">Customary</string>
     <string name="unit_system_metric">Metric</string>
     <string name="volume_units_description">Choose between customary (cups, tsp) and metric (mL, L) volume units.</string>
     <string name="weight_units_description">Choose between customary (oz, lb) and metric (g, kg) weight units.</string>
+    <string name="grocery_list_units">Grocery list units</string>
+    <string name="grocery_list_units_description">Units for the grocery list. Defaults to your recipe unit settings above.</string>
     <string name="display">Display</string>
     <string name="keep_screen_on">Keep screen on</string>
     <string name="keep_screen_on_description">Prevent the screen from turning off while viewing a recipe.</string>

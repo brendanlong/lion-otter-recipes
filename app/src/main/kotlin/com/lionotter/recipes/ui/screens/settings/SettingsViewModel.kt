@@ -72,6 +72,20 @@ class SettingsViewModel @Inject constructor(
             initialValue = UnitSystem.localeDefault()
         )
 
+    val groceryVolumeUnitSystem: StateFlow<UnitSystem> = settingsDataStore.groceryVolumeUnitSystem
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = UnitSystem.localeDefault()
+        )
+
+    val groceryWeightUnitSystem: StateFlow<UnitSystem> = settingsDataStore.groceryWeightUnitSystem
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = UnitSystem.localeDefault()
+        )
+
     val startOfWeek: StateFlow<StartOfWeek> = settingsDataStore.startOfWeek
         .stateIn(
             scope = viewModelScope,
@@ -156,6 +170,18 @@ class SettingsViewModel @Inject constructor(
     fun setWeightUnitSystem(system: UnitSystem) {
         viewModelScope.launch {
             settingsDataStore.setWeightUnitSystem(system)
+        }
+    }
+
+    fun setGroceryVolumeUnitSystem(system: UnitSystem) {
+        viewModelScope.launch {
+            settingsDataStore.setGroceryVolumeUnitSystem(system)
+        }
+    }
+
+    fun setGroceryWeightUnitSystem(system: UnitSystem) {
+        viewModelScope.launch {
+            settingsDataStore.setGroceryWeightUnitSystem(system)
         }
     }
 

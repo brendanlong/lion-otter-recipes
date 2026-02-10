@@ -121,10 +121,10 @@ class GroceryListViewModel @Inject constructor(
     init {
         loadMealPlans()
         viewModelScope.launch {
-            settingsDataStore.volumeUnitSystem.collect { _volumeSystem.value = it }
+            settingsDataStore.groceryVolumeUnitSystem.collect { _volumeSystem.value = it }
         }
         viewModelScope.launch {
-            settingsDataStore.weightUnitSystem.collect { _weightSystem.value = it }
+            settingsDataStore.groceryWeightUnitSystem.collect { _weightSystem.value = it }
         }
     }
 
