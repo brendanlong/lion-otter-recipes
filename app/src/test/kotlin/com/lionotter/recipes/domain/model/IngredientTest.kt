@@ -59,6 +59,72 @@ class IngredientTest {
     }
 
     @Test
+    fun `format oz unit does not pluralize`() {
+        val ingredient = Ingredient(
+            name = "granulated sugar",
+            amount = Amount(value = 5.0, unit = "oz"),
+            density = 0.84
+        )
+        assertEquals("5 oz granulated sugar", ingredient.format(
+            weightSystem = UnitSystem.CUSTOMARY
+        ))
+    }
+
+    @Test
+    fun `format mL unit does not pluralize`() {
+        val ingredient = Ingredient(
+            name = "water",
+            amount = Amount(value = 250.0, unit = "mL"),
+            density = 1.0
+        )
+        assertEquals("250 mL water", ingredient.format(
+            volumeSystem = UnitSystem.METRIC
+        ))
+    }
+
+    @Test
+    fun `format g unit does not pluralize`() {
+        val ingredient = Ingredient(
+            name = "flour",
+            amount = Amount(value = 500.0, unit = "g"),
+            density = 0.51
+        )
+        assertEquals("500 g flour", ingredient.format())
+    }
+
+    @Test
+    fun `format lb unit does not pluralize`() {
+        val ingredient = Ingredient(
+            name = "chicken",
+            amount = Amount(value = 3.0, unit = "lb"),
+            density = 1.0
+        )
+        assertEquals("3 lb chicken", ingredient.format(
+            weightSystem = UnitSystem.CUSTOMARY
+        ))
+    }
+
+    @Test
+    fun `format tsp unit does not pluralize`() {
+        val ingredient = Ingredient(
+            name = "salt",
+            amount = Amount(value = 2.0, unit = "tsp"),
+            density = 1.22
+        )
+        assertEquals("2 tsp salt", ingredient.format())
+    }
+
+    @Test
+    fun `format tbsp unit does not pluralize`() {
+        val ingredient = Ingredient(
+            name = "olive oil",
+            amount = Amount(value = 3.0, unit = "tbsp"),
+            density = 0.92
+        )
+        assertEquals("3 tbsp olive oil", ingredient.format())
+    }
+
+    @Test
     fun `format with scaling`() {
         val ingredient = Ingredient(
             name = "butter",
