@@ -54,8 +54,8 @@ fun RecipeContent(
     onToggleInstructionIngredient: (Int, Int, Int) -> Unit,
     highlightedInstructionStep: HighlightedInstructionStep?,
     onToggleHighlightedInstruction: (Int, Int) -> Unit,
-    volumeUnitSystem: UnitSystem = UnitSystem.CUSTOMARY,
-    weightUnitSystem: UnitSystem = UnitSystem.METRIC,
+    volumeUnitSystem: UnitSystem = UnitSystem.localeDefault(),
+    weightUnitSystem: UnitSystem = UnitSystem.localeDefault(),
     modifier: Modifier = Modifier
 ) {
     Column(

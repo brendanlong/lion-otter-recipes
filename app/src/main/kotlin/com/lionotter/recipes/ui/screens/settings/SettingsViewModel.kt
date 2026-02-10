@@ -62,14 +62,14 @@ class SettingsViewModel @Inject constructor(
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = UnitSystem.CUSTOMARY
+            initialValue = UnitSystem.localeDefault()
         )
 
     val weightUnitSystem: StateFlow<UnitSystem> = settingsDataStore.weightUnitSystem
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = UnitSystem.METRIC
+            initialValue = UnitSystem.localeDefault()
         )
 
     val startOfWeek: StateFlow<StartOfWeek> = settingsDataStore.startOfWeek

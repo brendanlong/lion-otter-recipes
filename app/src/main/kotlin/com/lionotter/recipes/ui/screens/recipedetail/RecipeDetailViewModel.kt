@@ -92,14 +92,14 @@ class RecipeDetailViewModel @Inject constructor(
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = UnitSystem.CUSTOMARY
+            initialValue = UnitSystem.localeDefault()
         )
 
     val weightUnitSystem: StateFlow<UnitSystem> = settingsDataStore.weightUnitSystem
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = UnitSystem.METRIC
+            initialValue = UnitSystem.localeDefault()
         )
 
     private val _scale = MutableStateFlow(1.0)

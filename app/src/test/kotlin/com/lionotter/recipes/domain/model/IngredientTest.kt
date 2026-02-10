@@ -17,7 +17,7 @@ class IngredientTest {
             density = 0.51,
             notes = "sifted"
         )
-        assertEquals("2 cups flour, sifted", ingredient.format())
+        assertEquals("2 cups flour, sifted", ingredient.format(volumeSystem = UnitSystem.CUSTOMARY))
     }
 
     @Test
@@ -27,7 +27,7 @@ class IngredientTest {
             amount = Amount(value = 1.0, unit = "cup"),
             density = 0.84
         )
-        assertEquals("1 cup sugar", ingredient.format())
+        assertEquals("1 cup sugar", ingredient.format(volumeSystem = UnitSystem.CUSTOMARY))
     }
 
     @Test
@@ -89,7 +89,7 @@ class IngredientTest {
             amount = Amount(value = 500.0, unit = "g"),
             density = 0.51
         )
-        assertEquals("500 g flour", ingredient.format())
+        assertEquals("500 g flour", ingredient.format(weightSystem = UnitSystem.METRIC))
     }
 
     @Test
@@ -111,7 +111,7 @@ class IngredientTest {
             amount = Amount(value = 2.0, unit = "tsp"),
             density = 1.22
         )
-        assertEquals("2 tsp salt", ingredient.format())
+        assertEquals("2 tsp salt", ingredient.format(volumeSystem = UnitSystem.CUSTOMARY))
     }
 
     @Test
@@ -121,7 +121,7 @@ class IngredientTest {
             amount = Amount(value = 3.0, unit = "tbsp"),
             density = 0.92
         )
-        assertEquals("3 tbsp olive oil", ingredient.format())
+        assertEquals("3 tbsp olive oil", ingredient.format(volumeSystem = UnitSystem.CUSTOMARY))
     }
 
     @Test
@@ -131,7 +131,7 @@ class IngredientTest {
             amount = Amount(value = 1.0, unit = "cup"),
             density = 0.96
         )
-        assertEquals("2 cups butter", ingredient.format(scale = 2.0))
+        assertEquals("2 cups butter", ingredient.format(scale = 2.0, volumeSystem = UnitSystem.CUSTOMARY))
     }
 
     @Test
@@ -141,7 +141,7 @@ class IngredientTest {
             amount = Amount(value = 0.5, unit = "cup"),
             density = 0.96
         )
-        assertEquals("1/2 cup milk", ingredient.format())
+        assertEquals("1/2 cup milk", ingredient.format(volumeSystem = UnitSystem.CUSTOMARY))
     }
 
     @Test
@@ -151,7 +151,7 @@ class IngredientTest {
             amount = Amount(value = 0.25, unit = "tsp"),
             density = 0.95
         )
-        assertEquals("1/4 tsp vanilla", ingredient.format())
+        assertEquals("1/4 tsp vanilla", ingredient.format(volumeSystem = UnitSystem.CUSTOMARY))
     }
 
     @Test
@@ -161,7 +161,7 @@ class IngredientTest {
             amount = Amount(value = 2.5, unit = "cup"),
             density = 0.51
         )
-        assertEquals("2 1/2 cups flour", ingredient.format())
+        assertEquals("2 1/2 cups flour", ingredient.format(volumeSystem = UnitSystem.CUSTOMARY))
     }
 
     @Test
@@ -171,7 +171,7 @@ class IngredientTest {
             amount = Amount(value = 0.33, unit = "cup"),
             density = 0.84
         )
-        assertEquals("1/3 cup oil", ingredient.format())
+        assertEquals("1/3 cup oil", ingredient.format(volumeSystem = UnitSystem.CUSTOMARY))
     }
 
     @Test
@@ -181,7 +181,7 @@ class IngredientTest {
             amount = Amount(value = 0.66, unit = "cup"),
             density = 0.96
         )
-        assertEquals("2/3 cup water", ingredient.format())
+        assertEquals("2/3 cup water", ingredient.format(volumeSystem = UnitSystem.CUSTOMARY))
     }
 
     @Test
@@ -191,7 +191,7 @@ class IngredientTest {
             amount = Amount(value = 0.75, unit = "cup"),
             density = 0.96
         )
-        assertEquals("3/4 cup cream", ingredient.format())
+        assertEquals("3/4 cup cream", ingredient.format(volumeSystem = UnitSystem.CUSTOMARY))
     }
 
     @Test
@@ -201,7 +201,7 @@ class IngredientTest {
             amount = Amount(value = 1.0, unit = "cup"),
             density = 0.84
         )
-        assertEquals("1/2 cup sugar", ingredient.format(scale = 0.5))
+        assertEquals("1/2 cup sugar", ingredient.format(scale = 0.5, volumeSystem = UnitSystem.CUSTOMARY))
     }
 
     @Test
@@ -217,7 +217,7 @@ class IngredientTest {
             density = 0.54,
             alternates = listOf(alternate)
         )
-        assertEquals("1 tsp kosher salt", ingredient.format())
+        assertEquals("1 tsp kosher salt", ingredient.format(volumeSystem = UnitSystem.CUSTOMARY))
     }
 
     @Test
@@ -227,7 +227,7 @@ class IngredientTest {
             amount = Amount(value = 0.5, unit = "tsp"),
             density = 1.22
         )
-        assertEquals("1 tsp table salt", alternate.format(scale = 2.0))
+        assertEquals("1 tsp table salt", alternate.format(scale = 2.0, volumeSystem = UnitSystem.CUSTOMARY))
     }
 
     @Test
@@ -249,7 +249,7 @@ class IngredientTest {
             density = 0.54,
             alternates = alternates
         )
-        assertEquals("1 tsp kosher salt", ingredient.format())
+        assertEquals("1 tsp kosher salt", ingredient.format(volumeSystem = UnitSystem.CUSTOMARY))
         assertEquals(2, ingredient.alternates.size)
     }
 
@@ -260,7 +260,7 @@ class IngredientTest {
             amount = Amount(value = 250.0, unit = "g"),
             density = 0.51
         )
-        val formatted = ingredient.format(preference = MeasurementPreference.VOLUME)
+        val formatted = ingredient.format(preference = MeasurementPreference.VOLUME, volumeSystem = UnitSystem.CUSTOMARY)
         assertTrue(formatted.contains("flour"))
         assertTrue(formatted.contains("cup"))
     }
@@ -284,7 +284,7 @@ class IngredientTest {
             amount = Amount(value = 2.0, unit = "cup"),
             density = 0.51
         )
-        assertEquals("2 cups flour", ingredient.format(preference = MeasurementPreference.DEFAULT))
+        assertEquals("2 cups flour", ingredient.format(preference = MeasurementPreference.DEFAULT, volumeSystem = UnitSystem.CUSTOMARY))
     }
 
     @Test
@@ -342,7 +342,7 @@ class IngredientTest {
             amount = Amount(value = 2.0, unit = "cup"),
             density = 0.51
         )
-        val result = ingredient.getDisplayAmount(scale = 2.0, preference = MeasurementPreference.DEFAULT)
+        val result = ingredient.getDisplayAmount(scale = 2.0, preference = MeasurementPreference.DEFAULT, volumeSystem = UnitSystem.CUSTOMARY)
         assertNotNull(result)
         assertEquals(4.0, result!!.value!!, 0.01)
         assertEquals("cup", result.unit)
@@ -386,7 +386,7 @@ class IngredientTest {
             amount = Amount(value = 2.67, unit = "g")
         )
         // Should show "2.7 g" not "2 2/3 g"
-        assertEquals("2.7 g salt", ingredient.format())
+        assertEquals("2.7 g salt", ingredient.format(weightSystem = UnitSystem.METRIC))
     }
 
     @Test
@@ -395,7 +395,7 @@ class IngredientTest {
             name = "flour",
             amount = Amount(value = 10.25, unit = "kg")
         )
-        assertEquals("10 kg flour", ingredient.format())
+        assertEquals("10 kg flour", ingredient.format(weightSystem = UnitSystem.METRIC))
     }
 
     @Test
@@ -445,7 +445,7 @@ class IngredientTest {
             amount = Amount(value = 9.33, unit = "g")
         )
         // Should show "9 g" (rounded since >= 10 threshold is close), actually 9.33 < 10 so 9.3
-        assertEquals("9.3 g vanilla extract", ingredient.format())
+        assertEquals("9.3 g vanilla extract", ingredient.format(weightSystem = UnitSystem.METRIC))
     }
 
     @Test
@@ -455,7 +455,7 @@ class IngredientTest {
             name = "saffron",
             amount = Amount(value = 500.0, unit = "mg")
         )
-        assertEquals("500 mg saffron", ingredient.format())
+        assertEquals("500 mg saffron", ingredient.format(weightSystem = UnitSystem.METRIC))
     }
 
     @Test
@@ -556,7 +556,7 @@ class IngredientTest {
             name = "sugar",
             amount = Amount(value = 100.0, unit = "g")
         )
-        assertEquals("100 g sugar", ingredient.format())
+        assertEquals("100 g sugar", ingredient.format(weightSystem = UnitSystem.METRIC))
     }
 
     @Test
@@ -565,7 +565,7 @@ class IngredientTest {
             name = "salt",
             amount = Amount(value = 2.5, unit = "g")
         )
-        assertEquals("2.5 g salt", ingredient.format())
+        assertEquals("2.5 g salt", ingredient.format(weightSystem = UnitSystem.METRIC))
     }
 
     @Test
@@ -574,7 +574,7 @@ class IngredientTest {
             name = "sugar",
             amount = Amount(value = 15.7, unit = "g")
         )
-        assertEquals("16 g sugar", ingredient.format())
+        assertEquals("16 g sugar", ingredient.format(weightSystem = UnitSystem.METRIC))
     }
 
     @Test
@@ -584,7 +584,7 @@ class IngredientTest {
             name = "milk",
             amount = Amount(value = 0.25, unit = "cup")
         )
-        assertEquals("1/4 cup milk", ingredient.format())
+        assertEquals("1/4 cup milk", ingredient.format(volumeSystem = UnitSystem.CUSTOMARY))
     }
 
     // --- Compound lb+oz display tests ---

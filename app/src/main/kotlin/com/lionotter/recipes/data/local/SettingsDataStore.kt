@@ -109,18 +109,18 @@ class SettingsDataStore @Inject constructor(
     val volumeUnitSystem: Flow<UnitSystem> = context.dataStore.data.map { preferences ->
         val value = preferences[Keys.VOLUME_UNIT_SYSTEM]
         if (value != null) {
-            try { UnitSystem.valueOf(value) } catch (_: IllegalArgumentException) { UnitSystem.CUSTOMARY }
+            try { UnitSystem.valueOf(value) } catch (_: IllegalArgumentException) { UnitSystem.localeDefault() }
         } else {
-            UnitSystem.CUSTOMARY
+            UnitSystem.localeDefault()
         }
     }
 
     val weightUnitSystem: Flow<UnitSystem> = context.dataStore.data.map { preferences ->
         val value = preferences[Keys.WEIGHT_UNIT_SYSTEM]
         if (value != null) {
-            try { UnitSystem.valueOf(value) } catch (_: IllegalArgumentException) { UnitSystem.METRIC }
+            try { UnitSystem.valueOf(value) } catch (_: IllegalArgumentException) { UnitSystem.localeDefault() }
         } else {
-            UnitSystem.METRIC
+            UnitSystem.localeDefault()
         }
     }
 

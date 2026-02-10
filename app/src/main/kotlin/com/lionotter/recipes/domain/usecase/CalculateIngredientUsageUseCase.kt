@@ -43,8 +43,8 @@ class CalculateIngredientUsageUseCase @Inject constructor() {
         usedInstructionIngredients: Set<InstructionIngredientKey>,
         scale: Double,
         measurementPreference: MeasurementPreference,
-        volumeSystem: UnitSystem = UnitSystem.CUSTOMARY,
-        weightSystem: UnitSystem = UnitSystem.METRIC
+        volumeSystem: UnitSystem = UnitSystem.localeDefault(),
+        weightSystem: UnitSystem = UnitSystem.localeDefault()
     ): Map<String, IngredientUsageStatus> {
         val globalTotals = buildGlobalTotals(recipe, scale, measurementPreference, volumeSystem, weightSystem)
         val usedAmounts = buildUsedAmounts(recipe, usedInstructionIngredients, scale, measurementPreference, volumeSystem, weightSystem)

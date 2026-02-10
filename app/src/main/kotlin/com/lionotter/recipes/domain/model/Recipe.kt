@@ -148,8 +148,8 @@ data class Ingredient(
     fun format(
         scale: Double = 1.0,
         preference: MeasurementPreference = MeasurementPreference.DEFAULT,
-        volumeSystem: UnitSystem = UnitSystem.CUSTOMARY,
-        weightSystem: UnitSystem = UnitSystem.METRIC
+        volumeSystem: UnitSystem = UnitSystem.localeDefault(),
+        weightSystem: UnitSystem = UnitSystem.localeDefault()
     ): String {
         val displayAmount = getDisplayAmount(scale, preference, volumeSystem, weightSystem)
             ?: return name + (notes?.let { ", $it" } ?: "")
@@ -189,8 +189,8 @@ data class Ingredient(
     fun getDisplayAmount(
         scale: Double = 1.0,
         preference: MeasurementPreference = MeasurementPreference.DEFAULT,
-        volumeSystem: UnitSystem = UnitSystem.CUSTOMARY,
-        weightSystem: UnitSystem = UnitSystem.METRIC
+        volumeSystem: UnitSystem = UnitSystem.localeDefault(),
+        weightSystem: UnitSystem = UnitSystem.localeDefault()
     ): Amount? {
         val amt = amount ?: return null
         val scaledValue = amt.value?.let { it * scale }
@@ -372,8 +372,8 @@ private fun convertAmount(
     fromType: UnitCategory,
     toType: UnitCategory,
     density: Double,
-    volumeSystem: UnitSystem = UnitSystem.CUSTOMARY,
-    weightSystem: UnitSystem = UnitSystem.METRIC
+    volumeSystem: UnitSystem = UnitSystem.localeDefault(),
+    weightSystem: UnitSystem = UnitSystem.localeDefault()
 ): Amount {
     return when {
         fromType == UnitCategory.VOLUME && toType == UnitCategory.WEIGHT -> {
@@ -402,8 +402,8 @@ private fun convertAmount(
 internal fun convertToSystem(
     value: Double?,
     unit: String,
-    volumeSystem: UnitSystem = UnitSystem.CUSTOMARY,
-    weightSystem: UnitSystem = UnitSystem.METRIC
+    volumeSystem: UnitSystem = UnitSystem.localeDefault(),
+    weightSystem: UnitSystem = UnitSystem.localeDefault()
 ): Amount {
     if (value == null) return Amount(value, unit)
 

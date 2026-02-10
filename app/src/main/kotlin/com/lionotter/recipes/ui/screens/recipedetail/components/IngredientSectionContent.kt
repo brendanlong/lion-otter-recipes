@@ -30,8 +30,8 @@ internal fun IngredientSectionContent(
     scale: Double,
     measurementPreference: MeasurementPreference,
     globalIngredientUsage: Map<String, IngredientUsageStatus>,
-    volumeUnitSystem: UnitSystem = UnitSystem.CUSTOMARY,
-    weightUnitSystem: UnitSystem = UnitSystem.METRIC
+    volumeUnitSystem: UnitSystem = UnitSystem.localeDefault(),
+    weightUnitSystem: UnitSystem = UnitSystem.localeDefault()
 ) {
     Column {
         section.name?.let { name ->

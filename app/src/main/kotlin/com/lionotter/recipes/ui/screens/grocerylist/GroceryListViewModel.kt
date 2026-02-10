@@ -99,8 +99,8 @@ class GroceryListViewModel @Inject constructor(
     private val _checkedItems = MutableStateFlow<Set<String>>(emptySet())
     private val _checkedSources = MutableStateFlow<Set<String>>(emptySet())
 
-    private val _volumeSystem = MutableStateFlow(UnitSystem.CUSTOMARY)
-    private val _weightSystem = MutableStateFlow(UnitSystem.METRIC)
+    private val _volumeSystem = MutableStateFlow(UnitSystem.localeDefault())
+    private val _weightSystem = MutableStateFlow(UnitSystem.localeDefault())
 
     val displayGroceryItems: StateFlow<List<DisplayGroceryItem>> = combine(
         _groceryItems,
