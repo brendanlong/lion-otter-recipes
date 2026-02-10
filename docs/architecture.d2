@@ -86,11 +86,17 @@ app: {
         tooltip: "Weekly meal planner view. Shows meals grouped by day with swipe-to-delete, swipe-to-edit, and long-press menu (edit/delete). Recipe selector bottom sheet with search, tag filter, date picker, meal type selector, and servings. Supports edit mode to modify date, meal type, servings, and recipe of existing entries."
       }
 
+      grocery_list: {
+        label: GroceryListScreen
+        tooltip: "Two-step grocery list generator. Step 1: Select recipes from meal plan entries (grouped by date/meal type, with select all/deselect all). Step 2: View aggregated ingredient list with deduplication across recipes, check-off support (top-level hides all, sub-item reduces count), and share as Markdown."
+      }
+
       list -> detail: tap recipe
       list -> add: tap +
       list -> settings: tap gear
       list -> meal_plan: tap calendar
       meal_plan -> detail: tap recipe
+      meal_plan -> grocery_list: tap cart icon
       add -> settings: no API key
       settings -> import_debug_list: view debug data
       import_debug_list -> import_debug_detail: tap entry
@@ -147,6 +153,10 @@ app: {
         label: MealPlanViewModel
         tooltip: "Manages weekly meal plan view state, add/edit dialog, and CRUD operations for meal plan entries. Supports editing existing entries (date, meal type, servings, recipe). Respects user's start-of-week setting from preferences. Triggers incremental Google Drive sync on changes."
       }
+      grocery_list_vm: {
+        label: GroceryListViewModel
+        tooltip: "Manages grocery list generation from meal plan. Two-step flow: recipe selection (from all meal plan entries) then aggregated ingredient display with check-off and share-as-Markdown support. Non-persistent state."
+      }
     }
 
     state: {
@@ -168,6 +178,7 @@ app: {
     screens.settings -> viewmodels.drive_vm: sign in/out
     screens.settings -> viewmodels.zip_vm: backup/restore
     screens.meal_plan -> viewmodels.meal_plan_vm
+    screens.grocery_list -> viewmodels.grocery_list_vm
     screens.import_debug_list -> viewmodels.import_debug_list_vm
     screens.import_debug_detail -> viewmodels.import_debug_detail_vm
     viewmodels.list_vm -> state.in_progress_mgr: observes, cancel
@@ -296,6 +307,10 @@ app: {
       sync_meal_plans: {
         label: SyncMealPlansToGoogleDriveUseCase
         tooltip: "Bidirectional sync of meal plans with Google Drive. Stores one JSON file per day in a meal-plans subfolder. Handles soft-delete tracking, conflict resolution by timestamp, and purges deleted entries after sync."
+      }
+      aggregate_grocery: {
+        label: AggregateGroceryListUseCase
+        tooltip: "Aggregates ingredients from selected meal plan recipes into a deduplicated grocery list. Normalizes ingredient names by removing size prefixes (small/medium/large), sums amounts in base units across recipes."
       }
       tags: GetTagsUseCase
       calc_usage: {
@@ -575,6 +590,10 @@ app: {
   ui.viewmodels.meal_plan_vm -> data.repository.repo: recipe list
   ui.viewmodels.meal_plan_vm -> data.local.settings: start of week
   ui.viewmodels.meal_plan_vm -> domain.usecases.tags: top tags
+  ui.viewmodels.grocery_list_vm -> data.repository.meal_plan_repo: meal plans
+  ui.viewmodels.grocery_list_vm -> data.repository.repo: recipes
+  ui.viewmodels.grocery_list_vm -> domain.usecases.aggregate_grocery: aggregate ingredients
+  ui.viewmodels.grocery_list_vm -> data.local.settings: unit prefs
   domain.usecases.sync_drive -> domain.usecases.sync_meal_plans: sync meal plans
   domain.usecases.sync_meal_plans -> data.repository.meal_plan_repo: access data
   ui.viewmodels.settings_vm -> data.repository.import_debug_repo: delete debug data
@@ -711,4 +730,19 @@ legend: {
   mp7: "Incremental sync triggered on add/update/delete"
 
   mp1 -> mp2 -> mp3 -> mp4 -> mp5 -> mp6 -> mp7
+
+  grocery_flow: {
+    label: "Grocery List Feature"
+    style: {
+      font-size: 14
+      bold: true
+    }
+  }
+  gl1: "Select recipes from meal plan entries (grouped by date and meal type)"
+  gl2: "Aggregate ingredients across recipes: deduplicate by normalized name, sum amounts in base units"
+  gl3: "Display with check-off support: top-level hides all sub-items, sub-item reduces aggregate count"
+  gl4: "Share as Markdown via Android share sheet"
+  gl5: "Non-persistent: state resets between app sessions"
+
+  gl1 -> gl2 -> gl3 -> gl4 -> gl5
 }

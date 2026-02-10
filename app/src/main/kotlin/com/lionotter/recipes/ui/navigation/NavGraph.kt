@@ -16,6 +16,7 @@ import com.lionotter.recipes.SharedIntentViewModel
 import com.lionotter.recipes.ui.screens.addrecipe.AddRecipeScreen
 import com.lionotter.recipes.ui.screens.importdebug.ImportDebugDetailScreen
 import com.lionotter.recipes.ui.screens.importdebug.ImportDebugListScreen
+import com.lionotter.recipes.ui.screens.grocerylist.GroceryListScreen
 import com.lionotter.recipes.ui.screens.mealplan.MealPlanScreen
 import com.lionotter.recipes.ui.screens.recipedetail.RecipeDetailScreen
 import com.lionotter.recipes.ui.screens.recipelist.RecipeListScreen
@@ -34,6 +35,7 @@ sealed class Screen(val route: String) {
     }
     object Settings : Screen("settings")
     object MealPlan : Screen("meal-plan")
+    object GroceryList : Screen("grocery-list")
     object ImportDebugList : Screen("import-debug")
     object ImportDebugDetail : Screen("import-debug/{debugEntryId}") {
         fun createRoute(debugEntryId: String) = "import-debug/$debugEntryId"
@@ -162,6 +164,15 @@ fun NavGraph(
                 onRecipeClick = { recipeId ->
                     navController.navigate(Screen.RecipeDetail.createRoute(recipeId))
                 },
+                onBackClick = navigateBack,
+                onGroceryListClick = {
+                    navController.navigate(Screen.GroceryList.route)
+                }
+            )
+        }
+
+        composable(Screen.GroceryList.route) {
+            GroceryListScreen(
                 onBackClick = navigateBack
             )
         }
