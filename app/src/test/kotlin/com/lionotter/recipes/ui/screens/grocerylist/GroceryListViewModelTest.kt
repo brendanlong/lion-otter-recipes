@@ -1,5 +1,6 @@
 package com.lionotter.recipes.ui.screens.grocerylist
 
+import androidx.lifecycle.SavedStateHandle
 import app.cash.turbine.test
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.repository.MealPlanRepository
@@ -24,8 +25,10 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.plus
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -43,6 +46,10 @@ class GroceryListViewModelTest {
     private lateinit var settingsDataStore: SettingsDataStore
     private val testDispatcher = StandardTestDispatcher()
 
+    // Week containing 2025-01-01 (Wednesday), starting Monday 2024-12-30
+    private val testWeekStart = LocalDate(2024, 12, 30)
+    private val testWeekEnd = testWeekStart.plus(6, DateTimeUnit.DAY)
+
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
@@ -52,7 +59,7 @@ class GroceryListViewModelTest {
 
         every { settingsDataStore.groceryVolumeUnitSystem } returns flowOf(UnitSystem.CUSTOMARY)
         every { settingsDataStore.groceryWeightUnitSystem } returns flowOf(UnitSystem.METRIC)
-        coEvery { mealPlanRepository.getAllMealPlansOnce() } returns emptyList()
+        coEvery { mealPlanRepository.getMealPlansForDateRangeOnce(testWeekStart, testWeekEnd) } returns emptyList()
     }
 
     @After
@@ -101,8 +108,10 @@ class GroceryListViewModelTest {
     )
 
     private fun createViewModel(entries: List<MealPlanEntry> = emptyList()): GroceryListViewModel {
-        coEvery { mealPlanRepository.getAllMealPlansOnce() } returns entries
+        coEvery { mealPlanRepository.getMealPlansForDateRangeOnce(testWeekStart, testWeekEnd) } returns entries
+        val savedStateHandle = SavedStateHandle(mapOf("weekStart" to testWeekStart.toString()))
         return GroceryListViewModel(
+            savedStateHandle = savedStateHandle,
             mealPlanRepository = mealPlanRepository,
             recipeRepository = recipeRepository,
             aggregateGroceryListUseCase = AggregateGroceryListUseCase(),

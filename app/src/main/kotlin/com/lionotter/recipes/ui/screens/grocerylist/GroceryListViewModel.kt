@@ -15,6 +15,7 @@ import com.lionotter.recipes.domain.model.unitType
 import com.lionotter.recipes.domain.usecase.AggregateGroceryListUseCase
 import com.lionotter.recipes.domain.usecase.GroceryIngredientSource
 import com.lionotter.recipes.domain.usecase.GroceryItem
+import androidx.lifecycle.SavedStateHandle
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -23,7 +24,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.plus
 import javax.inject.Inject
 
 /**
@@ -59,11 +62,15 @@ enum class GroceryListStep {
 
 @HiltViewModel
 class GroceryListViewModel @Inject constructor(
+    savedStateHandle: SavedStateHandle,
     private val mealPlanRepository: MealPlanRepository,
     private val recipeRepository: RecipeRepository,
     private val aggregateGroceryListUseCase: AggregateGroceryListUseCase,
     private val settingsDataStore: SettingsDataStore
 ) : ViewModel() {
+
+    private val weekStart: LocalDate = LocalDate.parse(savedStateHandle.get<String>("weekStart")!!)
+    private val weekEnd: LocalDate = weekStart.plus(6, DateTimeUnit.DAY)
 
     private val _step = MutableStateFlow(GroceryListStep.SELECT_RECIPES)
     val step: StateFlow<GroceryListStep> = _step.asStateFlow()
@@ -130,7 +137,7 @@ class GroceryListViewModel @Inject constructor(
 
     private fun loadMealPlans() {
         viewModelScope.launch {
-            val entries = mealPlanRepository.getAllMealPlansOnce()
+            val entries = mealPlanRepository.getMealPlansForDateRangeOnce(weekStart, weekEnd)
             _mealPlanEntries.value = entries.sortedWith(
                 compareBy<MealPlanEntry> { it.date }
                     .thenBy { it.mealType.displayOrder }

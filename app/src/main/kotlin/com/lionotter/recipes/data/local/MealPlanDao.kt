@@ -42,4 +42,7 @@ interface MealPlanDao {
 
     @Query("SELECT * FROM meal_plans WHERE deleted = 0")
     suspend fun getAllMealPlansOnce(): List<MealPlanEntity>
+
+    @Query("SELECT * FROM meal_plans WHERE date BETWEEN :startDate AND :endDate AND deleted = 0 ORDER BY date ASC, mealType ASC, recipeName ASC")
+    suspend fun getMealPlansForDateRangeOnce(startDate: String, endDate: String): List<MealPlanEntity>
 }

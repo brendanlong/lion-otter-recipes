@@ -61,6 +61,10 @@ class MealPlanRepository @Inject constructor(
         return mealPlanDao.getAllMealPlansOnce().map { it.toMealPlanEntry() }
     }
 
+    suspend fun getMealPlansForDateRangeOnce(startDate: LocalDate, endDate: LocalDate): List<MealPlanEntry> {
+        return mealPlanDao.getMealPlansForDateRangeOnce(startDate.toString(), endDate.toString()).map { it.toMealPlanEntry() }
+    }
+
     /**
      * Hard delete a meal plan (used during sync when remote deletion is detected).
      */

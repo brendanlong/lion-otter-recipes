@@ -738,11 +738,12 @@ legend: {
       bold: true
     }
   }
-  gl1: "Select recipes from meal plan entries (grouped by date and meal type)"
+  gl1: "Shows only meals for the currently selected week (passed from meal planner via nav arg)"
+  gl1a: "Select recipes from meal plan entries (grouped by date and meal type)"
   gl2: "Aggregate ingredients across recipes: deduplicate by normalized name, sum amounts in base units"
   gl3: "Display with check-off support: top-level hides all sub-items, sub-item reduces aggregate count"
   gl4: "Share as Markdown via Android share sheet"
   gl5: "Non-persistent: state resets between app sessions"
 
-  gl1 -> gl2 -> gl3 -> gl4 -> gl5
+  gl1 -> gl1a -> gl2 -> gl3 -> gl4 -> gl5
 }
