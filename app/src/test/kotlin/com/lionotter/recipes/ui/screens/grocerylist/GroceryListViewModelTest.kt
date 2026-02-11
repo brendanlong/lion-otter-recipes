@@ -532,8 +532,10 @@ class GroceryListViewModelTest {
             viewModel.toggleSourceChecked(source1Key)
             val afterFirst = awaitItem()
             assertFalse("Top-level should NOT be checked yet", afterFirst[0].isChecked)
-            assertTrue("First source should be checked", afterFirst[0].sources[0].isChecked)
-            assertFalse("Second source should NOT be checked", afterFirst[0].sources[1].isChecked)
+            assertTrue("First source should be checked",
+                afterFirst[0].sources.first { it.key == source1Key }.isChecked)
+            assertFalse("Second source should NOT be checked",
+                afterFirst[0].sources.first { it.key == source2Key }.isChecked)
 
             // Check second source - should auto-check top-level
             viewModel.toggleSourceChecked(source2Key)
@@ -588,8 +590,10 @@ class GroceryListViewModelTest {
             viewModel.toggleSourceChecked(source1Key)
             val afterUncheck = awaitItem()
             assertFalse("Top-level should be unchecked", afterUncheck[0].isChecked)
-            assertFalse("First source should be unchecked", afterUncheck[0].sources[0].isChecked)
-            assertTrue("Second source should still be checked", afterUncheck[0].sources[1].isChecked)
+            assertFalse("First source should be unchecked",
+                afterUncheck[0].sources.first { it.key == source1Key }.isChecked)
+            assertTrue("Second source should still be checked",
+                afterUncheck[0].sources.first { it.key != source1Key }.isChecked)
 
             cancelAndIgnoreRemainingEvents()
         }
