@@ -639,4 +639,24 @@ class IngredientTest {
         )
         assertEquals("8 oz cheese", ingredient.format(weightSystem = UnitSystem.CUSTOMARY))
     }
+
+    // --- Unit display name tests ---
+
+    @Test
+    fun `fl_oz displays as fl oz`() {
+        val ingredient = Ingredient(
+            name = "water",
+            amount = Amount(value = 2.0, unit = "fl_oz")
+        )
+        assertEquals("2 fl oz water", ingredient.format(volumeSystem = UnitSystem.CUSTOMARY))
+    }
+
+    @Test
+    fun `singular fl_oz displays as fl oz`() {
+        val ingredient = Ingredient(
+            name = "vanilla",
+            amount = Amount(value = 1.0, unit = "fl_oz")
+        )
+        assertEquals("1 fl oz vanilla", ingredient.format(volumeSystem = UnitSystem.CUSTOMARY))
+    }
 }
