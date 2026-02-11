@@ -211,15 +211,19 @@ class AddRecipeViewModel @Inject constructor(
 
         // Generate ID for tracking this import in the recipe list
         currentImportId = UUID.randomUUID().toString()
-        inProgressRecipeManager.addInProgressRecipe(currentImportId!!, "Importing recipe...", url = currentUrl)
 
-        // Enqueue the work with a tag for tracking multiple concurrent imports
+        // Build the work request first so we can persist its UUID for cancellation
         val workRequest = OneTimeWorkRequestBuilder<RecipeImportWorker>()
             .setInputData(RecipeImportWorker.createInputData(currentUrl, currentImportId!!))
             .addTag(RecipeImportWorker.TAG_RECIPE_IMPORT)
             .build()
 
         currentWorkId = workRequest.id
+        inProgressRecipeManager.addInProgressRecipe(
+            currentImportId!!, "Importing recipe...",
+            url = currentUrl,
+            workManagerId = workRequest.id.toString()
+        )
         workManager.enqueue(workRequest)
 
         _uiState.value = AddRecipeUiState.Loading(ImportProgress.Queued)
@@ -229,7 +233,6 @@ class AddRecipeViewModel @Inject constructor(
         currentImportId = UUID.randomUUID().toString()
         lastPaprikaImportedCount = 0
         lastPaprikaFailedCount = 0
-        inProgressRecipeManager.addInProgressRecipe(currentImportId!!, "Importing from Paprika...")
 
         val workRequest = OneTimeWorkRequestBuilder<PaprikaImportWorker>()
             .setInputData(PaprikaImportWorker.createInputData(fileUri, selectedRecipeNames))
@@ -237,6 +240,10 @@ class AddRecipeViewModel @Inject constructor(
             .build()
 
         currentWorkId = workRequest.id
+        inProgressRecipeManager.addInProgressRecipe(
+            currentImportId!!, "Importing from Paprika...",
+            workManagerId = workRequest.id.toString()
+        )
         workManager.enqueue(workRequest)
 
         _uiState.value = AddRecipeUiState.Loading(ImportProgress.Queued)

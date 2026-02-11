@@ -67,7 +67,7 @@ class InProgressRecipeManager @Inject constructor(
         observeImportWorkStatus()
     }
 
-    fun addInProgressRecipe(id: String, name: String, url: String = "") {
+    fun addInProgressRecipe(id: String, name: String, url: String = "", workManagerId: String? = null) {
         appScope.launch {
             pendingImportRepository.insertPendingImport(
                 PendingImportEntity(
@@ -76,7 +76,7 @@ class InProgressRecipeManager @Inject constructor(
                     name = name.takeIf { it != "Importing recipe..." },
                     imageUrl = null,
                     status = PendingImportEntity.STATUS_PENDING,
-                    workManagerId = null,
+                    workManagerId = workManagerId,
                     errorMessage = null,
                     createdAt = Clock.System.now().toEpochMilliseconds()
                 )
