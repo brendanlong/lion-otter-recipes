@@ -550,7 +550,7 @@ app: {
 
       realtime_sync: {
         label: RealtimeSyncManager
-        tooltip: "Singleton that manages real-time bidirectional sync between Room and Firestore. Pull: snapshot listeners deliver incremental document changes. Push: repository change event flows trigger Firestore writes. Loop prevention via saveFromSync() methods and timestamp comparison. Initial sync pushes local-only items to Firestore on first enable."
+        tooltip: "Singleton that manages real-time bidirectional sync between Room and Firestore. Pull: snapshot listeners deliver incremental document changes. Push: repository change event flows trigger Firestore writes. Loop prevention via saveFromSync() methods and timestamp comparison. Initial push runs as an independent coroutine (not inside the snapshot collect block) using CompletableDeferred to wait for both recipe and meal plan snapshots before pushing local-only items."
       }
 
       sync_logger: {
@@ -576,7 +576,6 @@ app: {
     sync.realtime_sync -> remote.firestore_svc: push/pull via listeners
     sync.realtime_sync -> repository.repo: read/write recipes
     sync.realtime_sync -> repository.meal_plan_repo: read/write meal plans
-    sync.realtime_sync -> local.settings: initial sync flag
     sync.realtime_sync -> remote.image_dl: download images
     remote.firestore_svc -> sync.converter: structured data conversion
   }

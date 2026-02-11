@@ -1,7 +1,6 @@
 package com.lionotter.recipes.data.sync
 
 import com.google.firebase.firestore.DocumentChange
-import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.FirestoreService
 import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.repository.ChangeType
@@ -9,6 +8,7 @@ import com.lionotter.recipes.data.repository.MealPlanRepository
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.di.ApplicationScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
@@ -48,7 +48,6 @@ class RealtimeSyncManager @Inject constructor(
     private val firestoreService: FirestoreService,
     private val recipeRepository: RecipeRepository,
     private val mealPlanRepository: MealPlanRepository,
-    private val settingsDataStore: SettingsDataStore,
     private val imageDownloadService: ImageDownloadService,
     private val syncLogger: SyncLogger,
     @ApplicationScope private val scope: CoroutineScope
@@ -69,9 +68,11 @@ class RealtimeSyncManager @Inject constructor(
     private var recipePushJob: Job? = null
     private var mealPlanPushJob: Job? = null
 
-    // Track remote recipe IDs from initial snapshot for initial push
+    // Track remote IDs from initial snapshot for initial push
     private var initialRecipeSnapshotReceived = false
     private var initialMealPlanSnapshotReceived = false
+    private var recipeSnapshotReady = CompletableDeferred<Unit>()
+    private var mealPlanSnapshotReady = CompletableDeferred<Unit>()
     private val remoteRecipeIds = mutableSetOf<String>()
     private val remoteMealPlanIds = mutableSetOf<String>()
 
@@ -80,6 +81,7 @@ class RealtimeSyncManager @Inject constructor(
      * Safe to call multiple times — stops existing sync first.
      */
     fun startSync() {
+        syncLogger.d(TAG, "startSync() called from: ${Thread.currentThread().name}")
         stopSync()
 
         if (!firestoreService.isSignedIn()) {
@@ -92,21 +94,22 @@ class RealtimeSyncManager @Inject constructor(
         _syncError.value = null
         initialRecipeSnapshotReceived = false
         initialMealPlanSnapshotReceived = false
+        recipeSnapshotReady = CompletableDeferred()
+        mealPlanSnapshotReady = CompletableDeferred()
         remoteRecipeIds.clear()
         remoteMealPlanIds.clear()
 
         syncJob = scope.launch {
-            // Reset initial sync flag so we always do an initial push when sync starts.
-            // This handles cases like: user deletes Firestore data, toggles sync off/on,
-            // or switches accounts.
-            settingsDataStore.setInitialSyncCompleted(false)
-            // Start pull listeners
+            // Start pull listeners (these run forever, processing remote changes)
             recipeListenerJob = launch { observeRecipeChanges() }
             mealPlanListenerJob = launch { observeMealPlanChanges() }
 
-            // Start push observers
+            // Start push observers (these run forever, pushing local changes)
             recipePushJob = launch { pushRecipeChanges() }
             mealPlanPushJob = launch { pushMealPlanChanges() }
+
+            // Initial push runs independently — waits for snapshots, then pushes
+            launch { performInitialPush() }
         }
     }
 
@@ -115,7 +118,7 @@ class RealtimeSyncManager @Inject constructor(
      */
     fun stopSync() {
         if (syncJob != null) {
-            syncLogger.d(TAG, "Stopping sync")
+            syncLogger.d(TAG, "Stopping sync (called from: ${Thread.currentThread().name})")
         }
         syncJob?.cancel()
         syncJob = null
@@ -127,6 +130,8 @@ class RealtimeSyncManager @Inject constructor(
         _connectionState.value = SyncConnectionState.DISCONNECTED
         initialRecipeSnapshotReceived = false
         initialMealPlanSnapshotReceived = false
+        recipeSnapshotReady.cancel()
+        mealPlanSnapshotReady.cancel()
         remoteRecipeIds.clear()
         remoteMealPlanIds.clear()
     }
@@ -171,7 +176,7 @@ class RealtimeSyncManager @Inject constructor(
                     initialRecipeSnapshotReceived = true
                     syncLogger.d(TAG, "Initial recipe snapshot received: ${remoteRecipeIds.size} remote recipes")
                     updateConnectionState()
-                    performInitialRecipePush()
+                    recipeSnapshotReady.complete(Unit)
                 }
             }
         } catch (e: Exception) {
@@ -238,7 +243,7 @@ class RealtimeSyncManager @Inject constructor(
                     initialMealPlanSnapshotReceived = true
                     syncLogger.d(TAG, "Initial meal plan snapshot received: ${remoteMealPlanIds.size} remote entries")
                     updateConnectionState()
-                    performInitialMealPlanPush()
+                    mealPlanSnapshotReady.complete(Unit)
                 }
             }
         } catch (e: Exception) {
@@ -265,11 +270,28 @@ class RealtimeSyncManager @Inject constructor(
 
     // --- Initial Push: Local → Remote (one-time after first snapshot) ---
 
+    private suspend fun performInitialPush() {
+        try {
+            // Wait for both snapshot listeners to deliver their initial data
+            recipeSnapshotReady.await()
+            mealPlanSnapshotReady.await()
+            syncLogger.d(TAG, "Both snapshots ready, starting initial push")
+
+            performInitialRecipePush()
+            performInitialMealPlanPush()
+
+            syncLogger.d(TAG, "Initial push complete")
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            syncLogger.e(TAG, "Initial push coroutine was cancelled")
+            throw e
+        } catch (e: Exception) {
+            syncLogger.e(TAG, "Initial push failed", e)
+            _syncError.value = "Initial sync failed: ${e.message}"
+        }
+    }
+
     private suspend fun performInitialRecipePush() {
         try {
-            val initialSyncDone = settingsDataStore.initialSyncCompleted.first()
-            if (initialSyncDone) return
-
             val localRecipes = recipeRepository.getAllRecipes().first()
             val toPush = localRecipes.filter { it.id !in remoteRecipeIds }
             syncLogger.d(TAG, "Initial recipe push: ${toPush.size} to push (${localRecipes.size} local, ${remoteRecipeIds.size} remote)")
@@ -281,6 +303,7 @@ class RealtimeSyncManager @Inject constructor(
                     coroutineContext.ensureActive()
                     syncLogger.d(TAG, "Pushing recipe ${index + 1}/${toPush.size}: '${recipe.name}'")
                     val originalHtml = recipeRepository.getOriginalHtml(recipe.id)
+                    syncLogger.d(TAG, "Got HTML for '${recipe.name}', calling upsert")
                     val result = firestoreService.upsertRecipe(recipe, originalHtml)
                     if (result.isFailure) {
                         failures++
@@ -317,11 +340,7 @@ class RealtimeSyncManager @Inject constructor(
                 recipeRepository.purgeDeletedRecipes()
             }
 
-            // Mark initial sync as complete if both snapshots are received
-            if (initialMealPlanSnapshotReceived) {
-                settingsDataStore.setInitialSyncCompleted(true)
-                syncLogger.d(TAG, "Initial sync completed")
-            }
+            syncLogger.d(TAG, "Initial recipe push finished")
         } catch (e: kotlinx.coroutines.CancellationException) {
             syncLogger.e(TAG, "Initial recipe push coroutine was cancelled")
             throw e
@@ -333,9 +352,6 @@ class RealtimeSyncManager @Inject constructor(
 
     private suspend fun performInitialMealPlanPush() {
         try {
-            val initialSyncDone = settingsDataStore.initialSyncCompleted.first()
-            if (initialSyncDone) return
-
             val localEntries = mealPlanRepository.getAllMealPlansOnce()
             val toPush = localEntries.filter { it.id !in remoteMealPlanIds }
             syncLogger.d(TAG, "Initial meal plan push: ${toPush.size} to push (${localEntries.size} local, ${remoteMealPlanIds.size} remote)")
@@ -344,6 +360,7 @@ class RealtimeSyncManager @Inject constructor(
             var failures = 0
             for (entry in toPush) {
                 try {
+                    coroutineContext.ensureActive()
                     val result = firestoreService.upsertMealPlan(entry)
                     if (result.isFailure) {
                         failures++
@@ -351,6 +368,9 @@ class RealtimeSyncManager @Inject constructor(
                     } else {
                         successes++
                     }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    syncLogger.e(TAG, "Initial meal plan push cancelled")
+                    throw e
                 } catch (e: Exception) {
                     failures++
                     syncLogger.e(TAG, "Failed to push meal plan ${entry.id}", e)
@@ -376,11 +396,10 @@ class RealtimeSyncManager @Inject constructor(
                 mealPlanRepository.purgeDeletedMealPlans()
             }
 
-            // Mark initial sync as complete if both snapshots are received
-            if (initialRecipeSnapshotReceived) {
-                settingsDataStore.setInitialSyncCompleted(true)
-                syncLogger.d(TAG, "Initial sync completed")
-            }
+            syncLogger.d(TAG, "Initial meal plan push finished")
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            syncLogger.e(TAG, "Initial meal plan push coroutine was cancelled")
+            throw e
         } catch (e: Exception) {
             syncLogger.e(TAG, "Initial meal plan push failed", e)
             _syncError.value = "Initial meal plan sync failed: ${e.message}"
