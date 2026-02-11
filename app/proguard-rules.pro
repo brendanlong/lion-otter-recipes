@@ -39,3 +39,8 @@
 -dontwarn java.lang.reflect.AnnotatedParameterizedType
 -dontwarn java.lang.reflect.AnnotatedType
 -dontwarn com.github.victools.jsonschema.generator.**
+
+# ojAlgo (ILP solver for tag selection)
+-keep class org.ojalgo.** { *; }
+-keepclassmembers class org.ojalgo.** { *; }
+-dontwarn org.ojalgo.**

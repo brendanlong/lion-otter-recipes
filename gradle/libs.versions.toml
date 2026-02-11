@@ -30,6 +30,7 @@ profileinstaller = "1.4.1"
 uiautomator = "2.3.0"
 androidxTestExtJunit = "1.2.1"
 anthropicSdk = "2.14.0"
+ojalgo = "56.2.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -103,6 +104,9 @@ androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchm
 androidx-profileinstaller = { group = "androidx.profileinstaller", name = "profileinstaller", version.ref = "profileinstaller" }
 androidx-uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "uiautomator" }
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExtJunit" }
+
+# Optimization
+ojalgo = { group = "org.ojalgo", name = "ojalgo", version.ref = "ojalgo" }
 
 # Testing
 junit = { group = "junit", name = "junit", version = "4.13.2" }
