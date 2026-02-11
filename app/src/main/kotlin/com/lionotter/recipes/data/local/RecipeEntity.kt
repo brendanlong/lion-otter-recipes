@@ -19,6 +19,7 @@ data class RecipeEntity(
     val totalTime: String?,
     val ingredientSectionsJson: String,
     val instructionSectionsJson: String,
+    val equipmentJson: String = "[]",
     val tagsJson: String,
     val imageUrl: String?,
     val originalHtml: String?,
@@ -29,6 +30,7 @@ data class RecipeEntity(
 ) {
     fun toRecipe(
         instructionSections: List<InstructionSection>,
+        equipment: List<String>,
         tags: List<String>
     ): Recipe {
         return Recipe(
@@ -41,6 +43,7 @@ data class RecipeEntity(
             cookTime = cookTime,
             totalTime = totalTime,
             instructionSections = instructionSections,
+            equipment = equipment,
             tags = tags,
             imageUrl = imageUrl,
             createdAt = Instant.fromEpochMilliseconds(createdAt),
@@ -53,6 +56,7 @@ data class RecipeEntity(
         fun fromRecipe(
             recipe: Recipe,
             instructionSectionsJson: String,
+            equipmentJson: String,
             tagsJson: String,
             originalHtml: String? = null
         ): RecipeEntity {
@@ -67,6 +71,7 @@ data class RecipeEntity(
                 totalTime = recipe.totalTime,
                 ingredientSectionsJson = "[]",
                 instructionSectionsJson = instructionSectionsJson,
+                equipmentJson = equipmentJson,
                 tagsJson = tagsJson,
                 imageUrl = recipe.imageUrl,
                 originalHtml = originalHtml,

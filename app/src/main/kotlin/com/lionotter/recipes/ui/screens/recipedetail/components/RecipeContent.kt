@@ -150,6 +150,24 @@ fun RecipeContent(
                 )
             }
 
+            // Equipment
+            if (recipe.equipment.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(24.dp))
+                Text(
+                    text = stringResource(R.string.equipment),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                recipe.equipment.forEach { item ->
+                    Text(
+                        text = "\u2022 $item",
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
+                    )
+                }
+            }
+
             // Instructions
             Spacer(modifier = Modifier.height(24.dp))
             Text(

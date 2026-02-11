@@ -34,6 +34,7 @@
     <string name="delete_recipe_action">Delete recipe</string>
     <string name="ingredients">Ingredients</string>
     <string name="instructions">Instructions</string>
+    <string name="equipment">Equipment</string>
     <string name="scale_label">Scale:</string>
     <string name="decrease_scale">Decrease scale</string>
     <string name="increase_scale">Increase scale</string>

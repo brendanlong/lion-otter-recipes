@@ -209,6 +209,7 @@ For successful parsing, return:
         ]
       }
     ],
+    "equipment": ["9-inch round cake pan", "stand mixer", "wire cooling rack"],
     "tags": ["dessert", "cake", "baking"]
   }
 }
@@ -274,6 +275,14 @@ INGREDIENTS LIVE ON STEPS ONLY:
 - There is NO global ingredient list. All ingredients belong to the step that uses them.
 - If an ingredient is split across steps (e.g., 1/2 cup water in step 1 and 1/2 cup water in step 3), list it on each step separately with its per-step amount. The app aggregates totals.
 - Include the same ingredient name consistently across steps for correct aggregation.
+
+EQUIPMENT:
+- Extract any equipment, tools, or appliances mentioned in the recipe into the "equipment" array.
+- Each item is a simple string (e.g., "9-inch round cake pan", "stand mixer", "parchment paper").
+- Include sizes/specifications when mentioned (e.g., "12-inch skillet", "8x8-inch baking dish").
+- Only include equipment explicitly mentioned or clearly required by the recipe.
+- Omit basic items everyone has (e.g., bowls, spoons, measuring cups) unless a specific type is called for.
+- Omit the "equipment" field entirely if no notable equipment is mentioned.
 
 ADDITIONAL GUIDELINES:
 - If the recipe has distinct sections (e.g., cake and frosting), create separate instructionSections.

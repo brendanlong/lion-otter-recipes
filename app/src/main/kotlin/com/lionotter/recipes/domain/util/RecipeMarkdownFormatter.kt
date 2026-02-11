@@ -57,6 +57,16 @@ object RecipeMarkdownFormatter {
         formatIngredientSections(ingredientSections)
         appendLine()
 
+        // Equipment section
+        if (recipe.equipment.isNotEmpty()) {
+            appendLine("## Equipment")
+            appendLine()
+            recipe.equipment.forEach { item ->
+                appendLine("- $item")
+            }
+            appendLine()
+        }
+
         // Instructions section
         appendLine("## Instructions")
         appendLine()

@@ -67,6 +67,7 @@ class RecipeRepository @Inject constructor(
         val entity = RecipeEntity.fromRecipe(
             recipe = recipe,
             instructionSectionsJson = json.encodeToString(recipe.instructionSections),
+            equipmentJson = json.encodeToString(recipe.equipment),
             tagsJson = json.encodeToString(recipe.tags),
             originalHtml = originalHtml
         )
@@ -125,6 +126,9 @@ class RecipeRepository @Inject constructor(
         val instructionSections: List<InstructionSection> = safeDecodeJson(
             entity.instructionSectionsJson, entity.name, entity.id, "instructions", emptyList(), onError("instructions")
         )
+        val equipment: List<String> = safeDecodeJson(
+            entity.equipmentJson, entity.name, entity.id, "equipment", emptyList(), onError("equipment")
+        )
         val tags: List<String> = safeDecodeJson(
             entity.tagsJson, entity.name, entity.id, "tags", emptyList(), onError("tags")
         )
@@ -141,6 +145,7 @@ class RecipeRepository @Inject constructor(
 
         return entity.toRecipe(
             instructionSections = instructionSections,
+            equipment = equipment,
             tags = tags
         )
     }
@@ -153,12 +158,16 @@ class RecipeRepository @Inject constructor(
         val instructionSections: List<InstructionSection> = safeDecodeJson(
             entity.instructionSectionsJson, entity.name, entity.id, "instructions", emptyList()
         )
+        val equipment: List<String> = safeDecodeJson(
+            entity.equipmentJson, entity.name, entity.id, "equipment", emptyList()
+        )
         val tags: List<String> = safeDecodeJson(
             entity.tagsJson, entity.name, entity.id, "tags", emptyList()
         )
 
         return entity.toRecipe(
             instructionSections = instructionSections,
+            equipment = equipment,
             tags = tags
         )
     }
