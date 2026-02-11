@@ -349,7 +349,12 @@ app: {
         label: RecipeSerializer
         tooltip: "Shared logic for serializing/deserializing recipes in the standard folder export format (recipe.json + original.html + recipe.md). Used by ZIP export/import."
       }
+      zip_import_helper: {
+        label: ZipImportHelper
+        tooltip: "Shared helper for importing recipes and meal plans from ZIP files. Consolidates ZIP reading, recipe import (deserialize, deduplicate, download image, save), and meal plan import logic. Used by ImportFromZipUseCase, FileImportViewModel, and ImportSelectionViewModel."
+      }
       serializer -> markdown: format
+      zip_import_helper -> serializer: deserialize
     }
 
     models: {
@@ -410,7 +415,7 @@ app: {
     usecases.parse_html -> data.repository.import_debug_repo: save debug data
     usecases.export_zip -> util.serializer: serialize
     usecases.export_single -> util.serializer: serialize
-    usecases.import_zip -> util.serializer: deserialize
+    usecases.import_zip -> util.zip_import_helper: import
   }
 
   # Data Layer
@@ -601,10 +606,10 @@ app: {
   ui.viewmodels.detail_vm -> data.local.settings: keep screen on, unit prefs
   ui.viewmodels.detail_vm -> background.worker.regenerate_worker: regenerate
   ui.viewmodels.detail_vm -> background.worker.work_ext: observe regenerate
-  ui.viewmodels.file_import_vm -> data.repository.repo: import recipe
-  ui.viewmodels.file_import_vm -> domain.util.serializer: deserialize
-  ui.viewmodels.import_selection_vm -> data.repository.repo: check duplicates, import
-  ui.viewmodels.import_selection_vm -> domain.util.serializer: deserialize
+  ui.viewmodels.file_import_vm -> domain.util.zip_import_helper: import
+  ui.viewmodels.import_selection_vm -> data.repository.repo: check duplicates
+  ui.viewmodels.import_selection_vm -> domain.util.serializer: deserialize (for selection preview)
+  ui.viewmodels.import_selection_vm -> domain.util.zip_import_helper: import
   ui.viewmodels.import_selection_vm -> data.paprika.parser: parse export
   ui.viewmodels.add_vm -> background.worker: enqueue work
   ui.viewmodels.add_vm -> background.worker.work_ext: observe import
@@ -634,6 +639,9 @@ app: {
   background.worker.zip_export_worker -> domain.usecases.export_zip: execute
   background.worker.zip_import_worker -> domain.usecases.import_zip: execute
   domain.usecases -> data.repository: access data
+  domain.util.zip_import_helper -> data.repository.repo: save recipe, check duplicates
+  domain.util.zip_import_helper -> data.repository.meal_plan_repo: import meal plans
+  domain.util.zip_import_helper -> data.remote.image_dl: download image
   domain.usecases.import_paprika -> data.paprika.parser: parse export
   domain.usecases.import_paprika -> domain.usecases.parse_html: parseText
   domain.usecases.regenerate -> data.remote.scraper: fetch HTML if not cached

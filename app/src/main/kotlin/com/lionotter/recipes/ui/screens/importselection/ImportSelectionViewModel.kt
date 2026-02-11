@@ -7,11 +7,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lionotter.recipes.data.paprika.PaprikaParser
 import com.lionotter.recipes.data.paprika.PaprikaRecipe
-import com.lionotter.recipes.data.remote.ImageDownloadService
-import com.lionotter.recipes.data.repository.MealPlanRepository
 import com.lionotter.recipes.data.repository.RecipeRepository
-import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.util.RecipeSerializer
+import com.lionotter.recipes.domain.util.ZipImportHelper
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -20,9 +18,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.datetime.Clock
-import kotlinx.serialization.json.Json
-import java.util.zip.ZipInputStream
 import javax.inject.Inject
 
 /**
@@ -36,14 +31,11 @@ class ImportSelectionViewModel @Inject constructor(
     private val recipeRepository: RecipeRepository,
     private val recipeSerializer: RecipeSerializer,
     private val paprikaParser: PaprikaParser,
-    private val mealPlanRepository: MealPlanRepository,
-    private val json: Json,
-    private val imageDownloadService: ImageDownloadService
+    private val zipImportHelper: ZipImportHelper
 ) : ViewModel() {
 
     companion object {
         private const val TAG = "ImportSelection"
-        private const val MEAL_PLANS_FOLDER = "meal-plans"
     }
 
     private val _uiState = MutableStateFlow<ImportSelectionUiState>(ImportSelectionUiState.Loading)
@@ -55,15 +47,6 @@ class ImportSelectionViewModel @Inject constructor(
     private var currentImportType: ImportType? = null
     private var currentFileUri: Uri? = null
     private var alreadyParsed = false
-
-    private suspend fun downloadImageIfNeeded(imageUrl: String?): String? {
-        if (imageUrl == null) return null
-        if (imageUrl.startsWith("file://")) {
-            val path = imageUrl.removePrefix("file://")
-            return if (java.io.File(path).exists()) imageUrl else null
-        }
-        return imageDownloadService.downloadAndStore(imageUrl)
-    }
 
     enum class ImportType {
         PAPRIKA,
@@ -153,26 +136,8 @@ class ImportSelectionViewModel @Inject constructor(
                     return
                 }
 
-            val folderContents = mutableMapOf<String, MutableMap<String, String>>()
-
-            ZipInputStream(inputStream).use { zipIn ->
-                var entry = zipIn.nextEntry
-                while (entry != null) {
-                    if (!entry.isDirectory) {
-                        val pathParts = entry.name.split("/", limit = 2)
-                        if (pathParts.size == 2) {
-                            val folderName = pathParts[0]
-                            val fileName = pathParts[1]
-                            val content = zipIn.readBytes().toString(Charsets.UTF_8)
-                            folderContents.getOrPut(folderName) { mutableMapOf() }[fileName] = content
-                        }
-                    }
-                    zipIn.closeEntry()
-                    entry = zipIn.nextEntry
-                }
-            }
-
-            if (folderContents.isEmpty()) {
+            val folderContents = zipImportHelper.readZipContents(inputStream)
+            if (folderContents == null) {
                 _uiState.value = ImportSelectionUiState.Error("No recipes found in file")
                 return
             }
@@ -185,7 +150,7 @@ class ImportSelectionViewModel @Inject constructor(
 
             // Filter out meal-plans folder - only show recipe folders
             val items = folderContents
-                .filter { (folderName, _) -> folderName != MEAL_PLANS_FOLDER }
+                .filter { (folderName, _) -> folderName != ZipImportHelper.MEAL_PLANS_FOLDER }
                 .mapNotNull { (_, files) ->
                     val jsonContent = files[RecipeSerializer.RECIPE_JSON_FILENAME] ?: return@mapNotNull null
                     try {
@@ -283,51 +248,32 @@ class ImportSelectionViewModel @Inject constructor(
 
         for ((folderName, files) in folderContents) {
             // Import meal plans automatically (not part of recipe selection)
-            if (folderName == MEAL_PLANS_FOLDER) {
-                for ((fileName, content) in files) {
-                    if (!fileName.endsWith(".json")) continue
-                    try {
-                        val entries = json.decodeFromString<List<MealPlanEntry>>(content)
-                        for (entry in entries) {
-                            val existing = mealPlanRepository.getMealPlanByIdOnce(entry.id)
-                            if (existing == null) {
-                                mealPlanRepository.saveMealPlan(entry)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to import meal plan file $fileName", e)
-                    }
-                }
+            if (folderName == ZipImportHelper.MEAL_PLANS_FOLDER) {
+                zipImportHelper.importMealPlans(files)
                 continue
             }
 
+            // Pre-filter: deserialize just to check ID, skip if not selected
             val jsonContent = files[RecipeSerializer.RECIPE_JSON_FILENAME] ?: continue
-
-            try {
-                val recipe = recipeSerializer.deserializeRecipe(jsonContent)
-
-                if (recipe.id !in selectedIds) {
-                    continue
-                }
-
-                // Check if recipe already exists by ID
-                val existing = recipeRepository.getRecipeByIdOnce(recipe.id)
-                if (existing != null) {
-                    skippedCount++
-                    continue
-                }
-
-                val localImageUrl = downloadImageIfNeeded(recipe.imageUrl)
-                val importedRecipe = recipe.copy(
-                    updatedAt = Clock.System.now(),
-                    imageUrl = localImageUrl
-                )
-                val originalHtml = files[RecipeSerializer.RECIPE_HTML_FILENAME]
-                recipeRepository.saveRecipe(importedRecipe, originalHtml)
-                importedCount++
-                lastImportedId = recipe.id
+            val recipeId = try {
+                recipeSerializer.deserializeRecipe(jsonContent).id
             } catch (e: Exception) {
                 failedCount++
+                continue
+            }
+
+            if (recipeId !in selectedIds) {
+                continue
+            }
+
+            when (val result = zipImportHelper.importRecipe(files)) {
+                is ZipImportHelper.SingleRecipeResult.Imported -> {
+                    importedCount++
+                    lastImportedId = result.recipeId
+                }
+                is ZipImportHelper.SingleRecipeResult.Skipped -> skippedCount++
+                is ZipImportHelper.SingleRecipeResult.NoJson -> failedCount++
+                is ZipImportHelper.SingleRecipeResult.Failed -> failedCount++
             }
         }
 

@@ -39,6 +39,25 @@ class ImageDownloadService @Inject constructor(
     }
 
     /**
+     * Downloads a remote image URL to local storage if needed.
+     * Returns the local file URI, or null if the URL is null, invalid, or download fails.
+     *
+     * Handles three cases:
+     * - null URL: returns null
+     * - Local file:// URI: checks if the file exists (may not if imported from another device),
+     *   returns the URI if it exists or null if not
+     * - Remote URL: downloads and stores locally via [downloadAndStore]
+     */
+    suspend fun downloadImageIfNeeded(imageUrl: String?): String? {
+        if (imageUrl == null) return null
+        if (imageUrl.startsWith("file://")) {
+            val path = imageUrl.removePrefix("file://")
+            return if (File(path).exists()) imageUrl else null
+        }
+        return downloadAndStore(imageUrl)
+    }
+
+    /**
      * Downloads an image from a URL and stores it locally.
      * Returns the local file URI string, or null if download fails.
      *
