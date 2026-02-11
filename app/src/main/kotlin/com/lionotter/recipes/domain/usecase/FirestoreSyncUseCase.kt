@@ -5,7 +5,6 @@ import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.FirestoreService
 import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.repository.RecipeRepository
-import com.lionotter.recipes.domain.model.Recipe
 import kotlinx.coroutines.flow.first
 import kotlinx.datetime.Clock
 import javax.inject.Inject
@@ -80,19 +79,6 @@ class FirestoreSyncUseCase @Inject constructor(
         }
     }
 
-    /**
-     * Downloads a remote image URL to local storage if needed.
-     * Returns the recipe with the local image URL, or with null imageUrl if download fails.
-     */
-    private suspend fun downloadImageIfNeeded(recipe: Recipe): Recipe {
-        val imageUrl = recipe.imageUrl ?: return recipe
-        // Already a local file
-        if (imageUrl.startsWith("file://")) return recipe
-        // Download remote image
-        val localImageUrl = imageDownloadService.downloadAndStore(imageUrl)
-        return recipe.copy(imageUrl = localImageUrl)
-    }
-
     private suspend fun performSync(
         onProgress: suspend (SyncProgress) -> Unit
     ): SyncResult {
@@ -146,7 +132,9 @@ class FirestoreSyncUseCase @Inject constructor(
         downloadList.forEachIndexed { index, remoteRecipe ->
             onProgress(SyncProgress.Downloading(remoteRecipe.recipe.name, index + 1, downloadList.size))
             try {
-                val recipeWithLocalImage = downloadImageIfNeeded(remoteRecipe.recipe)
+                val recipeWithLocalImage = remoteRecipe.recipe.copy(
+                    imageUrl = imageDownloadService.downloadImageIfNeeded(remoteRecipe.recipe.imageUrl)
+                )
                 recipeRepository.saveRecipe(recipeWithLocalImage, remoteRecipe.originalHtml)
                 downloaded++
             } catch (e: Exception) {
@@ -172,7 +160,9 @@ class FirestoreSyncUseCase @Inject constructor(
             } else if (remoteRecipe.recipe.updatedAt > localRecipe.updatedAt) {
                 // Remote is newer, update local
                 try {
-                    val recipeWithLocalImage = downloadImageIfNeeded(remoteRecipe.recipe)
+                    val recipeWithLocalImage = remoteRecipe.recipe.copy(
+                        imageUrl = imageDownloadService.downloadImageIfNeeded(remoteRecipe.recipe.imageUrl)
+                    )
                     recipeRepository.saveRecipe(recipeWithLocalImage, remoteRecipe.originalHtml)
                     updated++
                 } catch (e: Exception) {
