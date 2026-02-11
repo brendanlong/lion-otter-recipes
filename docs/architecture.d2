@@ -91,12 +91,20 @@ app: {
         tooltip: "Two-step grocery list generator. Step 1: Select recipes from meal plan entries (grouped by date/meal type, with select all/deselect all). Step 2: View aggregated ingredient list with deduplication across recipes, check-off support (top-level hides all, sub-item reduces count), and share as Markdown."
       }
 
+      import_selection: {
+        label: ImportSelectionScreen
+        tooltip: "Shared recipe selection screen for all import types (Paprika, .lorecipes, ZIP backup). Shows checklist of recipes found in file, sorted alphabetically. Recipes checked by default unless already in app (by ID or name). Import button disabled when nothing selected. Select All / Deselect All buttons."
+      }
+
       list -> detail: tap recipe
       list -> add: tap +
       list -> settings: tap gear
       list -> meal_plan: tap calendar
       meal_plan -> detail: tap recipe
       meal_plan -> grocery_list: tap cart icon
+      add -> import_selection: pick Paprika file
+      settings -> import_selection: pick ZIP file
+      import_selection -> add: Paprika import selected
       add -> settings: no API key
       settings -> import_debug_list: view debug data
       import_debug_list -> import_debug_detail: tap entry
@@ -157,6 +165,10 @@ app: {
         label: GroceryListViewModel
         tooltip: "Manages grocery list generation from meal plan. Two-step flow: recipe selection (from all meal plan entries) then aggregated ingredient display with check-off and share-as-Markdown support. Non-persistent state."
       }
+      import_selection_vm: {
+        label: ImportSelectionViewModel
+        tooltip: "Shared ViewModel for import recipe selection. Parses import files (Paprika, .lorecipes, ZIP backup) to extract recipe names, checks for duplicates against existing recipes, and manages selection state. For Paprika: returns selected names for WorkManager import. For .lorecipes/ZIP: performs direct import of selected recipes."
+      }
     }
 
     state: {
@@ -181,6 +193,7 @@ app: {
     screens.grocery_list -> viewmodels.grocery_list_vm
     screens.import_debug_list -> viewmodels.import_debug_list_vm
     screens.import_debug_detail -> viewmodels.import_debug_detail_vm
+    screens.import_selection -> viewmodels.import_selection_vm
     viewmodels.list_vm -> state.in_progress_mgr: observes, cancel
     viewmodels.add_vm -> state.in_progress_mgr: adds entries
     state.in_progress_mgr -> background.worker: observes status
@@ -578,6 +591,9 @@ app: {
   ui.viewmodels.detail_vm -> background.worker.work_ext: observe regenerate
   ui.viewmodels.file_import_vm -> data.repository.repo: import recipe
   ui.viewmodels.file_import_vm -> domain.util.serializer: deserialize
+  ui.viewmodels.import_selection_vm -> data.repository.repo: check duplicates, import
+  ui.viewmodels.import_selection_vm -> domain.util.serializer: deserialize
+  ui.viewmodels.import_selection_vm -> data.paprika.parser: parse export
   ui.viewmodels.add_vm -> background.worker: enqueue work
   ui.viewmodels.add_vm -> background.worker.work_ext: observe import
   ui.viewmodels.drive_vm -> background.worker.sync_worker: sync
@@ -658,7 +674,7 @@ legend: {
     }
   }
   zip1: "Export: User picks save location, ZipExportWorker writes ZIP with same folder structure as Drive"
-  zip2: "Import: User picks .zip file, ZipImportWorker reads recipe.json from each folder"
+  zip2: "Import: User picks .zip file, selects recipes via ImportSelectionScreen, imports selected"
   zip3: "Uses RecipeSerializer shared with Google Drive for consistent format"
   zip4: "Skips recipes that already exist locally (by ID)"
 
@@ -671,8 +687,8 @@ legend: {
       bold: true
     }
   }
-  pap1: "1. User picks .paprikarecipes file"
-  pap2: "2. PaprikaImportWorker parses ZIP of gzip-compressed JSON"
+  pap1: "1. User picks .paprikarecipes file, selects recipes to import"
+  pap2: "2. PaprikaImportWorker parses ZIP of gzip-compressed JSON (filtered to selected)"
   pap3: "3. Each recipe's content (not source URL) sent to AI"
   pap4: "4. Image resolved from Paprika data or source page"
   pap5: "5. Repository saves each parsed recipe to Room"
@@ -688,8 +704,8 @@ legend: {
   }
   share1: "Share as text: RecipeMarkdownFormatter creates Markdown, shared via ACTION_SEND text/plain"
   share2: "Share as file: ExportSingleRecipeUseCase creates .lorecipes ZIP, shared via FileProvider + ACTION_SEND"
-  share3: "Import: .lorecipes file opened/shared to app triggers FileImportViewModel"
-  share4: "FileImportViewModel reads ZIP, deserializes recipe, saves to Room, navigates to recipe"
+  share3: "Import: .lorecipes file opened/shared to app opens ImportSelectionScreen"
+  share4: "User selects recipes to import, ImportSelectionViewModel imports selected and navigates to recipe"
 
   share1 -> share2 -> share3 -> share4
 

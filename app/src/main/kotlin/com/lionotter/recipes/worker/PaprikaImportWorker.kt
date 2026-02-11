@@ -26,6 +26,7 @@ class PaprikaImportWorker @AssistedInject constructor(
         const val TAG_PAPRIKA_IMPORT = "paprika_import"
 
         const val KEY_FILE_URI = "file_uri"
+        const val KEY_SELECTED_RECIPE_NAMES = "selected_recipe_names"
         const val KEY_RESULT_TYPE = "result_type"
         const val KEY_IMPORTED_COUNT = "imported_count"
         const val KEY_FAILED_COUNT = "failed_count"
@@ -44,8 +45,11 @@ class PaprikaImportWorker @AssistedInject constructor(
         const val PROGRESS_PARSING = "parsing"
         const val PROGRESS_IMPORTING = "importing"
 
-        fun createInputData(fileUri: Uri): Data {
-            return workDataOf(KEY_FILE_URI to fileUri.toString())
+        fun createInputData(fileUri: Uri, selectedRecipeNames: Set<String>? = null): Data {
+            return workDataOf(
+                KEY_FILE_URI to fileUri.toString(),
+                KEY_SELECTED_RECIPE_NAMES to selectedRecipeNames?.toTypedArray()
+            )
         }
     }
 
@@ -59,6 +63,7 @@ class PaprikaImportWorker @AssistedInject constructor(
             )
 
         val fileUri = fileUriString.toUri()
+        val selectedRecipeNames = inputData.getStringArray(KEY_SELECTED_RECIPE_NAMES)?.toSet()
         setForegroundProgress("Starting Paprika import...")
 
         val inputStream = try {
@@ -81,6 +86,7 @@ class PaprikaImportWorker @AssistedInject constructor(
         val result = inputStream.use { stream ->
             importPaprikaUseCase.execute(
                 inputStream = stream,
+                selectedRecipeNames = selectedRecipeNames,
                 onProgress = { progress ->
                     val progressMessage = when (progress) {
                         is ImportPaprikaUseCase.ImportProgress.Parsing -> {

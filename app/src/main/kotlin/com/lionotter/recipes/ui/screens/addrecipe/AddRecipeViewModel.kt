@@ -225,14 +225,14 @@ class AddRecipeViewModel @Inject constructor(
         _uiState.value = AddRecipeUiState.Loading(ImportProgress.Queued)
     }
 
-    fun importPaprikaFile(fileUri: Uri) {
+    fun importPaprikaFile(fileUri: Uri, selectedRecipeNames: Set<String>? = null) {
         currentImportId = UUID.randomUUID().toString()
         lastPaprikaImportedCount = 0
         lastPaprikaFailedCount = 0
         inProgressRecipeManager.addInProgressRecipe(currentImportId!!, "Importing from Paprika...")
 
         val workRequest = OneTimeWorkRequestBuilder<PaprikaImportWorker>()
-            .setInputData(PaprikaImportWorker.createInputData(fileUri))
+            .setInputData(PaprikaImportWorker.createInputData(fileUri, selectedRecipeNames))
             .addTag(PaprikaImportWorker.TAG_PAPRIKA_IMPORT)
             .build()
 

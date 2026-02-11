@@ -1,5 +1,6 @@
 package com.lionotter.recipes.ui.screens.settings
 
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -42,6 +43,7 @@ import com.lionotter.recipes.ui.screens.settings.components.UnitPreferencesSecti
 fun SettingsScreen(
     onBackClick: () -> Unit,
     onNavigateToImportDebug: () -> Unit = {},
+    onNavigateToImportSelection: (importType: String, uri: Uri) -> Unit = { _, _ -> },
     viewModel: SettingsViewModel = hiltViewModel(),
     googleDriveViewModel: GoogleDriveViewModel = hiltViewModel(),
     zipViewModel: ZipExportImportViewModel = hiltViewModel()
@@ -96,11 +98,11 @@ fun SettingsScreen(
         uri?.let { zipViewModel.exportToZip(it) }
     }
 
-    // ZIP import file picker (open document)
+    // ZIP import file picker - navigate to selection screen
     val zipImportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
-        uri?.let { zipViewModel.importFromZip(it) }
+        uri?.let { onNavigateToImportSelection("zip", it) }
     }
 
     // Show snackbar for zip operation results

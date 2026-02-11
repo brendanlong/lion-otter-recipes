@@ -24,6 +24,9 @@ interface RecipeDao {
     @Query("SELECT * FROM recipes WHERE name LIKE '%' || :query || '%' AND deleted = 0 ORDER BY updatedAt DESC")
     fun searchRecipes(query: String): Flow<List<RecipeEntity>>
 
+    @Query("SELECT id, name FROM recipes WHERE deleted = 0")
+    suspend fun getAllRecipeIdsAndNames(): List<RecipeIdAndName>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRecipe(recipe: RecipeEntity)
 

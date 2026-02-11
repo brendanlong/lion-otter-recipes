@@ -221,6 +221,15 @@
     <string name="file_import_success">Recipe imported successfully</string>
     <string name="file_import_already_exists">Recipe already exists</string>
 
+    <!-- Import Selection -->
+    <string name="select_recipes_to_import">Select Recipes to Import</string>
+    <string name="reading_recipes">Reading recipes\u2026</string>
+    <string name="import_selection_count">%1$d of %2$d selected</string>
+    <string name="import_selected">Import (%1$d)</string>
+    <string name="recipe_already_exists">Already in your recipes</string>
+    <string name="no_recipes_in_file">No recipes found in file</string>
+    <string name="file_import_success_count">Successfully imported %1$d recipes</string>
+
     <!-- Meal Planner -->
     <string name="meal_planner">Meal Planner</string>
     <string name="meal_planner_settings">Meal Planner</string>

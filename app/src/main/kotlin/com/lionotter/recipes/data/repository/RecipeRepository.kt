@@ -3,6 +3,7 @@ package com.lionotter.recipes.data.repository
 import android.util.Log
 import com.lionotter.recipes.data.local.RecipeDao
 import com.lionotter.recipes.data.local.RecipeEntity
+import com.lionotter.recipes.data.local.RecipeIdAndName
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.Recipe
 import kotlinx.coroutines.flow.Flow
@@ -91,6 +92,10 @@ class RecipeRepository @Inject constructor(
 
     suspend fun setFavorite(id: String, isFavorite: Boolean) {
         recipeDao.setFavorite(id, isFavorite)
+    }
+
+    suspend fun getAllRecipeIdsAndNames(): List<RecipeIdAndName> {
+        return recipeDao.getAllRecipeIdsAndNames()
     }
 
     private inline fun <reified T> safeDecodeJson(
