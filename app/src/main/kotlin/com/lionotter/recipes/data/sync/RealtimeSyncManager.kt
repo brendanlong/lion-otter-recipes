@@ -145,6 +145,7 @@ class RealtimeSyncManager @Inject constructor(
     private suspend fun observeRecipeChanges() {
         try {
             firestoreService.observeRecipeDocumentChanges().collect { changes ->
+                syncLogger.d(TAG, "Processing recipe snapshot: ${changes.size} changes")
                 for (change in changes) {
                     val docId = change.document.id
                     val data = change.document.data
@@ -296,36 +297,15 @@ class RealtimeSyncManager @Inject constructor(
             val toPush = localRecipes.filter { it.id !in remoteRecipeIds }
             syncLogger.d(TAG, "Initial recipe push: ${toPush.size} to push (${localRecipes.size} local, ${remoteRecipeIds.size} remote)")
 
-            var successes = 0
-            var failures = 0
             for ((index, recipe) in toPush.withIndex()) {
-                try {
-                    coroutineContext.ensureActive()
-                    syncLogger.d(TAG, "Pushing recipe ${index + 1}/${toPush.size}: '${recipe.name}'")
-                    val originalHtml = recipeRepository.getOriginalHtml(recipe.id)
-                    syncLogger.d(TAG, "Got HTML for '${recipe.name}', calling upsert")
-                    val result = firestoreService.upsertRecipe(recipe, originalHtml)
-                    if (result.isFailure) {
-                        failures++
-                        syncLogger.e(TAG, "Failed to push recipe '${recipe.name}': ${result.exceptionOrNull()?.message}")
-                    } else {
-                        successes++
-                    }
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    syncLogger.e(TAG, "Initial recipe push cancelled at recipe ${index + 1}/${toPush.size} '${recipe.name}'")
-                    throw e
-                } catch (e: Exception) {
-                    failures++
-                    syncLogger.e(TAG, "Exception pushing recipe '${recipe.name}'", e)
-                }
+                coroutineContext.ensureActive()
+                syncLogger.d(TAG, "Pushing recipe ${index + 1}/${toPush.size}: '${recipe.name}'")
+                val originalHtml = recipeRepository.getOriginalHtml(recipe.id)
+                firestoreService.upsertRecipe(recipe, originalHtml)
             }
 
             if (toPush.isNotEmpty()) {
-                syncLogger.d(TAG, "Initial recipe push complete: $successes succeeded, $failures failed")
-            }
-
-            if (failures > 0) {
-                _syncError.value = "Failed to sync $failures of ${toPush.size} recipes"
+                syncLogger.d(TAG, "Initial recipe push: queued ${toPush.size} writes")
             }
 
             // Push soft-deleted recipes to Firestore, then purge
@@ -356,33 +336,13 @@ class RealtimeSyncManager @Inject constructor(
             val toPush = localEntries.filter { it.id !in remoteMealPlanIds }
             syncLogger.d(TAG, "Initial meal plan push: ${toPush.size} to push (${localEntries.size} local, ${remoteMealPlanIds.size} remote)")
 
-            var successes = 0
-            var failures = 0
             for (entry in toPush) {
-                try {
-                    coroutineContext.ensureActive()
-                    val result = firestoreService.upsertMealPlan(entry)
-                    if (result.isFailure) {
-                        failures++
-                        syncLogger.e(TAG, "Failed to push meal plan ${entry.id}: ${result.exceptionOrNull()?.message}")
-                    } else {
-                        successes++
-                    }
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    syncLogger.e(TAG, "Initial meal plan push cancelled")
-                    throw e
-                } catch (e: Exception) {
-                    failures++
-                    syncLogger.e(TAG, "Failed to push meal plan ${entry.id}", e)
-                }
+                coroutineContext.ensureActive()
+                firestoreService.upsertMealPlan(entry)
             }
 
             if (toPush.isNotEmpty()) {
-                syncLogger.d(TAG, "Initial meal plan push complete: $successes succeeded, $failures failed")
-            }
-
-            if (failures > 0) {
-                _syncError.value = "Failed to sync $failures of ${toPush.size} meal plans"
+                syncLogger.d(TAG, "Initial meal plan push: queued ${toPush.size} writes")
             }
 
             val deletedEntries = mealPlanRepository.getDeletedMealPlans()
@@ -416,17 +376,13 @@ class RealtimeSyncManager @Inject constructor(
                         val recipe = recipeRepository.getRecipeByIdOnce(event.recipeId)
                         if (recipe != null) {
                             val originalHtml = recipeRepository.getOriginalHtml(event.recipeId)
-                            val result = firestoreService.upsertRecipe(recipe, originalHtml)
-                            if (result.isSuccess) {
-                                syncLogger.d(TAG, "Pushed recipe '${recipe.name}'")
-                            } else {
-                                syncLogger.e(TAG, "Failed to push recipe '${recipe.name}': ${result.exceptionOrNull()?.message}")
-                            }
+                            syncLogger.d(TAG, "Pushing recipe change '${recipe.name}'")
+                            firestoreService.upsertRecipe(recipe, originalHtml)
                         }
                     }
                     ChangeType.DELETED -> {
+                        syncLogger.d(TAG, "Pushing recipe deletion: ${event.recipeId}")
                         firestoreService.markRecipeDeleted(event.recipeId)
-                        syncLogger.d(TAG, "Pushed recipe deletion: ${event.recipeId}")
                     }
                 }
             } catch (e: Exception) {
@@ -442,17 +398,13 @@ class RealtimeSyncManager @Inject constructor(
                     ChangeType.SAVED -> {
                         val entry = mealPlanRepository.getMealPlanByIdOnce(event.entryId)
                         if (entry != null) {
-                            val result = firestoreService.upsertMealPlan(entry)
-                            if (result.isSuccess) {
-                                syncLogger.d(TAG, "Pushed meal plan ${event.entryId}")
-                            } else {
-                                syncLogger.e(TAG, "Failed to push meal plan ${event.entryId}: ${result.exceptionOrNull()?.message}")
-                            }
+                            syncLogger.d(TAG, "Pushing meal plan change ${event.entryId}")
+                            firestoreService.upsertMealPlan(entry)
                         }
                     }
                     ChangeType.DELETED -> {
+                        syncLogger.d(TAG, "Pushing meal plan deletion: ${event.entryId}")
                         firestoreService.markMealPlanDeleted(event.entryId)
-                        syncLogger.d(TAG, "Pushed meal plan deletion: ${event.entryId}")
                     }
                 }
             } catch (e: Exception) {

@@ -149,58 +149,54 @@ class FirestoreService @Inject constructor(
 
     /**
      * Upload or update a recipe in Firestore using structured data.
+     *
+     * Fire-and-forget: Firestore writes are queued on an internal single-thread executor
+     * ("FirestoreWorker"). Calling Task.await() deadlocks when snapshot listeners are active
+     * on the same collection, because server ack processing is starved behind snapshot
+     * recomputation on that same thread. Writes are durable via Firestore's offline cache.
      */
-    suspend fun upsertRecipe(recipe: Recipe, originalHtml: String?): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            try {
-                val data = hashMapOf(
-                    FIELD_RECIPE_DATA to converter.recipeToMap(recipe),
-                    FIELD_ORIGINAL_HTML to (originalHtml ?: ""),
-                    FIELD_UPDATED_AT to recipe.updatedAt.toEpochMilliseconds(),
-                    FIELD_DELETED to false
-                )
-                userRecipesCollection().document(recipe.id).set(data).await()
-                Result.success(Unit)
-            } catch (e: Exception) {
-                syncLogger.e(TAG, "Failed to upsert recipe ${recipe.name}", e)
-                Result.failure(e)
+    fun upsertRecipe(recipe: Recipe, originalHtml: String?) {
+        val data = hashMapOf(
+            FIELD_RECIPE_DATA to converter.recipeToMap(recipe),
+            FIELD_ORIGINAL_HTML to (originalHtml ?: ""),
+            FIELD_UPDATED_AT to recipe.updatedAt.toEpochMilliseconds(),
+            FIELD_DELETED to false
+        )
+        userRecipesCollection().document(recipe.id).set(data)
+            .addOnSuccessListener {
+                syncLogger.d(TAG, "Upsert acked for recipe '${recipe.name}'")
             }
-        }
+            .addOnFailureListener { e ->
+                syncLogger.e(TAG, "Failed to upsert recipe '${recipe.name}'", e)
+            }
+    }
 
     /**
      * Mark a recipe as deleted in Firestore (soft-delete).
      */
-    suspend fun markRecipeDeleted(recipeId: String): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            try {
-                userRecipesCollection().document(recipeId)
-                    .set(
-                        hashMapOf(
-                            FIELD_DELETED to true,
-                            FIELD_UPDATED_AT to System.currentTimeMillis()
-                        ),
-                        SetOptions.merge()
-                    ).await()
-                Result.success(Unit)
-            } catch (e: Exception) {
+    fun markRecipeDeleted(recipeId: String) {
+        userRecipesCollection().document(recipeId)
+            .set(
+                hashMapOf(
+                    FIELD_DELETED to true,
+                    FIELD_UPDATED_AT to System.currentTimeMillis()
+                ),
+                SetOptions.merge()
+            )
+            .addOnFailureListener { e ->
                 syncLogger.e(TAG, "Failed to mark recipe deleted: $recipeId", e)
-                Result.failure(e)
             }
-        }
+    }
 
     /**
      * Permanently delete a recipe document from Firestore.
      */
-    suspend fun hardDeleteRecipe(recipeId: String): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            try {
-                userRecipesCollection().document(recipeId).delete().await()
-                Result.success(Unit)
-            } catch (e: Exception) {
+    fun hardDeleteRecipe(recipeId: String) {
+        userRecipesCollection().document(recipeId).delete()
+            .addOnFailureListener { e ->
                 syncLogger.e(TAG, "Failed to hard delete recipe: $recipeId", e)
-                Result.failure(e)
             }
-        }
+    }
 
     /**
      * Observe recipe document changes in real-time via snapshot listener.
@@ -215,6 +211,7 @@ class FirestoreService @Inject constructor(
                 }
 
                 val changes = snapshot?.documentChanges ?: emptyList()
+                syncLogger.d(TAG, "Recipe snapshot callback: ${changes.size} changes (fromCache=${snapshot?.metadata?.isFromCache}, hasPending=${snapshot?.metadata?.hasPendingWrites()})")
                 trySend(changes)
             }
 
@@ -266,56 +263,47 @@ class FirestoreService @Inject constructor(
     /**
      * Upload or update a meal plan entry in Firestore using structured data.
      */
-    suspend fun upsertMealPlan(entry: MealPlanEntry): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            try {
-                val data = hashMapOf(
-                    FIELD_MEAL_PLAN_DATA to converter.mealPlanToMap(entry),
-                    FIELD_UPDATED_AT to entry.updatedAt,
-                    FIELD_DELETED to false
-                )
-                userMealPlansCollection().document(entry.id).set(data).await()
-                Result.success(Unit)
-            } catch (e: Exception) {
-                syncLogger.e(TAG, "Failed to upsert meal plan ${entry.id}", e)
-                Result.failure(e)
+    fun upsertMealPlan(entry: MealPlanEntry) {
+        val data = hashMapOf(
+            FIELD_MEAL_PLAN_DATA to converter.mealPlanToMap(entry),
+            FIELD_UPDATED_AT to entry.updatedAt,
+            FIELD_DELETED to false
+        )
+        userMealPlansCollection().document(entry.id).set(data)
+            .addOnSuccessListener {
+                syncLogger.d(TAG, "Upsert acked for meal plan ${entry.id}")
             }
-        }
+            .addOnFailureListener { e ->
+                syncLogger.e(TAG, "Failed to upsert meal plan ${entry.id}", e)
+            }
+    }
 
     /**
      * Mark a meal plan entry as deleted in Firestore.
      */
-    suspend fun markMealPlanDeleted(entryId: String): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            try {
-                userMealPlansCollection().document(entryId)
-                    .set(
-                        hashMapOf(
-                            FIELD_DELETED to true,
-                            FIELD_UPDATED_AT to System.currentTimeMillis()
-                        ),
-                        SetOptions.merge()
-                    ).await()
-                Result.success(Unit)
-            } catch (e: Exception) {
+    fun markMealPlanDeleted(entryId: String) {
+        userMealPlansCollection().document(entryId)
+            .set(
+                hashMapOf(
+                    FIELD_DELETED to true,
+                    FIELD_UPDATED_AT to System.currentTimeMillis()
+                ),
+                SetOptions.merge()
+            )
+            .addOnFailureListener { e ->
                 syncLogger.e(TAG, "Failed to mark meal plan deleted: $entryId", e)
-                Result.failure(e)
             }
-        }
+    }
 
     /**
      * Permanently delete a meal plan document from Firestore.
      */
-    suspend fun hardDeleteMealPlan(entryId: String): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            try {
-                userMealPlansCollection().document(entryId).delete().await()
-                Result.success(Unit)
-            } catch (e: Exception) {
+    fun hardDeleteMealPlan(entryId: String) {
+        userMealPlansCollection().document(entryId).delete()
+            .addOnFailureListener { e ->
                 syncLogger.e(TAG, "Failed to hard delete meal plan: $entryId", e)
-                Result.failure(e)
             }
-        }
+    }
 
     /**
      * Observe meal plan document changes in real-time via snapshot listener.
@@ -330,6 +318,7 @@ class FirestoreService @Inject constructor(
                 }
 
                 val changes = snapshot?.documentChanges ?: emptyList()
+                syncLogger.d(TAG, "Meal plan snapshot callback: ${changes.size} changes (fromCache=${snapshot?.metadata?.isFromCache}, hasPending=${snapshot?.metadata?.hasPendingWrites()})")
                 trySend(changes)
             }
 
