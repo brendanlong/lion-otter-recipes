@@ -118,12 +118,12 @@
     <string name="keep_screen_on">Keep screen on</string>
     <string name="keep_screen_on_description">Prevent the screen from turning off while viewing a recipe.</string>
     <string name="cloud_sync">Cloud Sync</string>
-    <string name="cloud_sync_description">Sign in with Google to sync your recipes across devices. Recipes are synced on app startup and periodically in the background.</string>
+    <string name="cloud_sync_description">Sign in with Google to sync your recipes across devices automatically.</string>
     <string name="checking_sign_in_status">Checking sign-in status\u2026</string>
     <string name="signed_in">Signed in</string>
     <string name="disconnect">Disconnect</string>
     <string name="cloud_sync_toggle">Sync</string>
-    <string name="cloud_sync_toggle_description">Automatically sync recipes across devices. New, updated, and deleted recipes are synced on startup and every 6 hours.</string>
+    <string name="cloud_sync_toggle_description">Keep recipes synced across devices in real time.</string>
     <string name="sync_now">Sync Now</string>
     <string name="last_synced">Last synced: %1$s</string>
     <string name="never_synced">Never synced</string>

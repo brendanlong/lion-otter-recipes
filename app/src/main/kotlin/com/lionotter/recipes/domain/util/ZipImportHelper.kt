@@ -103,28 +103,44 @@ class ZipImportHelper @Inject constructor(
             )
             val originalHtml = files[RecipeSerializer.RECIPE_HTML_FILENAME]
             recipeRepository.saveRecipe(importedRecipe, originalHtml)
+            Log.d(TAG, "Imported recipe: ${recipe.name}")
             SingleRecipeResult.Imported(recipe.id)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
+            Log.w(TAG, "Failed to import recipe from ZIP folder", e)
             SingleRecipeResult.Failed(e)
         }
     }
 
     /**
+     * Result of importing meal plans from a ZIP backup.
+     */
+    data class MealPlanImportResult(val imported: Int, val skipped: Int, val failed: Int)
+
+    /**
      * Imports meal plan entries from the meal-plans folder in a ZIP backup.
-     * Skips entries that already exist (by ID).
+     * Skips entries that already exist (by ID). Logs and counts failures
+     * for individual entries but continues with the rest.
      *
      * @param mealPlanFiles map of filename to content from the meal-plans folder
-     * @return pair of (imported count, skipped count)
      */
-    suspend fun importMealPlans(mealPlanFiles: Map<String, String>): Pair<Int, Int> {
+    suspend fun importMealPlans(mealPlanFiles: Map<String, String>): MealPlanImportResult {
         var imported = 0
         var skipped = 0
+        var failed = 0
 
         for ((fileName, content) in mealPlanFiles) {
             if (!fileName.endsWith(".json")) continue
-            try {
-                val entries = json.decodeFromString<List<MealPlanEntry>>(content)
-                for (entry in entries) {
+            val entries = try {
+                json.decodeFromString<List<MealPlanEntry>>(content)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to parse meal plan file $fileName", e)
+                failed++
+                continue
+            }
+            for (entry in entries) {
+                try {
                     val existing = mealPlanRepository.getMealPlanByIdOnce(entry.id)
                     if (existing == null) {
                         mealPlanRepository.saveMealPlan(entry)
@@ -132,12 +148,15 @@ class ZipImportHelper @Inject constructor(
                     } else {
                         skipped++
                     }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to import meal plan entry ${entry.id}", e)
+                    failed++
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to import meal plan file $fileName", e)
             }
         }
 
-        return Pair(imported, skipped)
+        return MealPlanImportResult(imported, skipped, failed)
     }
 }

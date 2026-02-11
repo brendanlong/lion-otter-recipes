@@ -249,7 +249,10 @@ class ImportSelectionViewModel @Inject constructor(
         for ((folderName, files) in folderContents) {
             // Import meal plans automatically (not part of recipe selection)
             if (folderName == ZipImportHelper.MEAL_PLANS_FOLDER) {
-                zipImportHelper.importMealPlans(files)
+                val mealResult = zipImportHelper.importMealPlans(files)
+                importedCount += mealResult.imported
+                skippedCount += mealResult.skipped
+                failedCount += mealResult.failed
                 continue
             }
 

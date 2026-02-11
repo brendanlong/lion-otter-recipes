@@ -187,7 +187,13 @@ class ParseHtmlUseCase @Inject constructor(
         if (saveRecipe) {
             coroutineContext.ensureActive()
             onProgress(ParseProgress.SavingRecipe)
-            recipeRepository.saveRecipe(recipe, originalHtml = originalHtml)
+            try {
+                recipeRepository.saveRecipe(recipe, originalHtml = originalHtml)
+            } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                return ParseResult.Error("Recipe parsed but failed to save: ${e.message}")
+            }
         }
 
         // Save debug data on success if debugging is enabled

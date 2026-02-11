@@ -2,6 +2,7 @@ package com.lionotter.recipes.ui.screens.recipedetail
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.core.content.FileProvider
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -67,6 +68,10 @@ class RecipeDetailViewModel @Inject constructor(
     private val recipeSerializer: RecipeSerializer,
     @ApplicationContext private val applicationContext: Context
 ) : ViewModel() {
+
+    companion object {
+        private const val TAG = "RecipeDetailViewModel"
+    }
 
     private val recipeId: String = savedStateHandle.get<String>("recipeId")
         ?: throw IllegalArgumentException("RecipeDetailViewModel requires a 'recipeId' argument in SavedStateHandle")
@@ -233,8 +238,12 @@ class RecipeDetailViewModel @Inject constructor(
      */
     fun toggleFavorite() {
         viewModelScope.launch {
-            val currentRecipe = recipe.value ?: return@launch
-            recipeRepository.setFavorite(recipeId, !currentRecipe.isFavorite)
+            try {
+                val currentRecipe = recipe.value ?: return@launch
+                recipeRepository.setFavorite(recipeId, !currentRecipe.isFavorite)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to toggle favorite for $recipeId", e)
+            }
         }
     }
 
@@ -243,8 +252,12 @@ class RecipeDetailViewModel @Inject constructor(
      */
     fun deleteRecipe() {
         viewModelScope.launch {
-            recipeRepository.deleteRecipe(recipeId)
-            _recipeDeleted.emit(Unit)
+            try {
+                recipeRepository.deleteRecipe(recipeId)
+                _recipeDeleted.emit(Unit)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to delete recipe $recipeId", e)
+            }
         }
     }
 

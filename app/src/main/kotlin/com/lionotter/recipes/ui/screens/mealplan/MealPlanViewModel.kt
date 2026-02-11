@@ -1,5 +1,6 @@
 package com.lionotter.recipes.ui.screens.mealplan
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lionotter.recipes.data.local.SettingsDataStore
@@ -10,7 +11,6 @@ import com.lionotter.recipes.domain.model.MealType
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.usecase.GetTagsUseCase
-import com.lionotter.recipes.worker.MealPlanSyncTrigger
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -36,9 +36,12 @@ class MealPlanViewModel @Inject constructor(
     private val mealPlanRepository: MealPlanRepository,
     private val recipeRepository: RecipeRepository,
     private val getTagsUseCase: GetTagsUseCase,
-    private val mealPlanSyncTrigger: MealPlanSyncTrigger,
     settingsDataStore: SettingsDataStore
 ) : ViewModel() {
+
+    companion object {
+        private const val TAG = "MealPlanViewModel"
+    }
 
     private val today = Clock.System.todayIn(TimeZone.currentSystemDefault())
 
@@ -198,36 +201,39 @@ class MealPlanViewModel @Inject constructor(
 
     fun addRecipeToMealPlan(recipe: Recipe) {
         viewModelScope.launch {
-            val now = Clock.System.now().toEpochMilliseconds()
-            val existing = _editingEntry.value
-            if (existing != null) {
-                val updated = existing.copy(
-                    recipeId = recipe.id,
-                    recipeName = recipe.name,
-                    recipeImageUrl = recipe.imageUrl,
-                    date = _selectedDate.value,
-                    mealType = _selectedMealType.value,
-                    servings = _selectedServings.value,
-                    updatedAt = now
-                )
-                mealPlanRepository.updateMealPlan(updated)
-            } else {
-                val entry = MealPlanEntry(
-                    id = UUID.randomUUID().toString(),
-                    recipeId = recipe.id,
-                    recipeName = recipe.name,
-                    recipeImageUrl = recipe.imageUrl,
-                    date = _selectedDate.value,
-                    mealType = _selectedMealType.value,
-                    servings = _selectedServings.value,
-                    createdAt = now,
-                    updatedAt = now
-                )
-                mealPlanRepository.saveMealPlan(entry)
+            try {
+                val now = Clock.System.now()
+                val existing = _editingEntry.value
+                if (existing != null) {
+                    val updated = existing.copy(
+                        recipeId = recipe.id,
+                        recipeName = recipe.name,
+                        recipeImageUrl = recipe.imageUrl,
+                        date = _selectedDate.value,
+                        mealType = _selectedMealType.value,
+                        servings = _selectedServings.value,
+                        updatedAt = now
+                    )
+                    mealPlanRepository.updateMealPlan(updated)
+                } else {
+                    val entry = MealPlanEntry(
+                        id = UUID.randomUUID().toString(),
+                        recipeId = recipe.id,
+                        recipeName = recipe.name,
+                        recipeImageUrl = recipe.imageUrl,
+                        date = _selectedDate.value,
+                        mealType = _selectedMealType.value,
+                        servings = _selectedServings.value,
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                    mealPlanRepository.saveMealPlan(entry)
+                }
+                _showAddDialog.value = false
+                _editingEntry.value = null
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to save meal plan entry", e)
             }
-            _showAddDialog.value = false
-            _editingEntry.value = null
-            mealPlanSyncTrigger.triggerIncrementalSync()
         }
     }
 
@@ -236,25 +242,31 @@ class MealPlanViewModel @Inject constructor(
      */
     fun saveEditedMealPlan() {
         viewModelScope.launch {
-            val existing = _editingEntry.value ?: return@launch
-            val now = Clock.System.now().toEpochMilliseconds()
-            val updated = existing.copy(
-                date = _selectedDate.value,
-                mealType = _selectedMealType.value,
-                servings = _selectedServings.value,
-                updatedAt = now
-            )
-            mealPlanRepository.updateMealPlan(updated)
-            _showAddDialog.value = false
-            _editingEntry.value = null
-            mealPlanSyncTrigger.triggerIncrementalSync()
+            try {
+                val existing = _editingEntry.value ?: return@launch
+                val now = Clock.System.now()
+                val updated = existing.copy(
+                    date = _selectedDate.value,
+                    mealType = _selectedMealType.value,
+                    servings = _selectedServings.value,
+                    updatedAt = now
+                )
+                mealPlanRepository.updateMealPlan(updated)
+                _showAddDialog.value = false
+                _editingEntry.value = null
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to update meal plan entry", e)
+            }
         }
     }
 
     fun deleteMealPlan(entryId: String) {
         viewModelScope.launch {
-            mealPlanRepository.deleteMealPlan(entryId)
-            mealPlanSyncTrigger.triggerIncrementalSync()
+            try {
+                mealPlanRepository.deleteMealPlan(entryId)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to delete meal plan $entryId", e)
+            }
         }
     }
 

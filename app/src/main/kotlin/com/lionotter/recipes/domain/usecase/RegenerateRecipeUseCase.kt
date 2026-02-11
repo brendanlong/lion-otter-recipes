@@ -103,7 +103,13 @@ class RegenerateRecipeUseCase @Inject constructor(
                 )
 
                 onProgress(RegenerateProgress.SavingRecipe)
-                recipeRepository.saveRecipe(regeneratedRecipe, originalHtml = originalHtml)
+                try {
+                    recipeRepository.saveRecipe(regeneratedRecipe, originalHtml = originalHtml)
+                } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    return RegenerateResult.Error("Recipe regenerated but failed to save: ${e.message}")
+                }
 
                 val result = RegenerateResult.Success(regeneratedRecipe)
                 onProgress(RegenerateProgress.Complete(result))

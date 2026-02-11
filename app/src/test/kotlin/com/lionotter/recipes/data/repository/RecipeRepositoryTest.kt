@@ -1,28 +1,16 @@
 package com.lionotter.recipes.data.repository
 
-import android.util.Log
 import app.cash.turbine.test
-import com.lionotter.recipes.data.local.RecipeDao
-import com.lionotter.recipes.data.local.RecipeEntity
-import com.lionotter.recipes.domain.model.Amount
-import com.lionotter.recipes.domain.model.Ingredient
-import com.lionotter.recipes.domain.model.InstructionSection
-import com.lionotter.recipes.domain.model.InstructionStep
+import com.lionotter.recipes.data.remote.FirestoreService
+import com.lionotter.recipes.data.remote.RemoteRecipe
 import com.lionotter.recipes.domain.model.Recipe
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
-import io.mockk.just
 import io.mockk.mockk
-import io.mockk.mockkStatic
-import io.mockk.runs
-import io.mockk.slot
-import io.mockk.unmockkStatic
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.Instant
-import kotlinx.serialization.json.Json
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -32,97 +20,50 @@ import org.junit.Test
 
 class RecipeRepositoryTest {
 
-    private lateinit var recipeDao: RecipeDao
-    private lateinit var json: Json
+    private lateinit var firestoreService: FirestoreService
     private lateinit var recipeRepository: RecipeRepository
 
     @Before
     fun setup() {
-        // Mock Android Log class for unit tests
-        mockkStatic(Log::class)
-        every { Log.e(any(), any()) } returns 0
-        every { Log.e(any(), any(), any()) } returns 0
-        every { Log.w(any(), any<String>()) } returns 0
-        every { Log.w(any(), any<String>(), any()) } returns 0
-
-        recipeDao = mockk()
-        json = Json { ignoreUnknownKeys = true }
-        recipeRepository = RecipeRepository(recipeDao, json)
+        firestoreService = mockk()
+        recipeRepository = RecipeRepository(firestoreService)
     }
-
-    @After
-    fun tearDown() {
-        unmockkStatic(Log::class)
-    }
-
-    private fun createTestEntity(
-        id: String = "test-id",
-        name: String = "Test Recipe",
-        sourceUrl: String? = null,
-        story: String? = null,
-        servings: Int? = null,
-        prepTime: String? = null,
-        cookTime: String? = null,
-        totalTime: String? = null,
-        imageUrl: String? = null,
-        tagsJson: String = "[]",
-        ingredientSectionsJson: String = "[]",
-        instructionSectionsJson: String = "[]",
-        originalHtml: String? = null,
-        createdAt: Long = 1000L,
-        updatedAt: Long = 2000L,
-        isFavorite: Boolean = false
-    ) = RecipeEntity(
-        id = id,
-        name = name,
-        sourceUrl = sourceUrl,
-        story = story,
-        servings = servings,
-        prepTime = prepTime,
-        cookTime = cookTime,
-        totalTime = totalTime,
-        imageUrl = imageUrl,
-        tagsJson = tagsJson,
-        ingredientSectionsJson = ingredientSectionsJson,
-        instructionSectionsJson = instructionSectionsJson,
-        originalHtml = originalHtml,
-        createdAt = createdAt,
-        updatedAt = updatedAt,
-        isFavorite = isFavorite
-    )
 
     private fun createTestRecipe(
         id: String = "test-id",
         name: String = "Test Recipe",
-        tags: List<String> = emptyList()
+        tags: List<String> = emptyList(),
+        isFavorite: Boolean = false,
+        updatedAt: Instant = Instant.fromEpochMilliseconds(2000L)
     ) = Recipe(
         id = id,
         name = name,
         tags = tags,
+        isFavorite = isFavorite,
         createdAt = Instant.fromEpochMilliseconds(1000L),
-        updatedAt = Instant.fromEpochMilliseconds(2000L)
+        updatedAt = updatedAt
     )
 
     @Test
-    fun `getAllRecipes returns mapped recipes`() = runTest {
-        val entities = listOf(
-            createTestEntity(id = "1", name = "Recipe 1"),
-            createTestEntity(id = "2", name = "Recipe 2")
+    fun `getAllRecipes returns mapped recipes sorted by updatedAt`() = runTest {
+        val recipes = listOf(
+            RemoteRecipe(createTestRecipe(id = "1", name = "Recipe 1", updatedAt = Instant.fromEpochMilliseconds(1000L)), null),
+            RemoteRecipe(createTestRecipe(id = "2", name = "Recipe 2", updatedAt = Instant.fromEpochMilliseconds(3000L)), null)
         )
-        every { recipeDao.getAllRecipes() } returns flowOf(entities)
+        every { firestoreService.observeRecipes() } returns flowOf(recipes)
 
         recipeRepository.getAllRecipes().test {
-            val recipes = awaitItem()
-            assertEquals(2, recipes.size)
-            assertEquals("Recipe 1", recipes[0].name)
-            assertEquals("Recipe 2", recipes[1].name)
+            val result = awaitItem()
+            assertEquals(2, result.size)
+            assertEquals("Recipe 2", result[0].name) // Newer first
+            assertEquals("Recipe 1", result[1].name)
             awaitComplete()
         }
     }
 
     @Test
     fun `getAllRecipes returns empty list when no recipes`() = runTest {
-        every { recipeDao.getAllRecipes() } returns flowOf(emptyList())
+        every { firestoreService.observeRecipes() } returns flowOf(emptyList())
 
         recipeRepository.getAllRecipes().test {
             assertTrue(awaitItem().isEmpty())
@@ -131,9 +72,9 @@ class RecipeRepositoryTest {
     }
 
     @Test
-    fun `getRecipeById returns mapped recipe when found`() = runTest {
-        val entity = createTestEntity(id = "recipe-1", name = "Found Recipe")
-        every { recipeDao.getRecipeByIdFlow("recipe-1") } returns flowOf(entity)
+    fun `getRecipeById returns recipe when found`() = runTest {
+        val remoteRecipe = RemoteRecipe(createTestRecipe(id = "recipe-1", name = "Found Recipe"), "<html>test</html>")
+        every { firestoreService.observeRecipeById("recipe-1") } returns flowOf(remoteRecipe)
 
         recipeRepository.getRecipeById("recipe-1").test {
             val recipe = awaitItem()
@@ -145,7 +86,7 @@ class RecipeRepositoryTest {
 
     @Test
     fun `getRecipeById returns null when not found`() = runTest {
-        every { recipeDao.getRecipeByIdFlow("nonexistent") } returns flowOf(null)
+        every { firestoreService.observeRecipeById("nonexistent") } returns flowOf(null)
 
         recipeRepository.getRecipeById("nonexistent").test {
             assertNull(awaitItem())
@@ -155,214 +96,113 @@ class RecipeRepositoryTest {
 
     @Test
     fun `getRecipeByIdOnce returns recipe when found`() = runTest {
-        val entity = createTestEntity(id = "recipe-1", name = "Found Recipe")
-        coEvery { recipeDao.getRecipeById("recipe-1") } returns entity
+        val remoteRecipe = RemoteRecipe(createTestRecipe(id = "recipe-1", name = "Found Recipe"), null)
+        coEvery { firestoreService.getRecipeById("recipe-1") } returns remoteRecipe
 
         val result = recipeRepository.getRecipeByIdOnce("recipe-1")
-
         assertNotNull(result)
         assertEquals("Found Recipe", result?.name)
     }
 
     @Test
     fun `getRecipeByIdOnce returns null when not found`() = runTest {
-        coEvery { recipeDao.getRecipeById("nonexistent") } returns null
+        coEvery { firestoreService.getRecipeById("nonexistent") } returns null
 
         val result = recipeRepository.getRecipeByIdOnce("nonexistent")
-
         assertNull(result)
     }
 
     @Test
     fun `getOriginalHtml returns html when present`() = runTest {
-        val entity = createTestEntity(originalHtml = "<html>Test</html>")
-        coEvery { recipeDao.getRecipeById("recipe-1") } returns entity
+        val remoteRecipe = RemoteRecipe(createTestRecipe(), "<html>Test</html>")
+        coEvery { firestoreService.getRecipeById("recipe-1") } returns remoteRecipe
 
         val result = recipeRepository.getOriginalHtml("recipe-1")
-
         assertEquals("<html>Test</html>", result)
     }
 
     @Test
     fun `getOriginalHtml returns null when no html`() = runTest {
-        val entity = createTestEntity(originalHtml = null)
-        coEvery { recipeDao.getRecipeById("recipe-1") } returns entity
+        val remoteRecipe = RemoteRecipe(createTestRecipe(), null)
+        coEvery { firestoreService.getRecipeById("recipe-1") } returns remoteRecipe
 
         val result = recipeRepository.getOriginalHtml("recipe-1")
-
         assertNull(result)
     }
 
     @Test
     fun `getOriginalHtml returns null when recipe not found`() = runTest {
-        coEvery { recipeDao.getRecipeById("nonexistent") } returns null
+        coEvery { firestoreService.getRecipeById("nonexistent") } returns null
 
         val result = recipeRepository.getOriginalHtml("nonexistent")
-
         assertNull(result)
     }
 
     @Test
-    fun `getRecipesByTag returns filtered recipes`() = runTest {
-        val entities = listOf(
-            createTestEntity(id = "1", name = "Italian Recipe", tagsJson = "[\"italian\"]")
+    fun `searchRecipes filters by name case-insensitively`() = runTest {
+        val recipes = listOf(
+            RemoteRecipe(createTestRecipe(id = "1", name = "Pasta Carbonara"), null),
+            RemoteRecipe(createTestRecipe(id = "2", name = "Grilled Chicken"), null)
         )
-        every { recipeDao.getRecipesByTag("italian") } returns flowOf(entities)
-
-        recipeRepository.getRecipesByTag("italian").test {
-            val recipes = awaitItem()
-            assertEquals(1, recipes.size)
-            assertEquals("Italian Recipe", recipes[0].name)
-            awaitComplete()
-        }
-    }
-
-    @Test
-    fun `searchRecipes returns matching recipes`() = runTest {
-        val entities = listOf(
-            createTestEntity(id = "1", name = "Pasta Carbonara")
-        )
-        every { recipeDao.searchRecipes("pasta") } returns flowOf(entities)
+        every { firestoreService.observeRecipes() } returns flowOf(recipes)
 
         recipeRepository.searchRecipes("pasta").test {
-            val recipes = awaitItem()
-            assertEquals(1, recipes.size)
-            assertEquals("Pasta Carbonara", recipes[0].name)
+            val result = awaitItem()
+            assertEquals(1, result.size)
+            assertEquals("Pasta Carbonara", result[0].name)
             awaitComplete()
         }
     }
 
     @Test
-    fun `saveRecipe inserts entity into dao`() = runTest {
-        val entitySlot = slot<RecipeEntity>()
-        coEvery { recipeDao.insertRecipe(capture(entitySlot)) } just runs
-
+    fun `saveRecipe calls firestoreService upsertRecipe`() = runTest {
         val recipe = createTestRecipe(id = "new-recipe", name = "New Recipe")
+        coEvery { firestoreService.upsertRecipe(recipe, "<html>Original</html>") } returns Result.success(Unit)
+
         recipeRepository.saveRecipe(recipe, "<html>Original</html>")
 
-        coVerify { recipeDao.insertRecipe(any()) }
-        assertEquals("new-recipe", entitySlot.captured.id)
-        assertEquals("New Recipe", entitySlot.captured.name)
-        assertEquals("<html>Original</html>", entitySlot.captured.originalHtml)
+        coVerify { firestoreService.upsertRecipe(recipe, "<html>Original</html>") }
     }
 
     @Test
-    fun `saveRecipe serializes instruction sections with ingredients`() = runTest {
-        val entitySlot = slot<RecipeEntity>()
-        coEvery { recipeDao.insertRecipe(capture(entitySlot)) } just runs
-
-        val recipe = Recipe(
-            id = "recipe-1",
-            name = "Test",
-            instructionSections = listOf(
-                InstructionSection(
-                    name = "Main",
-                    steps = listOf(
-                        InstructionStep(
-                            stepNumber = 1,
-                            instruction = "Mix ingredients",
-                            ingredients = listOf(
-                                Ingredient(
-                                    name = "flour",
-                                    amount = Amount(value = 2.0, unit = "cup"),
-                                    density = 0.51
-                                )
-                            )
-                        )
-                    )
-                )
-            ),
-            createdAt = Instant.fromEpochMilliseconds(1000L),
-            updatedAt = Instant.fromEpochMilliseconds(2000L)
-        )
-        recipeRepository.saveRecipe(recipe)
-
-        assertTrue(entitySlot.captured.instructionSectionsJson.contains("flour"))
-        assertTrue(entitySlot.captured.instructionSectionsJson.contains("Main"))
-        assertTrue(entitySlot.captured.instructionSectionsJson.contains("Mix ingredients"))
-    }
-
-    @Test
-    fun `saveRecipe serializes tags`() = runTest {
-        val entitySlot = slot<RecipeEntity>()
-        coEvery { recipeDao.insertRecipe(capture(entitySlot)) } just runs
-
-        val recipe = createTestRecipe(tags = listOf("italian", "pasta", "dinner"))
-        recipeRepository.saveRecipe(recipe)
-
-        assertTrue(entitySlot.captured.tagsJson.contains("italian"))
-        assertTrue(entitySlot.captured.tagsJson.contains("pasta"))
-        assertTrue(entitySlot.captured.tagsJson.contains("dinner"))
-    }
-
-    @Test
-    fun `deleteRecipe calls dao softDeleteRecipe`() = runTest {
-        coEvery { recipeDao.softDeleteRecipe("recipe-1", any()) } just runs
+    fun `deleteRecipe calls firestoreService deleteRecipe`() = runTest {
+        coEvery { firestoreService.deleteRecipe("recipe-1") } returns Result.success(Unit)
 
         recipeRepository.deleteRecipe("recipe-1")
 
-        coVerify { recipeDao.softDeleteRecipe("recipe-1", any()) }
+        coVerify { firestoreService.deleteRecipe("recipe-1") }
     }
 
     @Test
-    fun `setFavorite calls dao setFavorite`() = runTest {
-        coEvery { recipeDao.setFavorite("recipe-1", true) } just runs
+    fun `setFavorite loads recipe updates and saves back`() = runTest {
+        val recipe = createTestRecipe(id = "recipe-1", name = "Test Recipe", isFavorite = false)
+        val remoteRecipe = RemoteRecipe(recipe, "<html>test</html>")
+        coEvery { firestoreService.getRecipeById("recipe-1") } returns remoteRecipe
+        coEvery { firestoreService.upsertRecipe(any(), any()) } returns Result.success(Unit)
 
         recipeRepository.setFavorite("recipe-1", true)
 
-        coVerify { recipeDao.setFavorite("recipe-1", true) }
+        coVerify {
+            firestoreService.upsertRecipe(
+                match { it.id == "recipe-1" && it.isFavorite },
+                "<html>test</html>"
+            )
+        }
     }
 
     @Test
-    fun `entity to recipe mapping preserves all fields`() = runTest {
-        val entity = RecipeEntity(
-            id = "full-recipe",
-            name = "Full Recipe",
-            sourceUrl = "https://example.com",
-            story = "A great story",
-            servings = 4,
-            prepTime = "10 min",
-            cookTime = "20 min",
-            totalTime = "30 min",
-            imageUrl = "https://example.com/image.jpg",
-            tagsJson = "[\"tag1\",\"tag2\"]",
-            ingredientSectionsJson = "[]",
-            instructionSectionsJson = "[]",
-            originalHtml = null,
-            createdAt = 1000L,
-            updatedAt = 2000L,
-            isFavorite = true
+    fun `getAllRecipeIdsAndNames returns mapped id and name pairs`() = runTest {
+        val recipes = listOf(
+            RemoteRecipe(createTestRecipe(id = "1", name = "Recipe 1"), null),
+            RemoteRecipe(createTestRecipe(id = "2", name = "Recipe 2"), null)
         )
-        every { recipeDao.getRecipeByIdFlow("full-recipe") } returns flowOf(entity)
+        coEvery { firestoreService.getAllRecipes() } returns Result.success(recipes)
 
-        recipeRepository.getRecipeById("full-recipe").test {
-            val recipe = awaitItem()
-            assertNotNull(recipe)
-            assertEquals("full-recipe", recipe?.id)
-            assertEquals("Full Recipe", recipe?.name)
-            assertEquals("https://example.com", recipe?.sourceUrl)
-            assertEquals("A great story", recipe?.story)
-            assertEquals(4, recipe?.servings)
-            assertEquals("10 min", recipe?.prepTime)
-            assertEquals("20 min", recipe?.cookTime)
-            assertEquals("30 min", recipe?.totalTime)
-            assertEquals("https://example.com/image.jpg", recipe?.imageUrl)
-            assertEquals(listOf("tag1", "tag2"), recipe?.tags)
-            assertEquals(true, recipe?.isFavorite)
-            awaitComplete()
-        }
-    }
-
-    @Test
-    fun `entity to recipe mapping handles malformed instruction json`() = runTest {
-        val entity = createTestEntity(instructionSectionsJson = "not valid json")
-        every { recipeDao.getRecipeByIdFlow("recipe-1") } returns flowOf(entity)
-
-        recipeRepository.getRecipeById("recipe-1").test {
-            val recipe = awaitItem()
-            assertNotNull(recipe)
-            assertTrue(recipe?.instructionSections?.isEmpty() == true)
-            awaitComplete()
-        }
+        val result = recipeRepository.getAllRecipeIdsAndNames()
+        assertEquals(2, result.size)
+        assertEquals("1", result[0].id)
+        assertEquals("Recipe 1", result[0].name)
+        assertEquals("2", result[1].id)
+        assertEquals("Recipe 2", result[1].name)
     }
 }
