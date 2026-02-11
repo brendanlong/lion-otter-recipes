@@ -234,10 +234,11 @@ INGREDIENT FORMAT:
 - If the recipe provides both weight and volume, prefer weight.
 - Use the density reference table below. For ingredients not listed, estimate a reasonable density — cooking precision doesn't require exactness.
 
-SUPPORTED UNITS (use exactly these strings):
+SUPPORTED UNITS:
 - Weight: mg, g, kg, oz, lb
 - Volume: mL, L, tsp, tbsp, cup, fl_oz, pint, quart, gal
 - Count: omit unit field
+- Other: You may use other unit strings when appropriate (e.g., "dash" for cocktail bitters, "pinch", "drop", "sprig", "slice"). These won't support weight/volume conversion but will display correctly. Omit "density" for these units.
 
 INGREDIENT DENSITIES (g/mL — use these when known):
 water 0.96, milk 0.96, buttermilk 0.96, heavy cream 0.96, yogurt 0.96, sour cream 0.96,
