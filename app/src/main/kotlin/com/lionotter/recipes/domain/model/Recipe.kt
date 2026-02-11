@@ -29,6 +29,7 @@ data class Recipe(
     val cookTime: String? = null,
     val totalTime: String? = null,
     val instructionSections: List<InstructionSection> = emptyList(),
+    val equipment: List<String> = emptyList(),
     val tags: List<String> = emptyList(),
     val imageUrl: String? = null,
     val createdAt: Instant,

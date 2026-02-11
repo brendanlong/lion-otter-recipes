@@ -12,6 +12,7 @@ data class RecipeParseResult(
     val cookTime: String? = null,
     val totalTime: String? = null,
     val instructionSections: List<InstructionSection>,
+    val equipment: List<String> = emptyList(),
     val tags: List<String>,
     val imageUrl: String? = null
 )
