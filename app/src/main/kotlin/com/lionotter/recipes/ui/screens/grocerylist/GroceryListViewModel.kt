@@ -118,7 +118,10 @@ class GroceryListViewModel @Inject constructor(
     ) { items, checkedItems, checkedSources, volumeSystem, weightSystem ->
         items.mapNotNull { item ->
             buildDisplayItem(item, checkedItems, checkedSources, volumeSystem, weightSystem)
-        }
+        }.sortedWith(
+            compareBy<DisplayGroceryItem> { it.isChecked }
+                .thenBy { it.displayText.lowercase() }
+        )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -292,7 +295,10 @@ class GroceryListViewModel @Inject constructor(
                 recipeName = source.recipeName,
                 isChecked = sourceKey in checkedSources
             )
-        }
+        }.sortedWith(
+            compareBy<DisplayGrocerySource> { it.isChecked }
+                .thenBy { it.recipeName.lowercase() }
+        )
 
         // Calculate total display amount for aggregate header
         val totalAmountText = if (displaySources.size > 1) {
