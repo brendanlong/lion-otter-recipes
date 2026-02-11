@@ -97,14 +97,14 @@ class RecipeListViewModel @Inject constructor(
         val idsChanged = currentIds != prevState.sortedIds.toSet()
 
         if (filtersChanged || idsChanged) {
-            // Re-sort: in-progress first, then favorites, preserving DAO order within groups
+            // Re-sort: in-progress first, then favorites, then alphabetically by name
             val sorted = filteredItems.sortedWith(
-                compareByDescending {
+                compareByDescending<RecipeListItem> {
                     when (it) {
                         is RecipeListItem.InProgress -> true
                         is RecipeListItem.Saved -> it.recipe.isFavorite
                     }
-                }
+                }.thenBy { it.name.lowercase() }
             )
             val newState = SortState(
                 sortedIds = sorted.map { it.id },
