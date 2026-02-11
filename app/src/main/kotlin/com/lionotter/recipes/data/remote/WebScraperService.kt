@@ -55,6 +55,8 @@ class WebScraperService @Inject constructor(
                 extractedContent = extractedContent,
                 imageUrl = imageUrl
             ))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }

@@ -5,11 +5,13 @@ import com.lionotter.recipes.data.repository.MealPlanRepository
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.util.RecipeSerializer
+import kotlinx.coroutines.ensureActive
 import kotlinx.datetime.Clock
 import kotlinx.serialization.json.Json
 import java.io.InputStream
 import java.util.zip.ZipInputStream
 import javax.inject.Inject
+import kotlin.coroutines.coroutineContext
 
 /**
  * Use case for importing recipes from a ZIP file.
@@ -95,6 +97,8 @@ class ImportFromZipUseCase @Inject constructor(
 
         val folders = folderContents.entries.filter { it.key != MEAL_PLANS_FOLDER }.toList()
         folders.forEachIndexed { index, (folderName, files) ->
+            coroutineContext.ensureActive()
+
             onProgress(
                 ImportProgress.ImportingRecipe(
                     recipeName = folderName,

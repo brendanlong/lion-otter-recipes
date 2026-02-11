@@ -7,12 +7,14 @@ import com.lionotter.recipes.data.remote.RecipeParseException
 import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.datetime.Clock
 import net.dankito.readability4j.Readability4J
 import org.jsoup.Jsoup
 import java.util.UUID
 import javax.inject.Inject
+import kotlin.coroutines.coroutineContext
 
 /**
  * Use case for parsing content into a Recipe using AI.
@@ -151,6 +153,9 @@ class ParseHtmlUseCase @Inject constructor(
         val parsedWithUsage = parseResult.getOrThrow()
         val parsed = parsedWithUsage.result
 
+        // Check for cancellation before proceeding to save
+        coroutineContext.ensureActive()
+
         // Notify that recipe name is available
         onProgress(ParseProgress.RecipeNameAvailable(parsed.name))
 
@@ -174,6 +179,7 @@ class ParseHtmlUseCase @Inject constructor(
 
         // Save to database if requested
         if (saveRecipe) {
+            coroutineContext.ensureActive()
             onProgress(ParseProgress.SavingRecipe)
             recipeRepository.saveRecipe(recipe, originalHtml = originalHtml)
         }
