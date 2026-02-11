@@ -2,8 +2,10 @@ package com.lionotter.recipes.domain.usecase
 
 import com.lionotter.recipes.data.remote.WebScraperService
 import com.lionotter.recipes.domain.model.Recipe
+import kotlinx.coroutines.ensureActive
 import org.jsoup.Jsoup
 import javax.inject.Inject
+import kotlin.coroutines.coroutineContext
 
 class ImportRecipeUseCase @Inject constructor(
     private val webScraperService: WebScraperService,
@@ -47,6 +49,9 @@ class ImportRecipeUseCase @Inject constructor(
             return ImportResult.Error("Failed to fetch page: ${pageResult.exceptionOrNull()?.message}")
         }
         val page = pageResult.getOrThrow()
+
+        // Check for cancellation before expensive AI parsing
+        coroutineContext.ensureActive()
 
         // Report page metadata (title + image) before expensive AI parsing
         onProgress(ImportProgress.PageMetadataAvailable(

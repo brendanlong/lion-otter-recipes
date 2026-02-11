@@ -221,9 +221,32 @@ class InProgressRecipeManagerTest {
     }
 
     @Test
-    fun `cancelImport removes from state and calls repository`() = runTest {
+    fun `cancelImport removes from state and cancels WorkManager work`() = runTest {
         every { workManager.cancelWorkById(any()) } returns mockk()
 
+        val workUuid = java.util.UUID.randomUUID()
+        manager.addInProgressRecipe(
+            "recipe-1", "Recipe One",
+            url = "https://example.com",
+            workManagerId = workUuid.toString()
+        )
+        testScope.advanceUntilIdle()
+
+        manager.cancelImport("recipe-1")
+        testScope.advanceUntilIdle()
+
+        coVerify { pendingImportRepository.deletePendingImport("recipe-1") }
+        io.mockk.verify { workManager.cancelWorkById(workUuid) }
+
+        manager.inProgressRecipes.test {
+            val state = awaitItem()
+            assertTrue(state.isEmpty())
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `cancelImport without workManagerId still removes from state`() = runTest {
         manager.addInProgressRecipe("recipe-1", "Recipe One", url = "https://example.com")
         testScope.advanceUntilIdle()
 
@@ -231,6 +254,7 @@ class InProgressRecipeManagerTest {
         testScope.advanceUntilIdle()
 
         coVerify { pendingImportRepository.deletePendingImport("recipe-1") }
+        io.mockk.verify(exactly = 0) { workManager.cancelWorkById(any()) }
 
         manager.inProgressRecipes.test {
             val state = awaitItem()
