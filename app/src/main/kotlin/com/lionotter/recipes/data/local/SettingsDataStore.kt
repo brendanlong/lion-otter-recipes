@@ -43,6 +43,7 @@ class SettingsDataStore @Inject constructor(
         val GROCERY_VOLUME_UNIT_SYSTEM = stringPreferencesKey("grocery_volume_unit_system")
         val GROCERY_WEIGHT_UNIT_SYSTEM = stringPreferencesKey("grocery_weight_unit_system")
         val START_OF_WEEK = stringPreferencesKey("start_of_week")
+        val INITIAL_SYNC_COMPLETED = booleanPreferencesKey("initial_sync_completed")
         const val ENCRYPTED_API_KEY = "anthropic_api_key"
     }
 
@@ -96,6 +97,10 @@ class SettingsDataStore @Inject constructor(
 
     val firebaseLastSyncTimestamp: Flow<String?> = context.dataStore.data.map { preferences ->
         preferences[Keys.FIREBASE_LAST_SYNC_TIMESTAMP]
+    }
+
+    val initialSyncCompleted: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[Keys.INITIAL_SYNC_COMPLETED] ?: false
     }
 
     val volumeUnitSystem: Flow<UnitSystem> = context.dataStore.data.map { preferences ->
@@ -219,10 +224,17 @@ class SettingsDataStore @Inject constructor(
         }
     }
 
+    suspend fun setInitialSyncCompleted(completed: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[Keys.INITIAL_SYNC_COMPLETED] = completed
+        }
+    }
+
     suspend fun clearFirebaseSyncSettings() {
         context.dataStore.edit { preferences ->
             preferences.remove(Keys.FIREBASE_SYNC_ENABLED)
             preferences.remove(Keys.FIREBASE_LAST_SYNC_TIMESTAMP)
+            preferences.remove(Keys.INITIAL_SYNC_COMPLETED)
         }
     }
 

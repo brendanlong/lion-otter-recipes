@@ -330,17 +330,19 @@ Compose observes and recomposes
 
 ## Future Considerations
 
-### Firebase Cloud Sync (Implemented)
-- Bidirectional sync with Firebase Firestore via `FirestoreSyncUseCase`
-- Recipes stored as Firestore documents at `users/{userId}/recipes/{recipeId}`
+### Firebase Real-time Cloud Sync (Implemented)
+- Real-time bidirectional sync with Firebase Firestore via `RealtimeSyncManager`
+- Recipes stored as structured Firestore maps (not JSON blobs) at `users/{userId}/recipes/{recipeId}`
 - Meal plans stored at `users/{userId}/mealPlans/{mealPlanId}`
-- Sync runs on app startup and every 6 hours via `FirestoreSyncWorker` (WorkManager periodic work)
+- Pull: Firestore snapshot listeners deliver incremental document changes (ADDED/MODIFIED/REMOVED)
+- Push: Repository `SharedFlow` change events trigger Firestore writes on local save/delete
+- Loop prevention: `saveFromSync()` methods don't emit change events; timestamp comparison skips redundant writes
+- On first enable, initial push sends local-only items to Firestore
 - Conflict resolution: latest `updatedAt` timestamp wins
-- New local recipes uploaded, new remote recipes downloaded
-- Updated recipes synced in either direction based on timestamp
-- Sync toggle in Settings with manual "Sync Now" button
+- Firestore SDK handles offline write queue, automatic reconnection, and local cache
+- Sync toggle in Settings with real-time connection status indicator (Connected/Connecting/Offline)
 - Authentication via Google Sign-In through Firebase Auth
-- Sync settings stored in DataStore (enabled, last sync timestamp)
+- `FirestoreMapConverter` converts domain models to/from native Firestore maps via kotlinx.serialization JsonElement
 
 ### Cooking Mode
 - Track ingredient usage across steps via `IngredientReference`

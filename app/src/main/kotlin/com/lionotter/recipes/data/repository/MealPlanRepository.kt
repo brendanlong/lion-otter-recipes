@@ -4,6 +4,9 @@ import com.lionotter.recipes.data.local.MealPlanDao
 import com.lionotter.recipes.data.local.MealPlanEntity
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.datetime.Clock
 import kotlinx.datetime.LocalDate
@@ -14,6 +17,9 @@ import javax.inject.Singleton
 class MealPlanRepository @Inject constructor(
     private val mealPlanDao: MealPlanDao
 ) {
+    private val _mealPlanChanges = MutableSharedFlow<MealPlanChangeEvent>(extraBufferCapacity = 64)
+    val mealPlanChanges: SharedFlow<MealPlanChangeEvent> = _mealPlanChanges.asSharedFlow()
+
     fun getAllMealPlans(): Flow<List<MealPlanEntry>> {
         return mealPlanDao.getAllMealPlans().map { entities ->
             entities.map { it.toMealPlanEntry() }
@@ -38,15 +44,18 @@ class MealPlanRepository @Inject constructor(
 
     suspend fun saveMealPlan(entry: MealPlanEntry) {
         mealPlanDao.insertMealPlan(MealPlanEntity.fromMealPlanEntry(entry))
+        _mealPlanChanges.tryEmit(MealPlanChangeEvent(entry.id, ChangeType.SAVED))
     }
 
     suspend fun updateMealPlan(entry: MealPlanEntry) {
         mealPlanDao.updateMealPlan(MealPlanEntity.fromMealPlanEntry(entry))
+        _mealPlanChanges.tryEmit(MealPlanChangeEvent(entry.id, ChangeType.SAVED))
     }
 
     suspend fun deleteMealPlan(id: String) {
         val now = Clock.System.now().toEpochMilliseconds()
         mealPlanDao.softDeleteMealPlan(id, now)
+        _mealPlanChanges.tryEmit(MealPlanChangeEvent(id, ChangeType.DELETED))
     }
 
     suspend fun getDeletedMealPlans(): List<MealPlanEntry> {
@@ -73,9 +82,13 @@ class MealPlanRepository @Inject constructor(
     }
 
     /**
-     * Save a meal plan directly from sync (may include already-deleted entries from remote).
+     * Save a meal plan directly from sync without emitting change events.
+     * This prevents sync loops where a remote change triggers a local save
+     * which triggers a push back to remote.
      */
     suspend fun saveMealPlanFromSync(entry: MealPlanEntry) {
         mealPlanDao.insertMealPlan(MealPlanEntity.fromMealPlanEntry(entry))
     }
 }
+
+data class MealPlanChangeEvent(val entryId: String, val changeType: ChangeType)

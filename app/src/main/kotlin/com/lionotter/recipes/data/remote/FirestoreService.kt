@@ -11,6 +11,7 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.Companion.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.firestore.DocumentChange
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
@@ -24,8 +25,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -34,25 +33,24 @@ import javax.inject.Singleton
  * Uses Firebase Auth with Google Sign-In via Credential Manager for authentication.
  *
  * Firestore data structure:
- *   users/{userId}/recipes/{recipeId} - Recipe documents
- *   users/{userId}/mealPlans/{mealPlanId} - Meal plan documents
- *   users/{userId}/metadata/sync - Last sync metadata
+ *   users/{userId}/recipes/{recipeId} - Recipe documents (structured maps)
+ *   users/{userId}/mealPlans/{mealPlanId} - Meal plan documents (structured maps)
  */
 @Singleton
 class FirestoreService @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val json: Json
+    private val converter: FirestoreMapConverter
 ) {
     companion object {
         private const val TAG = "FirestoreService"
         private const val COLLECTION_USERS = "users"
         private const val COLLECTION_RECIPES = "recipes"
         private const val COLLECTION_MEAL_PLANS = "mealPlans"
-        private const val FIELD_RECIPE_JSON = "recipeJson"
+        private const val FIELD_RECIPE_DATA = "recipeData"
         private const val FIELD_ORIGINAL_HTML = "originalHtml"
         private const val FIELD_UPDATED_AT = "updatedAt"
         private const val FIELD_DELETED = "deleted"
-        private const val FIELD_MEAL_PLAN_JSON = "mealPlanJson"
+        private const val FIELD_MEAL_PLAN_DATA = "mealPlanData"
     }
 
     private val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
@@ -130,7 +128,7 @@ class FirestoreService @Inject constructor(
         }
     }
 
-    private fun removeAllListeners() {
+    fun removeAllListeners() {
         snapshotListeners.forEach { it.remove() }
         snapshotListeners.clear()
     }
@@ -148,13 +146,13 @@ class FirestoreService @Inject constructor(
     // --- Recipe Operations ---
 
     /**
-     * Upload or update a recipe in Firestore.
+     * Upload or update a recipe in Firestore using structured data.
      */
     suspend fun upsertRecipe(recipe: Recipe, originalHtml: String?): Result<Unit> =
         withContext(Dispatchers.IO) {
             try {
                 val data = hashMapOf(
-                    FIELD_RECIPE_JSON to json.encodeToString(recipe),
+                    FIELD_RECIPE_DATA to converter.recipeToMap(recipe),
                     FIELD_ORIGINAL_HTML to (originalHtml ?: ""),
                     FIELD_UPDATED_AT to recipe.updatedAt.toEpochMilliseconds(),
                     FIELD_DELETED to false
@@ -203,59 +201,19 @@ class FirestoreService @Inject constructor(
         }
 
     /**
-     * Get all recipes from Firestore (one-shot).
-     * Returns pairs of (Recipe, originalHtml).
+     * Observe recipe document changes in real-time via snapshot listener.
+     * Emits incremental changes (ADDED, MODIFIED, REMOVED) for each snapshot.
      */
-    suspend fun getAllRecipes(): Result<List<RemoteRecipe>> =
-        withContext(Dispatchers.IO) {
-            try {
-                val snapshot = userRecipesCollection()
-                    .whereEqualTo(FIELD_DELETED, false)
-                    .get().await()
-
-                val recipes = snapshot.documents.mapNotNull { doc ->
-                    try {
-                        val recipeJson = doc.getString(FIELD_RECIPE_JSON) ?: return@mapNotNull null
-                        val recipe = json.decodeFromString<Recipe>(recipeJson)
-                        val originalHtml = doc.getString(FIELD_ORIGINAL_HTML)?.ifEmpty { null }
-                        RemoteRecipe(recipe, originalHtml)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to parse recipe from document ${doc.id}", e)
-                        null
-                    }
-                }
-                Result.success(recipes)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to get all recipes", e)
-                Result.failure(e)
-            }
-        }
-
-    /**
-     * Observe recipe changes in real-time via snapshot listener.
-     */
-    fun observeRecipeChanges(): Flow<List<RemoteRecipe>> = callbackFlow {
+    fun observeRecipeDocumentChanges(): Flow<List<DocumentChange>> = callbackFlow {
         val registration = userRecipesCollection()
-            .whereEqualTo(FIELD_DELETED, false)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     Log.e(TAG, "Recipe snapshot listener error", error)
                     return@addSnapshotListener
                 }
 
-                val recipes = snapshot?.documents?.mapNotNull { doc ->
-                    try {
-                        val recipeJson = doc.getString(FIELD_RECIPE_JSON) ?: return@mapNotNull null
-                        val recipe = json.decodeFromString<Recipe>(recipeJson)
-                        val originalHtml = doc.getString(FIELD_ORIGINAL_HTML)?.ifEmpty { null }
-                        RemoteRecipe(recipe, originalHtml)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to parse recipe from snapshot ${doc.id}", e)
-                        null
-                    }
-                } ?: emptyList()
-
-                trySend(recipes)
+                val changes = snapshot?.documentChanges ?: emptyList()
+                trySend(changes)
             }
 
         snapshotListeners.add(registration)
@@ -266,16 +224,51 @@ class FirestoreService @Inject constructor(
         }
     }
 
+    /**
+     * Parse a recipe document snapshot into a RemoteRecipe.
+     * Returns null if the document is deleted or can't be parsed.
+     */
+    @Suppress("UNCHECKED_CAST")
+    fun parseRecipeDocument(data: Map<String, Any?>): RemoteRecipe? {
+        return try {
+            val deleted = data[FIELD_DELETED] as? Boolean ?: false
+            if (deleted) return null
+
+            val recipeData = data[FIELD_RECIPE_DATA] as? Map<String, Any?>
+                ?: return null
+            val recipe = converter.mapToRecipe(recipeData)
+            val originalHtml = (data[FIELD_ORIGINAL_HTML] as? String)?.ifEmpty { null }
+            RemoteRecipe(recipe, originalHtml)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse recipe from document", e)
+            null
+        }
+    }
+
+    /**
+     * Check if a recipe document represents a deleted recipe.
+     */
+    fun isRecipeDeleted(data: Map<String, Any?>): Boolean {
+        return data[FIELD_DELETED] as? Boolean ?: false
+    }
+
+    /**
+     * Get the updatedAt timestamp from a document's data.
+     */
+    fun getDocumentUpdatedAt(data: Map<String, Any?>): Long {
+        return (data[FIELD_UPDATED_AT] as? Number)?.toLong() ?: 0L
+    }
+
     // --- Meal Plan Operations ---
 
     /**
-     * Upload or update a meal plan entry in Firestore.
+     * Upload or update a meal plan entry in Firestore using structured data.
      */
     suspend fun upsertMealPlan(entry: MealPlanEntry): Result<Unit> =
         withContext(Dispatchers.IO) {
             try {
                 val data = hashMapOf(
-                    FIELD_MEAL_PLAN_JSON to json.encodeToString(entry),
+                    FIELD_MEAL_PLAN_DATA to converter.mealPlanToMap(entry),
                     FIELD_UPDATED_AT to entry.updatedAt,
                     FIELD_DELETED to false
                 )
@@ -323,31 +316,54 @@ class FirestoreService @Inject constructor(
         }
 
     /**
-     * Get all meal plan entries from Firestore (one-shot).
+     * Observe meal plan document changes in real-time via snapshot listener.
+     * Emits incremental changes (ADDED, MODIFIED, REMOVED) for each snapshot.
      */
-    suspend fun getAllMealPlans(): Result<List<MealPlanEntry>> =
-        withContext(Dispatchers.IO) {
-            try {
-                val snapshot = userMealPlansCollection()
-                    .whereEqualTo(FIELD_DELETED, false)
-                    .get().await()
-
-                val entries = snapshot.documents.mapNotNull { doc ->
-                    try {
-                        val entryJson = doc.getString(FIELD_MEAL_PLAN_JSON)
-                            ?: return@mapNotNull null
-                        json.decodeFromString<MealPlanEntry>(entryJson)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to parse meal plan from document ${doc.id}", e)
-                        null
-                    }
+    fun observeMealPlanDocumentChanges(): Flow<List<DocumentChange>> = callbackFlow {
+        val registration = userMealPlansCollection()
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e(TAG, "Meal plan snapshot listener error", error)
+                    return@addSnapshotListener
                 }
-                Result.success(entries)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to get all meal plans", e)
-                Result.failure(e)
+
+                val changes = snapshot?.documentChanges ?: emptyList()
+                trySend(changes)
             }
+
+        snapshotListeners.add(registration)
+
+        awaitClose {
+            registration.remove()
+            snapshotListeners.remove(registration)
         }
+    }
+
+    /**
+     * Parse a meal plan document snapshot into a MealPlanEntry.
+     * Returns null if the document is deleted or can't be parsed.
+     */
+    @Suppress("UNCHECKED_CAST")
+    fun parseMealPlanDocument(data: Map<String, Any?>): MealPlanEntry? {
+        return try {
+            val deleted = data[FIELD_DELETED] as? Boolean ?: false
+            if (deleted) return null
+
+            val mealPlanData = data[FIELD_MEAL_PLAN_DATA] as? Map<String, Any?>
+                ?: return null
+            converter.mapToMealPlan(mealPlanData)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse meal plan from document", e)
+            null
+        }
+    }
+
+    /**
+     * Check if a meal plan document represents a deleted entry.
+     */
+    fun isMealPlanDeleted(data: Map<String, Any?>): Boolean {
+        return data[FIELD_DELETED] as? Boolean ?: false
+    }
 }
 
 /**

@@ -5,10 +5,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
-import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -23,23 +25,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
+import com.lionotter.recipes.data.sync.SyncConnectionState
 import com.lionotter.recipes.ui.components.ErrorCard
 import com.lionotter.recipes.ui.components.ProgressCard
 import com.lionotter.recipes.ui.components.StatusCard
 import com.lionotter.recipes.ui.screens.firebase.FirebaseSyncUiState
-import com.lionotter.recipes.ui.screens.firebase.SyncOperationState
 
 @Composable
 fun FirebaseSyncSection(
     uiState: FirebaseSyncUiState,
     syncEnabled: Boolean,
-    lastSyncTimestamp: String?,
-    operationState: SyncOperationState,
+    connectionState: SyncConnectionState,
+    errorMessage: String?,
     onSignInClick: () -> Unit,
     onSignOutClick: () -> Unit,
     onEnableSyncClick: () -> Unit,
     onDisableSyncClick: () -> Unit,
-    onSyncNowClick: () -> Unit
+    onDismissError: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
@@ -52,6 +54,10 @@ fun FirebaseSyncSection(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+
+        if (errorMessage != null) {
+            ErrorCard(message = errorMessage)
+        }
 
         when (uiState) {
             is FirebaseSyncUiState.Loading -> {
@@ -129,34 +135,7 @@ fun FirebaseSyncSection(
                         }
 
                         if (syncEnabled) {
-                            // Last sync info
-                            Text(
-                                text = if (lastSyncTimestamp != null) {
-                                    stringResource(R.string.last_synced, formatTimestamp(lastSyncTimestamp))
-                                } else {
-                                    stringResource(R.string.never_synced)
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-
-                            // Sync now button
-                            val isSyncing = operationState is SyncOperationState.Syncing
-                            OutlinedButton(
-                                onClick = onSyncNowClick,
-                                enabled = !isSyncing,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Sync,
-                                    contentDescription = null,
-                                    modifier = Modifier.padding(end = 8.dp)
-                                )
-                                Text(
-                                    if (isSyncing) stringResource(R.string.syncing)
-                                    else stringResource(R.string.sync_now)
-                                )
-                            }
+                            SyncStatusIndicator(connectionState = connectionState)
                         }
                     }
                 }
@@ -192,17 +171,40 @@ fun FirebaseSyncSection(
     }
 }
 
-private fun formatTimestamp(timestamp: String): String {
-    return try {
-        val instant = java.time.Instant.parse(timestamp)
-        val localDateTime = java.time.LocalDateTime.ofInstant(instant, java.time.ZoneId.systemDefault())
-        val month = localDateTime.month.name.lowercase().replaceFirstChar { it.uppercase() }
-        val day = localDateTime.dayOfMonth
-        val year = localDateTime.year
-        val hour = localDateTime.hour.toString().padStart(2, '0')
-        val minute = localDateTime.minute.toString().padStart(2, '0')
-        "$month $day, $year $hour:$minute"
-    } catch (_: Exception) {
-        timestamp
+@Composable
+private fun SyncStatusIndicator(connectionState: SyncConnectionState) {
+    val (icon, text, color) = when (connectionState) {
+        SyncConnectionState.CONNECTED -> Triple(
+            Icons.Default.CloudDone,
+            stringResource(R.string.sync_connected),
+            MaterialTheme.colorScheme.primary
+        )
+        SyncConnectionState.CONNECTING -> Triple(
+            Icons.Default.CloudQueue,
+            stringResource(R.string.sync_connecting),
+            MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        SyncConnectionState.DISCONNECTED -> Triple(
+            Icons.Default.CloudOff,
+            stringResource(R.string.sync_offline),
+            MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = color,
+            modifier = Modifier.size(16.dp)
+        )
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodySmall,
+            color = color
+        )
     }
 }

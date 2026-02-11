@@ -25,6 +25,9 @@ class RecipeRepository @Inject constructor(
     private val _errors = MutableSharedFlow<RepositoryError>()
     val errors: SharedFlow<RepositoryError> = _errors.asSharedFlow()
 
+    private val _recipeChanges = MutableSharedFlow<RecipeChangeEvent>(extraBufferCapacity = 64)
+    val recipeChanges: SharedFlow<RecipeChangeEvent> = _recipeChanges.asSharedFlow()
+
     companion object {
         private const val TAG = "RecipeRepository"
     }
@@ -72,11 +75,29 @@ class RecipeRepository @Inject constructor(
             originalHtml = originalHtml
         )
         recipeDao.insertRecipe(entity)
+        _recipeChanges.tryEmit(RecipeChangeEvent(recipe.id, ChangeType.SAVED))
+    }
+
+    /**
+     * Save a recipe from sync without emitting change events.
+     * This prevents sync loops where a remote change triggers a local save
+     * which triggers a push back to remote.
+     */
+    suspend fun saveRecipeFromSync(recipe: Recipe, originalHtml: String? = null) {
+        val entity = RecipeEntity.fromRecipe(
+            recipe = recipe,
+            instructionSectionsJson = json.encodeToString(recipe.instructionSections),
+            equipmentJson = json.encodeToString(recipe.equipment),
+            tagsJson = json.encodeToString(recipe.tags),
+            originalHtml = originalHtml
+        )
+        recipeDao.insertRecipe(entity)
     }
 
     suspend fun deleteRecipe(id: String) {
         val now = Clock.System.now().toEpochMilliseconds()
         recipeDao.softDeleteRecipe(id, now)
+        _recipeChanges.tryEmit(RecipeChangeEvent(id, ChangeType.DELETED))
     }
 
     suspend fun getDeletedRecipes(): List<Recipe> {
@@ -93,6 +114,7 @@ class RecipeRepository @Inject constructor(
 
     suspend fun setFavorite(id: String, isFavorite: Boolean) {
         recipeDao.setFavorite(id, isFavorite)
+        _recipeChanges.tryEmit(RecipeChangeEvent(id, ChangeType.SAVED))
     }
 
     suspend fun getAllRecipeIdsAndNames(): List<RecipeIdAndName> {
@@ -172,3 +194,7 @@ class RecipeRepository @Inject constructor(
         )
     }
 }
+
+enum class ChangeType { SAVED, DELETED }
+
+data class RecipeChangeEvent(val recipeId: String, val changeType: ChangeType)

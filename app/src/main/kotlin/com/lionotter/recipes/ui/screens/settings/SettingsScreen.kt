@@ -55,8 +55,8 @@ fun SettingsScreen(
     val saveState by viewModel.saveState.collectAsStateWithLifecycle()
     val syncUiState by firebaseSyncViewModel.uiState.collectAsStateWithLifecycle()
     val syncEnabled by firebaseSyncViewModel.syncEnabled.collectAsStateWithLifecycle()
-    val lastSyncTimestamp by firebaseSyncViewModel.lastSyncTimestamp.collectAsStateWithLifecycle()
-    val operationState by firebaseSyncViewModel.operationState.collectAsStateWithLifecycle()
+    val syncConnectionState by firebaseSyncViewModel.connectionState.collectAsStateWithLifecycle()
+    val syncErrorMessage by firebaseSyncViewModel.errorMessage.collectAsStateWithLifecycle()
     val zipOperationState by zipViewModel.operationState.collectAsStateWithLifecycle()
     val volumeUnitSystem by viewModel.volumeUnitSystem.collectAsStateWithLifecycle()
     val weightUnitSystem by viewModel.weightUnitSystem.collectAsStateWithLifecycle()
@@ -212,13 +212,13 @@ fun SettingsScreen(
             FirebaseSyncSection(
                 uiState = syncUiState,
                 syncEnabled = syncEnabled,
-                lastSyncTimestamp = lastSyncTimestamp,
-                operationState = operationState,
+                connectionState = syncConnectionState,
+                errorMessage = syncErrorMessage,
                 onSignInClick = firebaseSyncViewModel::signIn,
                 onSignOutClick = firebaseSyncViewModel::signOut,
                 onEnableSyncClick = firebaseSyncViewModel::enableSync,
                 onDisableSyncClick = firebaseSyncViewModel::disableSync,
-                onSyncNowClick = firebaseSyncViewModel::triggerSync
+                onDismissError = firebaseSyncViewModel::dismissError
             )
 
             HorizontalDivider()
