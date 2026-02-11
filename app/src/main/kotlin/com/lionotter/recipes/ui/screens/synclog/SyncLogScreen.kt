@@ -175,7 +175,8 @@ private fun SyncLogEntryCard(log: SyncLogEntity) {
 private fun formatTimestamp(epochMillis: Long): String {
     val instant = Instant.fromEpochMilliseconds(epochMillis)
     val localDateTime = instant.toLocalDateTime(TimeZone.currentSystemDefault())
+    val millis = (epochMillis % 1000).toString().padStart(3, '0')
     return "${localDateTime.hour.toString().padStart(2, '0')}:" +
         "${localDateTime.minute.toString().padStart(2, '0')}:" +
-        "${localDateTime.second.toString().padStart(2, '0')}"
+        "${localDateTime.second.toString().padStart(2, '0')}.$millis"
 }

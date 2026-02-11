@@ -11,11 +11,13 @@ import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.di.ApplicationScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlin.coroutines.coroutineContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -274,8 +276,10 @@ class RealtimeSyncManager @Inject constructor(
 
             var successes = 0
             var failures = 0
-            for (recipe in toPush) {
+            for ((index, recipe) in toPush.withIndex()) {
                 try {
+                    coroutineContext.ensureActive()
+                    syncLogger.d(TAG, "Pushing recipe ${index + 1}/${toPush.size}: '${recipe.name}'")
                     val originalHtml = recipeRepository.getOriginalHtml(recipe.id)
                     val result = firestoreService.upsertRecipe(recipe, originalHtml)
                     if (result.isFailure) {
@@ -284,9 +288,12 @@ class RealtimeSyncManager @Inject constructor(
                     } else {
                         successes++
                     }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    syncLogger.e(TAG, "Initial recipe push cancelled at recipe ${index + 1}/${toPush.size} '${recipe.name}'")
+                    throw e
                 } catch (e: Exception) {
                     failures++
-                    syncLogger.e(TAG, "Failed to push recipe '${recipe.name}'", e)
+                    syncLogger.e(TAG, "Exception pushing recipe '${recipe.name}'", e)
                 }
             }
 
@@ -315,6 +322,9 @@ class RealtimeSyncManager @Inject constructor(
                 settingsDataStore.setInitialSyncCompleted(true)
                 syncLogger.d(TAG, "Initial sync completed")
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            syncLogger.e(TAG, "Initial recipe push coroutine was cancelled")
+            throw e
         } catch (e: Exception) {
             syncLogger.e(TAG, "Initial recipe push failed", e)
             _syncError.value = "Initial recipe sync failed: ${e.message}"
