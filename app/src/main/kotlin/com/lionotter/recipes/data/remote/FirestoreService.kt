@@ -16,6 +16,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
 import com.lionotter.recipes.R
+import com.lionotter.recipes.data.sync.SyncLogger
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.model.Recipe
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -39,7 +40,8 @@ import javax.inject.Singleton
 @Singleton
 class FirestoreService @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val converter: FirestoreMapConverter
+    private val converter: FirestoreMapConverter,
+    private val syncLogger: SyncLogger
 ) {
     companion object {
         private const val TAG = "FirestoreService"
@@ -160,7 +162,7 @@ class FirestoreService @Inject constructor(
                 userRecipesCollection().document(recipe.id).set(data).await()
                 Result.success(Unit)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to upsert recipe ${recipe.name}", e)
+                syncLogger.e(TAG, "Failed to upsert recipe ${recipe.name}", e)
                 Result.failure(e)
             }
         }
@@ -181,7 +183,7 @@ class FirestoreService @Inject constructor(
                     ).await()
                 Result.success(Unit)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to mark recipe deleted: $recipeId", e)
+                syncLogger.e(TAG, "Failed to mark recipe deleted: $recipeId", e)
                 Result.failure(e)
             }
         }
@@ -195,7 +197,7 @@ class FirestoreService @Inject constructor(
                 userRecipesCollection().document(recipeId).delete().await()
                 Result.success(Unit)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to hard delete recipe: $recipeId", e)
+                syncLogger.e(TAG, "Failed to hard delete recipe: $recipeId", e)
                 Result.failure(e)
             }
         }
@@ -208,7 +210,7 @@ class FirestoreService @Inject constructor(
         val registration = userRecipesCollection()
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    Log.e(TAG, "Recipe snapshot listener error", error)
+                    syncLogger.e(TAG, "Recipe snapshot listener error", error)
                     return@addSnapshotListener
                 }
 
@@ -240,7 +242,7 @@ class FirestoreService @Inject constructor(
             val originalHtml = (data[FIELD_ORIGINAL_HTML] as? String)?.ifEmpty { null }
             RemoteRecipe(recipe, originalHtml)
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to parse recipe from document", e)
+            syncLogger.w(TAG, "Failed to parse recipe from document: ${e.message}")
             null
         }
     }
@@ -275,7 +277,7 @@ class FirestoreService @Inject constructor(
                 userMealPlansCollection().document(entry.id).set(data).await()
                 Result.success(Unit)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to upsert meal plan ${entry.id}", e)
+                syncLogger.e(TAG, "Failed to upsert meal plan ${entry.id}", e)
                 Result.failure(e)
             }
         }
@@ -296,7 +298,7 @@ class FirestoreService @Inject constructor(
                     ).await()
                 Result.success(Unit)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to mark meal plan deleted: $entryId", e)
+                syncLogger.e(TAG, "Failed to mark meal plan deleted: $entryId", e)
                 Result.failure(e)
             }
         }
@@ -310,7 +312,7 @@ class FirestoreService @Inject constructor(
                 userMealPlansCollection().document(entryId).delete().await()
                 Result.success(Unit)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to hard delete meal plan: $entryId", e)
+                syncLogger.e(TAG, "Failed to hard delete meal plan: $entryId", e)
                 Result.failure(e)
             }
         }
@@ -323,7 +325,7 @@ class FirestoreService @Inject constructor(
         val registration = userMealPlansCollection()
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    Log.e(TAG, "Meal plan snapshot listener error", error)
+                    syncLogger.e(TAG, "Meal plan snapshot listener error", error)
                     return@addSnapshotListener
                 }
 
@@ -353,7 +355,7 @@ class FirestoreService @Inject constructor(
                 ?: return null
             converter.mapToMealPlan(mealPlanData)
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to parse meal plan from document", e)
+            syncLogger.w(TAG, "Failed to parse meal plan from document: ${e.message}")
             null
         }
     }

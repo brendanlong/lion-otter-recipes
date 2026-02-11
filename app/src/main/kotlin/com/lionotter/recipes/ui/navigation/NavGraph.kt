@@ -19,6 +19,7 @@ import com.lionotter.recipes.SharedIntentViewModel
 import com.lionotter.recipes.ui.screens.addrecipe.AddRecipeScreen
 import com.lionotter.recipes.ui.screens.importdebug.ImportDebugDetailScreen
 import com.lionotter.recipes.ui.screens.importdebug.ImportDebugListScreen
+import com.lionotter.recipes.ui.screens.synclog.SyncLogScreen
 import com.lionotter.recipes.ui.screens.grocerylist.GroceryListScreen
 import com.lionotter.recipes.ui.screens.importselection.ImportSelectionScreen
 import com.lionotter.recipes.ui.screens.importselection.ImportSelectionViewModel
@@ -43,6 +44,7 @@ sealed class Screen(val route: String) {
     object GroceryList : Screen("grocery-list/{weekStart}") {
         fun createRoute(weekStart: String) = "grocery-list/$weekStart"
     }
+    object SyncLogs : Screen("sync-logs")
     object ImportDebugList : Screen("import-debug")
     object ImportDebugDetail : Screen("import-debug/{debugEntryId}") {
         fun createRoute(debugEntryId: String) = "import-debug/$debugEntryId"
@@ -207,11 +209,20 @@ fun NavGraph(
                 onNavigateToImportDebug = {
                     navController.navigate(Screen.ImportDebugList.route)
                 },
+                onNavigateToSyncLogs = {
+                    navController.navigate(Screen.SyncLogs.route)
+                },
                 onNavigateToImportSelection = { importType, uri ->
                     navController.navigate(
                         Screen.ImportSelection.createRoute(importType, uri.toString())
                     )
                 }
+            )
+        }
+
+        composable(Screen.SyncLogs.route) {
+            SyncLogScreen(
+                onBackClick = navigateBack
             )
         }
 

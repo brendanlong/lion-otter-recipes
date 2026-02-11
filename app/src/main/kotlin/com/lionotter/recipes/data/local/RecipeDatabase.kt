@@ -6,8 +6,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [RecipeEntity::class, ImportDebugEntity::class, PendingImportEntity::class, MealPlanEntity::class],
-    version = 8,
+    entities = [RecipeEntity::class, ImportDebugEntity::class, PendingImportEntity::class, MealPlanEntity::class, SyncLogEntity::class],
+    version = 9,
     exportSchema = true
 )
 abstract class RecipeDatabase : RoomDatabase() {
@@ -15,6 +15,7 @@ abstract class RecipeDatabase : RoomDatabase() {
     abstract fun importDebugDao(): ImportDebugDao
     abstract fun pendingImportDao(): PendingImportDao
     abstract fun mealPlanDao(): MealPlanDao
+    abstract fun syncLogDao(): SyncLogDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -99,6 +100,20 @@ abstract class RecipeDatabase : RoomDatabase() {
         val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE recipes ADD COLUMN equipmentJson TEXT NOT NULL DEFAULT '[]'")
+            }
+        }
+
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS sync_logs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        timestamp INTEGER NOT NULL,
+                        level TEXT NOT NULL,
+                        tag TEXT NOT NULL,
+                        message TEXT NOT NULL
+                    )
+                """.trimIndent())
             }
         }
     }

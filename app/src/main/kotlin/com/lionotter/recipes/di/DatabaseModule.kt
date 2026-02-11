@@ -7,6 +7,7 @@ import com.lionotter.recipes.data.local.MealPlanDao
 import com.lionotter.recipes.data.local.PendingImportDao
 import com.lionotter.recipes.data.local.RecipeDao
 import com.lionotter.recipes.data.local.RecipeDatabase
+import com.lionotter.recipes.data.local.SyncLogDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -35,7 +36,8 @@ object DatabaseModule {
                 RecipeDatabase.MIGRATION_4_5,
                 RecipeDatabase.MIGRATION_5_6,
                 RecipeDatabase.MIGRATION_6_7,
-                RecipeDatabase.MIGRATION_7_8
+                RecipeDatabase.MIGRATION_7_8,
+                RecipeDatabase.MIGRATION_8_9
             )
             .build()
     }
@@ -62,5 +64,11 @@ object DatabaseModule {
     @Singleton
     fun provideMealPlanDao(database: RecipeDatabase): MealPlanDao {
         return database.mealPlanDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideSyncLogDao(database: RecipeDatabase): SyncLogDao {
+        return database.syncLogDao()
     }
 }

@@ -473,6 +473,7 @@ app: {
         label: ImportDebugEntity
         tooltip: "Room entity storing import debug data: source URL, original/cleaned HTML, AI output JSON, token counts, model, error info, linked recipe ID"
       }
+      sync_log_dao: SyncLogDao
       meal_plan_dao: MealPlanDao
       meal_plan_entity: {
         label: MealPlanEntity
@@ -494,6 +495,7 @@ app: {
       import_debug_entity -> room
       pending_import_dao -> room
       pending_import_entity -> room
+      sync_log_dao -> room
       meal_plan_dao -> room
       meal_plan_entity -> room
       settings -> datastore: non-sensitive settings
@@ -551,6 +553,11 @@ app: {
         tooltip: "Singleton that manages real-time bidirectional sync between Room and Firestore. Pull: snapshot listeners deliver incremental document changes. Push: repository change event flows trigger Firestore writes. Loop prevention via saveFromSync() methods and timestamp comparison. Initial sync pushes local-only items to Firestore on first enable."
       }
 
+      sync_logger: {
+        label: SyncLogger
+        tooltip: "Writes sync events to both Android logcat and Room database (sync_logs table). Provides in-app debug log viewer. Fire-and-forget coroutine writes. Auto-prunes to 500 entries."
+      }
+
       converter: {
         label: FirestoreMapConverter
         tooltip: "Converts Recipe and MealPlanEntry to/from native Firestore maps using kotlinx.serialization JsonElement as intermediary. Avoids JSON blob storage, enabling field-level Firestore features."
@@ -563,6 +570,9 @@ app: {
     repository.pending_import_repo -> local.pending_import_dao
     repository.meal_plan_repo -> local.meal_plan_dao
     remote.image_dl -> local.image_storage: stores images
+    sync.realtime_sync -> sync.sync_logger: log events
+    sync.sync_logger -> local.sync_log_dao: persist logs
+    remote.firestore_svc -> sync.sync_logger: log errors
     sync.realtime_sync -> remote.firestore_svc: push/pull via listeners
     sync.realtime_sync -> repository.repo: read/write recipes
     sync.realtime_sync -> repository.meal_plan_repo: read/write meal plans

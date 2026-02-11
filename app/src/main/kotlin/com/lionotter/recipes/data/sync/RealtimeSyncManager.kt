@@ -1,6 +1,5 @@
 package com.lionotter.recipes.data.sync
 
-import android.util.Log
 import com.google.firebase.firestore.DocumentChange
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.FirestoreService
@@ -49,6 +48,7 @@ class RealtimeSyncManager @Inject constructor(
     private val mealPlanRepository: MealPlanRepository,
     private val settingsDataStore: SettingsDataStore,
     private val imageDownloadService: ImageDownloadService,
+    private val syncLogger: SyncLogger,
     @ApplicationScope private val scope: CoroutineScope
 ) {
     companion object {
@@ -81,10 +81,11 @@ class RealtimeSyncManager @Inject constructor(
         stopSync()
 
         if (!firestoreService.isSignedIn()) {
-            Log.w(TAG, "Cannot start sync: not signed in")
+            syncLogger.w(TAG, "Cannot start sync: not signed in")
             return
         }
 
+        syncLogger.d(TAG, "Starting sync")
         _connectionState.value = SyncConnectionState.CONNECTING
         _syncError.value = null
         initialRecipeSnapshotReceived = false
@@ -111,6 +112,9 @@ class RealtimeSyncManager @Inject constructor(
      * Stop real-time sync. Removes all listeners and cancels push observers.
      */
     fun stopSync() {
+        if (syncJob != null) {
+            syncLogger.d(TAG, "Stopping sync")
+        }
         syncJob?.cancel()
         syncJob = null
         recipeListenerJob = null
@@ -142,17 +146,20 @@ class RealtimeSyncManager @Inject constructor(
                         DocumentChange.Type.ADDED, DocumentChange.Type.MODIFIED -> {
                             remoteRecipeIds.add(docId)
                             if (firestoreService.isRecipeDeleted(data)) {
-                                // Remotely deleted — remove locally
+                                syncLogger.d(TAG, "Remote recipe deleted: $docId")
                                 recipeRepository.hardDeleteRecipe(docId)
                             } else {
                                 val remoteRecipe = firestoreService.parseRecipeDocument(data)
                                 if (remoteRecipe != null) {
                                     handleRemoteRecipeChange(docId, remoteRecipe.recipe, remoteRecipe.originalHtml)
+                                } else {
+                                    syncLogger.w(TAG, "Failed to parse remote recipe: $docId")
                                 }
                             }
                         }
                         DocumentChange.Type.REMOVED -> {
                             remoteRecipeIds.remove(docId)
+                            syncLogger.d(TAG, "Remote recipe removed: $docId")
                             recipeRepository.hardDeleteRecipe(docId)
                         }
                     }
@@ -160,12 +167,13 @@ class RealtimeSyncManager @Inject constructor(
 
                 if (!initialRecipeSnapshotReceived) {
                     initialRecipeSnapshotReceived = true
+                    syncLogger.d(TAG, "Initial recipe snapshot received: ${remoteRecipeIds.size} remote recipes")
                     updateConnectionState()
                     performInitialRecipePush()
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Recipe snapshot listener failed", e)
+            syncLogger.e(TAG, "Recipe snapshot listener failed", e)
             _syncError.value = "Recipe sync failed: ${e.message}"
             _connectionState.value = SyncConnectionState.DISCONNECTED
         }
@@ -180,12 +188,17 @@ class RealtimeSyncManager @Inject constructor(
             val localRecipe = recipeRepository.getRecipeByIdOnce(docId)
             val remoteUpdatedAt = remoteRecipe.updatedAt.toEpochMilliseconds()
 
-            if (localRecipe == null || remoteUpdatedAt > localRecipe.updatedAt.toEpochMilliseconds()) {
+            if (localRecipe == null) {
+                syncLogger.d(TAG, "Pulling new recipe '${remoteRecipe.name}'")
+                val recipeWithLocalImage = downloadImageIfNeeded(remoteRecipe)
+                recipeRepository.saveRecipeFromSync(recipeWithLocalImage, originalHtml)
+            } else if (remoteUpdatedAt > localRecipe.updatedAt.toEpochMilliseconds()) {
+                syncLogger.d(TAG, "Pulling updated recipe '${remoteRecipe.name}'")
                 val recipeWithLocalImage = downloadImageIfNeeded(remoteRecipe)
                 recipeRepository.saveRecipeFromSync(recipeWithLocalImage, originalHtml)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to handle remote recipe change for $docId", e)
+            syncLogger.e(TAG, "Failed to handle remote recipe change for $docId", e)
         }
     }
 
@@ -200,16 +213,20 @@ class RealtimeSyncManager @Inject constructor(
                         DocumentChange.Type.ADDED, DocumentChange.Type.MODIFIED -> {
                             remoteMealPlanIds.add(docId)
                             if (firestoreService.isMealPlanDeleted(data)) {
+                                syncLogger.d(TAG, "Remote meal plan deleted: $docId")
                                 mealPlanRepository.hardDeleteMealPlan(docId)
                             } else {
                                 val entry = firestoreService.parseMealPlanDocument(data)
                                 if (entry != null) {
                                     handleRemoteMealPlanChange(docId, entry)
+                                } else {
+                                    syncLogger.w(TAG, "Failed to parse remote meal plan: $docId")
                                 }
                             }
                         }
                         DocumentChange.Type.REMOVED -> {
                             remoteMealPlanIds.remove(docId)
+                            syncLogger.d(TAG, "Remote meal plan removed: $docId")
                             mealPlanRepository.hardDeleteMealPlan(docId)
                         }
                     }
@@ -217,12 +234,13 @@ class RealtimeSyncManager @Inject constructor(
 
                 if (!initialMealPlanSnapshotReceived) {
                     initialMealPlanSnapshotReceived = true
+                    syncLogger.d(TAG, "Initial meal plan snapshot received: ${remoteMealPlanIds.size} remote entries")
                     updateConnectionState()
                     performInitialMealPlanPush()
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Meal plan snapshot listener failed", e)
+            syncLogger.e(TAG, "Meal plan snapshot listener failed", e)
             _syncError.value = "Meal plan sync failed: ${e.message}"
             _connectionState.value = SyncConnectionState.DISCONNECTED
         }
@@ -235,10 +253,11 @@ class RealtimeSyncManager @Inject constructor(
         try {
             val localEntry = mealPlanRepository.getMealPlanByIdOnce(docId)
             if (localEntry == null || remoteEntry.updatedAt > localEntry.updatedAt) {
+                syncLogger.d(TAG, "Pulling meal plan $docId")
                 mealPlanRepository.saveMealPlanFromSync(remoteEntry)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to handle remote meal plan change for $docId", e)
+            syncLogger.e(TAG, "Failed to handle remote meal plan change for $docId", e)
         }
     }
 
@@ -251,8 +270,9 @@ class RealtimeSyncManager @Inject constructor(
 
             val localRecipes = recipeRepository.getAllRecipes().first()
             val toPush = localRecipes.filter { it.id !in remoteRecipeIds }
-            Log.d(TAG, "Performing initial recipe push: ${toPush.size} of ${localRecipes.size} recipes")
+            syncLogger.d(TAG, "Initial recipe push: ${toPush.size} to push (${localRecipes.size} local, ${remoteRecipeIds.size} remote)")
 
+            var successes = 0
             var failures = 0
             for (recipe in toPush) {
                 try {
@@ -260,12 +280,18 @@ class RealtimeSyncManager @Inject constructor(
                     val result = firestoreService.upsertRecipe(recipe, originalHtml)
                     if (result.isFailure) {
                         failures++
-                        Log.e(TAG, "Failed to push recipe '${recipe.name}': ${result.exceptionOrNull()?.message}")
+                        syncLogger.e(TAG, "Failed to push recipe '${recipe.name}': ${result.exceptionOrNull()?.message}")
+                    } else {
+                        successes++
                     }
                 } catch (e: Exception) {
                     failures++
-                    Log.e(TAG, "Failed to push recipe '${recipe.name}'", e)
+                    syncLogger.e(TAG, "Failed to push recipe '${recipe.name}'", e)
                 }
+            }
+
+            if (toPush.isNotEmpty()) {
+                syncLogger.d(TAG, "Initial recipe push complete: $successes succeeded, $failures failed")
             }
 
             if (failures > 0) {
@@ -280,15 +306,17 @@ class RealtimeSyncManager @Inject constructor(
                 }
             }
             if (deletedRecipes.isNotEmpty()) {
+                syncLogger.d(TAG, "Purged ${deletedRecipes.size} soft-deleted recipes")
                 recipeRepository.purgeDeletedRecipes()
             }
 
             // Mark initial sync as complete if both snapshots are received
             if (initialMealPlanSnapshotReceived) {
                 settingsDataStore.setInitialSyncCompleted(true)
+                syncLogger.d(TAG, "Initial sync completed")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Initial recipe push failed", e)
+            syncLogger.e(TAG, "Initial recipe push failed", e)
             _syncError.value = "Initial recipe sync failed: ${e.message}"
         }
     }
@@ -300,20 +328,27 @@ class RealtimeSyncManager @Inject constructor(
 
             val localEntries = mealPlanRepository.getAllMealPlansOnce()
             val toPush = localEntries.filter { it.id !in remoteMealPlanIds }
-            Log.d(TAG, "Performing initial meal plan push: ${toPush.size} of ${localEntries.size} entries")
+            syncLogger.d(TAG, "Initial meal plan push: ${toPush.size} to push (${localEntries.size} local, ${remoteMealPlanIds.size} remote)")
 
+            var successes = 0
             var failures = 0
             for (entry in toPush) {
                 try {
                     val result = firestoreService.upsertMealPlan(entry)
                     if (result.isFailure) {
                         failures++
-                        Log.e(TAG, "Failed to push meal plan ${entry.id}: ${result.exceptionOrNull()?.message}")
+                        syncLogger.e(TAG, "Failed to push meal plan ${entry.id}: ${result.exceptionOrNull()?.message}")
+                    } else {
+                        successes++
                     }
                 } catch (e: Exception) {
                     failures++
-                    Log.e(TAG, "Failed to push meal plan ${entry.id}", e)
+                    syncLogger.e(TAG, "Failed to push meal plan ${entry.id}", e)
                 }
+            }
+
+            if (toPush.isNotEmpty()) {
+                syncLogger.d(TAG, "Initial meal plan push complete: $successes succeeded, $failures failed")
             }
 
             if (failures > 0) {
@@ -327,15 +362,17 @@ class RealtimeSyncManager @Inject constructor(
                 }
             }
             if (deletedEntries.isNotEmpty()) {
+                syncLogger.d(TAG, "Purged ${deletedEntries.size} soft-deleted meal plans")
                 mealPlanRepository.purgeDeletedMealPlans()
             }
 
             // Mark initial sync as complete if both snapshots are received
             if (initialRecipeSnapshotReceived) {
                 settingsDataStore.setInitialSyncCompleted(true)
+                syncLogger.d(TAG, "Initial sync completed")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Initial meal plan push failed", e)
+            syncLogger.e(TAG, "Initial meal plan push failed", e)
             _syncError.value = "Initial meal plan sync failed: ${e.message}"
         }
     }
@@ -350,15 +387,21 @@ class RealtimeSyncManager @Inject constructor(
                         val recipe = recipeRepository.getRecipeByIdOnce(event.recipeId)
                         if (recipe != null) {
                             val originalHtml = recipeRepository.getOriginalHtml(event.recipeId)
-                            firestoreService.upsertRecipe(recipe, originalHtml)
+                            val result = firestoreService.upsertRecipe(recipe, originalHtml)
+                            if (result.isSuccess) {
+                                syncLogger.d(TAG, "Pushed recipe '${recipe.name}'")
+                            } else {
+                                syncLogger.e(TAG, "Failed to push recipe '${recipe.name}': ${result.exceptionOrNull()?.message}")
+                            }
                         }
                     }
                     ChangeType.DELETED -> {
                         firestoreService.markRecipeDeleted(event.recipeId)
+                        syncLogger.d(TAG, "Pushed recipe deletion: ${event.recipeId}")
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to push recipe change for ${event.recipeId}", e)
+                syncLogger.e(TAG, "Failed to push recipe change for ${event.recipeId}", e)
             }
         }
     }
@@ -370,15 +413,21 @@ class RealtimeSyncManager @Inject constructor(
                     ChangeType.SAVED -> {
                         val entry = mealPlanRepository.getMealPlanByIdOnce(event.entryId)
                         if (entry != null) {
-                            firestoreService.upsertMealPlan(entry)
+                            val result = firestoreService.upsertMealPlan(entry)
+                            if (result.isSuccess) {
+                                syncLogger.d(TAG, "Pushed meal plan ${event.entryId}")
+                            } else {
+                                syncLogger.e(TAG, "Failed to push meal plan ${event.entryId}: ${result.exceptionOrNull()?.message}")
+                            }
                         }
                     }
                     ChangeType.DELETED -> {
                         firestoreService.markMealPlanDeleted(event.entryId)
+                        syncLogger.d(TAG, "Pushed meal plan deletion: ${event.entryId}")
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to push meal plan change for ${event.entryId}", e)
+                syncLogger.e(TAG, "Failed to push meal plan change for ${event.entryId}", e)
             }
         }
     }
@@ -388,6 +437,7 @@ class RealtimeSyncManager @Inject constructor(
     private fun updateConnectionState() {
         if (initialRecipeSnapshotReceived && initialMealPlanSnapshotReceived) {
             _connectionState.value = SyncConnectionState.CONNECTED
+            syncLogger.d(TAG, "Connected")
         }
     }
 

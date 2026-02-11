@@ -41,7 +41,8 @@ fun FirebaseSyncSection(
     onSignOutClick: () -> Unit,
     onEnableSyncClick: () -> Unit,
     onDisableSyncClick: () -> Unit,
-    onDismissError: () -> Unit
+    onDismissError: () -> Unit,
+    onViewSyncLogs: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
@@ -138,6 +139,13 @@ fun FirebaseSyncSection(
                             SyncStatusIndicator(connectionState = connectionState)
                         }
                     }
+                }
+
+                OutlinedButton(
+                    onClick = onViewSyncLogs,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.view_sync_logs))
                 }
             }
 

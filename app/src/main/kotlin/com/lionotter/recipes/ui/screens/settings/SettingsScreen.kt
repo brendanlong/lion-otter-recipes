@@ -41,6 +41,7 @@ import com.lionotter.recipes.ui.screens.settings.components.UnitPreferencesSecti
 fun SettingsScreen(
     onBackClick: () -> Unit,
     onNavigateToImportDebug: () -> Unit = {},
+    onNavigateToSyncLogs: () -> Unit = {},
     onNavigateToImportSelection: (importType: String, uri: Uri) -> Unit = { _, _ -> },
     viewModel: SettingsViewModel = hiltViewModel(),
     firebaseSyncViewModel: FirebaseSyncViewModel = hiltViewModel(),
@@ -218,7 +219,8 @@ fun SettingsScreen(
                 onSignOutClick = firebaseSyncViewModel::signOut,
                 onEnableSyncClick = firebaseSyncViewModel::enableSync,
                 onDisableSyncClick = firebaseSyncViewModel::disableSync,
-                onDismissError = firebaseSyncViewModel::dismissError
+                onDismissError = firebaseSyncViewModel::dismissError,
+                onViewSyncLogs = onNavigateToSyncLogs
             )
 
             HorizontalDivider()

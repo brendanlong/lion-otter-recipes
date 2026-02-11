@@ -127,6 +127,12 @@
     <string name="sync_connected">Connected</string>
     <string name="sync_connecting">Connecting\u2026</string>
     <string name="sync_offline">Offline</string>
+    <string name="sync_logs">Sync Logs</string>
+    <string name="view_sync_logs">View Sync Logs</string>
+    <string name="clear_sync_logs">Clear Logs</string>
+    <string name="clear_sync_logs_confirmation">Are you sure you want to clear all sync logs?</string>
+    <string name="clear">Clear</string>
+    <string name="no_sync_logs">No sync logs yet. Logs will appear here when sync is active.</string>
     <string name="not_connected">Not connected</string>
     <string name="sign_in_with_google">Sign in with Google</string>
     <string name="try_again">Try Again</string>
