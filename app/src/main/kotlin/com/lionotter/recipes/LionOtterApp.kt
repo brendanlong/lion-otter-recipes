@@ -8,10 +8,10 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.lionotter.recipes.data.local.SettingsDataStore
-import com.lionotter.recipes.data.remote.GoogleDriveService
+import com.lionotter.recipes.data.remote.FirestoreService
 import com.lionotter.recipes.di.ApplicationScope
 import com.lionotter.recipes.notification.RecipeNotificationHelper
-import com.lionotter.recipes.worker.GoogleDriveSyncWorker
+import com.lionotter.recipes.worker.FirestoreSyncWorker
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
@@ -32,7 +32,7 @@ class LionOtterApp : Application(), Configuration.Provider {
     lateinit var settingsDataStore: SettingsDataStore
 
     @Inject
-    lateinit var googleDriveService: GoogleDriveService
+    lateinit var firestoreService: FirestoreService
 
     @Inject
     @ApplicationScope
@@ -46,21 +46,21 @@ class LionOtterApp : Application(), Configuration.Provider {
 
     private fun scheduleSyncOnStartup() {
         applicationScope.launch {
-            val syncEnabled = settingsDataStore.googleDriveSyncEnabled.first()
-            if (syncEnabled && googleDriveService.isSignedIn()) {
+            val syncEnabled = settingsDataStore.firebaseSyncEnabled.first()
+            if (syncEnabled && firestoreService.isSignedIn()) {
                 val workManager = WorkManager.getInstance(this@LionOtterApp)
 
                 // Trigger an immediate sync on startup
-                val oneTimeRequest = OneTimeWorkRequestBuilder<GoogleDriveSyncWorker>()
-                    .addTag(GoogleDriveSyncWorker.TAG_DRIVE_SYNC)
+                val oneTimeRequest = OneTimeWorkRequestBuilder<FirestoreSyncWorker>()
+                    .addTag(FirestoreSyncWorker.TAG_FIRESTORE_SYNC)
                     .build()
                 workManager.enqueue(oneTimeRequest)
 
                 // Ensure periodic sync is scheduled
-                val periodicRequest = PeriodicWorkRequestBuilder<GoogleDriveSyncWorker>(
+                val periodicRequest = PeriodicWorkRequestBuilder<FirestoreSyncWorker>(
                     6, TimeUnit.HOURS
                 )
-                    .addTag(GoogleDriveSyncWorker.TAG_DRIVE_SYNC)
+                    .addTag(FirestoreSyncWorker.TAG_FIRESTORE_SYNC)
                     .build()
                 workManager.enqueueUniquePeriodicWork(
                     PERIODIC_SYNC_WORK_NAME,
@@ -77,6 +77,6 @@ class LionOtterApp : Application(), Configuration.Provider {
             .build()
 
     companion object {
-        const val PERIODIC_SYNC_WORK_NAME = "google_drive_periodic_sync"
+        const val PERIODIC_SYNC_WORK_NAME = "firebase_periodic_sync"
     }
 }

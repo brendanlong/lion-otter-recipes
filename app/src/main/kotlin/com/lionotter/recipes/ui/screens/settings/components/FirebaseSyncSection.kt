@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudOff
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -18,7 +17,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,41 +26,39 @@ import com.lionotter.recipes.R
 import com.lionotter.recipes.ui.components.ErrorCard
 import com.lionotter.recipes.ui.components.ProgressCard
 import com.lionotter.recipes.ui.components.StatusCard
-import com.lionotter.recipes.ui.screens.googledrive.GoogleDriveUiState
-import com.lionotter.recipes.ui.screens.googledrive.OperationState
+import com.lionotter.recipes.ui.screens.firebase.FirebaseSyncUiState
+import com.lionotter.recipes.ui.screens.firebase.SyncOperationState
 
 @Composable
-fun GoogleDriveSection(
-    uiState: GoogleDriveUiState,
+fun FirebaseSyncSection(
+    uiState: FirebaseSyncUiState,
     syncEnabled: Boolean,
-    syncFolderName: String?,
     lastSyncTimestamp: String?,
-    operationState: OperationState,
+    operationState: SyncOperationState,
     onSignInClick: () -> Unit,
     onSignOutClick: () -> Unit,
     onEnableSyncClick: () -> Unit,
     onDisableSyncClick: () -> Unit,
-    onSyncNowClick: () -> Unit,
-    onChangeFolderClick: () -> Unit
+    onSyncNowClick: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
-            text = stringResource(R.string.google_drive),
+            text = stringResource(R.string.cloud_sync),
             style = MaterialTheme.typography.titleMedium
         )
 
         Text(
-            text = stringResource(R.string.google_drive_description),
+            text = stringResource(R.string.cloud_sync_description),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
         when (uiState) {
-            is GoogleDriveUiState.Loading -> {
+            is FirebaseSyncUiState.Loading -> {
                 ProgressCard(message = stringResource(R.string.checking_sign_in_status))
             }
 
-            is GoogleDriveUiState.SignedIn -> {
+            is FirebaseSyncUiState.SignedIn -> {
                 Card(
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.primaryContainer
@@ -81,11 +77,11 @@ fun GoogleDriveSection(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Cloud,
-                                contentDescription = stringResource(R.string.connected_to_google_drive),
+                                contentDescription = stringResource(R.string.signed_in),
                                 tint = MaterialTheme.colorScheme.primary
                             )
                             Text(
-                                text = "  " + stringResource(R.string.connected_to_google_drive),
+                                text = "  " + stringResource(R.string.signed_in),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
@@ -115,11 +111,11 @@ fun GoogleDriveSection(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = stringResource(R.string.google_drive_sync),
+                                    text = stringResource(R.string.cloud_sync_toggle),
                                     style = MaterialTheme.typography.bodyMedium
                                 )
                                 Text(
-                                    text = stringResource(R.string.google_drive_sync_description),
+                                    text = stringResource(R.string.cloud_sync_toggle_description),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -133,38 +129,6 @@ fun GoogleDriveSection(
                         }
 
                         if (syncEnabled) {
-                            // Sync folder info
-                            if (syncFolderName != null) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(
-                                        modifier = Modifier.weight(1f),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Folder,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.padding(end = 4.dp)
-                                        )
-                                        Text(
-                                            text = stringResource(R.string.sync_folder_label, syncFolderName),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    TextButton(onClick = onChangeFolderClick) {
-                                        Text(
-                                            text = stringResource(R.string.change_folder),
-                                            style = MaterialTheme.typography.bodySmall
-                                        )
-                                    }
-                                }
-                            }
-
                             // Last sync info
                             Text(
                                 text = if (lastSyncTimestamp != null) {
@@ -177,7 +141,7 @@ fun GoogleDriveSection(
                             )
 
                             // Sync now button
-                            val isSyncing = operationState is OperationState.Syncing
+                            val isSyncing = operationState is SyncOperationState.Syncing
                             OutlinedButton(
                                 onClick = onSyncNowClick,
                                 enabled = !isSyncing,
@@ -189,17 +153,16 @@ fun GoogleDriveSection(
                                     modifier = Modifier.padding(end = 8.dp)
                                 )
                                 Text(
-                                    if (isSyncing) stringResource(R.string.syncing_with_google_drive)
+                                    if (isSyncing) stringResource(R.string.syncing)
                                     else stringResource(R.string.sync_now)
                                 )
                             }
                         }
                     }
                 }
-
             }
 
-            is GoogleDriveUiState.SignedOut -> {
+            is FirebaseSyncUiState.SignedOut -> {
                 StatusCard(
                     message = stringResource(R.string.not_connected),
                     icon = Icons.Default.CloudOff,
@@ -211,11 +174,11 @@ fun GoogleDriveSection(
                     onClick = onSignInClick,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(stringResource(R.string.connect_to_google_drive))
+                    Text(stringResource(R.string.sign_in_with_google))
                 }
             }
 
-            is GoogleDriveUiState.Error -> {
+            is FirebaseSyncUiState.Error -> {
                 ErrorCard(message = uiState.message)
 
                 Button(

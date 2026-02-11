@@ -330,15 +330,17 @@ Compose observes and recomposes
 
 ## Future Considerations
 
-### Google Drive Sync (Implemented)
-- Bidirectional sync with Google Drive via `SyncToGoogleDriveUseCase`
-- Each recipe stored as `{sanitized-name}/recipe.json` + `original.html` + `recipe.md`
-- Sync runs on app startup and every 6 hours via `GoogleDriveSyncWorker` (WorkManager periodic work)
+### Firebase Cloud Sync (Implemented)
+- Bidirectional sync with Firebase Firestore via `FirestoreSyncUseCase`
+- Recipes stored as Firestore documents at `users/{userId}/recipes/{recipeId}`
+- Meal plans stored at `users/{userId}/mealPlans/{mealPlanId}`
+- Sync runs on app startup and every 6 hours via `FirestoreSyncWorker` (WorkManager periodic work)
 - Conflict resolution: latest `updatedAt` timestamp wins
 - New local recipes uploaded, new remote recipes downloaded
 - Updated recipes synced in either direction based on timestamp
 - Sync toggle in Settings with manual "Sync Now" button
-- Sync settings stored in DataStore (enabled, folder ID, last sync timestamp)
+- Authentication via Google Sign-In through Firebase Auth
+- Sync settings stored in DataStore (enabled, last sync timestamp)
 
 ### Cooking Mode
 - Track ingredient usage across steps via `IngredientReference`

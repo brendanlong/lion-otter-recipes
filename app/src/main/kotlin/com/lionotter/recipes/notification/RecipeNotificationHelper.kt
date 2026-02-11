@@ -130,7 +130,7 @@ class RecipeNotificationHelper @Inject constructor(
         val message = if (failedCount > 0) {
             "Exported $exportedCount recipes ($failedCount failed)"
         } else {
-            "Exported $exportedCount recipes to Google Drive"
+            "Exported $exportedCount recipes"
         }
 
         val notification = baseNotification()

@@ -35,10 +35,8 @@ class SettingsDataStore @Inject constructor(
         val EXTENDED_THINKING_ENABLED = booleanPreferencesKey("extended_thinking_enabled")
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
         val THEME_MODE = stringPreferencesKey("theme_mode")
-        val GOOGLE_DRIVE_SYNC_ENABLED = booleanPreferencesKey("google_drive_sync_enabled")
-        val GOOGLE_DRIVE_SYNC_FOLDER_ID = stringPreferencesKey("google_drive_sync_folder_id")
-        val GOOGLE_DRIVE_SYNC_FOLDER_NAME = stringPreferencesKey("google_drive_sync_folder_name")
-        val GOOGLE_DRIVE_LAST_SYNC_TIMESTAMP = stringPreferencesKey("google_drive_last_sync_timestamp")
+        val FIREBASE_SYNC_ENABLED = booleanPreferencesKey("firebase_sync_enabled")
+        val FIREBASE_LAST_SYNC_TIMESTAMP = stringPreferencesKey("firebase_last_sync_timestamp")
         val IMPORT_DEBUGGING_ENABLED = booleanPreferencesKey("import_debugging_enabled")
         val VOLUME_UNIT_SYSTEM = stringPreferencesKey("volume_unit_system")
         val WEIGHT_UNIT_SYSTEM = stringPreferencesKey("weight_unit_system")
@@ -92,20 +90,12 @@ class SettingsDataStore @Inject constructor(
         }
     }
 
-    val googleDriveSyncEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
-        preferences[Keys.GOOGLE_DRIVE_SYNC_ENABLED] ?: false
+    val firebaseSyncEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[Keys.FIREBASE_SYNC_ENABLED] ?: false
     }
 
-    val googleDriveSyncFolderId: Flow<String?> = context.dataStore.data.map { preferences ->
-        preferences[Keys.GOOGLE_DRIVE_SYNC_FOLDER_ID]
-    }
-
-    val googleDriveSyncFolderName: Flow<String?> = context.dataStore.data.map { preferences ->
-        preferences[Keys.GOOGLE_DRIVE_SYNC_FOLDER_NAME]
-    }
-
-    val googleDriveLastSyncTimestamp: Flow<String?> = context.dataStore.data.map { preferences ->
-        preferences[Keys.GOOGLE_DRIVE_LAST_SYNC_TIMESTAMP]
+    val firebaseLastSyncTimestamp: Flow<String?> = context.dataStore.data.map { preferences ->
+        preferences[Keys.FIREBASE_LAST_SYNC_TIMESTAMP]
     }
 
     val volumeUnitSystem: Flow<UnitSystem> = context.dataStore.data.map { preferences ->
@@ -217,31 +207,22 @@ class SettingsDataStore @Inject constructor(
         }
     }
 
-    suspend fun setGoogleDriveSyncEnabled(enabled: Boolean) {
+    suspend fun setFirebaseSyncEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
-            preferences[Keys.GOOGLE_DRIVE_SYNC_ENABLED] = enabled
+            preferences[Keys.FIREBASE_SYNC_ENABLED] = enabled
         }
     }
 
-    suspend fun setGoogleDriveSyncFolder(folderId: String, folderName: String) {
+    suspend fun setFirebaseLastSyncTimestamp(timestamp: String) {
         context.dataStore.edit { preferences ->
-            preferences[Keys.GOOGLE_DRIVE_SYNC_FOLDER_ID] = folderId
-            preferences[Keys.GOOGLE_DRIVE_SYNC_FOLDER_NAME] = folderName
+            preferences[Keys.FIREBASE_LAST_SYNC_TIMESTAMP] = timestamp
         }
     }
 
-    suspend fun clearGoogleDriveSyncFolder() {
+    suspend fun clearFirebaseSyncSettings() {
         context.dataStore.edit { preferences ->
-            preferences.remove(Keys.GOOGLE_DRIVE_SYNC_FOLDER_ID)
-            preferences.remove(Keys.GOOGLE_DRIVE_SYNC_FOLDER_NAME)
-            preferences.remove(Keys.GOOGLE_DRIVE_SYNC_ENABLED)
-            preferences.remove(Keys.GOOGLE_DRIVE_LAST_SYNC_TIMESTAMP)
-        }
-    }
-
-    suspend fun setGoogleDriveLastSyncTimestamp(timestamp: String) {
-        context.dataStore.edit { preferences ->
-            preferences[Keys.GOOGLE_DRIVE_LAST_SYNC_TIMESTAMP] = timestamp
+            preferences.remove(Keys.FIREBASE_SYNC_ENABLED)
+            preferences.remove(Keys.FIREBASE_LAST_SYNC_TIMESTAMP)
         }
     }
 
@@ -278,12 +259,6 @@ class SettingsDataStore @Inject constructor(
     suspend fun setImportDebuggingEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[Keys.IMPORT_DEBUGGING_ENABLED] = enabled
-        }
-    }
-
-    suspend fun clearGoogleDriveLastSyncTimestamp() {
-        context.dataStore.edit { preferences ->
-            preferences.remove(Keys.GOOGLE_DRIVE_LAST_SYNC_TIMESTAMP)
         }
     }
 }

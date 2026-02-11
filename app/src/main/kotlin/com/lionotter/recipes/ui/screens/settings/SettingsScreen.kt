@@ -2,7 +2,6 @@ package com.lionotter.recipes.ui.screens.settings
 
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -26,13 +25,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
-import com.lionotter.recipes.ui.screens.googledrive.GoogleDriveViewModel
+import com.lionotter.recipes.ui.screens.firebase.FirebaseSyncViewModel
 import com.lionotter.recipes.ui.screens.settings.components.AboutSection
 import com.lionotter.recipes.ui.screens.settings.components.ApiKeySection
 import com.lionotter.recipes.ui.screens.settings.components.BackupRestoreSection
 import com.lionotter.recipes.ui.screens.settings.components.DisplaySection
-import com.lionotter.recipes.ui.screens.settings.components.FolderPickerDialog
-import com.lionotter.recipes.ui.screens.settings.components.GoogleDriveSection
+import com.lionotter.recipes.ui.screens.settings.components.FirebaseSyncSection
 import com.lionotter.recipes.ui.screens.settings.components.ImportDebuggingSection
 import com.lionotter.recipes.ui.screens.settings.components.MealPlannerSection
 import com.lionotter.recipes.ui.screens.settings.components.ModelSelectionSection
@@ -45,7 +43,7 @@ fun SettingsScreen(
     onNavigateToImportDebug: () -> Unit = {},
     onNavigateToImportSelection: (importType: String, uri: Uri) -> Unit = { _, _ -> },
     viewModel: SettingsViewModel = hiltViewModel(),
-    googleDriveViewModel: GoogleDriveViewModel = hiltViewModel(),
+    firebaseSyncViewModel: FirebaseSyncViewModel = hiltViewModel(),
     zipViewModel: ZipExportImportViewModel = hiltViewModel()
 ) {
     val apiKey by viewModel.apiKey.collectAsStateWithLifecycle()
@@ -55,14 +53,10 @@ fun SettingsScreen(
     val keepScreenOn by viewModel.keepScreenOn.collectAsStateWithLifecycle()
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val saveState by viewModel.saveState.collectAsStateWithLifecycle()
-    val driveUiState by googleDriveViewModel.uiState.collectAsStateWithLifecycle()
-    val syncEnabled by googleDriveViewModel.syncEnabled.collectAsStateWithLifecycle()
-    val syncFolderName by googleDriveViewModel.syncFolderName.collectAsStateWithLifecycle()
-    val lastSyncTimestamp by googleDriveViewModel.lastSyncTimestamp.collectAsStateWithLifecycle()
-    val operationState by googleDriveViewModel.operationState.collectAsStateWithLifecycle()
-    val showFolderPicker by googleDriveViewModel.showFolderPicker.collectAsStateWithLifecycle()
-    val folderPickerState by googleDriveViewModel.folderPickerState.collectAsStateWithLifecycle()
-    val authPendingIntent by googleDriveViewModel.authorizationPendingIntent.collectAsStateWithLifecycle()
+    val syncUiState by firebaseSyncViewModel.uiState.collectAsStateWithLifecycle()
+    val syncEnabled by firebaseSyncViewModel.syncEnabled.collectAsStateWithLifecycle()
+    val lastSyncTimestamp by firebaseSyncViewModel.lastSyncTimestamp.collectAsStateWithLifecycle()
+    val operationState by firebaseSyncViewModel.operationState.collectAsStateWithLifecycle()
     val zipOperationState by zipViewModel.operationState.collectAsStateWithLifecycle()
     val volumeUnitSystem by viewModel.volumeUnitSystem.collectAsStateWithLifecycle()
     val weightUnitSystem by viewModel.weightUnitSystem.collectAsStateWithLifecycle()
@@ -73,23 +67,6 @@ fun SettingsScreen(
 
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
-
-    // Authorization consent launcher - handles the PendingIntent from AuthorizationClient
-    val authorizationLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartIntentSenderForResult()
-    ) { result ->
-        googleDriveViewModel.handleAuthorizationIntent(result.data)
-    }
-
-    // Launch authorization intent when the ViewModel signals it
-    LaunchedEffect(authPendingIntent) {
-        authPendingIntent?.let { pendingIntent ->
-            googleDriveViewModel.clearAuthorizationPendingIntent()
-            authorizationLauncher.launch(
-                IntentSenderRequest.Builder(pendingIntent.intentSender).build()
-            )
-        }
-    }
 
     // ZIP export file picker (create document)
     val zipExportLauncher = rememberLauncherForActivityResult(
@@ -231,29 +208,18 @@ fun SettingsScreen(
 
             HorizontalDivider()
 
-            // Google Drive Section
-            GoogleDriveSection(
-                uiState = driveUiState,
+            // Cloud Sync Section (Firebase)
+            FirebaseSyncSection(
+                uiState = syncUiState,
                 syncEnabled = syncEnabled,
-                syncFolderName = syncFolderName,
                 lastSyncTimestamp = lastSyncTimestamp,
                 operationState = operationState,
-                onSignInClick = googleDriveViewModel::signIn,
-                onSignOutClick = googleDriveViewModel::signOut,
-                onEnableSyncClick = googleDriveViewModel::enableSync,
-                onDisableSyncClick = googleDriveViewModel::disableSync,
-                onSyncNowClick = googleDriveViewModel::triggerSync,
-                onChangeFolderClick = googleDriveViewModel::changeSyncFolder
+                onSignInClick = firebaseSyncViewModel::signIn,
+                onSignOutClick = firebaseSyncViewModel::signOut,
+                onEnableSyncClick = firebaseSyncViewModel::enableSync,
+                onDisableSyncClick = firebaseSyncViewModel::disableSync,
+                onSyncNowClick = firebaseSyncViewModel::triggerSync
             )
-
-            // Folder picker dialog
-            if (showFolderPicker && folderPickerState != null) {
-                FolderPickerDialog(
-                    state = folderPickerState!!,
-                    onDismiss = googleDriveViewModel::dismissFolderPicker,
-                    onConfirm = googleDriveViewModel::onFolderSelected
-                )
-            }
 
             HorizontalDivider()
 

@@ -8,6 +8,7 @@ A modern Android app for importing, organizing, and cooking with recipes from an
 - **Smart Organization**: Recipes are automatically tagged (breakfast, dessert, gluten-free, etc.)
 - **Grouped Sections**: Supports complex recipes with multiple sections (e.g., cake + frosting)
 - **Ingredient Scaling**: Adjust serving sizes with automatic quantity recalculation
+- **Cloud Sync**: Bidirectional sync across devices via Firebase Firestore with Google Sign-In
 - **Offline First**: All recipes stored locally; works without internet after import
 - **Clean UI**: Material 3 design with a warm Lion+Otter color theme
 
@@ -71,7 +72,34 @@ The APKs will be in:
 1. Connect your Android device via USB (with USB debugging enabled)
 2. Click the "Run" button or press `Shift+F10`
 
-## Setup
+## Firebase Setup (Cloud Sync)
+
+Cloud sync is optional — the app works fully offline without it. To enable syncing recipes across devices, you need to set up a Firebase project:
+
+1. Go to the [Firebase Console](https://console.firebase.google.com/) and create a new project (or use an existing one)
+2. Add an Android app with package name `com.lionotter.recipes`
+3. Enable **Authentication** in the Firebase Console:
+   - Go to **Authentication > Sign-in method**
+   - Enable the **Google** provider (this automatically creates the required OAuth web client)
+4. Re-download `google-services.json` (it now includes the OAuth client) and place it at `app/google-services.json`
+   - Verify that the `oauth_client` array is **not empty** — it should contain an entry with `"client_type": 3` (web client). This is required for Google Sign-In.
+5. Enable **Cloud Firestore**:
+   - Go to **Firestore Database** and create a database
+   - Set the security rules to restrict access per user:
+     ```
+     rules_version = '2';
+     service cloud.firestore {
+       match /databases/{database}/documents {
+         match /users/{userId}/{document=**} {
+           allow read, write: if request.auth != null && request.auth.uid == userId;
+         }
+       }
+     }
+     ```
+
+Data is stored at `users/{userId}/recipes/{recipeId}` and `users/{userId}/mealPlans/{mealPlanId}`, so each user's data is fully isolated.
+
+## App Setup
 
 1. Launch the app
 2. Go to **Settings** (gear icon in top right)
@@ -80,6 +108,7 @@ The APKs will be in:
    - **Claude Opus 4.5**: Best quality (default)
    - **Claude Sonnet 4**: Balanced speed/quality
    - **Claude 3.5 Haiku**: Fastest, lowest cost
+5. Optionally enable **Cloud Sync** to sync recipes across devices via Google Sign-In
 
 ## Usage
 
@@ -112,6 +141,7 @@ The APKs will be in:
 - **DI**: Hilt
 - **Database**: Room
 - **Networking**: Ktor
+- **Cloud Sync**: Firebase Firestore + Firebase Auth
 - **Preferences**: DataStore
 - **Image Loading**: Coil
 

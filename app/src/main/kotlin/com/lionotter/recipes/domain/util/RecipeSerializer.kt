@@ -12,8 +12,7 @@ import javax.inject.Inject
  * - original.html: The original HTML page (if available)
  * - recipe.md: A human-readable Markdown version
  *
- * This is used by both Google Drive export/import and ZIP export/import
- * to ensure a consistent format.
+ * This is used by ZIP export/import to ensure a consistent format.
  */
 class RecipeSerializer @Inject constructor(
     private val json: Json

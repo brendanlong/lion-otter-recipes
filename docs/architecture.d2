@@ -33,11 +33,11 @@ external: {
     shape: rectangle
   }
 
-  google_drive: {
-    label: Google Drive
+  firebase: {
+    label: Firebase (Firestore + Auth)
     shape: rectangle
     style: {
-      fill: "#4285f4"
+      fill: "#FFA000"
     }
   }
 }
@@ -137,9 +137,9 @@ app: {
       detail_vm: RecipeDetailViewModel
       add_vm: AddRecipeViewModel
       settings_vm: SettingsViewModel
-      drive_vm: {
-        label: GoogleDriveViewModel
-        tooltip: "Manages Google Drive sign-in state, folder selection (via folder picker dialog), and sync enable/disable/trigger"
+      firebase_vm: {
+        label: FirebaseSyncViewModel
+        tooltip: "Manages Firebase sign-in state via Google Auth, sync enable/disable, and sync trigger via WorkManager"
       }
       zip_vm: {
         label: ZipExportImportViewModel
@@ -159,7 +159,7 @@ app: {
       }
       meal_plan_vm: {
         label: MealPlanViewModel
-        tooltip: "Manages weekly meal plan view state, add/edit dialog, and CRUD operations for meal plan entries. Supports editing existing entries (date, meal type, servings, recipe). Respects user's start-of-week setting from preferences. Triggers incremental Google Drive sync on changes."
+        tooltip: "Manages weekly meal plan view state, add/edit dialog, and CRUD operations for meal plan entries. Supports editing existing entries (date, meal type, servings, recipe). Respects user's start-of-week setting from preferences. Triggers incremental Firebase sync on changes."
       }
       grocery_list_vm: {
         label: GroceryListViewModel
@@ -187,7 +187,7 @@ app: {
     screens.detail -> viewmodels.detail_vm
     screens.add -> viewmodels.add_vm
     screens.settings -> viewmodels.settings_vm
-    screens.settings -> viewmodels.drive_vm: sign in/out
+    screens.settings -> viewmodels.firebase_vm: sign in/out
     screens.settings -> viewmodels.zip_vm: backup/restore
     screens.meal_plan -> viewmodels.meal_plan_vm
     screens.grocery_list -> viewmodels.grocery_list_vm
@@ -231,12 +231,12 @@ app: {
         tooltip: "Imports recipes from a Paprika export file (.paprikarecipes). Parses ZIP of gzip-compressed JSON, sends content through AI pipeline."
       }
       sync_worker: {
-        label: GoogleDriveSyncWorker
-        tooltip: "Bidirectional sync with Google Drive. Runs on app startup and periodically (every 6 hours). Uploads new local recipes, downloads new remote recipes, updates changed recipes using latest-timestamp-wins conflict resolution."
+        label: FirestoreSyncWorker
+        tooltip: "Bidirectional sync with Firebase Firestore. Runs on app startup and periodically (every 6 hours). Uploads new local recipes, downloads new remote recipes, updates changed recipes using latest-timestamp-wins conflict resolution."
       }
       zip_export_worker: {
         label: ZipExportWorker
-        tooltip: "Exports all recipes to a ZIP file. Uses the same folder structure as Google Drive export (recipe.json + original.html + recipe.md per recipe)."
+        tooltip: "Exports all recipes to a ZIP file using RecipeSerializer (recipe.json + original.html + recipe.md per recipe)."
       }
       zip_import_worker: {
         label: ZipImportWorker
@@ -250,7 +250,7 @@ app: {
       zip_import_worker -> base_worker: extends
       work_ext: {
         label: "observeWorkByTag()"
-        tooltip: "WorkManager extension function that encapsulates the common pattern of observing work by tag and filtering to a specific work ID. Used by AddRecipeViewModel, RecipeDetailViewModel (regenerate), GoogleDriveViewModel (sync), and ZipExportImportViewModel."
+        tooltip: "WorkManager extension function that encapsulates the common pattern of observing work by tag and filtering to a specific work ID. Used by AddRecipeViewModel, RecipeDetailViewModel (regenerate), FirebaseSyncViewModel (sync), and ZipExportImportViewModel."
       }
     }
 
@@ -262,7 +262,7 @@ app: {
 
       helper: {
         label: RecipeNotificationHelper
-        tooltip: "Manages notification channel, foreground info for workers, and shows progress/success/error notifications for recipe imports, Google Drive sync, and ZIP operations"
+        tooltip: "Manages notification channel, foreground info for workers, and shows progress/success/error notifications for recipe imports, Firebase sync, and ZIP operations"
       }
     }
 
@@ -297,13 +297,13 @@ app: {
         label: ImportPaprikaUseCase
         tooltip: "Imports recipes from Paprika export (.paprikarecipes). Parses export, sends recipe content through ParseHtmlUseCase.parseText(), resolves images from Paprika data or source page. Supports cooperative cancellation — checks coroutine state between recipes and preserves already-imported recipes on cancel."
       }
-      sync_drive: {
-        label: SyncToGoogleDriveUseCase
+      sync_firestore: {
+        label: FirestoreSyncUseCase
         tooltip: "Bidirectional sync: compares local vs remote recipes, uploads new, downloads new, updates changed (latest timestamp wins), deletes remote recipes that were soft-deleted locally. Runs via WorkManager on startup and periodically."
       }
       export_zip: {
         label: ExportToZipUseCase
-        tooltip: "Exports all recipes to a ZIP file using RecipeSerializer. Same folder structure as Google Drive export."
+        tooltip: "Exports all recipes to a ZIP file using RecipeSerializer."
       }
       export_single: {
         label: ExportSingleRecipeUseCase
@@ -318,8 +318,8 @@ app: {
         tooltip: "Re-parses a recipe from its stored original HTML via ParseHtmlUseCase.parseHtml(). Passes model/thinking overrides as parameters, preserves recipe ID, favorite status, and creation timestamp."
       }
       sync_meal_plans: {
-        label: SyncMealPlansToGoogleDriveUseCase
-        tooltip: "Bidirectional sync of meal plans with Google Drive. Stores one JSON file per day in a meal-plans subfolder. Handles soft-delete tracking, conflict resolution by timestamp, and purges deleted entries after sync."
+        label: FirestoreMealPlanSyncUseCase
+        tooltip: "Bidirectional sync of meal plans with Firebase Firestore. Each entry stored as a document. Handles soft-delete tracking, conflict resolution by timestamp, and purges deleted entries after sync."
       }
       aggregate_grocery: {
         label: AggregateGroceryListUseCase
@@ -347,7 +347,7 @@ app: {
       }
       serializer: {
         label: RecipeSerializer
-        tooltip: "Shared logic for serializing/deserializing recipes in the standard folder export format (recipe.json + original.html + recipe.md). Used by Google Drive sync and ZIP export/import."
+        tooltip: "Shared logic for serializing/deserializing recipes in the standard folder export format (recipe.json + original.html + recipe.md). Used by ZIP export/import."
       }
       serializer -> markdown: format
     }
@@ -408,7 +408,6 @@ app: {
     usecases.import -> usecases.parse_html: uses
     usecases.regenerate -> usecases.parse_html: uses
     usecases.parse_html -> data.repository.import_debug_repo: save debug data
-    usecases.sync_drive -> util.serializer: serialize
     usecases.export_zip -> util.serializer: serialize
     usecases.export_single -> util.serializer: serialize
     usecases.import_zip -> util.serializer: deserialize
@@ -490,7 +489,7 @@ app: {
       }
       settings: {
         label: SettingsDataStore
-        tooltip: "Uses EncryptedSharedPreferences for API key, DataStore for non-sensitive settings (AI model, extended thinking enabled, keep screen on, theme mode, volume/weight unit system preferences, grocery list volume/weight unit system preferences, start of week, import debugging enabled, Google Drive sync enabled/folder/last sync timestamp)"
+        tooltip: "Uses EncryptedSharedPreferences for API key, DataStore for non-sensitive settings (AI model, extended thinking enabled, keep screen on, theme mode, volume/weight unit system preferences, grocery list volume/weight unit system preferences, start of week, import debugging enabled, Firebase sync enabled/last sync timestamp)"
       }
 
       dao -> room
@@ -519,9 +518,9 @@ app: {
         label: WebScraperService
         tooltip: Uses Readability4J to extract article content
       }
-      google_drive_svc: {
-        label: GoogleDriveService
-        tooltip: "Handles Google Drive authorization, sign-in/sign-out, folder operations, and file upload/download/update/delete for Drive sync"
+      firestore_svc: {
+        label: FirestoreService
+        tooltip: "Handles Firebase Auth (Google Sign-In), and Firestore document operations for recipe and meal plan sync. Data stored at users/{userId}/recipes/{recipeId} and users/{userId}/mealPlans/{mealPlanId}."
       }
     }
 
@@ -599,9 +598,9 @@ app: {
   ui.viewmodels.import_selection_vm -> data.paprika.parser: parse export
   ui.viewmodels.add_vm -> background.worker: enqueue work
   ui.viewmodels.add_vm -> background.worker.work_ext: observe import
-  ui.viewmodels.drive_vm -> background.worker.sync_worker: sync
-  ui.viewmodels.drive_vm -> background.worker.work_ext: observe sync
-  ui.viewmodels.drive_vm -> data.local.settings: sync settings
+  ui.viewmodels.firebase_vm -> background.worker.sync_worker: sync
+  ui.viewmodels.firebase_vm -> background.worker.work_ext: observe sync
+  ui.viewmodels.firebase_vm -> data.local.settings: sync settings
   ui.viewmodels.zip_vm -> background.worker.zip_export_worker: export
   ui.viewmodels.zip_vm -> background.worker.zip_import_worker: import
   ui.viewmodels.zip_vm -> background.worker.work_ext: observe export/import
@@ -613,7 +612,7 @@ app: {
   ui.viewmodels.grocery_list_vm -> data.repository.repo: recipes
   ui.viewmodels.grocery_list_vm -> domain.usecases.aggregate_grocery: aggregate ingredients
   ui.viewmodels.grocery_list_vm -> data.local.settings: grocery unit prefs
-  domain.usecases.sync_drive -> domain.usecases.sync_meal_plans: sync meal plans
+  domain.usecases.sync_firestore -> domain.usecases.sync_meal_plans: sync meal plans
   domain.usecases.sync_meal_plans -> data.repository.meal_plan_repo: access data
   ui.viewmodels.settings_vm -> data.repository.import_debug_repo: delete debug data
   ui.viewmodels.import_debug_list_vm -> data.repository.import_debug_repo: list entries
@@ -621,7 +620,7 @@ app: {
   background.worker.import_worker -> domain.usecases.import: execute
   background.worker.regenerate_worker -> domain.usecases.regenerate: execute
   background.worker.paprika_import_worker -> domain.usecases.import_paprika: execute
-  background.worker.sync_worker -> domain.usecases.sync_drive: execute
+  background.worker.sync_worker -> domain.usecases.sync_firestore: execute
   background.worker.zip_export_worker -> domain.usecases.export_zip: execute
   background.worker.zip_import_worker -> domain.usecases.import_zip: execute
   domain.usecases -> data.repository: access data
@@ -630,7 +629,7 @@ app: {
   domain.usecases.import_paprika -> data.remote.scraper: fetch source image
   data.remote.scraper -> external.web: fetch HTML
   data.remote.anthropic_svc -> external.anthropic: parse recipe
-  data.remote.google_drive_svc -> external.google_drive: sync files
+  data.remote.firestore_svc -> external.firebase: sync data
 }
 
 # Data Flow Legend
@@ -656,18 +655,18 @@ legend: {
 
   flow1 -> flow2 -> flow3 -> flow4 -> flow5
 
-  drive_flow: {
-    label: "Google Drive Sync Flow"
+  firebase_flow: {
+    label: "Firebase Sync Flow"
     style: {
       font-size: 14
       bold: true
     }
   }
-  drive1: "User selects existing folder or creates new one via folder picker dialog"
-  drive2: "Bidirectional sync on startup + every 6 hours (latest timestamp wins)"
-  drive3: "Uploads new local recipes, downloads new remote recipes, updates changed, deletes soft-deleted recipes from Drive"
+  fb1: "User signs in with Google, enables sync"
+  fb2: "Bidirectional sync on startup + every 6 hours (latest timestamp wins)"
+  fb3: "Uploads new local recipes, downloads new remote recipes, updates changed, deletes soft-deleted from Firestore"
 
-  drive1 -> drive2 -> drive3
+  fb1 -> fb2 -> fb3
 
   zip_flow: {
     label: "ZIP Export/Import Flow"
@@ -676,9 +675,9 @@ legend: {
       bold: true
     }
   }
-  zip1: "Export: User picks save location, ZipExportWorker writes ZIP with same folder structure as Drive"
+  zip1: "Export: User picks save location, ZipExportWorker writes ZIP"
   zip2: "Import: User picks .zip file, selects recipes via ImportSelectionScreen, imports selected"
-  zip3: "Uses RecipeSerializer shared with Google Drive for consistent format"
+  zip3: "Uses RecipeSerializer for consistent format"
   zip4: "Skips recipes that already exist locally (by ID)"
 
   zip1 -> zip2 -> zip3 -> zip4
@@ -713,7 +712,7 @@ legend: {
   share1 -> share2 -> share3 -> share4
 
   note: {
-    label: "Import runs in background via WorkManager. Import queue is database-backed (PendingImportEntity) and persists across app restarts. Supports multiple concurrent imports with individual cancellation from the recipe list via swipe-to-dismiss. Page metadata (title, image) is fetched cheaply before AI parsing begins. Google Drive sync, ZIP export/import, and Paprika import run in background with progress notifications. Sync runs on app startup and every 6 hours when enabled. Paprika import can be cancelled mid-way, keeping already-imported recipes. ZIP export uses the same folder format as sync via RecipeSerializer."
+    label: "Import runs in background via WorkManager. Import queue is database-backed (PendingImportEntity) and persists across app restarts. Supports multiple concurrent imports with individual cancellation from the recipe list via swipe-to-dismiss. Page metadata (title, image) is fetched cheaply before AI parsing begins. Firebase sync, ZIP export/import, and Paprika import run in background with progress notifications. Sync runs on app startup and every 6 hours when enabled. Paprika import can be cancelled mid-way, keeping already-imported recipes. ZIP export uses RecipeSerializer for consistent format."
     style: {
       font-size: 12
       italic: true
@@ -744,7 +743,7 @@ legend: {
   mp2: "Add meals via bottom sheet: recipe search + tag filter, date picker, meal type, servings"
   mp3: "Swipe-to-delete and long-press menu (shared pattern with recipe list)"
   mp4: "Persistent in Room DB with soft-delete for sync tracking"
-  mp5: "Google Drive sync: one JSON file per day in meal-plans/ subfolder"
+  mp5: "Firebase Firestore sync: each entry stored as a document"
   mp6: "Included in ZIP export/import for backup/restore"
   mp7: "Incremental sync triggered on add/update/delete"
 

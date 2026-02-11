@@ -14,7 +14,7 @@ import javax.inject.Inject
 
 /**
  * Use case for exporting recipes to a ZIP file.
- * Uses the same folder structure as Google Drive export:
+ * Uses a standard folder structure:
  * - recipe-name/recipe.json
  * - recipe-name/original.html (if available)
  * - recipe-name/recipe.md

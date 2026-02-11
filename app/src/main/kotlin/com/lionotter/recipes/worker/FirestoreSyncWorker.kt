@@ -5,23 +5,23 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.Data
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-import com.lionotter.recipes.domain.usecase.SyncToGoogleDriveUseCase
+import com.lionotter.recipes.domain.usecase.FirestoreSyncUseCase
 import com.lionotter.recipes.notification.RecipeNotificationHelper
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 
 @HiltWorker
-class GoogleDriveSyncWorker @AssistedInject constructor(
+class FirestoreSyncWorker @AssistedInject constructor(
     @Assisted private val context: Context,
     @Assisted workerParams: WorkerParameters,
-    private val syncToGoogleDriveUseCase: SyncToGoogleDriveUseCase,
+    private val firestoreSyncUseCase: FirestoreSyncUseCase,
     notificationHelper: RecipeNotificationHelper
 ) : BaseRecipeWorker(context, workerParams, notificationHelper) {
 
-    override val notificationTitle = "Syncing with Google Drive"
+    override val notificationTitle = "Syncing recipes"
 
     companion object {
-        const val TAG_DRIVE_SYNC = "google_drive_sync"
+        const val TAG_FIRESTORE_SYNC = "firestore_sync"
 
         const val KEY_RESULT_TYPE = "result_type"
         const val KEY_UPLOADED_COUNT = "uploaded_count"
@@ -54,18 +54,18 @@ class GoogleDriveSyncWorker @AssistedInject constructor(
     override suspend fun doWork(): Result {
         setForegroundProgress("Starting sync...")
 
-        val result = syncToGoogleDriveUseCase.sync(
+        val result = firestoreSyncUseCase.sync(
             onProgress = { progress ->
                 val progressMessage = when (progress) {
-                    is SyncToGoogleDriveUseCase.SyncProgress.Starting -> {
+                    is FirestoreSyncUseCase.SyncProgress.Starting -> {
                         setProgress(workDataOf(KEY_PROGRESS to PROGRESS_STARTING))
                         "Starting sync..."
                     }
-                    is SyncToGoogleDriveUseCase.SyncProgress.ComparingRecipes -> {
+                    is FirestoreSyncUseCase.SyncProgress.ComparingRecipes -> {
                         setProgress(workDataOf(KEY_PROGRESS to PROGRESS_COMPARING))
                         "Comparing recipes..."
                     }
-                    is SyncToGoogleDriveUseCase.SyncProgress.Uploading -> {
+                    is FirestoreSyncUseCase.SyncProgress.Uploading -> {
                         setProgress(workDataOf(
                             KEY_PROGRESS to PROGRESS_UPLOADING,
                             KEY_RECIPE_NAME to progress.recipeName,
@@ -74,7 +74,7 @@ class GoogleDriveSyncWorker @AssistedInject constructor(
                         ))
                         "Uploading ${progress.current}/${progress.total}: ${progress.recipeName}"
                     }
-                    is SyncToGoogleDriveUseCase.SyncProgress.Downloading -> {
+                    is FirestoreSyncUseCase.SyncProgress.Downloading -> {
                         setProgress(workDataOf(
                             KEY_PROGRESS to PROGRESS_DOWNLOADING,
                             KEY_RECIPE_NAME to progress.recipeName,
@@ -83,7 +83,7 @@ class GoogleDriveSyncWorker @AssistedInject constructor(
                         ))
                         "Downloading ${progress.current}/${progress.total}: ${progress.recipeName}"
                     }
-                    is SyncToGoogleDriveUseCase.SyncProgress.Updating -> {
+                    is FirestoreSyncUseCase.SyncProgress.Updating -> {
                         setProgress(workDataOf(
                             KEY_PROGRESS to PROGRESS_UPDATING,
                             KEY_RECIPE_NAME to progress.recipeName,
@@ -92,7 +92,7 @@ class GoogleDriveSyncWorker @AssistedInject constructor(
                         ))
                         "Updating ${progress.current}/${progress.total}: ${progress.recipeName}"
                     }
-                    is SyncToGoogleDriveUseCase.SyncProgress.Deleting -> {
+                    is FirestoreSyncUseCase.SyncProgress.Deleting -> {
                         setProgress(workDataOf(
                             KEY_PROGRESS to PROGRESS_DELETING,
                             KEY_RECIPE_NAME to progress.recipeName,
@@ -101,14 +101,14 @@ class GoogleDriveSyncWorker @AssistedInject constructor(
                         ))
                         "Cleaning up ${progress.current}/${progress.total}: ${progress.recipeName}"
                     }
-                    is SyncToGoogleDriveUseCase.SyncProgress.Complete -> "Sync complete!"
+                    is FirestoreSyncUseCase.SyncProgress.Complete -> "Sync complete!"
                 }
                 setForegroundProgress(progressMessage)
             }
         )
 
         return when (result) {
-            is SyncToGoogleDriveUseCase.SyncResult.Success -> {
+            is FirestoreSyncUseCase.SyncResult.Success -> {
                 notificationHelper.showSyncSuccessNotification(
                     uploaded = result.uploaded,
                     downloaded = result.downloaded,
@@ -125,20 +125,20 @@ class GoogleDriveSyncWorker @AssistedInject constructor(
                     )
                 )
             }
-            is SyncToGoogleDriveUseCase.SyncResult.Error -> errorResult(
+            is FirestoreSyncUseCase.SyncResult.Error -> errorResult(
                 errorNotificationTitle = "Sync Failed",
                 resultTypeKey = KEY_RESULT_TYPE,
                 errorMessageKey = KEY_ERROR_MESSAGE,
                 errorType = RESULT_ERROR,
                 errorMessage = result.message
             )
-            SyncToGoogleDriveUseCase.SyncResult.NotSignedIn -> notAvailableResult(
+            FirestoreSyncUseCase.SyncResult.NotSignedIn -> notAvailableResult(
                 resultTypeKey = KEY_RESULT_TYPE,
                 errorMessageKey = KEY_ERROR_MESSAGE,
                 resultType = RESULT_NOT_SIGNED_IN,
-                errorMessage = "Not signed in to Google Drive"
+                errorMessage = "Not signed in"
             )
-            SyncToGoogleDriveUseCase.SyncResult.SyncDisabled -> {
+            FirestoreSyncUseCase.SyncResult.SyncDisabled -> {
                 notificationHelper.cancelProgressNotification()
                 Result.success(
                     workDataOf(
