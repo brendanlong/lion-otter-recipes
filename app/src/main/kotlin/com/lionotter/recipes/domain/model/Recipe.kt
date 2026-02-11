@@ -170,7 +170,7 @@ data class Ingredient(
                 if (unit != null) {
                     append(" ")
                     val count = if (value > 1.0) 2 else 1
-                    append(unit.singularize().pluralize(count))
+                    append(displayUnit(unit.singularize().pluralize(count)))
                 }
             }
             append(" ")
@@ -308,6 +308,9 @@ data class InstructionStep(
 // --- Unit conversion utilities ---
 
 enum class UnitCategory { WEIGHT, VOLUME }
+
+/** Convert internal unit identifiers to display-friendly strings (e.g. "fl_oz" → "fl oz"). */
+private fun displayUnit(unit: String): String = unit.replace('_', ' ')
 
 private val WEIGHT_UNITS = setOf("mg", "g", "kg", "oz", "lb")
 private val VOLUME_UNITS = setOf("mL", "L", "tsp", "tbsp", "cup", "fl_oz", "pint", "quart", "gal")
