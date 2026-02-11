@@ -3,6 +3,7 @@ package com.lionotter.recipes.domain.usecase
 import android.util.Log
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.FirestoreService
+import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
 import kotlinx.coroutines.flow.first
@@ -24,7 +25,8 @@ class FirestoreSyncUseCase @Inject constructor(
     private val firestoreService: FirestoreService,
     private val recipeRepository: RecipeRepository,
     private val settingsDataStore: SettingsDataStore,
-    private val syncMealPlansUseCase: FirestoreMealPlanSyncUseCase
+    private val syncMealPlansUseCase: FirestoreMealPlanSyncUseCase,
+    private val imageDownloadService: ImageDownloadService
 ) {
     companion object {
         private const val TAG = "FirestoreSync"
@@ -76,6 +78,19 @@ class FirestoreSyncUseCase @Inject constructor(
             Log.e(TAG, "Sync failed", e)
             SyncResult.Error("Sync failed: ${e.message}")
         }
+    }
+
+    /**
+     * Downloads a remote image URL to local storage if needed.
+     * Returns the recipe with the local image URL, or with null imageUrl if download fails.
+     */
+    private suspend fun downloadImageIfNeeded(recipe: Recipe): Recipe {
+        val imageUrl = recipe.imageUrl ?: return recipe
+        // Already a local file
+        if (imageUrl.startsWith("file://")) return recipe
+        // Download remote image
+        val localImageUrl = imageDownloadService.downloadAndStore(imageUrl)
+        return recipe.copy(imageUrl = localImageUrl)
     }
 
     private suspend fun performSync(
@@ -131,7 +146,8 @@ class FirestoreSyncUseCase @Inject constructor(
         downloadList.forEachIndexed { index, remoteRecipe ->
             onProgress(SyncProgress.Downloading(remoteRecipe.recipe.name, index + 1, downloadList.size))
             try {
-                recipeRepository.saveRecipe(remoteRecipe.recipe, remoteRecipe.originalHtml)
+                val recipeWithLocalImage = downloadImageIfNeeded(remoteRecipe.recipe)
+                recipeRepository.saveRecipe(recipeWithLocalImage, remoteRecipe.originalHtml)
                 downloaded++
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to save downloaded recipe ${remoteRecipe.recipe.name}", e)
@@ -156,7 +172,8 @@ class FirestoreSyncUseCase @Inject constructor(
             } else if (remoteRecipe.recipe.updatedAt > localRecipe.updatedAt) {
                 // Remote is newer, update local
                 try {
-                    recipeRepository.saveRecipe(remoteRecipe.recipe, remoteRecipe.originalHtml)
+                    val recipeWithLocalImage = downloadImageIfNeeded(remoteRecipe.recipe)
+                    recipeRepository.saveRecipe(recipeWithLocalImage, remoteRecipe.originalHtml)
                     updated++
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to update local recipe ${localRecipe.name}", e)

@@ -360,7 +360,7 @@ app: {
 
       recipe: {
         label: Recipe
-        tooltip: "@Immutable. Fields: id, name, sourceUrl, story, servings, times, ingredients, instructions, equipment, tags, imageUrl, timestamps, isFavorite"
+        tooltip: "@Immutable. Fields: id, name, sourceUrl, story, servings, times, ingredients, instructions, equipment, tags, imageUrl (local file:// URI), timestamps, isFavorite"
       }
       ingredient: {
         label: Ingredient
@@ -470,7 +470,7 @@ app: {
       dao: RecipeDao
       entity: {
         label: RecipeEntity
-        tooltip: "Room entity for recipes: id, name, sourceUrl, story, servings, times, JSON fields, imageUrl, originalHtml, createdAt, updatedAt, isFavorite, deleted (soft-delete flag for sync)"
+        tooltip: "Room entity for recipes: id, name, sourceUrl, story, servings, times, JSON fields, imageUrl (local file:// URI), originalHtml, createdAt, updatedAt, isFavorite, deleted (soft-delete flag for sync)"
       }
       import_debug_dao: ImportDebugDao
       pending_import_dao: PendingImportDao
@@ -486,6 +486,11 @@ app: {
       meal_plan_entity: {
         label: MealPlanEntity
         tooltip: "Room entity for meal plan entries: id, recipeId, recipeName, recipeImageUrl, date, mealType, servings, createdAt, updatedAt, deleted (soft-delete flag for sync)"
+      }
+      image_storage: {
+        label: Local Image Storage
+        shape: cylinder
+        tooltip: "Recipe images stored as files in app internal storage (filesDir/recipe_images/). Referenced by file:// URIs in Recipe.imageUrl."
       }
       settings: {
         label: SettingsDataStore
@@ -518,6 +523,10 @@ app: {
         label: WebScraperService
         tooltip: Uses Readability4J to extract article content
       }
+      image_dl: {
+        label: ImageDownloadService
+        tooltip: "Downloads recipe images from remote URLs and stores them locally in app internal storage. Returns file:// URIs for local access. Used during import, sync, and ZIP restore to ensure images are available offline."
+      }
       firestore_svc: {
         label: FirestoreService
         tooltip: "Handles Firebase Auth (Google Sign-In), and Firestore document operations for recipe and meal plan sync. Data stored at users/{userId}/recipes/{recipeId} and users/{userId}/mealPlans/{mealPlanId}."
@@ -545,6 +554,7 @@ app: {
     repository.import_debug_repo -> local.import_debug_dao
     repository.pending_import_repo -> local.pending_import_dao
     repository.meal_plan_repo -> local.meal_plan_dao
+    remote.image_dl -> local.image_storage: stores images
   }
 
   # Performance
@@ -628,7 +638,10 @@ app: {
   domain.usecases.import_paprika -> domain.usecases.parse_html: parseText
   domain.usecases.regenerate -> data.remote.scraper: fetch HTML if not cached
   domain.usecases.import_paprika -> data.remote.scraper: fetch source image
+  domain.usecases.parse_html -> data.remote.image_dl: download image
+  domain.usecases.sync_firestore -> data.remote.image_dl: download image
   data.remote.scraper -> external.web: fetch HTML
+  data.remote.image_dl -> external.web: download image
   data.remote.anthropic_svc -> external.anthropic: parse recipe
   data.remote.firestore_svc -> external.firebase: sync data
 }

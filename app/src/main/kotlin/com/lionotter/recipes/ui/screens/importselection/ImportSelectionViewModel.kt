@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lionotter.recipes.data.paprika.PaprikaParser
 import com.lionotter.recipes.data.paprika.PaprikaRecipe
+import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.repository.MealPlanRepository
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.MealPlanEntry
@@ -36,7 +37,8 @@ class ImportSelectionViewModel @Inject constructor(
     private val recipeSerializer: RecipeSerializer,
     private val paprikaParser: PaprikaParser,
     private val mealPlanRepository: MealPlanRepository,
-    private val json: Json
+    private val json: Json,
+    private val imageDownloadService: ImageDownloadService
 ) : ViewModel() {
 
     companion object {
@@ -53,6 +55,15 @@ class ImportSelectionViewModel @Inject constructor(
     private var currentImportType: ImportType? = null
     private var currentFileUri: Uri? = null
     private var alreadyParsed = false
+
+    private suspend fun downloadImageIfNeeded(imageUrl: String?): String? {
+        if (imageUrl == null) return null
+        if (imageUrl.startsWith("file://")) {
+            val path = imageUrl.removePrefix("file://")
+            return if (java.io.File(path).exists()) imageUrl else null
+        }
+        return imageDownloadService.downloadAndStore(imageUrl)
+    }
 
     enum class ImportType {
         PAPRIKA,
@@ -306,7 +317,11 @@ class ImportSelectionViewModel @Inject constructor(
                     continue
                 }
 
-                val importedRecipe = recipe.copy(updatedAt = Clock.System.now())
+                val localImageUrl = downloadImageIfNeeded(recipe.imageUrl)
+                val importedRecipe = recipe.copy(
+                    updatedAt = Clock.System.now(),
+                    imageUrl = localImageUrl
+                )
                 val originalHtml = files[RecipeSerializer.RECIPE_HTML_FILENAME]
                 recipeRepository.saveRecipe(importedRecipe, originalHtml)
                 importedCount++
