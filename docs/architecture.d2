@@ -325,7 +325,10 @@ app: {
         label: AggregateGroceryListUseCase
         tooltip: "Aggregates ingredients from selected meal plan recipes into a deduplicated grocery list. Normalizes ingredient names by removing size prefixes (small/medium/large), sums amounts in base units across recipes."
       }
-      tags: GetTagsUseCase
+      tags: {
+        label: GetTagsUseCase
+        tooltip: "Selects top k tags using ILP optimization (ojalgo) to maximize coverage while penalizing generic tags. Falls back to greedy set cover if solver fails."
+      }
       calc_usage: {
         label: CalculateIngredientUsageUseCase
         tooltip: "Pure domain logic for calculating ingredient usage status from checked instruction steps, scale, and measurement preference."

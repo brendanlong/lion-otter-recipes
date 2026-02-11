@@ -147,6 +147,9 @@ dependencies {
     // HTML parsing
     implementation(libs.jsoup)
 
+    // Optimization (ILP tag selection)
+    implementation(libs.ojalgo)
+
     // Google Drive
     implementation(libs.play.services.auth)
     implementation(libs.credentials)

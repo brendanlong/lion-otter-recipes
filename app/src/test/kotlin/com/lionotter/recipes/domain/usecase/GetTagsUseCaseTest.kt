@@ -75,8 +75,8 @@ class GetTagsUseCaseTest {
     }
 
     @Test
-    fun `greedy algorithm selects tag covering most recipes first`() {
-        // Tag "popular" covers 5 recipes, "niche" covers 1
+    fun `ILP selects tags that cover all recipes when possible`() {
+        // 11 recipes each with a unique tag plus a "popular" tag on 5 of them
         val recipes = listOf(
             recipe("recipe-1", listOf("popular", "tag-a")),
             recipe("recipe-2", listOf("popular", "tag-b")),
@@ -93,9 +93,16 @@ class GetTagsUseCaseTest {
 
         val result = getTagsUseCase.execute(recipes)
 
-        // "popular" should be selected and sorted by count (first in list)
-        assertTrue(result.contains("popular"))
-        assertEquals("popular", result[0])
+        // Should select exactly 10 tags
+        assertEquals(10, result.size)
+
+        // All recipes should be covered by at least one selected tag
+        for (recipe in recipes) {
+            assertTrue(
+                "Recipe ${recipe.id} should be covered by at least one selected tag",
+                recipe.tags.any { it in result }
+            )
+        }
     }
 
     @Test
@@ -125,22 +132,8 @@ class GetTagsUseCaseTest {
     }
 
     @Test
-    fun `maximizes coverage with greedy set cover`() {
-        // This test verifies the greedy set cover algorithm
-        // Recipe coverage:
-        // tag-a covers recipe-1, recipe-2 (2 recipes)
-        // tag-b covers recipe-2, recipe-3 (2 recipes)
-        // tag-c covers recipe-3, recipe-4 (2 recipes)
-        // tag-d covers recipe-4, recipe-5 (2 recipes)
-        // tag-e covers recipe-5, recipe-6 (2 recipes)
-        // tag-f covers recipe-6, recipe-7 (2 recipes)
-        // tag-g covers recipe-7, recipe-8 (2 recipes)
-        // tag-h covers recipe-8, recipe-9 (2 recipes)
-        // tag-i covers recipe-9, recipe-10 (2 recipes)
-        // tag-j covers recipe-10, recipe-11 (2 recipes)
-        // tag-k covers recipe-11, recipe-12 (2 recipes)
-        // tag-l covers all 12 recipes (would be selected first)
-
+    fun `ILP covers all recipes in chain coverage scenario`() {
+        // Chain of overlapping tags - need to pick the right combination
         val recipes = listOf(
             recipe("recipe-1", listOf("tag-a", "tag-l")),
             recipe("recipe-2", listOf("tag-a", "tag-b", "tag-l")),
@@ -159,8 +152,13 @@ class GetTagsUseCaseTest {
         val result = getTagsUseCase.execute(recipes)
 
         assertEquals(10, result.size)
-        // tag-l covers all recipes, so it should be in the result and sorted first
-        assertEquals("tag-l", result[0])
+        // All recipes should be covered
+        for (recipe in recipes) {
+            assertTrue(
+                "Recipe ${recipe.id} should be covered",
+                recipe.tags.any { it in result }
+            )
+        }
     }
 
     @Test
@@ -211,5 +209,111 @@ class GetTagsUseCaseTest {
         // All 5 tags should be selected since each covers a unique recipe
         assertEquals(5, result.size)
         assertTrue(result.containsAll(listOf("breakfast", "lunch", "dinner", "dessert", "snack")))
+    }
+
+    @Test
+    fun `ILP deprioritizes near-universal tags`() {
+        // "easy" and "quick" cover all 20 recipes — they provide almost no filtering value.
+        // With 10 specific tags that partition the 20 recipes (2 each), the ILP should
+        // prefer those 10 specific tags over wasting slots on "easy" or "quick".
+        val recipes = mutableListOf<Recipe>()
+        // 20 recipes across 10 specific tags (2 recipes each), plus 2 generic tags
+        for (i in 1..20) {
+            recipes.add(
+                recipe(
+                    "recipe-$i",
+                    listOf("easy", "quick", "specific-${(i - 1) / 2 + 1}")
+                )
+            )
+        }
+
+        val result = getTagsUseCase.execute(recipes)
+
+        assertEquals(10, result.size)
+        // 10 specific tags can cover everything; "easy" and "quick" should be excluded
+        assertTrue(
+            "Near-universal tags should not be selected: $result",
+            "easy" !in result && "quick" !in result
+        )
+        // All selected tags should be the specific ones
+        assertTrue(
+            "All selected tags should be specific: $result",
+            result.all { it.startsWith("specific-") }
+        )
+    }
+
+    @Test
+    fun `ILP handles degenerate case with more unique recipes than k`() {
+        // 12 recipes, each with a unique tag and no overlap
+        // Can only pick 10 tags, so 2 recipes will be uncovered
+        val recipes = (1..12).map { i ->
+            recipe("recipe-$i", listOf("unique-tag-$i"))
+        }
+
+        val result = getTagsUseCase.execute(recipes)
+
+        assertEquals(10, result.size)
+        // Should still return 10 valid tags
+        assertTrue(result.all { tag -> tag.startsWith("unique-tag-") })
+    }
+
+    @Test
+    fun `greedy fallback works correctly`() {
+        val recipes = listOf(
+            recipe("recipe-1", listOf("a", "b")),
+            recipe("recipe-2", listOf("b", "c")),
+            recipe("recipe-3", listOf("c", "d")),
+            recipe("recipe-4", listOf("d", "e")),
+            recipe("recipe-5", listOf("e", "f")),
+            recipe("recipe-6", listOf("f", "g")),
+            recipe("recipe-7", listOf("g", "h")),
+            recipe("recipe-8", listOf("h", "i")),
+            recipe("recipe-9", listOf("i", "j")),
+            recipe("recipe-10", listOf("j", "k")),
+            recipe("recipe-11", listOf("k", "l"))
+        )
+
+        val tagToRecipes = mutableMapOf<String, Set<String>>()
+        for (recipe in recipes) {
+            for (tag in recipe.tags) {
+                tagToRecipes[tag] = (tagToRecipes[tag] ?: emptySet()) + recipe.id
+            }
+        }
+
+        val result = getTagsUseCase.solveGreedy(recipes, tagToRecipes)
+
+        assertEquals(10, result.size)
+        // All recipes should be covered
+        for (recipe in recipes) {
+            assertTrue(
+                "Recipe ${recipe.id} should be covered by greedy selection",
+                recipe.tags.any { it in result }
+            )
+        }
+    }
+
+    @Test
+    fun `ILP maximizes multi-tag coverage`() {
+        // Recipes appear under multiple tags; ILP should maximize total appearances
+        val recipes = listOf(
+            recipe("recipe-1", listOf("tag-a", "tag-b", "tag-c")),
+            recipe("recipe-2", listOf("tag-a", "tag-d", "tag-e")),
+            recipe("recipe-3", listOf("tag-b", "tag-d", "tag-f")),
+            recipe("recipe-4", listOf("tag-c", "tag-e", "tag-f")),
+            recipe("recipe-5", listOf("tag-g", "tag-h")),
+            recipe("recipe-6", listOf("tag-h", "tag-i")),
+            recipe("recipe-7", listOf("tag-i", "tag-j")),
+            recipe("recipe-8", listOf("tag-j", "tag-k")),
+        )
+
+        val result = getTagsUseCase.execute(recipes)
+
+        // All recipes should be covered
+        for (recipe in recipes) {
+            assertTrue(
+                "Recipe ${recipe.id} should be covered",
+                recipe.tags.any { it in result }
+            )
+        }
     }
 }
