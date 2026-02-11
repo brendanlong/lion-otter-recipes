@@ -264,6 +264,21 @@ class RecipeDetailViewModel @Inject constructor(
     private val _hasOriginalHtml = MutableStateFlow(false)
     val hasOriginalHtml: StateFlow<Boolean> = _hasOriginalHtml.asStateFlow()
 
+    /**
+     * Whether the regenerate button should be shown.
+     * True if the recipe has cached original HTML or a source URL to re-fetch from.
+     */
+    val canRegenerate: StateFlow<Boolean> = combine(
+        _hasOriginalHtml,
+        recipe
+    ) { hasHtml, recipe ->
+        hasHtml || !recipe?.sourceUrl.isNullOrBlank()
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = false
+    )
+
     private fun loadRegenerateDefaults() {
         viewModelScope.launch {
             _regenerateModel.value = settingsDataStore.aiModel.first()
@@ -318,6 +333,7 @@ class RecipeDetailViewModel @Inject constructor(
                         WorkInfo.State.RUNNING -> {
                             val progress = workInfo.progress.getString(RecipeRegenerateWorker.KEY_PROGRESS)
                             val message = when (progress) {
+                                RecipeRegenerateWorker.PROGRESS_FETCHING -> "Fetching recipe page..."
                                 RecipeRegenerateWorker.PROGRESS_PARSING -> "AI is re-analyzing..."
                                 RecipeRegenerateWorker.PROGRESS_SAVING -> "Saving recipe..."
                                 else -> "Starting..."
