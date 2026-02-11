@@ -3,6 +3,7 @@ package com.lionotter.recipes.domain.usecase
 import com.lionotter.recipes.data.local.ImportDebugEntity
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AnthropicService
+import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.remote.RecipeParseException
 import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.data.repository.RecipeRepository
@@ -27,7 +28,8 @@ class ParseHtmlUseCase @Inject constructor(
     private val anthropicService: AnthropicService,
     private val recipeRepository: RecipeRepository,
     private val importDebugRepository: ImportDebugRepository,
-    private val settingsDataStore: SettingsDataStore
+    private val settingsDataStore: SettingsDataStore,
+    private val imageDownloadService: ImageDownloadService
 ) {
     sealed class ParseResult {
         data class Success(val recipe: Recipe) : ParseResult()
@@ -159,6 +161,9 @@ class ParseHtmlUseCase @Inject constructor(
         // Notify that recipe name is available
         onProgress(ParseProgress.RecipeNameAvailable(parsed.name))
 
+        // Download image locally if available
+        val localImageUrl = imageUrl?.let { imageDownloadService.downloadAndStore(it) }
+
         // Create Recipe
         val now = Clock.System.now()
         val recipe = Recipe(
@@ -173,7 +178,7 @@ class ParseHtmlUseCase @Inject constructor(
             instructionSections = parsed.instructionSections,
             equipment = parsed.equipment,
             tags = parsed.tags,
-            imageUrl = imageUrl,
+            imageUrl = localImageUrl,
             createdAt = now,
             updatedAt = now
         )

@@ -2,6 +2,7 @@ package com.lionotter.recipes.ui.navigation
 
 import android.content.Context
 import android.net.Uri
+import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.util.RecipeSerializer
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -22,13 +23,23 @@ import androidx.lifecycle.ViewModel
 class FileImportViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val recipeRepository: RecipeRepository,
-    private val recipeSerializer: RecipeSerializer
+    private val recipeSerializer: RecipeSerializer,
+    private val imageDownloadService: ImageDownloadService
 ) : ViewModel() {
 
     sealed class ImportResult {
         data class Success(val importedRecipeId: String?) : ImportResult()
         data class AlreadyExists(val existingRecipeId: String?) : ImportResult()
         data class Error(val message: String) : ImportResult()
+    }
+
+    private suspend fun downloadImageIfNeeded(imageUrl: String?): String? {
+        if (imageUrl == null) return null
+        if (imageUrl.startsWith("file://")) {
+            val path = imageUrl.removePrefix("file://")
+            return if (java.io.File(path).exists()) imageUrl else null
+        }
+        return imageDownloadService.downloadAndStore(imageUrl)
     }
 
     /**
@@ -86,7 +97,11 @@ class FileImportViewModel @Inject constructor(
                     continue
                 }
 
-                val importedRecipe = recipe.copy(updatedAt = Clock.System.now())
+                val localImageUrl = downloadImageIfNeeded(recipe.imageUrl)
+                val importedRecipe = recipe.copy(
+                    updatedAt = Clock.System.now(),
+                    imageUrl = localImageUrl
+                )
                 val originalHtml = files[RecipeSerializer.RECIPE_HTML_FILENAME]
                 recipeRepository.saveRecipe(importedRecipe, originalHtml)
                 importedId = recipe.id

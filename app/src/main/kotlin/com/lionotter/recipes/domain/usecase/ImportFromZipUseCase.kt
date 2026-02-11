@@ -1,6 +1,7 @@
 package com.lionotter.recipes.domain.usecase
 
 import android.util.Log
+import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.repository.MealPlanRepository
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.MealPlanEntry
@@ -27,7 +28,8 @@ class ImportFromZipUseCase @Inject constructor(
     private val recipeRepository: RecipeRepository,
     private val recipeSerializer: RecipeSerializer,
     private val mealPlanRepository: MealPlanRepository,
-    private val json: Json
+    private val json: Json,
+    private val imageDownloadService: ImageDownloadService
 ) {
     companion object {
         private const val TAG = "ImportFromZip"
@@ -51,6 +53,21 @@ class ImportFromZipUseCase @Inject constructor(
             val total: Int
         ) : ImportProgress()
         data class Complete(val result: ImportResult) : ImportProgress()
+    }
+
+    /**
+     * Downloads a remote image URL to local storage if needed.
+     * Returns the local file URI, or null if the URL is invalid or download fails.
+     * Passes through existing local file:// URIs and null URLs unchanged.
+     */
+    private suspend fun downloadImageIfNeeded(imageUrl: String?): String? {
+        if (imageUrl == null) return null
+        if (imageUrl.startsWith("file://")) {
+            // Check if local file exists; if not (e.g., imported from another device), return null
+            val path = imageUrl.removePrefix("file://")
+            return if (java.io.File(path).exists()) imageUrl else null
+        }
+        return imageDownloadService.downloadAndStore(imageUrl)
     }
 
     /**
@@ -123,7 +140,10 @@ class ImportFromZipUseCase @Inject constructor(
                     return@forEachIndexed
                 }
 
-                val importedRecipe = recipe.copy(updatedAt = Clock.System.now())
+                val importedRecipe = recipe.copy(
+                    updatedAt = Clock.System.now(),
+                    imageUrl = downloadImageIfNeeded(recipe.imageUrl)
+                )
                 val originalHtml = files[RecipeSerializer.RECIPE_HTML_FILENAME]
                 recipeRepository.saveRecipe(importedRecipe, originalHtml)
                 importedCount++

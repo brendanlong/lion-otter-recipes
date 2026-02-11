@@ -26,14 +26,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
 import com.lionotter.recipes.R
 import com.lionotter.recipes.data.local.PendingImportEntity
+import com.lionotter.recipes.ui.components.RecipeThumbnail
 import com.lionotter.recipes.ui.state.InProgressRecipe
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -88,13 +86,10 @@ fun InProgressRecipeCard(
             ) {
                 // Image or loading indicator
                 if (inProgressRecipe.imageUrl != null) {
-                    AsyncImage(
-                        model = inProgressRecipe.imageUrl,
+                    RecipeThumbnail(
+                        imageUrl = inProgressRecipe.imageUrl,
                         contentDescription = inProgressRecipe.name,
-                        modifier = Modifier
-                            .size(80.dp)
-                            .clip(MaterialTheme.shapes.small),
-                        contentScale = ContentScale.Crop
+                        size = 80
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                 } else {
