@@ -53,21 +53,30 @@ class ImportPaprikaUseCase @Inject constructor(
     }
 
     /**
-     * Import all recipes from a Paprika export file.
+     * Import recipes from a Paprika export file.
      *
      * @param inputStream InputStream of the .paprikarecipes file
+     * @param selectedRecipeNames If non-null, only import recipes whose names are in this set
      * @param onProgress Callback for progress updates
      */
     suspend fun execute(
         inputStream: InputStream,
+        selectedRecipeNames: Set<String>? = null,
         onProgress: suspend (ImportProgress) -> Unit = {}
     ): ImportResult {
         // Parse the export file
         onProgress(ImportProgress.Parsing)
-        val paprikaRecipes = try {
+        val allPaprikaRecipes = try {
             paprikaParser.parseExport(inputStream)
         } catch (e: Exception) {
             return ImportResult.Error("Failed to parse Paprika export: ${e.message}")
+        }
+
+        // Filter to selected recipes if a selection was provided
+        val paprikaRecipes = if (selectedRecipeNames != null) {
+            allPaprikaRecipes.filter { it.name in selectedRecipeNames }
+        } else {
+            allPaprikaRecipes
         }
 
         if (paprikaRecipes.isEmpty()) {

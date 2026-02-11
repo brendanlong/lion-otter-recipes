@@ -1,6 +1,7 @@
 package com.lionotter.recipes.ui.screens.addrecipe
 
 import android.Manifest
+import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -47,6 +48,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
 import com.lionotter.recipes.ui.components.ErrorCard
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
+import com.lionotter.recipes.ui.navigation.SharedImportState
 
 @Composable
 fun AddRecipeScreen(
@@ -54,6 +56,7 @@ fun AddRecipeScreen(
     onRecipeAdded: (String) -> Unit,
     onNavigateToSettings: () -> Unit,
     onPaprikaImportComplete: () -> Unit = onBackClick,
+    onNavigateToImportSelection: (importType: String, uri: Uri) -> Unit = { _, _ -> },
     sharedUrl: String? = null,
     viewModel: AddRecipeViewModel = hiltViewModel()
 ) {
@@ -73,6 +76,20 @@ fun AddRecipeScreen(
         }
     }
 
+    // Check for pending Paprika import from selection screen
+    LaunchedEffect(Unit) {
+        if (SharedImportState.pendingPaprikaImport) {
+            val uri = SharedImportState.paprikaFileUri
+            val selectedNames = SharedImportState.paprikaSelectedNames
+            SharedImportState.pendingPaprikaImport = false
+            SharedImportState.paprikaFileUri = null
+            SharedImportState.paprikaSelectedNames = null
+            if (uri != null && selectedNames != null) {
+                viewModel.importPaprikaFile(uri, selectedNames)
+            }
+        }
+    }
+
     // Request notification permission on Android 13+ (API 33+)
     // This is contextually relevant since we notify users when imports complete
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -85,12 +102,12 @@ fun AddRecipeScreen(
         }
     }
 
-    // File picker for Paprika import
+    // File picker for Paprika import - navigate to selection screen
     val paprikaFilePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
-            viewModel.importPaprikaFile(uri)
+            onNavigateToImportSelection("paprika", uri)
         }
     }
 

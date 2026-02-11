@@ -3,9 +3,12 @@ package com.lionotter.recipes.ui.navigation
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.runtime.Composable
+import androidx.core.net.toUri
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -17,6 +20,8 @@ import com.lionotter.recipes.ui.screens.addrecipe.AddRecipeScreen
 import com.lionotter.recipes.ui.screens.importdebug.ImportDebugDetailScreen
 import com.lionotter.recipes.ui.screens.importdebug.ImportDebugListScreen
 import com.lionotter.recipes.ui.screens.grocerylist.GroceryListScreen
+import com.lionotter.recipes.ui.screens.importselection.ImportSelectionScreen
+import com.lionotter.recipes.ui.screens.importselection.ImportSelectionViewModel
 import com.lionotter.recipes.ui.screens.mealplan.MealPlanScreen
 import com.lionotter.recipes.ui.screens.recipedetail.RecipeDetailScreen
 import com.lionotter.recipes.ui.screens.recipelist.RecipeListScreen
@@ -42,6 +47,10 @@ sealed class Screen(val route: String) {
     object ImportDebugDetail : Screen("import-debug/{debugEntryId}") {
         fun createRoute(debugEntryId: String) = "import-debug/$debugEntryId"
     }
+    object ImportSelection : Screen("import-selection/{importType}?uri={uri}") {
+        fun createRoute(importType: String, uri: String) =
+            "import-selection/$importType?uri=${Uri.encode(uri)}"
+    }
 }
 
 @Composable
@@ -52,7 +61,6 @@ fun NavGraph(
     recipeId: String? = null
 ) {
     val navController = rememberNavController()
-    val fileImportViewModel: FileImportViewModel = hiltViewModel()
     val context = LocalContext.current
 
     val startDestination = when {
@@ -70,17 +78,21 @@ fun NavGraph(
         }
     }
 
-    // Handle .lorecipes file import on launch
+    // Handle .lorecipes file import on launch - navigate to selection screen
     LaunchedEffect(initialFileUri) {
         if (initialFileUri != null) {
-            handleFileImport(fileImportViewModel, initialFileUri, context, navController)
+            navController.navigate(
+                Screen.ImportSelection.createRoute("lorecipes", initialFileUri.toString())
+            )
         }
     }
 
     // Handle .lorecipes file shared/opened while app is running
     LaunchedEffect(sharedIntentViewModel) {
         sharedIntentViewModel?.sharedFileUri?.collectLatest { uri ->
-            handleFileImport(fileImportViewModel, uri, context, navController)
+            navController.navigate(
+                Screen.ImportSelection.createRoute("lorecipes", uri.toString())
+            )
         }
     }
 
@@ -157,6 +169,11 @@ fun NavGraph(
                 },
                 onNavigateToSettings = {
                     navController.navigate(Screen.Settings.route)
+                },
+                onNavigateToImportSelection = { importType, uri ->
+                    navController.navigate(
+                        Screen.ImportSelection.createRoute(importType, uri.toString())
+                    )
                 }
             )
         }
@@ -189,6 +206,11 @@ fun NavGraph(
                 onBackClick = navigateBack,
                 onNavigateToImportDebug = {
                     navController.navigate(Screen.ImportDebugList.route)
+                },
+                onNavigateToImportSelection = { importType, uri ->
+                    navController.navigate(
+                        Screen.ImportSelection.createRoute(importType, uri.toString())
+                    )
                 }
             )
         }
@@ -215,51 +237,102 @@ fun NavGraph(
                 }
             )
         }
+
+        composable(
+            route = Screen.ImportSelection.route,
+            arguments = listOf(
+                navArgument("importType") { type = NavType.StringType },
+                navArgument("uri") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val importTypeStr = backStackEntry.arguments?.getString("importType") ?: "lorecipes"
+            val uriStr = backStackEntry.arguments?.getString("uri")
+            val importType = when (importTypeStr) {
+                "paprika" -> ImportSelectionViewModel.ImportType.PAPRIKA
+                "zip" -> ImportSelectionViewModel.ImportType.ZIP_BACKUP
+                else -> ImportSelectionViewModel.ImportType.LORECIPES
+            }
+            val title = stringResource(R.string.select_recipes_to_import)
+            val importSelectionViewModel: ImportSelectionViewModel = hiltViewModel()
+            val selectionState = importSelectionViewModel.uiState.collectAsStateWithLifecycle()
+
+            LaunchedEffect(uriStr) {
+                if (uriStr != null) {
+                    val uri = uriStr.toUri()
+                    importSelectionViewModel.parseFile(uri, importType)
+                }
+            }
+
+            ImportSelectionScreen(
+                title = title,
+                state = selectionState.value,
+                onToggleItem = importSelectionViewModel::toggleItem,
+                onSelectAll = importSelectionViewModel::selectAll,
+                onDeselectAll = importSelectionViewModel::deselectAll,
+                onImportClick = {
+                    importSelectionViewModel.importSelected { result ->
+                        when (result) {
+                            is ImportSelectionViewModel.ImportResult.PaprikaSelected -> {
+                                // Navigate back to AddRecipe and start Paprika import
+                                // with selected recipe names
+                                navController.popBackStack()
+                                // Find the AddRecipeViewModel and start import
+                                // We pass the selected names via SharedImportState
+                                SharedImportState.paprikaSelectedNames = result.selectedRecipeNames
+                                SharedImportState.paprikaFileUri = result.fileUri
+                                SharedImportState.pendingPaprikaImport = true
+                            }
+                            is ImportSelectionViewModel.ImportResult.DirectImportComplete -> {
+                                if (result.importedCount == 1 && result.importedRecipeId != null) {
+                                    navController.navigate(Screen.RecipeList.route) {
+                                        popUpTo(0) { inclusive = true }
+                                    }
+                                    navController.navigate(
+                                        Screen.RecipeDetail.createRoute(result.importedRecipeId)
+                                    )
+                                } else {
+                                    navController.navigate(Screen.RecipeList.route) {
+                                        popUpTo(0) { inclusive = true }
+                                    }
+                                    if (result.importedCount > 0) {
+                                        Toast.makeText(
+                                            context,
+                                            context.getString(
+                                                R.string.file_import_success_count,
+                                                result.importedCount
+                                            ),
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+                            }
+                            is ImportSelectionViewModel.ImportResult.Error -> {
+                                Toast.makeText(
+                                    context,
+                                    result.message,
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        }
+                    }
+                },
+                onCancelClick = navigateBack
+            )
+        }
     }
 }
 
-private suspend fun handleFileImport(
-    viewModel: FileImportViewModel,
-    uri: Uri,
-    context: android.content.Context,
-    navController: androidx.navigation.NavController
-) {
-    val result = viewModel.importFromFile(uri)
-    when (result) {
-        is FileImportViewModel.ImportResult.Success -> {
-            if (result.importedRecipeId != null) {
-                // Navigate to the imported recipe
-                navController.navigate(Screen.RecipeList.route) {
-                    popUpTo(0) { inclusive = true }
-                }
-                navController.navigate(Screen.RecipeDetail.createRoute(result.importedRecipeId))
-            } else {
-                Toast.makeText(
-                    context,
-                    context.getString(R.string.file_import_success),
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
-        }
-        is FileImportViewModel.ImportResult.AlreadyExists -> {
-            if (result.existingRecipeId != null) {
-                navController.navigate(Screen.RecipeList.route) {
-                    popUpTo(0) { inclusive = true }
-                }
-                navController.navigate(Screen.RecipeDetail.createRoute(result.existingRecipeId))
-            }
-            Toast.makeText(
-                context,
-                context.getString(R.string.file_import_already_exists),
-                Toast.LENGTH_SHORT
-            ).show()
-        }
-        is FileImportViewModel.ImportResult.Error -> {
-            Toast.makeText(
-                context,
-                result.message,
-                Toast.LENGTH_LONG
-            ).show()
-        }
-    }
+/**
+ * Simple in-memory state holder for passing import selection data between screens.
+ * Used to communicate Paprika import selection from ImportSelectionScreen back to AddRecipeScreen.
+ */
+object SharedImportState {
+    var paprikaSelectedNames: Set<String>? = null
+    var paprikaFileUri: Uri? = null
+    var pendingPaprikaImport: Boolean = false
 }
+
