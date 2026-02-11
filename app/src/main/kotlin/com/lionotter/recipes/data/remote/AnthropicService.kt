@@ -95,6 +95,8 @@ class AnthropicService @Inject constructor(
                 outputTokens = outputTokens,
                 aiOutputJson = jsonContent
             ))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
