@@ -35,7 +35,9 @@ sealed class Screen(val route: String) {
     }
     object Settings : Screen("settings")
     object MealPlan : Screen("meal-plan")
-    object GroceryList : Screen("grocery-list")
+    object GroceryList : Screen("grocery-list/{weekStart}") {
+        fun createRoute(weekStart: String) = "grocery-list/$weekStart"
+    }
     object ImportDebugList : Screen("import-debug")
     object ImportDebugDetail : Screen("import-debug/{debugEntryId}") {
         fun createRoute(debugEntryId: String) = "import-debug/$debugEntryId"
@@ -165,13 +167,18 @@ fun NavGraph(
                     navController.navigate(Screen.RecipeDetail.createRoute(recipeId))
                 },
                 onBackClick = navigateBack,
-                onGroceryListClick = {
-                    navController.navigate(Screen.GroceryList.route)
+                onGroceryListClick = { weekStart ->
+                    navController.navigate(Screen.GroceryList.createRoute(weekStart))
                 }
             )
         }
 
-        composable(Screen.GroceryList.route) {
+        composable(
+            route = Screen.GroceryList.route,
+            arguments = listOf(
+                navArgument("weekStart") { type = NavType.StringType }
+            )
+        ) {
             GroceryListScreen(
                 onBackClick = navigateBack
             )

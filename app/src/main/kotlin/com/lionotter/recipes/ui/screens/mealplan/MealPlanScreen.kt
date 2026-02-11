@@ -71,7 +71,7 @@ import java.util.Locale
 fun MealPlanScreen(
     onRecipeClick: (String) -> Unit,
     onBackClick: () -> Unit,
-    onGroceryListClick: () -> Unit,
+    onGroceryListClick: (String) -> Unit,
     viewModel: MealPlanViewModel = hiltViewModel()
 ) {
     val weekStart by viewModel.currentWeekStart.collectAsStateWithLifecycle()
@@ -107,7 +107,7 @@ fun MealPlanScreen(
                 title = stringResource(R.string.meal_planner),
                 onBackClick = onBackClick,
                 actions = {
-                    IconButton(onClick = onGroceryListClick) {
+                    IconButton(onClick = { onGroceryListClick(weekStart.toString()) }) {
                         Icon(
                             imageVector = Icons.Default.ShoppingCart,
                             contentDescription = stringResource(R.string.grocery_list)
