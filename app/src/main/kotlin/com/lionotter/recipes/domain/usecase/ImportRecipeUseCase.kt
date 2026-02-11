@@ -30,7 +30,19 @@ class ImportRecipeUseCase @Inject constructor(
     ): ImportResult {
         // Fetch page content
         onProgress(ImportProgress.FetchingPage)
-        val pageResult = webScraperService.fetchPage(url)
+        var effectiveUrl = url
+        var pageResult = webScraperService.fetchPage(url)
+
+        // If HTTP fails, try HTTPS as a fallback
+        if (pageResult.isFailure && url.startsWith("http://")) {
+            val httpsUrl = url.replaceFirst("http://", "https://")
+            val httpsResult = webScraperService.fetchPage(httpsUrl)
+            if (httpsResult.isSuccess) {
+                pageResult = httpsResult
+                effectiveUrl = httpsUrl
+            }
+        }
+
         if (pageResult.isFailure) {
             return ImportResult.Error("Failed to fetch page: ${pageResult.exceptionOrNull()?.message}")
         }
@@ -45,7 +57,7 @@ class ImportRecipeUseCase @Inject constructor(
         // Use ParseHtmlUseCase to parse the HTML content
         val parseResult = parseHtmlUseCase.parseHtml(
             html = page.originalHtml,
-            sourceUrl = url,
+            sourceUrl = effectiveUrl,
             imageUrl = page.imageUrl,
             saveRecipe = true,
             onProgress = { progress ->
