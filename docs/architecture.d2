@@ -68,7 +68,7 @@ app: {
       list: RecipeListScreen
       detail: {
         label: RecipeDetailScreen
-        tooltip: "Displays recipe details with share menu (Markdown text or .lorecipes file), regenerate, and delete buttons. Regenerate re-parses from original HTML with selectable model/thinking mode. All text is selectable."
+        tooltip: "Displays recipe details with share menu (Markdown text or .lorecipes file), regenerate, and delete buttons. Regenerate re-parses from original HTML (or re-fetches from source URL if no cached HTML) with selectable model/thinking mode. All text is selectable."
       }
       add: AddRecipeScreen
       settings: SettingsScreen
@@ -315,7 +315,7 @@ app: {
       }
       regenerate: {
         label: RegenerateRecipeUseCase
-        tooltip: "Re-parses a recipe from its stored original HTML via ParseHtmlUseCase.parseHtml(). Passes model/thinking overrides as parameters, preserves recipe ID, favorite status, and creation timestamp."
+        tooltip: "Re-parses a recipe from its stored original HTML via ParseHtmlUseCase.parseHtml(). If no cached HTML exists, fetches fresh HTML from the recipe's source URL via WebScraperService. Passes model/thinking overrides as parameters, preserves recipe ID, favorite status, and creation timestamp."
       }
       sync_meal_plans: {
         label: FirestoreMealPlanSyncUseCase
@@ -626,6 +626,7 @@ app: {
   domain.usecases -> data.repository: access data
   domain.usecases.import_paprika -> data.paprika.parser: parse export
   domain.usecases.import_paprika -> domain.usecases.parse_html: parseText
+  domain.usecases.regenerate -> data.remote.scraper: fetch HTML if not cached
   domain.usecases.import_paprika -> data.remote.scraper: fetch source image
   data.remote.scraper -> external.web: fetch HTML
   data.remote.anthropic_svc -> external.anthropic: parse recipe

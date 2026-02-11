@@ -64,7 +64,7 @@ fun RecipeDetailScreen(
     val keepScreenOn by viewModel.keepScreenOn.collectAsStateWithLifecycle()
     val volumeUnitSystem by viewModel.volumeUnitSystem.collectAsStateWithLifecycle()
     val weightUnitSystem by viewModel.weightUnitSystem.collectAsStateWithLifecycle()
-    val hasOriginalHtml by viewModel.hasOriginalHtml.collectAsStateWithLifecycle()
+    val canRegenerate by viewModel.canRegenerate.collectAsStateWithLifecycle()
     val regenerateState by viewModel.regenerateState.collectAsStateWithLifecycle()
     val regenerateModel by viewModel.regenerateModel.collectAsStateWithLifecycle()
     val regenerateThinking by viewModel.regenerateThinking.collectAsStateWithLifecycle()
@@ -160,7 +160,7 @@ fun RecipeDetailScreen(
                 onBackClick = onBackClick,
                 actions = {
                     if (recipe != null) {
-                        if (hasOriginalHtml) {
+                        if (canRegenerate) {
                             IconButton(onClick = { showRegenerateDialog = true }) {
                                 Icon(
                                     imageVector = Icons.Default.Refresh,

@@ -36,6 +36,7 @@ class RecipeRegenerateWorker @AssistedInject constructor(
         const val RESULT_NO_API_KEY = "no_api_key"
         const val RESULT_NO_ORIGINAL_HTML = "no_original_html"
 
+        const val PROGRESS_FETCHING = "fetching"
         const val PROGRESS_PARSING = "parsing"
         const val PROGRESS_SAVING = "saving"
 
@@ -75,6 +76,13 @@ class RecipeRegenerateWorker @AssistedInject constructor(
             extendedThinking = extendedThinking,
             onProgress = { progress ->
                 val progressMessage = when (progress) {
+                    is RegenerateRecipeUseCase.RegenerateProgress.FetchingFromUrl -> {
+                        setProgress(workDataOf(
+                            KEY_RECIPE_ID to recipeId,
+                            KEY_PROGRESS to PROGRESS_FETCHING
+                        ))
+                        "Fetching recipe page..."
+                    }
                     is RegenerateRecipeUseCase.RegenerateProgress.ParsingRecipe -> {
                         setProgress(workDataOf(
                             KEY_RECIPE_ID to recipeId,
