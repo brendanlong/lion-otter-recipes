@@ -530,7 +530,7 @@ app: {
       }
       firestore_svc: {
         label: FirestoreService
-        tooltip: "Handles Firebase Auth (Google Sign-In), and Firestore document operations for recipe and meal plan sync. Data stored at users/{userId}/recipes/{recipeId} and users/{userId}/mealPlans/{mealPlanId}."
+        tooltip: "Handles Firebase Auth (Google Sign-In), and Firestore document operations for recipe and meal plan sync. Data stored as structured Firestore documents with native types (Timestamps for Instants, nested maps for complex objects) at users/{userId}/recipes/{recipeId} and users/{userId}/mealPlans/{mealPlanId}."
       }
     }
 
