@@ -22,6 +22,7 @@ data class RecipeEntity(
     val equipmentJson: String = "[]",
     val tagsJson: String,
     val imageUrl: String?,
+    val sourceImageUrl: String? = null,
     val originalHtml: String?,
     val createdAt: Instant,
     val updatedAt: Instant,
@@ -46,6 +47,7 @@ data class RecipeEntity(
             equipment = equipment,
             tags = tags,
             imageUrl = imageUrl,
+            sourceImageUrl = sourceImageUrl,
             createdAt = createdAt,
             updatedAt = updatedAt,
             isFavorite = isFavorite
@@ -74,6 +76,7 @@ data class RecipeEntity(
                 equipmentJson = equipmentJson,
                 tagsJson = tagsJson,
                 imageUrl = recipe.imageUrl,
+                sourceImageUrl = recipe.sourceImageUrl,
                 originalHtml = originalHtml,
                 createdAt = recipe.createdAt,
                 updatedAt = recipe.updatedAt,

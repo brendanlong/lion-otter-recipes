@@ -11,7 +11,9 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.jvm.javaio.toInputStream
+import android.util.Base64
 import java.io.File
+import java.io.InputStream
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -114,6 +116,75 @@ class ImageDownloadService @Inject constructor(
             Log.w(TAG, "Failed to download image from $imageUrl", e)
             null
         }
+    }
+
+    /**
+     * Saves image bytes from an InputStream to local storage.
+     * Returns the local file:// URI, or null if saving fails.
+     *
+     * @param inputStream Source of image bytes
+     * @param extension File extension including the dot (e.g., ".jpg")
+     */
+    fun saveImageFromStream(inputStream: InputStream, extension: String = ".jpg"): String? {
+        return try {
+            val fileName = "${UUID.randomUUID()}$extension"
+            val imageFile = File(getImageDir(), fileName)
+
+            inputStream.use { input ->
+                imageFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+
+            if (!imageFile.exists() || imageFile.length() == 0L) {
+                Log.w(TAG, "Image file is empty after saving from stream")
+                imageFile.delete()
+                return null
+            }
+
+            val localUri = "file://${imageFile.absolutePath}"
+            Log.d(TAG, "Saved image from stream: $localUri (${imageFile.length()} bytes)")
+            localUri
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to save image from stream", e)
+            null
+        }
+    }
+
+    /**
+     * Saves base64-encoded image data to local storage.
+     * Returns the local file:// URI, or null if saving fails.
+     */
+    fun saveImageFromBase64(base64Data: String, extension: String = ".jpg"): String? {
+        return try {
+            val bytes = Base64.decode(base64Data, Base64.DEFAULT)
+            if (bytes.isEmpty()) {
+                Log.w(TAG, "Base64 image data decoded to empty bytes")
+                return null
+            }
+
+            val fileName = "${UUID.randomUUID()}$extension"
+            val imageFile = File(getImageDir(), fileName)
+            imageFile.writeBytes(bytes)
+
+            val localUri = "file://${imageFile.absolutePath}"
+            Log.d(TAG, "Saved image from base64: $localUri (${imageFile.length()} bytes)")
+            localUri
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to save image from base64", e)
+            null
+        }
+    }
+
+    /**
+     * Returns the local File for a file:// URI, or null if the URI is not a local file
+     * or the file doesn't exist.
+     */
+    fun getLocalImageFile(localUri: String): File? {
+        if (!localUri.startsWith("file://")) return null
+        val path = localUri.removePrefix("file://")
+        val file = File(path)
+        return if (file.exists() && file.parentFile?.name == IMAGE_DIR) file else null
     }
 
     /**

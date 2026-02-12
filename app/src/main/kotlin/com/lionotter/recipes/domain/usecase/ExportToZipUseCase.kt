@@ -1,6 +1,7 @@
 package com.lionotter.recipes.domain.usecase
 
 import android.util.Log
+import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.repository.MealPlanRepository
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.MealPlanEntry
@@ -19,11 +20,13 @@ import javax.inject.Inject
  * - recipe-name/recipe.json
  * - recipe-name/original.html (if available)
  * - recipe-name/recipe.md
+ * - recipe-name/image.* (recipe image, if available)
  */
 class ExportToZipUseCase @Inject constructor(
     private val recipeRepository: RecipeRepository,
     private val recipeSerializer: RecipeSerializer,
     private val mealPlanRepository: MealPlanRepository,
+    private val imageDownloadService: ImageDownloadService,
     private val json: Json
 ) {
     companion object {
@@ -95,6 +98,17 @@ class ExportToZipUseCase @Inject constructor(
                         zipOut.putNextEntry(ZipEntry("$prefix/${RecipeSerializer.RECIPE_MARKDOWN_FILENAME}"))
                         zipOut.write(files.recipeMarkdown.toByteArray(Charsets.UTF_8))
                         zipOut.closeEntry()
+
+                        // Write image file (if available)
+                        if (recipe.imageUrl != null) {
+                            val imageFile = imageDownloadService.getLocalImageFile(recipe.imageUrl)
+                            if (imageFile != null) {
+                                val imageName = "${RecipeSerializer.IMAGE_FILENAME_PREFIX}${imageFile.extension.let { ".$it" }}"
+                                zipOut.putNextEntry(ZipEntry("$prefix/$imageName"))
+                                imageFile.inputStream().use { it.copyTo(zipOut) }
+                                zipOut.closeEntry()
+                            }
+                        }
 
                         exportedCount++
                     } catch (e: Exception) {

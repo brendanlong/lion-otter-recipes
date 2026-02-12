@@ -7,6 +7,7 @@ import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import kotlinx.datetime.Clock
 import kotlinx.serialization.json.Json
+import java.io.ByteArrayInputStream
 import java.io.InputStream
 import java.util.zip.ZipInputStream
 import javax.inject.Inject
@@ -42,14 +43,25 @@ class ZipImportHelper @Inject constructor(
     }
 
     /**
-     * Reads all entries from a ZIP input stream into a folder-grouped map.
-     * Each top-level folder becomes a key, and its files become a nested map
-     * of filename to content.
-     *
-     * @return map of folder name to (filename to content), or null if reading fails
+     * Contents read from a ZIP file, with text files and binary image data separated.
      */
-    fun readZipContents(inputStream: InputStream): Map<String, Map<String, String>>? {
-        val folderContents = mutableMapOf<String, MutableMap<String, String>>()
+    data class ZipContents(
+        /** Map of folder name to (filename to text content) for text files */
+        val textFiles: Map<String, Map<String, String>>,
+        /** Map of folder name to (filename to raw bytes) for image files */
+        val imageFiles: Map<String, Map<String, ByteArray>>
+    )
+
+    /**
+     * Reads all entries from a ZIP input stream into a folder-grouped structure.
+     * Text files (json, html, md) are stored as strings.
+     * Image files are stored as raw bytes for later saving.
+     *
+     * @return [ZipContents] with text and image files, or null if reading fails
+     */
+    fun readZipContents(inputStream: InputStream): ZipContents? {
+        val textContents = mutableMapOf<String, MutableMap<String, String>>()
+        val imageContents = mutableMapOf<String, MutableMap<String, ByteArray>>()
 
         try {
             ZipInputStream(inputStream).use { zipIn ->
@@ -60,8 +72,15 @@ class ZipImportHelper @Inject constructor(
                         if (pathParts.size == 2) {
                             val folderName = pathParts[0]
                             val fileName = pathParts[1]
-                            val content = zipIn.readBytes().toString(Charsets.UTF_8)
-                            folderContents.getOrPut(folderName) { mutableMapOf() }[fileName] = content
+                            val isImage = isImageFile(fileName)
+
+                            if (isImage) {
+                                val bytes = zipIn.readBytes()
+                                imageContents.getOrPut(folderName) { mutableMapOf() }[fileName] = bytes
+                            } else {
+                                val content = zipIn.readBytes().toString(Charsets.UTF_8)
+                                textContents.getOrPut(folderName) { mutableMapOf() }[fileName] = content
+                            }
                         }
                     }
                     zipIn.closeEntry()
@@ -73,19 +92,24 @@ class ZipImportHelper @Inject constructor(
             return null
         }
 
-        return folderContents.ifEmpty { null }
+        if (textContents.isEmpty() && imageContents.isEmpty()) return null
+        return ZipContents(textContents, imageContents)
     }
 
     /**
      * Imports a single recipe from its folder files.
      *
-     * Handles deserialization, duplicate checking (by ID), image downloading,
-     * and saving to the repository.
+     * Handles deserialization, duplicate checking (by ID), image importing
+     * (from bundled image or download), and saving to the repository.
      *
-     * @param files map of filename to content for a single recipe folder
+     * @param files map of filename to content for a single recipe folder (text files)
+     * @param imageFiles map of filename to bytes for image files in the folder (may be empty)
      * @return the result of the import attempt
      */
-    suspend fun importRecipe(files: Map<String, String>): SingleRecipeResult {
+    suspend fun importRecipe(
+        files: Map<String, String>,
+        imageFiles: Map<String, ByteArray> = emptyMap()
+    ): SingleRecipeResult {
         val jsonContent = files[RecipeSerializer.RECIPE_JSON_FILENAME]
             ?: return SingleRecipeResult.NoJson
 
@@ -97,9 +121,12 @@ class ZipImportHelper @Inject constructor(
                 return SingleRecipeResult.Skipped(recipe.id)
             }
 
+            // Try to use bundled image from the ZIP first, then fall back to download
+            val localImageUrl = importImageFromZipOrDownload(imageFiles, recipe.imageUrl, recipe.sourceImageUrl)
+
             val importedRecipe = recipe.copy(
                 updatedAt = Clock.System.now(),
-                imageUrl = imageDownloadService.downloadImageIfNeeded(recipe.imageUrl)
+                imageUrl = localImageUrl
             )
             val originalHtml = files[RecipeSerializer.RECIPE_HTML_FILENAME]
             recipeRepository.saveRecipe(importedRecipe, originalHtml)
@@ -139,5 +166,41 @@ class ZipImportHelper @Inject constructor(
         }
 
         return Pair(imported, skipped)
+    }
+
+    /**
+     * Tries to import an image from bundled ZIP data, falling back to downloading
+     * from the source image URL or the stored image URL.
+     */
+    private suspend fun importImageFromZipOrDownload(
+        imageFiles: Map<String, ByteArray>,
+        imageUrl: String?,
+        sourceImageUrl: String?
+    ): String? {
+        // 1. Try bundled image from the ZIP export
+        val bundledImage = imageFiles.entries.firstOrNull { isImageFile(it.key) }
+        if (bundledImage != null) {
+            val extension = ".${bundledImage.key.substringAfterLast('.', "jpg")}"
+            val localUri = imageDownloadService.saveImageFromStream(
+                ByteArrayInputStream(bundledImage.value),
+                extension
+            )
+            if (localUri != null) return localUri
+        }
+
+        // 2. Try downloading from the source image URL (original remote URL)
+        if (!sourceImageUrl.isNullOrBlank()) {
+            val localUri = imageDownloadService.downloadAndStore(sourceImageUrl)
+            if (localUri != null) return localUri
+        }
+
+        // 3. Fall back to the stored imageUrl (may be a file:// URI that doesn't exist,
+        //    or a remote URL that can be downloaded)
+        return imageDownloadService.downloadImageIfNeeded(imageUrl)
+    }
+
+    private fun isImageFile(fileName: String): Boolean {
+        val lower = fileName.lowercase()
+        return RecipeSerializer.IMAGE_EXTENSIONS.any { lower.endsWith(it) }
     }
 }

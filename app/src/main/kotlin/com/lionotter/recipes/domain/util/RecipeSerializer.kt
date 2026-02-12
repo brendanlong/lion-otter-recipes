@@ -11,6 +11,7 @@ import javax.inject.Inject
  * - recipe.json: The structured recipe data
  * - original.html: The original HTML page (if available)
  * - recipe.md: A human-readable Markdown version
+ * - image.* (jpg/png/webp/gif): The recipe image (if available)
  *
  * This is used by ZIP export/import to ensure a consistent format.
  */
@@ -21,6 +22,8 @@ class RecipeSerializer @Inject constructor(
         const val RECIPE_JSON_FILENAME = "recipe.json"
         const val RECIPE_HTML_FILENAME = "original.html"
         const val RECIPE_MARKDOWN_FILENAME = "recipe.md"
+        const val IMAGE_FILENAME_PREFIX = "image"
+        val IMAGE_EXTENSIONS = setOf(".jpg", ".jpeg", ".png", ".webp", ".gif")
     }
 
     /**

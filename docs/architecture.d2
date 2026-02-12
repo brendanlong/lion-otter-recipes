@@ -291,19 +291,19 @@ app: {
       }
       import_paprika: {
         label: ImportPaprikaUseCase
-        tooltip: "Imports recipes from Paprika export (.paprikarecipes). Parses export, sends recipe content through ParseHtmlUseCase.parseText(), resolves images from Paprika data or source page. Supports cooperative cancellation — checks coroutine state between recipes and preserves already-imported recipes on cancel."
+        tooltip: "Imports recipes from Paprika export (.paprikarecipes). Parses export, sends recipe content through ParseHtmlUseCase.parseText(). Resolves images by priority: base64 photo_data (saved directly to local storage), image_url, or og:image from source page. Supports cooperative cancellation — checks coroutine state between recipes and preserves already-imported recipes on cancel."
       }
       sync_firestore: {
         label: FirestoreSyncUseCase
-        tooltip: "Bidirectional sync: compares local vs remote recipes, uploads new, downloads new, updates changed (latest timestamp wins), deletes remote recipes that were soft-deleted locally. Runs via WorkManager on startup and periodically."
+        tooltip: "Bidirectional sync: compares local vs remote recipes, uploads new, downloads new, updates changed (latest timestamp wins), deletes remote recipes that were soft-deleted locally. Runs via WorkManager on startup and periodically. Uses sourceImageUrl for cross-device image re-download when local file:// URIs aren't available."
       }
       export_zip: {
         label: ExportToZipUseCase
-        tooltip: "Exports all recipes to a ZIP file using RecipeSerializer."
+        tooltip: "Exports all recipes to a ZIP file using RecipeSerializer. Includes recipe images as binary files in each recipe folder."
       }
       export_single: {
         label: ExportSingleRecipeUseCase
-        tooltip: "Exports a single recipe to a .lorecipes file (ZIP format) for sharing. Uses RecipeSerializer for consistent format."
+        tooltip: "Exports a single recipe to a .lorecipes file (ZIP format) for sharing. Uses RecipeSerializer for consistent format. Includes recipe image if available."
       }
       import_zip: {
         label: ImportFromZipUseCase
@@ -343,11 +343,11 @@ app: {
       }
       serializer: {
         label: RecipeSerializer
-        tooltip: "Shared logic for serializing/deserializing recipes in the standard folder export format (recipe.json + original.html + recipe.md). Used by ZIP export/import."
+        tooltip: "Shared logic for serializing/deserializing recipes in the standard folder export format (recipe.json + original.html + recipe.md + image.*). Used by ZIP export/import."
       }
       zip_import_helper: {
         label: ZipImportHelper
-        tooltip: "Shared helper for importing recipes and meal plans from ZIP files. Consolidates ZIP reading, recipe import (deserialize, deduplicate, download image, save), and meal plan import logic. Used by ImportFromZipUseCase and ImportSelectionViewModel."
+        tooltip: "Shared helper for importing recipes and meal plans from ZIP files. Consolidates ZIP reading (text + image files), recipe import (deserialize, deduplicate, import bundled image or download, save), and meal plan import logic. Used by ImportFromZipUseCase and ImportSelectionViewModel."
       }
       serializer -> markdown: format
       zip_import_helper -> serializer: deserialize
@@ -361,7 +361,7 @@ app: {
 
       recipe: {
         label: Recipe
-        tooltip: "@Immutable. Fields: id, name, sourceUrl, story, servings, times, ingredients, instructions, equipment, tags, imageUrl (local file:// URI), timestamps, isFavorite"
+        tooltip: "@Immutable. Fields: id, name, sourceUrl, story, servings, times, ingredients, instructions, equipment, tags, imageUrl (local file:// URI), sourceImageUrl (original remote URL for cross-device sync), timestamps, isFavorite"
       }
       ingredient: {
         label: Ingredient
@@ -410,7 +410,10 @@ app: {
     usecases.regenerate -> usecases.parse_html: uses
     usecases.parse_html -> data.repository.import_debug_repo: save debug data
     usecases.export_zip -> util.serializer: serialize
+    usecases.export_zip -> data.remote.image_dl: read local images
     usecases.export_single -> util.serializer: serialize
+    usecases.export_single -> data.remote.image_dl: read local images
+    usecases.import_paprika -> data.remote.image_dl: save base64 images
     usecases.import_zip -> util.zip_import_helper: import
   }
 
@@ -526,7 +529,7 @@ app: {
       }
       image_dl: {
         label: ImageDownloadService
-        tooltip: "Downloads recipe images from remote URLs and stores them locally in app internal storage. Returns file:// URIs for local access. Used during import, sync, and ZIP restore to ensure images are available offline."
+        tooltip: "Downloads recipe images from remote URLs and stores them locally in app internal storage. Also supports saving images from byte streams (ZIP import) and base64 data (Paprika photo_data). Returns file:// URIs for local access. Used during import, export, sync, and ZIP restore to ensure images are available offline."
       }
       firestore_svc: {
         label: FirestoreService
