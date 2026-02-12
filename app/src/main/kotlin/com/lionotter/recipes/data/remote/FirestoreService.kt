@@ -124,8 +124,8 @@ class FirestoreService @Inject constructor(
             auth.signOut()
             try {
                 credentialManager.clearCredentialState(ClearCredentialStateRequest())
-            } catch (_: Exception) {
-                // Best-effort clear
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to clear credential state during sign-out", e)
             }
         }
     }

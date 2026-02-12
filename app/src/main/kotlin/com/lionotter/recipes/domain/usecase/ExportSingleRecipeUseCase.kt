@@ -1,5 +1,6 @@
 package com.lionotter.recipes.domain.usecase
 
+import android.util.Log
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.util.RecipeSerializer
@@ -22,6 +23,9 @@ class ExportSingleRecipeUseCase @Inject constructor(
     private val recipeRepository: RecipeRepository,
     private val recipeSerializer: RecipeSerializer
 ) {
+    companion object {
+        private const val TAG = "ExportSingleRecipe"
+    }
     sealed class ExportResult {
         data class Success(val fileName: String) : ExportResult()
         data class Error(val message: String) : ExportResult()
@@ -61,6 +65,7 @@ class ExportSingleRecipeUseCase @Inject constructor(
             val fileName = "${recipeSerializer.sanitizeFolderName(recipe.name)}.lorecipes"
             ExportResult.Success(fileName)
         } catch (e: Exception) {
+            Log.e(TAG, "Failed to export recipe: ${recipe.name}", e)
             ExportResult.Error("Failed to export recipe: ${e.message}")
         }
     }

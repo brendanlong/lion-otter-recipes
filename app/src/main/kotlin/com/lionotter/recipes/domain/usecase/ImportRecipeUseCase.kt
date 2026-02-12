@@ -1,5 +1,6 @@
 package com.lionotter.recipes.domain.usecase
 
+import android.util.Log
 import com.lionotter.recipes.data.remote.WebScraperService
 import com.lionotter.recipes.domain.model.Recipe
 import kotlinx.coroutines.ensureActive
@@ -108,7 +109,12 @@ class ImportRecipeUseCase @Inject constructor(
                 ?.takeIf { it.isNotBlank() }
                 ?: doc.title().takeIf { it.isNotBlank() }
         } catch (e: Exception) {
+            Log.w(TAG, "Failed to extract page title from HTML", e)
             null
         }
+    }
+
+    companion object {
+        private const val TAG = "ImportRecipeUseCase"
     }
 }

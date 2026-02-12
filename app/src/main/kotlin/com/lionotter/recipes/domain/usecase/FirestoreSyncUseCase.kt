@@ -36,7 +36,8 @@ class FirestoreSyncUseCase @Inject constructor(
             val uploaded: Int,
             val downloaded: Int,
             val updated: Int,
-            val deleted: Int
+            val deleted: Int,
+            val errors: Int = 0
         ) : SyncResult()
 
         data class Error(val message: String) : SyncResult()
@@ -129,6 +130,7 @@ class FirestoreSyncUseCase @Inject constructor(
 
         // Download new remote recipes
         val downloadList = toDownload.mapNotNull { remoteRecipeMap[it] }
+        var downloadErrors = 0
         downloadList.forEachIndexed { index, remoteRecipe ->
             onProgress(SyncProgress.Downloading(remoteRecipe.recipe.name, index + 1, downloadList.size))
             try {
@@ -138,12 +140,14 @@ class FirestoreSyncUseCase @Inject constructor(
                 recipeRepository.saveRecipe(recipeWithLocalImage, remoteRecipe.originalHtml)
                 downloaded++
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to save downloaded recipe ${remoteRecipe.recipe.name}", e)
+                Log.e(TAG, "Failed to save downloaded recipe ${remoteRecipe.recipe.name}", e)
+                downloadErrors++
             }
         }
 
         // Handle recipes that exist on both sides - update if needed
         val updateList = onBoth.toList()
+        var updateErrors = 0
         updateList.forEachIndexed { index, recipeId ->
             val localRecipe = localRecipeMap[recipeId] ?: return@forEachIndexed
             val remoteRecipe = remoteRecipeMap[recipeId] ?: return@forEachIndexed
@@ -166,7 +170,8 @@ class FirestoreSyncUseCase @Inject constructor(
                     recipeRepository.saveRecipe(recipeWithLocalImage, remoteRecipe.originalHtml)
                     updated++
                 } catch (e: Exception) {
-                    Log.w(TAG, "Failed to update local recipe ${localRecipe.name}", e)
+                    Log.e(TAG, "Failed to update local recipe ${localRecipe.name}", e)
+                    updateErrors++
                 }
             }
             // If equal timestamps, no update needed
@@ -189,19 +194,30 @@ class FirestoreSyncUseCase @Inject constructor(
 
         // Sync meal plans
         val mealPlanResult = syncMealPlansUseCase.sync()
-        uploaded += mealPlanResult.uploaded
-        downloaded += mealPlanResult.downloaded
-        updated += mealPlanResult.updated
-        deleted += mealPlanResult.deleted
+        var mealPlanErrors = 0
+        when (mealPlanResult) {
+            is FirestoreMealPlanSyncUseCase.SyncResult.Success -> {
+                uploaded += mealPlanResult.uploaded
+                downloaded += mealPlanResult.downloaded
+                updated += mealPlanResult.updated
+                deleted += mealPlanResult.deleted
+            }
+            is FirestoreMealPlanSyncUseCase.SyncResult.Error -> {
+                Log.e(TAG, "Meal plan sync failed: ${mealPlanResult.message}")
+                mealPlanErrors = 1
+            }
+        }
 
         // Update last sync timestamp
         settingsDataStore.setFirebaseLastSyncTimestamp(Clock.System.now().toString())
 
+        val totalErrors = downloadErrors + updateErrors + mealPlanErrors
         val result = SyncResult.Success(
             uploaded = uploaded,
             downloaded = downloaded,
             updated = updated,
-            deleted = deleted
+            deleted = deleted,
+            errors = totalErrors
         )
         onProgress(SyncProgress.Complete(result))
         return result

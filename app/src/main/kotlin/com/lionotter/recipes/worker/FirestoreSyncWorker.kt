@@ -28,6 +28,7 @@ class FirestoreSyncWorker @AssistedInject constructor(
         const val KEY_DOWNLOADED_COUNT = "downloaded_count"
         const val KEY_UPDATED_COUNT = "updated_count"
         const val KEY_DELETED_COUNT = "deleted_count"
+        const val KEY_ERROR_COUNT = "error_count"
         const val KEY_ERROR_MESSAGE = "error_message"
         const val KEY_PROGRESS = "progress"
         const val KEY_CURRENT = "current"
@@ -113,7 +114,8 @@ class FirestoreSyncWorker @AssistedInject constructor(
                     uploaded = result.uploaded,
                     downloaded = result.downloaded,
                     updated = result.updated,
-                    deleted = result.deleted
+                    deleted = result.deleted,
+                    errors = result.errors
                 )
                 Result.success(
                     workDataOf(
@@ -121,7 +123,8 @@ class FirestoreSyncWorker @AssistedInject constructor(
                         KEY_UPLOADED_COUNT to result.uploaded,
                         KEY_DOWNLOADED_COUNT to result.downloaded,
                         KEY_UPDATED_COUNT to result.updated,
-                        KEY_DELETED_COUNT to result.deleted
+                        KEY_DELETED_COUNT to result.deleted,
+                        KEY_ERROR_COUNT to result.errors
                     )
                 )
             }
