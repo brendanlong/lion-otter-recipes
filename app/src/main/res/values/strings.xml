@@ -17,6 +17,10 @@
     <!-- Delete Confirmation Dialog -->
     <string name="delete_recipe">Delete Recipe</string>
     <string name="delete_recipe_confirmation">Are you sure you want to delete \"%1$s\"? This action cannot be undone.</string>
+    <plurals name="delete_recipe_meal_plan_warning">
+        <item quantity="one">This will also remove %1$d meal plan entry using this recipe.</item>
+        <item quantity="other">This will also remove %1$d meal plan entries using this recipe.</item>
+    </plurals>
 
     <!-- Recipe List Screen -->
     <string name="add_recipe">Add recipe</string>
