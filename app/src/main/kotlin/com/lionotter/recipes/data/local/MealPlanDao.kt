@@ -46,4 +46,10 @@ interface MealPlanDao {
 
     @Query("SELECT * FROM meal_plans WHERE date BETWEEN :startDate AND :endDate AND deleted = 0 ORDER BY date ASC, mealType ASC, recipeName ASC")
     suspend fun getMealPlansForDateRangeOnce(startDate: String, endDate: String): List<MealPlanEntity>
+
+    @Query("SELECT COUNT(*) FROM meal_plans WHERE recipeId = :recipeId AND deleted = 0")
+    suspend fun countMealPlansByRecipeId(recipeId: String): Int
+
+    @Query("UPDATE meal_plans SET deleted = 1, updatedAt = :updatedAt WHERE recipeId = :recipeId AND deleted = 0")
+    suspend fun softDeleteMealPlansByRecipeId(recipeId: String, updatedAt: Instant)
 }

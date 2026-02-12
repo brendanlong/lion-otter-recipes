@@ -4,19 +4,34 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.lionotter.recipes.R
 
 @Composable
 fun DeleteConfirmationDialog(
     recipeName: String,
+    affectedMealPlanCount: Int = 0,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val message = buildString {
+        append(stringResource(R.string.delete_recipe_confirmation, recipeName))
+        if (affectedMealPlanCount > 0) {
+            append("\n\n")
+            append(
+                pluralStringResource(
+                    R.plurals.delete_recipe_meal_plan_warning,
+                    affectedMealPlanCount,
+                    affectedMealPlanCount
+                )
+            )
+        }
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.delete_recipe)) },
-        text = { Text(stringResource(R.string.delete_recipe_confirmation, recipeName)) },
+        text = { Text(message) },
         confirmButton = {
             TextButton(onClick = onConfirm) {
                 Text(stringResource(R.string.delete))

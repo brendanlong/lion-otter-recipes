@@ -78,4 +78,19 @@ class MealPlanRepository @Inject constructor(
     suspend fun saveMealPlanFromSync(entry: MealPlanEntry) {
         mealPlanDao.insertMealPlan(MealPlanEntity.fromMealPlanEntry(entry))
     }
+
+    /**
+     * Count non-deleted meal plan entries that reference the given recipe.
+     */
+    suspend fun countMealPlansByRecipeId(recipeId: String): Int {
+        return mealPlanDao.countMealPlansByRecipeId(recipeId)
+    }
+
+    /**
+     * Soft-delete all meal plan entries that reference the given recipe.
+     */
+    suspend fun softDeleteMealPlansByRecipeId(recipeId: String) {
+        val now = Clock.System.now()
+        mealPlanDao.softDeleteMealPlansByRecipeId(recipeId, updatedAt = now)
+    }
 }

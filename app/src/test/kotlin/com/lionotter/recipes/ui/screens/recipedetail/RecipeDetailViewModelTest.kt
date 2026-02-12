@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.work.WorkManager
 import app.cash.turbine.test
 import com.lionotter.recipes.data.local.SettingsDataStore
+import com.lionotter.recipes.data.repository.MealPlanRepository
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.Amount
 import com.lionotter.recipes.domain.model.Ingredient
@@ -16,6 +17,7 @@ import com.lionotter.recipes.domain.model.createInstructionIngredientKey
 import com.lionotter.recipes.domain.usecase.CalculateIngredientUsageUseCase
 import com.lionotter.recipes.domain.usecase.ExportSingleRecipeUseCase
 import com.lionotter.recipes.domain.util.RecipeSerializer
+import com.lionotter.recipes.worker.MealPlanSyncTrigger
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -43,6 +45,8 @@ class RecipeDetailViewModelTest {
 
     private lateinit var savedStateHandle: SavedStateHandle
     private lateinit var recipeRepository: RecipeRepository
+    private lateinit var mealPlanRepository: MealPlanRepository
+    private lateinit var mealPlanSyncTrigger: MealPlanSyncTrigger
     private lateinit var settingsDataStore: SettingsDataStore
     private lateinit var workManager: WorkManager
     private lateinit var viewModel: RecipeDetailViewModel
@@ -67,6 +71,8 @@ class RecipeDetailViewModelTest {
         Dispatchers.setMain(testDispatcher)
         savedStateHandle = SavedStateHandle(mapOf("recipeId" to "recipe-1"))
         recipeRepository = mockk()
+        mealPlanRepository = mockk()
+        mealPlanSyncTrigger = mockk(relaxed = true)
         settingsDataStore = mockk()
         workManager = mockk()
 
@@ -90,6 +96,8 @@ class RecipeDetailViewModelTest {
         return RecipeDetailViewModel(
             savedStateHandle = savedStateHandle,
             recipeRepository = recipeRepository,
+            mealPlanRepository = mealPlanRepository,
+            mealPlanSyncTrigger = mealPlanSyncTrigger,
             settingsDataStore = settingsDataStore,
             calculateIngredientUsage = CalculateIngredientUsageUseCase(),
             workManager = workManager,
@@ -324,6 +332,7 @@ class RecipeDetailViewModelTest {
 
     @Test
     fun `deleteRecipe calls repository and emits event`() = runTest {
+        coEvery { mealPlanRepository.softDeleteMealPlansByRecipeId("recipe-1") } just runs
         coEvery { recipeRepository.deleteRecipe("recipe-1") } just runs
 
         viewModel = createViewModel()
@@ -336,6 +345,7 @@ class RecipeDetailViewModelTest {
             cancelAndIgnoreRemainingEvents()
         }
 
+        coVerify { mealPlanRepository.softDeleteMealPlansByRecipeId("recipe-1") }
         coVerify { recipeRepository.deleteRecipe("recipe-1") }
     }
 

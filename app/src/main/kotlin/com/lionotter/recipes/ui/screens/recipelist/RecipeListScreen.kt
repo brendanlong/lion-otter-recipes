@@ -81,6 +81,17 @@ fun RecipeListScreen(
 
     // State for delete confirmation dialog
     var recipeToDelete by remember { mutableStateOf<Recipe?>(null) }
+    var affectedMealPlanCount by remember { mutableStateOf(0) }
+
+    // Load affected meal plan count when a recipe is selected for deletion
+    LaunchedEffect(recipeToDelete) {
+        val recipe = recipeToDelete
+        affectedMealPlanCount = if (recipe != null) {
+            viewModel.getAffectedMealPlanCount(recipe.id)
+        } else {
+            0
+        }
+    }
 
     // State for cancel import confirmation dialog
     var importToCancel by remember { mutableStateOf<InProgressRecipe?>(null) }
@@ -89,6 +100,7 @@ fun RecipeListScreen(
     recipeToDelete?.let { recipe ->
         DeleteConfirmationDialog(
             recipeName = recipe.name,
+            affectedMealPlanCount = affectedMealPlanCount,
             onConfirm = {
                 viewModel.deleteRecipe(recipe.id)
                 recipeToDelete = null

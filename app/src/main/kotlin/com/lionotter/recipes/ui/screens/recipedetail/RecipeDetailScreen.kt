@@ -79,8 +79,16 @@ fun RecipeDetailScreen(
     }
 
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var affectedMealPlanCount by remember { mutableStateOf(0) }
     var showRegenerateDialog by remember { mutableStateOf(false) }
     var showShareMenu by remember { mutableStateOf(false) }
+
+    // Load affected meal plan count when delete dialog is shown
+    LaunchedEffect(showDeleteDialog) {
+        if (showDeleteDialog) {
+            affectedMealPlanCount = viewModel.getAffectedMealPlanCount()
+        }
+    }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val regenerateSuccessMessage = stringResource(R.string.regenerate_success)
@@ -127,6 +135,7 @@ fun RecipeDetailScreen(
     if (showDeleteDialog && recipe != null) {
         DeleteConfirmationDialog(
             recipeName = recipe!!.name,
+            affectedMealPlanCount = affectedMealPlanCount,
             onConfirm = {
                 showDeleteDialog = false
                 viewModel.deleteRecipe()

@@ -595,8 +595,10 @@ app: {
 
   # Connections within app
   ui.viewmodels.list_vm -> data.repository.repo: recipes, delete
+  ui.viewmodels.list_vm -> data.repository.meal_plan_repo: cascade delete meal plans
   ui.viewmodels.list_vm -> domain.usecases.tags: top tags
   ui.viewmodels.detail_vm -> data.repository.repo: recipe, delete, favorite
+  ui.viewmodels.detail_vm -> data.repository.meal_plan_repo: cascade delete meal plans
   ui.viewmodels.detail_vm -> domain.usecases.calc_usage: ingredient usage
   ui.viewmodels.detail_vm -> domain.usecases.export_single: export .lorecipes
   ui.viewmodels.detail_vm -> data.local.settings: keep screen on, unit prefs
