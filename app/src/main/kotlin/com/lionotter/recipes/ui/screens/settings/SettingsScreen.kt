@@ -55,8 +55,7 @@ fun SettingsScreen(
     val saveState by viewModel.saveState.collectAsStateWithLifecycle()
     val syncUiState by firebaseSyncViewModel.uiState.collectAsStateWithLifecycle()
     val syncEnabled by firebaseSyncViewModel.syncEnabled.collectAsStateWithLifecycle()
-    val lastSyncTimestamp by firebaseSyncViewModel.lastSyncTimestamp.collectAsStateWithLifecycle()
-    val operationState by firebaseSyncViewModel.operationState.collectAsStateWithLifecycle()
+    val isGoogleSignedIn by firebaseSyncViewModel.isGoogleSignedIn.collectAsStateWithLifecycle()
     val zipOperationState by zipViewModel.operationState.collectAsStateWithLifecycle()
     val volumeUnitSystem by viewModel.volumeUnitSystem.collectAsStateWithLifecycle()
     val weightUnitSystem by viewModel.weightUnitSystem.collectAsStateWithLifecycle()
@@ -205,13 +204,15 @@ fun SettingsScreen(
             FirebaseSyncSection(
                 uiState = syncUiState,
                 syncEnabled = syncEnabled,
-                lastSyncTimestamp = lastSyncTimestamp,
-                operationState = operationState,
+                isGoogleSignedIn = isGoogleSignedIn,
+                exportState = zipOperationState,
                 onSignInClick = firebaseSyncViewModel::signIn,
                 onSignOutClick = firebaseSyncViewModel::signOut,
+                onExportClick = {
+                    exportLauncher.launch("lion-otter-recipes.lorecipes")
+                },
                 onEnableSyncClick = firebaseSyncViewModel::enableSync,
                 onDisableSyncClick = firebaseSyncViewModel::disableSync,
-                onSyncNowClick = firebaseSyncViewModel::triggerSync
             )
 
             HorizontalDivider()

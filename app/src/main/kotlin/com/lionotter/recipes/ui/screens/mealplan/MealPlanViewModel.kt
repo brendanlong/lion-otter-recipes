@@ -10,7 +10,6 @@ import com.lionotter.recipes.domain.model.MealType
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.usecase.GetTagsUseCase
-import com.lionotter.recipes.worker.MealPlanSyncTrigger
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -36,7 +35,6 @@ class MealPlanViewModel @Inject constructor(
     private val mealPlanRepository: MealPlanRepository,
     private val recipeRepository: RecipeRepository,
     private val getTagsUseCase: GetTagsUseCase,
-    private val mealPlanSyncTrigger: MealPlanSyncTrigger,
     settingsDataStore: SettingsDataStore
 ) : ViewModel() {
 
@@ -227,7 +225,7 @@ class MealPlanViewModel @Inject constructor(
             }
             _showAddDialog.value = false
             _editingEntry.value = null
-            mealPlanSyncTrigger.triggerIncrementalSync()
+
         }
     }
 
@@ -247,14 +245,14 @@ class MealPlanViewModel @Inject constructor(
             mealPlanRepository.updateMealPlan(updated)
             _showAddDialog.value = false
             _editingEntry.value = null
-            mealPlanSyncTrigger.triggerIncrementalSync()
+
         }
     }
 
     fun deleteMealPlan(entryId: String) {
         viewModelScope.launch {
             mealPlanRepository.deleteMealPlan(entryId)
-            mealPlanSyncTrigger.triggerIncrementalSync()
+
         }
     }
 

@@ -36,7 +36,6 @@ class SettingsDataStore @Inject constructor(
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val FIREBASE_SYNC_ENABLED = booleanPreferencesKey("firebase_sync_enabled")
-        val FIREBASE_LAST_SYNC_TIMESTAMP = stringPreferencesKey("firebase_last_sync_timestamp")
         val IMPORT_DEBUGGING_ENABLED = booleanPreferencesKey("import_debugging_enabled")
         val VOLUME_UNIT_SYSTEM = stringPreferencesKey("volume_unit_system")
         val WEIGHT_UNIT_SYSTEM = stringPreferencesKey("weight_unit_system")
@@ -92,10 +91,6 @@ class SettingsDataStore @Inject constructor(
 
     val firebaseSyncEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[Keys.FIREBASE_SYNC_ENABLED] ?: false
-    }
-
-    val firebaseLastSyncTimestamp: Flow<String?> = context.dataStore.data.map { preferences ->
-        preferences[Keys.FIREBASE_LAST_SYNC_TIMESTAMP]
     }
 
     val volumeUnitSystem: Flow<UnitSystem> = context.dataStore.data.map { preferences ->
@@ -210,19 +205,6 @@ class SettingsDataStore @Inject constructor(
     suspend fun setFirebaseSyncEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[Keys.FIREBASE_SYNC_ENABLED] = enabled
-        }
-    }
-
-    suspend fun setFirebaseLastSyncTimestamp(timestamp: String) {
-        context.dataStore.edit { preferences ->
-            preferences[Keys.FIREBASE_LAST_SYNC_TIMESTAMP] = timestamp
-        }
-    }
-
-    suspend fun clearFirebaseSyncSettings() {
-        context.dataStore.edit { preferences ->
-            preferences.remove(Keys.FIREBASE_SYNC_ENABLED)
-            preferences.remove(Keys.FIREBASE_LAST_SYNC_TIMESTAMP)
         }
     }
 

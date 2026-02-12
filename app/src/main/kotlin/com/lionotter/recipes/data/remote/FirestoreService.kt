@@ -2,6 +2,7 @@ package com.lionotter.recipes.data.remote
 
 import android.content.Context
 import android.util.Log
+import androidx.core.content.edit
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
@@ -14,8 +15,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.ListenerRegistration
-import com.google.firebase.firestore.SetOptions
+import com.google.firebase.firestore.Source
 import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.Amount
 import com.lionotter.recipes.domain.model.Ingredient
@@ -28,24 +28,33 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Service for interacting with Firebase Firestore for recipe and meal plan sync.
- * Uses Firebase Auth with Google Sign-In via Credential Manager for authentication.
+ * Firestore-first storage service. All recipe and meal plan data lives in Firestore,
+ * with offline persistence handled by the Firestore SDK's built-in cache.
  *
- * Data is stored as structured Firestore documents with native types:
- * - Instants are stored as Firestore Timestamps
- * - Nested objects (ingredients, instructions) are stored as nested maps/lists
- * - Enums are stored as strings
+ * Authentication flow:
+ * - On startup, uses a locally-generated UUID as user ID with network disabled (local-only mode)
+ * - No Firebase Auth is used until the user signs in with Google
+ * - Users can sign in with Google Auth, which enables network access for cross-device sync
+ * - Signing out copies data to a new local user, then signs out of Google
+ * - Local-only users always have network disabled
  *
- * Firestore data structure:
+ * Data structure:
  *   users/{userId}/recipes/{recipeId} - Recipe documents
  *   users/{userId}/mealPlans/{mealPlanId} - Meal plan documents
  */
@@ -59,21 +68,99 @@ class FirestoreService @Inject constructor(
         private const val COLLECTION_RECIPES = "recipes"
         private const val COLLECTION_MEAL_PLANS = "mealPlans"
         private const val FIELD_UPDATED_AT = "updatedAt"
-        private const val FIELD_DELETED = "deleted"
+        private const val PREFS_NAME = "firestore_user"
+        private const val KEY_LOCAL_USER_ID = "local_user_id"
+        private const val GET_TIMEOUT_MS = 10_000L
     }
 
     private val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
     private val firestore: FirebaseFirestore by lazy { FirebaseFirestore.getInstance() }
     private val credentialManager: CredentialManager by lazy { CredentialManager.create(context) }
 
-    private var snapshotListeners = mutableListOf<ListenerRegistration>()
+    /**
+     * Whether the current user is signed in with Google (not anonymous).
+     */
+    private val _isGoogleSignedIn = MutableStateFlow(false)
+    val isGoogleSignedIn: StateFlow<Boolean> = _isGoogleSignedIn.asStateFlow()
+
+    /**
+     * Current user ID. Always non-null after [ensureUser] has been called.
+     */
+    private val _currentUserId = MutableStateFlow<String?>(null)
+    val currentUserId: StateFlow<String?> = _currentUserId.asStateFlow()
+
+    /**
+     * Whether Firestore network access is currently enabled.
+     */
+    private val _networkEnabled = MutableStateFlow(false)
+    val networkEnabled: StateFlow<Boolean> = _networkEnabled.asStateFlow()
+
+    /**
+     * Ensures a user ID is available for Firestore operations.
+     * If signed in with Google, uses the Firebase Auth UID.
+     * Otherwise, uses a locally-generated UUID (no Firebase Auth needed).
+     * Network is disabled by default and only enabled for Google-signed-in users with sync on.
+     */
+    suspend fun ensureUser() {
+        withContext(Dispatchers.IO) {
+            val currentUser = auth.currentUser
+            if (currentUser != null && !currentUser.isAnonymous) {
+                // Existing Google-signed-in user — don't disable network here.
+                // LionOtterApp will control network based on sync preference.
+                // Disabling and immediately re-enabling causes snapshot listeners
+                // to miss cached data while waiting for a server reconnection.
+                _currentUserId.value = currentUser.uid
+                _isGoogleSignedIn.value = true
+                Log.d(TAG, "ensureUser: Google user ${currentUser.uid}")
+            } else {
+                // No Google user — disable network and use a local-only user ID.
+                // No Firebase Auth needed; Firestore offline cache works with any path.
+                disableNetwork()
+                val localId = getOrCreateLocalUserId()
+                _currentUserId.value = localId
+                _isGoogleSignedIn.value = false
+                Log.d(TAG, "ensureUser: local user $localId")
+            }
+        }
+    }
+
+    /**
+     * Get the persisted local user ID, or create one if it doesn't exist.
+     * This ID is stable across app restarts so the same Firestore cache path is used.
+     */
+    private fun getOrCreateLocalUserId(): String {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val existing = prefs.getString(KEY_LOCAL_USER_ID, null)
+        if (existing != null) return existing
+
+        val newId = "local_${java.util.UUID.randomUUID()}"
+        prefs.edit {putString(KEY_LOCAL_USER_ID, newId)}
+        return newId
+    }
+
+    /**
+     * Enable Firestore network access. Called when sync is enabled for Google-signed-in users.
+     */
+    fun enableNetwork() {
+        _networkEnabled.value = true
+        firestore.enableNetwork()
+        Log.d(TAG, "Network enabled")
+    }
+
+    /**
+     * Disable Firestore network access. Called for anonymous users and when sync is disabled.
+     */
+    fun disableNetwork() {
+        _networkEnabled.value = false
+        firestore.disableNetwork()
+        Log.d(TAG, "Network disabled")
+    }
 
     /**
      * Sign in with Google using Credential Manager and Firebase Auth.
-     * Uses GetGoogleIdOption to get a Google ID token, then authenticates with Firebase.
+     * Copies local data to the Google account so the user doesn't lose existing recipes.
      *
      * @param filterByAuthorizedAccounts If true, only show accounts previously used to sign in.
-     *   Set to false to show all Google accounts on the device.
      * @return true if sign-in was successful
      */
     suspend fun signInWithGoogle(filterByAuthorizedAccounts: Boolean = true): Boolean =
@@ -96,8 +183,23 @@ class FirestoreService @Inject constructor(
                     val firebaseCredential = GoogleAuthProvider.getCredential(
                         googleIdTokenCredential.idToken, null
                     )
+
+                    val localUserId = _currentUserId.value
+
+                    // Sign in with Google via Firebase Auth
                     auth.signInWithCredential(firebaseCredential).await()
-                    auth.currentUser != null
+                    val googleUser = auth.currentUser
+                    if (googleUser != null) {
+                        // Copy data from local user to Google user
+                        if (localUserId != null && localUserId != googleUser.uid) {
+                            copyUserData(localUserId, googleUser.uid)
+                        }
+                        _isGoogleSignedIn.value = true
+                        _currentUserId.value = googleUser.uid
+                        enableNetwork()
+                        return@withContext true
+                    }
+                    return@withContext false
                 } else {
                     Log.w(TAG, "Unexpected credential type: ${credential.type}")
                     false
@@ -109,47 +211,140 @@ class FirestoreService @Inject constructor(
         }
 
     /**
-     * Check if user is signed in to Firebase.
+     * Check if user is signed in with Google.
      */
-    fun isSignedIn(): Boolean {
-        return auth.currentUser != null
-    }
+    fun isSignedIn(): Boolean = _isGoogleSignedIn.value
 
     /**
-     * Get the current user ID.
+     * Get the current user ID (Google UID or local UUID).
      */
-    fun getUserId(): String? {
-        return auth.currentUser?.uid
-    }
+    fun getUserId(): String? = _currentUserId.value
 
     /**
-     * Sign out from Firebase and Google.
+     * Sign out from Google account and clear all local data.
+     * Produces a clean slate equivalent to a fresh install: empty Firestore cache,
+     * no locally stored images, and a new local user ID.
+     * Remote data on the Google account is NOT deleted.
      */
     suspend fun signOut() {
         withContext(Dispatchers.IO) {
-            removeAllListeners()
+            if (!_isGoogleSignedIn.value) return@withContext
+
+            // Go offline first to prevent any sync during cleanup
+            disableNetwork()
+
+            // Sign out of Firebase Auth and clear credential state
             auth.signOut()
             try {
                 credentialManager.clearCredentialState(ClearCredentialStateRequest())
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to clear credential state during sign-out", e)
             }
+
+            // Delete Firestore persistence cache (on-disk)
+            val firestoreDir = java.io.File(context.filesDir, "com.google.firebase.firestore")
+            if (firestoreDir.exists()) {
+                val deleted = firestoreDir.deleteRecursively()
+                Log.d(TAG, "Deleted Firestore persistence dir: $deleted")
+            }
+
+            // Delete locally stored recipe images
+            val imageDir = java.io.File(context.filesDir, "recipe_images")
+            if (imageDir.exists()) {
+                val deleted = imageDir.deleteRecursively()
+                Log.d(TAG, "Deleted recipe images dir: $deleted")
+            }
+
+            // Generate a new local user ID (clean slate)
+            val newLocalId = "local_${java.util.UUID.randomUUID()}"
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit { putString(KEY_LOCAL_USER_ID, newLocalId) }
+
+            // Switch to new local user — flatMapLatest restarts snapshot listeners
+            // on the new (empty) collection path
+            _currentUserId.value = newLocalId
+            _isGoogleSignedIn.value = false
+            Log.d(TAG, "Signed out and cleared local data. New local user: $newLocalId")
         }
     }
 
-    private fun removeAllListeners() {
-        snapshotListeners.forEach { it.remove() }
-        snapshotListeners.clear()
+    /**
+     * Copy all recipes and meal plans from one user to another.
+     * Used when transitioning between local and Google accounts.
+     */
+    private suspend fun copyUserData(fromUserId: String, toUserId: String) {
+        try {
+            val fromRecipes = withTimeout(GET_TIMEOUT_MS) {
+                firestore.collection(COLLECTION_USERS)
+                    .document(fromUserId)
+                    .collection(COLLECTION_RECIPES)
+                    .get(getSource()).await()
+            }
+
+            val fromMealPlans = withTimeout(GET_TIMEOUT_MS) {
+                firestore.collection(COLLECTION_USERS)
+                    .document(fromUserId)
+                    .collection(COLLECTION_MEAL_PLANS)
+                    .get(getSource()).await()
+            }
+
+            val batch = firestore.batch()
+            var recipeCount = 0
+            for (doc in fromRecipes.documents) {
+                val data = doc.data ?: continue
+                val ref = firestore.collection(COLLECTION_USERS)
+                    .document(toUserId)
+                    .collection(COLLECTION_RECIPES)
+                    .document(doc.id)
+                batch.set(ref, data)
+                recipeCount++
+            }
+
+            var mealPlanCount = 0
+            for (doc in fromMealPlans.documents) {
+                val data = doc.data ?: continue
+                val ref = firestore.collection(COLLECTION_USERS)
+                    .document(toUserId)
+                    .collection(COLLECTION_MEAL_PLANS)
+                    .document(doc.id)
+                batch.set(ref, data)
+                mealPlanCount++
+            }
+
+            if (recipeCount + mealPlanCount > 0) {
+                batch.commit()
+            }
+
+            Log.d(TAG, "Copied $recipeCount recipes and $mealPlanCount meal plans from $fromUserId to $toUserId")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to copy user data from $fromUserId to $toUserId", e)
+        }
     }
 
-    private fun userRecipesCollection() =
+    /**
+     * Wait for [_currentUserId] to be available.
+     * This suspends until [ensureUser] has completed.
+     */
+    private suspend fun awaitUserId(): String =
+        _currentUserId.filterNotNull().first()
+
+    /**
+     * Returns the appropriate Firestore [Source] for one-shot reads.
+     * When network is enabled (Google user with sync), uses the default source
+     * which tries cache first then falls back to server.
+     * When network is disabled (local-only), forces cache-only reads.
+     */
+    private fun getSource(): Source =
+        if (_networkEnabled.value) Source.DEFAULT else Source.CACHE
+
+    private fun userRecipesCollection(userId: String) =
         firestore.collection(COLLECTION_USERS)
-            .document(getUserId() ?: throw IllegalStateException("Not signed in"))
+            .document(userId)
             .collection(COLLECTION_RECIPES)
 
-    private fun userMealPlansCollection() =
+    private fun userMealPlansCollection(userId: String) =
         firestore.collection(COLLECTION_USERS)
-            .document(getUserId() ?: throw IllegalStateException("Not signed in"))
+            .document(userId)
             .collection(COLLECTION_MEAL_PLANS)
 
     // --- Recipe Operations ---
@@ -160,8 +355,10 @@ class FirestoreService @Inject constructor(
     suspend fun upsertRecipe(recipe: Recipe, originalHtml: String?): Result<Unit> =
         withContext(Dispatchers.IO) {
             try {
+                val userId = awaitUserId()
                 val data = recipeToMap(recipe, originalHtml)
-                userRecipesCollection().document(recipe.id).set(data).await()
+                // Fire-and-forget: Firestore queues locally and syncs when online
+                userRecipesCollection(userId).document(recipe.id).set(data)
                 Result.success(Unit)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to upsert recipe ${recipe.name}", e)
@@ -170,50 +367,49 @@ class FirestoreService @Inject constructor(
         }
 
     /**
-     * Mark a recipe as deleted in Firestore (soft-delete).
+     * Delete a recipe document from Firestore.
      */
-    suspend fun markRecipeDeleted(recipeId: String): Result<Unit> =
+    suspend fun deleteRecipe(recipeId: String): Result<Unit> =
         withContext(Dispatchers.IO) {
             try {
-                userRecipesCollection().document(recipeId)
-                    .set(
-                        hashMapOf(
-                            FIELD_DELETED to true,
-                            FIELD_UPDATED_AT to Timestamp.now()
-                        ),
-                        SetOptions.merge()
-                    ).await()
+                val userId = awaitUserId()
+                userRecipesCollection(userId).document(recipeId).delete()
                 Result.success(Unit)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to mark recipe deleted: $recipeId", e)
+                Log.e(TAG, "Failed to delete recipe: $recipeId", e)
                 Result.failure(e)
             }
         }
 
     /**
-     * Permanently delete a recipe document from Firestore.
+     * Get a single recipe by ID (one-shot).
      */
-    suspend fun hardDeleteRecipe(recipeId: String): Result<Unit> =
+    suspend fun getRecipeById(recipeId: String): RemoteRecipe? =
         withContext(Dispatchers.IO) {
             try {
-                userRecipesCollection().document(recipeId).delete().await()
-                Result.success(Unit)
+                val userId = awaitUserId()
+                val doc = withTimeout(GET_TIMEOUT_MS) {
+                    userRecipesCollection(userId).document(recipeId)
+                        .get(getSource()).await()
+                }
+                if (doc.exists()) parseRecipeDocument(doc) else null
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to hard delete recipe: $recipeId", e)
-                Result.failure(e)
+                Log.w(TAG, "Failed to get recipe: $recipeId", e)
+                null
             }
         }
 
     /**
      * Get all recipes from Firestore (one-shot).
-     * Returns pairs of (Recipe, originalHtml).
      */
     suspend fun getAllRecipes(): Result<List<RemoteRecipe>> =
         withContext(Dispatchers.IO) {
             try {
-                val snapshot = userRecipesCollection()
-                    .whereEqualTo(FIELD_DELETED, false)
-                    .get().await()
+                val userId = awaitUserId()
+                val snapshot = withTimeout(GET_TIMEOUT_MS) {
+                    userRecipesCollection(userId)
+                        .get(getSource()).await()
+                }
 
                 val recipes = snapshot.documents.mapNotNull { doc ->
                     try {
@@ -231,36 +427,107 @@ class FirestoreService @Inject constructor(
         }
 
     /**
-     * Observe recipe changes in real-time via snapshot listener.
+     * Observe all recipes in real-time via snapshot listener.
      */
-    fun observeRecipeChanges(): Flow<List<RemoteRecipe>> = callbackFlow {
-        val registration = userRecipesCollection()
-            .whereEqualTo(FIELD_DELETED, false)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    Log.e(TAG, "Recipe snapshot listener error", error)
-                    return@addSnapshotListener
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun observeRecipes(): Flow<List<RemoteRecipe>> =
+        _currentUserId.filterNotNull().flatMapLatest { userId ->
+            callbackFlow {
+                Log.d(TAG, "observeRecipes: registering listener (user=$userId)")
+                val registration = userRecipesCollection(userId)
+                    .addSnapshotListener { snapshot, error ->
+                        if (error != null) {
+                            Log.e(TAG, "Recipe snapshot listener error", error)
+                            return@addSnapshotListener
+                        }
+
+                        val recipes = snapshot?.documents?.mapNotNull { doc ->
+                            try {
+                                parseRecipeDocument(doc)
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Failed to parse recipe from snapshot ${doc.id}", e)
+                                null
+                            }
+                        } ?: emptyList()
+
+                        trySend(recipes)
+                    }
+
+                awaitClose { registration.remove() }
+            }
+        }
+
+    /**
+     * Observe a single recipe by ID in real-time.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun observeRecipeById(recipeId: String): Flow<RemoteRecipe?> =
+        _currentUserId.filterNotNull().flatMapLatest { userId ->
+            callbackFlow {
+                Log.d(TAG, "observeRecipeById: registering listener for $recipeId (user=$userId)")
+                val registration = userRecipesCollection(userId).document(recipeId)
+                    .addSnapshotListener { snapshot, error ->
+                        if (error != null) {
+                            Log.e(TAG, "Recipe snapshot listener error for $recipeId", error)
+                            return@addSnapshotListener
+                        }
+
+                        if (snapshot == null || !snapshot.exists()) {
+                            Log.d(TAG, "observeRecipeById: snapshot null/missing for $recipeId (fromCache=${snapshot?.metadata?.isFromCache})")
+                            trySend(null)
+                            return@addSnapshotListener
+                        }
+
+                        try {
+                            Log.d(TAG, "observeRecipeById: got data for $recipeId (fromCache=${snapshot.metadata.isFromCache})")
+                            trySend(parseRecipeDocument(snapshot))
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to parse recipe from snapshot $recipeId", e)
+                            trySend(null)
+                        }
+                    }
+
+                awaitClose { registration.remove() }
+            }
+        }
+
+    /**
+     * Update the isFavorite field of a recipe.
+     */
+    suspend fun setFavorite(recipeId: String, isFavorite: Boolean): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            try {
+                val userId = awaitUserId()
+                userRecipesCollection(userId).document(recipeId)
+                    .update("isFavorite", isFavorite)
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to set favorite for recipe: $recipeId", e)
+                Result.failure(e)
+            }
+        }
+
+    /**
+     * Get all recipe IDs and names (for deduplication checks).
+     */
+    suspend fun getAllRecipeIdsAndNames(): List<RecipeIdAndName> =
+        withContext(Dispatchers.IO) {
+            try {
+                val userId = awaitUserId()
+                val snapshot = withTimeout(GET_TIMEOUT_MS) {
+                    userRecipesCollection(userId)
+                        .get(getSource()).await()
                 }
 
-                val recipes = snapshot?.documents?.mapNotNull { doc ->
-                    try {
-                        parseRecipeDocument(doc)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to parse recipe from snapshot ${doc.id}", e)
-                        null
-                    }
-                } ?: emptyList()
-
-                trySend(recipes)
+                snapshot.documents.mapNotNull { doc ->
+                    val name = doc.getString("name") ?: return@mapNotNull null
+                    RecipeIdAndName(id = doc.id, name = name)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to get recipe IDs and names", e)
+                emptyList()
             }
-
-        snapshotListeners.add(registration)
-
-        awaitClose {
-            registration.remove()
-            snapshotListeners.remove(registration)
         }
-    }
 
     // --- Meal Plan Operations ---
 
@@ -270,8 +537,9 @@ class FirestoreService @Inject constructor(
     suspend fun upsertMealPlan(entry: MealPlanEntry): Result<Unit> =
         withContext(Dispatchers.IO) {
             try {
+                val userId = awaitUserId()
                 val data = mealPlanToMap(entry)
-                userMealPlansCollection().document(entry.id).set(data).await()
+                userMealPlansCollection(userId).document(entry.id).set(data)
                 Result.success(Unit)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to upsert meal plan ${entry.id}", e)
@@ -280,36 +548,16 @@ class FirestoreService @Inject constructor(
         }
 
     /**
-     * Mark a meal plan entry as deleted in Firestore.
+     * Delete a meal plan document from Firestore.
      */
-    suspend fun markMealPlanDeleted(entryId: String): Result<Unit> =
+    suspend fun deleteMealPlan(entryId: String): Result<Unit> =
         withContext(Dispatchers.IO) {
             try {
-                userMealPlansCollection().document(entryId)
-                    .set(
-                        hashMapOf(
-                            FIELD_DELETED to true,
-                            FIELD_UPDATED_AT to Timestamp.now()
-                        ),
-                        SetOptions.merge()
-                    ).await()
+                val userId = awaitUserId()
+                userMealPlansCollection(userId).document(entryId).delete()
                 Result.success(Unit)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to mark meal plan deleted: $entryId", e)
-                Result.failure(e)
-            }
-        }
-
-    /**
-     * Permanently delete a meal plan document from Firestore.
-     */
-    suspend fun hardDeleteMealPlan(entryId: String): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            try {
-                userMealPlansCollection().document(entryId).delete().await()
-                Result.success(Unit)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to hard delete meal plan: $entryId", e)
+                Log.e(TAG, "Failed to delete meal plan: $entryId", e)
                 Result.failure(e)
             }
         }
@@ -320,9 +568,11 @@ class FirestoreService @Inject constructor(
     suspend fun getAllMealPlans(): Result<List<MealPlanEntry>> =
         withContext(Dispatchers.IO) {
             try {
-                val snapshot = userMealPlansCollection()
-                    .whereEqualTo(FIELD_DELETED, false)
-                    .get().await()
+                val userId = awaitUserId()
+                val snapshot = withTimeout(GET_TIMEOUT_MS) {
+                    userMealPlansCollection(userId)
+                        .get(getSource()).await()
+                }
 
                 val entries = snapshot.documents.mapNotNull { doc ->
                     try {
@@ -336,6 +586,97 @@ class FirestoreService @Inject constructor(
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to get all meal plans", e)
                 Result.failure(e)
+            }
+        }
+
+    /**
+     * Get a single meal plan entry by ID (one-shot).
+     */
+    suspend fun getMealPlanById(entryId: String): MealPlanEntry? =
+        withContext(Dispatchers.IO) {
+            try {
+                val userId = awaitUserId()
+                val doc = withTimeout(GET_TIMEOUT_MS) {
+                    userMealPlansCollection(userId).document(entryId)
+                        .get(getSource()).await()
+                }
+                if (doc.exists()) parseMealPlanDocument(doc) else null
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to get meal plan: $entryId", e)
+                null
+            }
+        }
+
+    /**
+     * Observe all meal plans in real-time via snapshot listener.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun observeMealPlans(): Flow<List<MealPlanEntry>> =
+        _currentUserId.filterNotNull().flatMapLatest { userId ->
+            callbackFlow {
+                Log.d(TAG, "observeMealPlans: registering listener (user=$userId)")
+                val registration = userMealPlansCollection(userId)
+                    .addSnapshotListener { snapshot, error ->
+                        if (error != null) {
+                            Log.e(TAG, "Meal plan snapshot listener error", error)
+                            return@addSnapshotListener
+                        }
+
+                        val entries = snapshot?.documents?.mapNotNull { doc ->
+                            try {
+                                parseMealPlanDocument(doc)
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Failed to parse meal plan from snapshot ${doc.id}", e)
+                                null
+                            }
+                        } ?: emptyList()
+
+                        trySend(entries)
+                    }
+
+                awaitClose { registration.remove() }
+            }
+        }
+
+    /**
+     * Delete all meal plan entries that reference the given recipe.
+     */
+    suspend fun deleteMealPlansByRecipeId(recipeId: String): Result<Int> =
+        withContext(Dispatchers.IO) {
+            try {
+                val userId = awaitUserId()
+                val snapshot = withTimeout(GET_TIMEOUT_MS) {
+                    userMealPlansCollection(userId)
+                        .whereEqualTo("recipeId", recipeId)
+                        .get(getSource()).await()
+                }
+
+                for (doc in snapshot.documents) {
+                    doc.reference.delete()
+                }
+                Result.success(snapshot.size())
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to delete meal plans for recipe: $recipeId", e)
+                Result.failure(e)
+            }
+        }
+
+    /**
+     * Count meal plan entries that reference the given recipe.
+     */
+    suspend fun countMealPlansByRecipeId(recipeId: String): Int =
+        withContext(Dispatchers.IO) {
+            try {
+                val userId = awaitUserId()
+                val snapshot = withTimeout(GET_TIMEOUT_MS) {
+                    userMealPlansCollection(userId)
+                        .whereEqualTo("recipeId", recipeId)
+                        .get(getSource()).await()
+                }
+                snapshot.size()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to count meal plans for recipe: $recipeId", e)
+                0
             }
         }
 
@@ -358,8 +699,7 @@ class FirestoreService @Inject constructor(
             "createdAt" to recipe.createdAt.toFirestoreTimestamp(),
             FIELD_UPDATED_AT to recipe.updatedAt.toFirestoreTimestamp(),
             "isFavorite" to recipe.isFavorite,
-            "originalHtml" to (originalHtml ?: ""),
-            FIELD_DELETED to false
+            "originalHtml" to (originalHtml ?: "")
         )
 
     private fun instructionSectionToMap(section: InstructionSection): Map<String, Any?> =
@@ -402,8 +742,7 @@ class FirestoreService @Inject constructor(
             "mealType" to entry.mealType.name,
             "servings" to entry.servings,
             "createdAt" to entry.createdAt.toFirestoreTimestamp(),
-            FIELD_UPDATED_AT to entry.updatedAt.toFirestoreTimestamp(),
-            FIELD_DELETED to false
+            FIELD_UPDATED_AT to entry.updatedAt.toFirestoreTimestamp()
         )
 
     // --- Deserialization: Firestore Documents -> Domain ---
@@ -542,4 +881,12 @@ class FirestoreService @Inject constructor(
 data class RemoteRecipe(
     val recipe: Recipe,
     val originalHtml: String?
+)
+
+/**
+ * Lightweight recipe identifier for deduplication checks.
+ */
+data class RecipeIdAndName(
+    val id: String,
+    val name: String
 )

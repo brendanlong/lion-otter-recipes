@@ -1,96 +1,123 @@
 package com.lionotter.recipes.data.repository
 
-import com.lionotter.recipes.data.local.MealPlanDao
-import com.lionotter.recipes.data.local.MealPlanEntity
+import android.util.Log
+import com.lionotter.recipes.data.remote.FirestoreService
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.datetime.Clock
 import kotlinx.datetime.LocalDate
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Repository for meal plan data. Delegates all storage to Firestore via [FirestoreService].
+ * Firestore's built-in offline cache provides offline access when network is disabled.
+ */
 @Singleton
 class MealPlanRepository @Inject constructor(
-    private val mealPlanDao: MealPlanDao
+    private val firestoreService: FirestoreService
 ) {
+    companion object {
+        private const val TAG = "MealPlanRepository"
+    }
+
+    /**
+     * Observe all meal plans in real-time.
+     */
     fun getAllMealPlans(): Flow<List<MealPlanEntry>> {
-        return mealPlanDao.getAllMealPlans().map { entities ->
-            entities.map { it.toMealPlanEntry() }
-        }
+        return firestoreService.observeMealPlans()
     }
 
+    /**
+     * Observe meal plans for a specific date range in real-time.
+     * Filters client-side since Firestore queries on date strings work correctly
+     * for ISO-8601 formatted dates.
+     */
     fun getMealPlansForDateRange(startDate: LocalDate, endDate: LocalDate): Flow<List<MealPlanEntry>> {
-        return mealPlanDao.getMealPlansForDateRange(startDate.toString(), endDate.toString()).map { entities ->
-            entities.map { it.toMealPlanEntry() }
+        return firestoreService.observeMealPlans().map { entries ->
+            entries.filter { it.date in startDate..endDate }
+                .sortedWith(
+                    compareBy<MealPlanEntry> { it.date }
+                        .thenBy { it.mealType.displayOrder }
+                        .thenBy { it.recipeName }
+                )
         }
     }
 
-    fun getMealPlansForDate(date: LocalDate): Flow<List<MealPlanEntry>> {
-        return mealPlanDao.getMealPlansForDate(date.toString()).map { entities ->
-            entities.map { it.toMealPlanEntry() }
-        }
-    }
-
-    suspend fun getMealPlanByIdOnce(id: String): MealPlanEntry? {
-        return mealPlanDao.getMealPlanById(id)?.takeIf { !it.deleted }?.toMealPlanEntry()
-    }
-
-    suspend fun saveMealPlan(entry: MealPlanEntry) {
-        mealPlanDao.insertMealPlan(MealPlanEntity.fromMealPlanEntry(entry))
-    }
-
-    suspend fun updateMealPlan(entry: MealPlanEntry) {
-        mealPlanDao.updateMealPlan(MealPlanEntity.fromMealPlanEntry(entry))
-    }
-
-    suspend fun deleteMealPlan(id: String) {
-        val now = Clock.System.now()
-        mealPlanDao.softDeleteMealPlan(id, updatedAt = now)
-    }
-
-    suspend fun getDeletedMealPlans(): List<MealPlanEntry> {
-        return mealPlanDao.getDeletedMealPlans().map { it.toMealPlanEntry() }
-    }
-
-    suspend fun purgeDeletedMealPlans() {
-        mealPlanDao.purgeDeletedMealPlans()
-    }
-
-    suspend fun getAllMealPlansOnce(): List<MealPlanEntry> {
-        return mealPlanDao.getAllMealPlansOnce().map { it.toMealPlanEntry() }
-    }
-
+    /**
+     * Get meal plans for a date range (one-shot).
+     */
     suspend fun getMealPlansForDateRangeOnce(startDate: LocalDate, endDate: LocalDate): List<MealPlanEntry> {
-        return mealPlanDao.getMealPlansForDateRangeOnce(startDate.toString(), endDate.toString()).map { it.toMealPlanEntry() }
+        val result = firestoreService.getAllMealPlans()
+        return result.getOrElse {
+            Log.e(TAG, "Failed to get meal plans for date range", it)
+            emptyList()
+        }.filter { it.date in startDate..endDate }
     }
 
     /**
-     * Hard delete a meal plan (used during sync when remote deletion is detected).
+     * Get all meal plans (one-shot).
      */
-    suspend fun hardDeleteMealPlan(id: String) {
-        mealPlanDao.hardDeleteMealPlan(id)
+    suspend fun getAllMealPlansOnce(): List<MealPlanEntry> {
+        val result = firestoreService.getAllMealPlans()
+        return result.getOrElse {
+            Log.e(TAG, "Failed to get all meal plans", it)
+            emptyList()
+        }
     }
 
     /**
-     * Save a meal plan directly from sync (may include already-deleted entries from remote).
+     * Get a single meal plan entry by ID (one-shot).
      */
-    suspend fun saveMealPlanFromSync(entry: MealPlanEntry) {
-        mealPlanDao.insertMealPlan(MealPlanEntity.fromMealPlanEntry(entry))
+    suspend fun getMealPlanByIdOnce(id: String): MealPlanEntry? {
+        return firestoreService.getMealPlanById(id)
     }
 
     /**
-     * Count non-deleted meal plan entries that reference the given recipe.
+     * Save a new meal plan entry.
+     */
+    suspend fun saveMealPlan(entry: MealPlanEntry) {
+        val result = firestoreService.upsertMealPlan(entry)
+        if (result.isFailure) {
+            Log.e(TAG, "Failed to save meal plan: ${entry.id}", result.exceptionOrNull())
+        }
+    }
+
+    /**
+     * Update an existing meal plan entry.
+     */
+    suspend fun updateMealPlan(entry: MealPlanEntry) {
+        val result = firestoreService.upsertMealPlan(entry)
+        if (result.isFailure) {
+            Log.e(TAG, "Failed to update meal plan: ${entry.id}", result.exceptionOrNull())
+        }
+    }
+
+    /**
+     * Delete a meal plan entry from Firestore.
+     */
+    suspend fun deleteMealPlan(id: String) {
+        val result = firestoreService.deleteMealPlan(id)
+        if (result.isFailure) {
+            Log.e(TAG, "Failed to delete meal plan: $id", result.exceptionOrNull())
+        }
+    }
+
+    /**
+     * Count meal plans that reference a given recipe.
      */
     suspend fun countMealPlansByRecipeId(recipeId: String): Int {
-        return mealPlanDao.countMealPlansByRecipeId(recipeId)
+        return firestoreService.countMealPlansByRecipeId(recipeId)
     }
 
     /**
-     * Soft-delete all meal plan entries that reference the given recipe.
+     * Delete all meal plan entries that reference a given recipe.
      */
-    suspend fun softDeleteMealPlansByRecipeId(recipeId: String) {
-        val now = Clock.System.now()
-        mealPlanDao.softDeleteMealPlansByRecipeId(recipeId, updatedAt = now)
+    suspend fun deleteMealPlansByRecipeId(recipeId: String) {
+        val result = firestoreService.deleteMealPlansByRecipeId(recipeId)
+        if (result.isFailure) {
+            Log.e(TAG, "Failed to delete meal plans for recipe: $recipeId", result.exceptionOrNull())
+        }
     }
 }

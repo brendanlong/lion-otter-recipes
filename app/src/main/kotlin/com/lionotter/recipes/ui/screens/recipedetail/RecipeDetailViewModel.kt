@@ -22,7 +22,6 @@ import com.lionotter.recipes.domain.model.createInstructionIngredientKey
 import com.lionotter.recipes.domain.usecase.CalculateIngredientUsageUseCase
 import com.lionotter.recipes.domain.usecase.ExportSingleRecipeUseCase
 import com.lionotter.recipes.domain.util.RecipeSerializer
-import com.lionotter.recipes.worker.MealPlanSyncTrigger
 import com.lionotter.recipes.worker.RecipeRegenerateWorker
 import com.lionotter.recipes.worker.observeWorkByTag
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -63,7 +62,6 @@ class RecipeDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val recipeRepository: RecipeRepository,
     private val mealPlanRepository: MealPlanRepository,
-    private val mealPlanSyncTrigger: MealPlanSyncTrigger,
     private val settingsDataStore: SettingsDataStore,
     private val calculateIngredientUsage: CalculateIngredientUsageUseCase,
     private val workManager: WorkManager,
@@ -255,9 +253,8 @@ class RecipeDetailViewModel @Inject constructor(
      */
     fun deleteRecipe() {
         viewModelScope.launch {
-            mealPlanRepository.softDeleteMealPlansByRecipeId(recipeId)
+            mealPlanRepository.deleteMealPlansByRecipeId(recipeId)
             recipeRepository.deleteRecipe(recipeId)
-            mealPlanSyncTrigger.triggerIncrementalSync()
             _recipeDeleted.emit(Unit)
         }
     }
