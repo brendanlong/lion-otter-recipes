@@ -23,8 +23,8 @@ data class RecipeEntity(
     val tagsJson: String,
     val imageUrl: String?,
     val originalHtml: String?,
-    val createdAt: Long,
-    val updatedAt: Long,
+    val createdAt: Instant,
+    val updatedAt: Instant,
     val isFavorite: Boolean = false,
     val deleted: Boolean = false
 ) {
@@ -46,8 +46,8 @@ data class RecipeEntity(
             equipment = equipment,
             tags = tags,
             imageUrl = imageUrl,
-            createdAt = Instant.fromEpochMilliseconds(createdAt),
-            updatedAt = Instant.fromEpochMilliseconds(updatedAt),
+            createdAt = createdAt,
+            updatedAt = updatedAt,
             isFavorite = isFavorite
         )
     }
@@ -75,8 +75,8 @@ data class RecipeEntity(
                 tagsJson = tagsJson,
                 imageUrl = recipe.imageUrl,
                 originalHtml = originalHtml,
-                createdAt = recipe.createdAt.toEpochMilliseconds(),
-                updatedAt = recipe.updatedAt.toEpochMilliseconds(),
+                createdAt = recipe.createdAt,
+                updatedAt = recipe.updatedAt,
                 isFavorite = recipe.isFavorite
             )
         }

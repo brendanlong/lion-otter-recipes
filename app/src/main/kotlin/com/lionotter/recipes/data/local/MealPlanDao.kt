@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
+import kotlinx.datetime.Instant
 
 @Dao
 interface MealPlanDao {
@@ -32,7 +33,7 @@ interface MealPlanDao {
     suspend fun hardDeleteMealPlan(id: String)
 
     @Query("UPDATE meal_plans SET deleted = 1, updatedAt = :updatedAt WHERE id = :id")
-    suspend fun softDeleteMealPlan(id: String, updatedAt: Long)
+    suspend fun softDeleteMealPlan(id: String, updatedAt: Instant)
 
     @Query("SELECT * FROM meal_plans WHERE deleted = 1")
     suspend fun getDeletedMealPlans(): List<MealPlanEntity>

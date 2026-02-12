@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
+import kotlinx.datetime.Instant
 
 @Dao
 interface RecipeDao {
@@ -34,7 +35,7 @@ interface RecipeDao {
     suspend fun updateRecipe(recipe: RecipeEntity)
 
     @Query("UPDATE recipes SET deleted = 1, updatedAt = :updatedAt WHERE id = :id")
-    suspend fun softDeleteRecipe(id: String, updatedAt: Long)
+    suspend fun softDeleteRecipe(id: String, updatedAt: Instant)
 
     @Query("DELETE FROM recipes WHERE id = :id")
     suspend fun hardDeleteRecipeById(id: String)

@@ -69,8 +69,8 @@ class RecipeRepositoryTest {
         ingredientSectionsJson: String = "[]",
         instructionSectionsJson: String = "[]",
         originalHtml: String? = null,
-        createdAt: Long = 1000L,
-        updatedAt: Long = 2000L,
+        createdAt: Instant = Instant.fromEpochMilliseconds(1000),
+        updatedAt: Instant = Instant.fromEpochMilliseconds(2000),
         isFavorite: Boolean = false
     ) = RecipeEntity(
         id = id,
@@ -329,8 +329,8 @@ class RecipeRepositoryTest {
             ingredientSectionsJson = "[]",
             instructionSectionsJson = "[]",
             originalHtml = null,
-            createdAt = 1000L,
-            updatedAt = 2000L,
+            createdAt = Instant.fromEpochMilliseconds(1000),
+            updatedAt = Instant.fromEpochMilliseconds(2000),
             isFavorite = true
         )
         every { recipeDao.getRecipeByIdFlow("full-recipe") } returns flowOf(entity)
