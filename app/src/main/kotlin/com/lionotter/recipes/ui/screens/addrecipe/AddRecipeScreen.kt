@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.HourglassEmpty
@@ -48,14 +47,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
 import com.lionotter.recipes.ui.components.ErrorCard
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
-import com.lionotter.recipes.ui.navigation.SharedImportState
 
 @Composable
 fun AddRecipeScreen(
     onBackClick: () -> Unit,
     onRecipeAdded: (String) -> Unit,
     onNavigateToSettings: () -> Unit,
-    onPaprikaImportComplete: () -> Unit = onBackClick,
     onNavigateToImportSelection: (importType: String, uri: Uri) -> Unit = { _, _ -> },
     sharedUrl: String? = null,
     viewModel: AddRecipeViewModel = hiltViewModel()
@@ -76,20 +73,6 @@ fun AddRecipeScreen(
         }
     }
 
-    // Check for pending Paprika import from selection screen
-    LaunchedEffect(Unit) {
-        if (SharedImportState.pendingPaprikaImport) {
-            val uri = SharedImportState.paprikaFileUri
-            val selectedNames = SharedImportState.paprikaSelectedNames
-            SharedImportState.pendingPaprikaImport = false
-            SharedImportState.paprikaFileUri = null
-            SharedImportState.paprikaSelectedNames = null
-            if (uri != null && selectedNames != null) {
-                viewModel.importPaprikaFile(uri, selectedNames)
-            }
-        }
-    }
-
     // Request notification permission on Android 13+ (API 33+)
     // This is contextually relevant since we notify users when imports complete
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -102,12 +85,19 @@ fun AddRecipeScreen(
         }
     }
 
-    // File picker for Paprika import - navigate to selection screen
-    val paprikaFilePicker = rememberLauncherForActivityResult(
+    // Unified file picker for .lorecipes and .paprikarecipes imports
+    val importFilePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
-            onNavigateToImportSelection("paprika", uri)
+            // Determine import type from file extension
+            val uriString = uri.toString().lowercase()
+            val importType = if (uriString.endsWith(".paprikarecipes")) {
+                "paprika"
+            } else {
+                "lorecipes"
+            }
+            onNavigateToImportSelection(importType, uri)
         }
     }
 
@@ -131,8 +121,8 @@ fun AddRecipeScreen(
                         url = url,
                         onUrlChange = viewModel::onUrlChange,
                         onImportClick = viewModel::importRecipe,
-                        onPaprikaImportClick = {
-                            paprikaFilePicker.launch(arrayOf("*/*"))
+                        onImportFromFileClick = {
+                            importFilePicker.launch(arrayOf("*/*"))
                         },
                         hasApiKey = hasApiKey,
                         onNavigateToSettings = onNavigateToSettings,
@@ -151,25 +141,6 @@ fun AddRecipeScreen(
                 is AddRecipeUiState.Success -> {
                     // Handled by LaunchedEffect
                 }
-                is AddRecipeUiState.PaprikaImportComplete -> {
-                    PaprikaImportCompleteContent(
-                        importedCount = state.importedCount,
-                        failedCount = state.failedCount,
-                        onDoneClick = {
-                            viewModel.resetState()
-                            onPaprikaImportComplete()
-                        }
-                    )
-                }
-                is AddRecipeUiState.PaprikaImportCancelled -> {
-                    PaprikaImportCancelledContent(
-                        importedCount = state.importedCount,
-                        onDoneClick = {
-                            viewModel.resetState()
-                            onPaprikaImportComplete()
-                        }
-                    )
-                }
             }
         }
     }
@@ -180,7 +151,7 @@ private fun IdleContent(
     url: String,
     onUrlChange: (String) -> Unit,
     onImportClick: () -> Unit,
-    onPaprikaImportClick: () -> Unit,
+    onImportFromFileClick: () -> Unit,
     hasApiKey: Boolean,
     onNavigateToSettings: () -> Unit,
     errorMessage: String?
@@ -254,9 +225,8 @@ private fun IdleContent(
         HorizontalDivider()
 
         OutlinedButton(
-            onClick = onPaprikaImportClick,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = hasApiKey
+            onClick = onImportFromFileClick,
+            modifier = Modifier.fillMaxWidth()
         ) {
             Icon(
                 imageVector = Icons.Default.UploadFile,
@@ -264,8 +234,14 @@ private fun IdleContent(
                 modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.size(8.dp))
-            Text(stringResource(R.string.import_from_paprika))
+            Text(stringResource(R.string.import_from_file))
         }
+
+        Text(
+            text = stringResource(R.string.import_from_file_description),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -290,15 +266,6 @@ private fun LoadingContent(
                 Icons.Default.Psychology to stringResource(R.string.analyzing_recipe)
             is ImportProgress.SavingRecipe ->
                 Icons.Default.Save to stringResource(R.string.saving_recipe)
-            is ImportProgress.ParsingPaprikaFile ->
-                Icons.Default.UploadFile to stringResource(R.string.reading_paprika_export)
-            is ImportProgress.ImportingPaprikaRecipe ->
-                Icons.Default.Psychology to stringResource(
-                    R.string.importing_paprika_recipe,
-                    progress.current,
-                    progress.total,
-                    progress.recipeName
-                )
         }
 
         Icon(
@@ -320,7 +287,7 @@ private fun LoadingContent(
             textAlign = TextAlign.Center
         )
 
-        if (progress is ImportProgress.ParsingRecipe || progress is ImportProgress.ImportingPaprikaRecipe) {
+        if (progress is ImportProgress.ParsingRecipe) {
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = stringResource(R.string.may_take_a_moment),
@@ -350,96 +317,6 @@ private fun LoadingContent(
 
         TextButton(onClick = onCancelClick) {
             Text(stringResource(R.string.cancel_import))
-        }
-    }
-}
-
-@Composable
-private fun PaprikaImportCompleteContent(
-    importedCount: Int,
-    failedCount: Int,
-    onDoneClick: () -> Unit
-) {
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Icon(
-            imageVector = Icons.Default.CheckCircle,
-            contentDescription = null,
-            modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.primary
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text(
-            text = stringResource(R.string.paprika_import_complete),
-            style = MaterialTheme.typography.titleLarge,
-            textAlign = TextAlign.Center
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        val message = if (failedCount > 0) {
-            stringResource(R.string.paprika_import_result_with_failures, importedCount, failedCount)
-        } else {
-            stringResource(R.string.paprika_import_result, importedCount)
-        }
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Button(onClick = onDoneClick) {
-            Text(stringResource(R.string.done))
-        }
-    }
-}
-
-@Composable
-private fun PaprikaImportCancelledContent(
-    importedCount: Int,
-    onDoneClick: () -> Unit
-) {
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Icon(
-            imageVector = Icons.Default.Warning,
-            contentDescription = null,
-            modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.tertiary
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text(
-            text = stringResource(R.string.paprika_import_cancelled),
-            style = MaterialTheme.typography.titleLarge,
-            textAlign = TextAlign.Center
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = stringResource(R.string.paprika_import_cancelled_result, importedCount),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Button(onClick = onDoneClick) {
-            Text(stringResource(R.string.done))
         }
     }
 }

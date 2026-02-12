@@ -1,5 +1,6 @@
 package com.lionotter.recipes.domain.usecase
 
+import com.lionotter.recipes.domain.util.RecipeSerializer
 import com.lionotter.recipes.domain.util.ZipImportHelper
 import kotlinx.coroutines.ensureActive
 import java.io.InputStream
@@ -17,7 +18,8 @@ import kotlin.coroutines.coroutineContext
  * Skips recipes that already exist locally (by ID).
  */
 class ImportFromZipUseCase @Inject constructor(
-    private val zipImportHelper: ZipImportHelper
+    private val zipImportHelper: ZipImportHelper,
+    private val recipeSerializer: RecipeSerializer
 ) {
     sealed class ImportResult {
         data class Success(
@@ -41,9 +43,11 @@ class ImportFromZipUseCase @Inject constructor(
 
     /**
      * Import recipes from a ZIP file input stream.
+     * @param selectedRecipeIds If non-null, only import recipes whose IDs are in this set.
      */
     suspend fun importFromZip(
         inputStream: InputStream,
+        selectedRecipeIds: Set<String>? = null,
         onProgress: suspend (ImportProgress) -> Unit = {}
     ): ImportResult {
         onProgress(ImportProgress.Starting)
@@ -58,6 +62,22 @@ class ImportFromZipUseCase @Inject constructor(
 
         val recipeFolders = folderContents.entries
             .filter { it.key != ZipImportHelper.MEAL_PLANS_FOLDER }
+            .let { entries ->
+                if (selectedRecipeIds != null) {
+                    // Pre-filter to only selected recipes by deserializing to check ID
+                    entries.filter { (_, files) ->
+                        val jsonContent = files[RecipeSerializer.RECIPE_JSON_FILENAME] ?: return@filter false
+                        try {
+                            val recipe = recipeSerializer.deserializeRecipe(jsonContent)
+                            recipe.id in selectedRecipeIds
+                        } catch (_: Exception) {
+                            true // include failures so they're counted as failed
+                        }
+                    }
+                } else {
+                    entries
+                }
+            }
             .toList()
 
         recipeFolders.forEachIndexed { index, (folderName, files) ->
@@ -79,7 +99,7 @@ class ImportFromZipUseCase @Inject constructor(
             }
         }
 
-        // Import meal plans from the meal-plans folder
+        // Import meal plans from the meal-plans folder (always, not filtered by selection)
         val mealPlanFiles = folderContents[ZipImportHelper.MEAL_PLANS_FOLDER]
         if (mealPlanFiles != null) {
             val (mealImported, mealSkipped) = zipImportHelper.importMealPlans(mealPlanFiles)

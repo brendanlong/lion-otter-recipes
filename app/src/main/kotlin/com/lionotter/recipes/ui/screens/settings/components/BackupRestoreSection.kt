@@ -37,16 +37,11 @@ fun BackupRestoreSection(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        val isOperating = operationState is ZipOperationState.Exporting ||
-                operationState is ZipOperationState.Importing
+        val isExporting = operationState is ZipOperationState.Exporting
 
-        if (isOperating) {
+        if (isExporting) {
             ProgressCard(
-                message = if (operationState is ZipOperationState.Exporting) {
-                    stringResource(R.string.exporting_recipes)
-                } else {
-                    stringResource(R.string.importing_recipes)
-                }
+                message = stringResource(R.string.exporting_recipes)
             )
         }
 
@@ -56,26 +51,26 @@ fun BackupRestoreSection(
         ) {
             OutlinedButton(
                 onClick = onExportClick,
-                enabled = !isOperating,
+                enabled = !isExporting,
                 modifier = Modifier.weight(1f)
             ) {
                 Icon(
                     imageVector = Icons.Default.FileUpload,
                     contentDescription = null
                 )
-                Text("  " + stringResource(R.string.export_to_zip))
+                Text("  " + stringResource(R.string.export_recipes))
             }
 
             OutlinedButton(
                 onClick = onImportClick,
-                enabled = !isOperating,
+                enabled = !isExporting,
                 modifier = Modifier.weight(1f)
             ) {
                 Icon(
                     imageVector = Icons.Default.FileDownload,
                     contentDescription = null
                 )
-                Text("  " + stringResource(R.string.import_from_zip))
+                Text("  " + stringResource(R.string.import_recipes))
             }
         }
     }

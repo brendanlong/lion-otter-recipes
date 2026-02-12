@@ -26,6 +26,7 @@ class PaprikaImportWorker @AssistedInject constructor(
         const val TAG_PAPRIKA_IMPORT = "paprika_import"
 
         const val KEY_FILE_URI = "file_uri"
+        const val KEY_IMPORT_ID = "import_id"
         const val KEY_SELECTED_RECIPE_NAMES = "selected_recipe_names"
         const val KEY_RESULT_TYPE = "result_type"
         const val KEY_IMPORTED_COUNT = "imported_count"
@@ -45,9 +46,14 @@ class PaprikaImportWorker @AssistedInject constructor(
         const val PROGRESS_PARSING = "parsing"
         const val PROGRESS_IMPORTING = "importing"
 
-        fun createInputData(fileUri: Uri, selectedRecipeNames: Set<String>? = null): Data {
+        fun createInputData(
+            fileUri: Uri,
+            importId: String? = null,
+            selectedRecipeNames: Set<String>? = null
+        ): Data {
             return workDataOf(
                 KEY_FILE_URI to fileUri.toString(),
+                KEY_IMPORT_ID to importId,
                 KEY_SELECTED_RECIPE_NAMES to selectedRecipeNames?.toTypedArray()
             )
         }
@@ -63,6 +69,7 @@ class PaprikaImportWorker @AssistedInject constructor(
             )
 
         val fileUri = fileUriString.toUri()
+        val importId = inputData.getString(KEY_IMPORT_ID)
         val selectedRecipeNames = inputData.getStringArray(KEY_SELECTED_RECIPE_NAMES)?.toSet()
         setForegroundProgress("Starting Paprika import...")
 
@@ -90,13 +97,17 @@ class PaprikaImportWorker @AssistedInject constructor(
                 onProgress = { progress ->
                     val progressMessage = when (progress) {
                         is ImportPaprikaUseCase.ImportProgress.Parsing -> {
-                            setProgress(workDataOf(KEY_PROGRESS to PROGRESS_PARSING))
+                            setProgress(workDataOf(
+                                KEY_PROGRESS to PROGRESS_PARSING,
+                                KEY_IMPORT_ID to importId
+                            ))
                             "Reading Paprika export..."
                         }
                         is ImportPaprikaUseCase.ImportProgress.ImportingRecipe -> {
                             setProgress(
                                 workDataOf(
                                     KEY_PROGRESS to PROGRESS_IMPORTING,
+                                    KEY_IMPORT_ID to importId,
                                     KEY_RECIPE_NAME to progress.recipeName,
                                     KEY_CURRENT to progress.current,
                                     KEY_TOTAL to progress.total,
@@ -122,6 +133,7 @@ class PaprikaImportWorker @AssistedInject constructor(
                 Result.success(
                     workDataOf(
                         KEY_RESULT_TYPE to RESULT_SUCCESS,
+                        KEY_IMPORT_ID to importId,
                         KEY_IMPORTED_COUNT to result.importedCount,
                         KEY_FAILED_COUNT to result.failedCount
                     )
@@ -139,6 +151,7 @@ class PaprikaImportWorker @AssistedInject constructor(
                 Result.success(
                     workDataOf(
                         KEY_RESULT_TYPE to RESULT_SUCCESS,
+                        KEY_IMPORT_ID to importId,
                         KEY_IMPORTED_COUNT to result.importedCount,
                         KEY_FAILED_COUNT to result.failedCount
                     )

@@ -29,6 +29,9 @@ interface PendingImportDao {
     @Query("UPDATE pending_imports SET workManagerId = :workManagerId WHERE id = :id")
     suspend fun updateWorkManagerId(id: String, workManagerId: String)
 
+    @Query("SELECT * FROM pending_imports WHERE workManagerId = :workManagerId")
+    suspend fun getPendingImportByWorkManagerId(workManagerId: String): PendingImportEntity?
+
     @Query("DELETE FROM pending_imports WHERE id = :id")
     suspend fun deletePendingImport(id: String)
 

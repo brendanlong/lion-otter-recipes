@@ -93,7 +93,7 @@ app: {
 
       import_selection: {
         label: ImportSelectionScreen
-        tooltip: "Shared recipe selection screen for all import types (Paprika, .lorecipes, ZIP backup). Shows checklist of recipes found in file, sorted alphabetically. Recipes checked by default unless already in app (by ID or name). Import button disabled when nothing selected. Select All / Deselect All buttons."
+        tooltip: "Shared recipe selection screen for all import types (Paprika, .lorecipes). Shows checklist of recipes found in file, sorted alphabetically. Recipes checked by default unless already in app (by ID or name). Import button disabled when nothing selected. Select All / Deselect All buttons. Single new .lorecipes recipes are auto-imported without showing selection."
       }
 
       list -> detail: tap recipe
@@ -102,9 +102,9 @@ app: {
       list -> meal_plan: tap calendar
       meal_plan -> detail: tap recipe
       meal_plan -> grocery_list: tap cart icon
-      add -> import_selection: pick Paprika file
-      settings -> import_selection: pick ZIP file
-      import_selection -> add: Paprika import selected
+      add -> import_selection: pick file (.lorecipes / .paprikarecipes)
+      settings -> import_selection: pick file (.lorecipes / .paprikarecipes)
+      import_selection -> list: import started
       add -> settings: no API key
       settings -> import_debug_list: view debug data
       import_debug_list -> import_debug_detail: tap entry
@@ -143,7 +143,7 @@ app: {
       }
       zip_vm: {
         label: ZipExportImportViewModel
-        tooltip: "Manages ZIP file export/import operations via WorkManager. Handles file picker integration and work status observation."
+        tooltip: "Manages .lorecipes file export operations via WorkManager. Import is handled by ImportSelectionViewModel."
       }
       import_debug_list_vm: {
         label: ImportDebugListViewModel
@@ -152,10 +152,6 @@ app: {
       import_debug_detail_vm: {
         label: ImportDebugDetailViewModel
         tooltip: "Loads a single import debug entry by ID from SavedStateHandle."
-      }
-      file_import_vm: {
-        label: FileImportViewModel
-        tooltip: "Handles .lorecipes file imports. Reads ZIP file directly (single recipe, fast) and navigates to imported recipe."
       }
       meal_plan_vm: {
         label: MealPlanViewModel
@@ -167,7 +163,7 @@ app: {
       }
       import_selection_vm: {
         label: ImportSelectionViewModel
-        tooltip: "Shared ViewModel for import recipe selection. Parses import files (Paprika, .lorecipes, ZIP backup) to extract recipe names, checks for duplicates against existing recipes, and manages selection state. For Paprika: returns selected names for WorkManager import. For .lorecipes/ZIP: performs direct import of selected recipes."
+        tooltip: "Shared ViewModel for import recipe selection. Parses import files (Paprika, .lorecipes) to extract recipe names, checks for duplicates against existing recipes, and manages selection state. Enqueues WorkManager jobs for all import types and registers in-progress entries via InProgressRecipeManager."
       }
     }
 
@@ -351,7 +347,7 @@ app: {
       }
       zip_import_helper: {
         label: ZipImportHelper
-        tooltip: "Shared helper for importing recipes and meal plans from ZIP files. Consolidates ZIP reading, recipe import (deserialize, deduplicate, download image, save), and meal plan import logic. Used by ImportFromZipUseCase, FileImportViewModel, and ImportSelectionViewModel."
+        tooltip: "Shared helper for importing recipes and meal plans from ZIP files. Consolidates ZIP reading, recipe import (deserialize, deduplicate, download image, save), and meal plan import logic. Used by ImportFromZipUseCase and ImportSelectionViewModel."
       }
       serializer -> markdown: format
       zip_import_helper -> serializer: deserialize
@@ -606,19 +602,19 @@ app: {
   ui.viewmodels.detail_vm -> data.local.settings: keep screen on, unit prefs
   ui.viewmodels.detail_vm -> background.worker.regenerate_worker: regenerate
   ui.viewmodels.detail_vm -> background.worker.work_ext: observe regenerate
-  ui.viewmodels.file_import_vm -> domain.util.zip_import_helper: import
   ui.viewmodels.import_selection_vm -> data.repository.repo: check duplicates
   ui.viewmodels.import_selection_vm -> domain.util.serializer: deserialize (for selection preview)
-  ui.viewmodels.import_selection_vm -> domain.util.zip_import_helper: import
+  ui.viewmodels.import_selection_vm -> domain.util.zip_import_helper: read ZIP contents
   ui.viewmodels.import_selection_vm -> data.paprika.parser: parse export
+  ui.viewmodels.import_selection_vm -> background.worker: enqueue work
+  ui.viewmodels.import_selection_vm -> state.in_progress_mgr: adds entries
   ui.viewmodels.add_vm -> background.worker: enqueue work
   ui.viewmodels.add_vm -> background.worker.work_ext: observe import
   ui.viewmodels.firebase_vm -> background.worker.sync_worker: sync
   ui.viewmodels.firebase_vm -> background.worker.work_ext: observe sync
   ui.viewmodels.firebase_vm -> data.local.settings: sync settings
   ui.viewmodels.zip_vm -> background.worker.zip_export_worker: export
-  ui.viewmodels.zip_vm -> background.worker.zip_import_worker: import
-  ui.viewmodels.zip_vm -> background.worker.work_ext: observe export/import
+  ui.viewmodels.zip_vm -> background.worker.work_ext: observe export
   ui.viewmodels.meal_plan_vm -> data.repository.meal_plan_repo: CRUD
   ui.viewmodels.meal_plan_vm -> data.repository.repo: recipe list
   ui.viewmodels.meal_plan_vm -> data.local.settings: start of week
@@ -691,16 +687,16 @@ legend: {
   fb1 -> fb2 -> fb3
 
   zip_flow: {
-    label: "ZIP Export/Import Flow"
+    label: ".lorecipes Export/Import Flow"
     style: {
       font-size: 14
       bold: true
     }
   }
-  zip1: "Export: User picks save location, ZipExportWorker writes ZIP"
-  zip2: "Import: User picks .zip file, selects recipes via ImportSelectionScreen, imports selected"
-  zip3: "Uses RecipeSerializer for consistent format"
-  zip4: "Skips recipes that already exist locally (by ID)"
+  zip1: "Export: User picks save location, ZipExportWorker writes .lorecipes file"
+  zip2: "Import: User picks .lorecipes file, selects recipes via ImportSelectionScreen"
+  zip3: "ZipImportWorker imports selected recipes in background via WorkManager"
+  zip4: "Uses RecipeSerializer for consistent format, skips duplicates by ID"
 
   zip1 -> zip2 -> zip3 -> zip4
 
@@ -728,13 +724,13 @@ legend: {
   }
   share1: "Share as text: RecipeMarkdownFormatter creates Markdown, shared via ACTION_SEND text/plain"
   share2: "Share as file: ExportSingleRecipeUseCase creates .lorecipes ZIP, shared via FileProvider + ACTION_SEND"
-  share3: "Import: .lorecipes file opened/shared to app opens ImportSelectionScreen"
-  share4: "User selects recipes to import, ImportSelectionViewModel imports selected and navigates to recipe"
+  share3: "Import: .lorecipes file opened/shared to app opens ImportSelectionScreen (auto-imports single new recipes)"
+  share4: "User selects recipes to import, ImportSelectionViewModel enqueues WorkManager job and navigates to RecipeList"
 
   share1 -> share2 -> share3 -> share4
 
   note: {
-    label: "Import runs in background via WorkManager. Import queue is database-backed (PendingImportEntity) and persists across app restarts. Supports multiple concurrent imports with individual cancellation from the recipe list via swipe-to-dismiss. Page metadata (title, image) is fetched cheaply before AI parsing begins. Firebase sync, ZIP export/import, and Paprika import run in background with progress notifications. Sync runs on app startup and every 6 hours when enabled. Paprika import can be cancelled mid-way, keeping already-imported recipes. ZIP export uses RecipeSerializer for consistent format."
+    label: "All imports run in background via WorkManager (URL, Paprika, .lorecipes). Import queue is database-backed (PendingImportEntity) and persists across app restarts. Supports multiple concurrent imports with individual cancellation from the recipe list via swipe-to-dismiss. Page metadata (title, image) is fetched cheaply before AI parsing begins. Firebase sync and Paprika import run in background with progress notifications. Sync runs on app startup and every 6 hours when enabled. Paprika import can be cancelled mid-way, keeping already-imported recipes. Export uses .lorecipes format (ZIP with RecipeSerializer) for both single recipe share and bulk backup."
     style: {
       font-size: 12
       italic: true

@@ -68,43 +68,36 @@ fun SettingsScreen(
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // ZIP export file picker (create document)
-    val zipExportLauncher = rememberLauncherForActivityResult(
+    // Export file picker (create .lorecipes document)
+    val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/zip")
     ) { uri ->
         uri?.let { zipViewModel.exportToZip(it) }
     }
 
-    // ZIP import file picker - navigate to selection screen
-    val zipImportLauncher = rememberLauncherForActivityResult(
+    // Import file picker - navigate to selection screen for .lorecipes/.paprikarecipes
+    val importLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
-        uri?.let { onNavigateToImportSelection("zip", it) }
+        if (uri != null) {
+            val uriString = uri.toString().lowercase()
+            val importType = if (uriString.endsWith(".paprikarecipes")) {
+                "paprika"
+            } else {
+                "lorecipes"
+            }
+            onNavigateToImportSelection(importType, uri)
+        }
     }
 
-    // Show snackbar for zip operation results
+    // Show snackbar for export operation results
     LaunchedEffect(zipOperationState) {
         when (val state = zipOperationState) {
             is ZipOperationState.ExportComplete -> {
                 val message = if (state.failedCount > 0) {
-                    context.getString(R.string.zip_exported_recipes_with_failures, state.exportedCount, state.failedCount)
+                    context.getString(R.string.exported_recipes_with_failures, state.exportedCount, state.failedCount)
                 } else {
-                    context.getString(R.string.zip_exported_recipes, state.exportedCount)
-                }
-                snackbarHostState.showSnackbar(message)
-                zipViewModel.resetOperationState()
-            }
-            is ZipOperationState.ImportComplete -> {
-                val message = buildString {
-                    append(context.getString(R.string.zip_imported_recipes, state.importedCount))
-                    if (state.skippedCount > 0 || state.failedCount > 0) {
-                        append(" (")
-                        val parts = mutableListOf<String>()
-                        if (state.skippedCount > 0) parts.add(context.getString(R.string.skipped_count, state.skippedCount))
-                        if (state.failedCount > 0) parts.add(context.getString(R.string.failed_count, state.failedCount))
-                        append(parts.joinToString(", "))
-                        append(")")
-                    }
+                    context.getString(R.string.exported_recipes, state.exportedCount)
                 }
                 snackbarHostState.showSnackbar(message)
                 zipViewModel.resetOperationState()
@@ -199,10 +192,10 @@ fun SettingsScreen(
             BackupRestoreSection(
                 operationState = zipOperationState,
                 onExportClick = {
-                    zipExportLauncher.launch("lion-otter-recipes.zip")
+                    exportLauncher.launch("lion-otter-recipes.lorecipes")
                 },
                 onImportClick = {
-                    zipImportLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed"))
+                    importLauncher.launch(arrayOf("*/*"))
                 }
             )
 

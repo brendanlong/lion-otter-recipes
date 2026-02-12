@@ -22,6 +22,7 @@ import com.lionotter.recipes.ui.screens.importdebug.ImportDebugListScreen
 import com.lionotter.recipes.ui.screens.grocerylist.GroceryListScreen
 import com.lionotter.recipes.ui.screens.importselection.ImportSelectionScreen
 import com.lionotter.recipes.ui.screens.importselection.ImportSelectionViewModel
+import com.lionotter.recipes.ui.screens.importselection.ImportType
 import com.lionotter.recipes.ui.screens.mealplan.MealPlanScreen
 import com.lionotter.recipes.ui.screens.recipedetail.RecipeDetailScreen
 import com.lionotter.recipes.ui.screens.recipelist.RecipeListScreen
@@ -161,12 +162,6 @@ fun NavGraph(
                     }
                     navController.navigate(Screen.RecipeDetail.createRoute(recipeId))
                 },
-                onPaprikaImportComplete = {
-                    // Navigate back to recipe list after Paprika batch import
-                    navController.navigate(Screen.RecipeList.route) {
-                        popUpTo(0) { inclusive = true }
-                    }
-                },
                 onNavigateToSettings = {
                     navController.navigate(Screen.Settings.route)
                 },
@@ -252,9 +247,8 @@ fun NavGraph(
             val importTypeStr = backStackEntry.arguments?.getString("importType") ?: "lorecipes"
             val uriStr = backStackEntry.arguments?.getString("uri")
             val importType = when (importTypeStr) {
-                "paprika" -> ImportSelectionViewModel.ImportType.PAPRIKA
-                "zip" -> ImportSelectionViewModel.ImportType.ZIP_BACKUP
-                else -> ImportSelectionViewModel.ImportType.LORECIPES
+                "paprika" -> ImportType.PAPRIKA
+                else -> ImportType.LORECIPES
             }
             val title = stringResource(R.string.select_recipes_to_import)
             val importSelectionViewModel: ImportSelectionViewModel = hiltViewModel()
@@ -263,7 +257,25 @@ fun NavGraph(
             LaunchedEffect(uriStr) {
                 if (uriStr != null) {
                     val uri = uriStr.toUri()
-                    importSelectionViewModel.parseFile(uri, importType)
+                    importSelectionViewModel.parseFile(uri, importType, context.contentResolver)
+                }
+            }
+
+            // Auto-import single new .lorecipes recipes without showing selection screen
+            LaunchedEffect(selectionState.value) {
+                if (importSelectionViewModel.shouldAutoImport()) {
+                    importSelectionViewModel.importSelected { result ->
+                        when (result) {
+                            is ImportSelectionViewModel.ImportResult.ImportStarted -> {
+                                navController.navigate(Screen.RecipeList.route) {
+                                    popUpTo(0) { inclusive = true }
+                                }
+                            }
+                            is ImportSelectionViewModel.ImportResult.Error -> {
+                                Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
                 }
             }
 
@@ -276,46 +288,14 @@ fun NavGraph(
                 onImportClick = {
                     importSelectionViewModel.importSelected { result ->
                         when (result) {
-                            is ImportSelectionViewModel.ImportResult.PaprikaSelected -> {
-                                // Navigate back to AddRecipe and start Paprika import
-                                // with selected recipe names
-                                navController.popBackStack()
-                                // Find the AddRecipeViewModel and start import
-                                // We pass the selected names via SharedImportState
-                                SharedImportState.paprikaSelectedNames = result.selectedRecipeNames
-                                SharedImportState.paprikaFileUri = result.fileUri
-                                SharedImportState.pendingPaprikaImport = true
-                            }
-                            is ImportSelectionViewModel.ImportResult.DirectImportComplete -> {
-                                if (result.importedCount == 1 && result.importedRecipeId != null) {
-                                    navController.navigate(Screen.RecipeList.route) {
-                                        popUpTo(0) { inclusive = true }
-                                    }
-                                    navController.navigate(
-                                        Screen.RecipeDetail.createRoute(result.importedRecipeId)
-                                    )
-                                } else {
-                                    navController.navigate(Screen.RecipeList.route) {
-                                        popUpTo(0) { inclusive = true }
-                                    }
-                                    if (result.importedCount > 0) {
-                                        Toast.makeText(
-                                            context,
-                                            context.getString(
-                                                R.string.file_import_success_count,
-                                                result.importedCount
-                                            ),
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
+                            is ImportSelectionViewModel.ImportResult.ImportStarted -> {
+                                // All import types: navigate to RecipeList immediately
+                                navController.navigate(Screen.RecipeList.route) {
+                                    popUpTo(0) { inclusive = true }
                                 }
                             }
                             is ImportSelectionViewModel.ImportResult.Error -> {
-                                Toast.makeText(
-                                    context,
-                                    result.message,
-                                    Toast.LENGTH_LONG
-                                ).show()
+                                Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
                             }
                         }
                     }
@@ -325,14 +305,3 @@ fun NavGraph(
         }
     }
 }
-
-/**
- * Simple in-memory state holder for passing import selection data between screens.
- * Used to communicate Paprika import selection from ImportSelectionScreen back to AddRecipeScreen.
- */
-object SharedImportState {
-    var paprikaSelectedNames: Set<String>? = null
-    var paprikaFileUri: Uri? = null
-    var pendingPaprikaImport: Boolean = false
-}
-
