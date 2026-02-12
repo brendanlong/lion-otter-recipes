@@ -103,8 +103,8 @@ class GroceryListViewModelTest {
         date = LocalDate(2025, 1, 1),
         mealType = MealType.DINNER,
         servings = servings,
-        createdAt = 1000,
-        updatedAt = 2000
+        createdAt = Instant.fromEpochMilliseconds(1000),
+        updatedAt = Instant.fromEpochMilliseconds(2000)
     )
 
     private fun createViewModel(entries: List<MealPlanEntry> = emptyList()): GroceryListViewModel {

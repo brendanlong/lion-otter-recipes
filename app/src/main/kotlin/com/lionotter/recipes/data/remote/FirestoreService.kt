@@ -276,7 +276,7 @@ class FirestoreService @Inject constructor(
             try {
                 val data = hashMapOf(
                     FIELD_MEAL_PLAN_JSON to json.encodeToString(entry),
-                    FIELD_UPDATED_AT to entry.updatedAt,
+                    FIELD_UPDATED_AT to entry.updatedAt.toEpochMilliseconds(),
                     FIELD_DELETED to false
                 )
                 userMealPlansCollection().document(entry.id).set(data).await()

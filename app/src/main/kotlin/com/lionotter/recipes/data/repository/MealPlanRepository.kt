@@ -45,8 +45,8 @@ class MealPlanRepository @Inject constructor(
     }
 
     suspend fun deleteMealPlan(id: String) {
-        val now = Clock.System.now().toEpochMilliseconds()
-        mealPlanDao.softDeleteMealPlan(id, now)
+        val now = Clock.System.now()
+        mealPlanDao.softDeleteMealPlan(id, updatedAt = now)
     }
 
     suspend fun getDeletedMealPlans(): List<MealPlanEntry> {

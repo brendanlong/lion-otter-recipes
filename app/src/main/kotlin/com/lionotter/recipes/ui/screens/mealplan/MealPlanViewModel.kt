@@ -198,7 +198,7 @@ class MealPlanViewModel @Inject constructor(
 
     fun addRecipeToMealPlan(recipe: Recipe) {
         viewModelScope.launch {
-            val now = Clock.System.now().toEpochMilliseconds()
+            val now = Clock.System.now()
             val existing = _editingEntry.value
             if (existing != null) {
                 val updated = existing.copy(
@@ -237,7 +237,7 @@ class MealPlanViewModel @Inject constructor(
     fun saveEditedMealPlan() {
         viewModelScope.launch {
             val existing = _editingEntry.value ?: return@launch
-            val now = Clock.System.now().toEpochMilliseconds()
+            val now = Clock.System.now()
             val updated = existing.copy(
                 date = _selectedDate.value,
                 mealType = _selectedMealType.value,

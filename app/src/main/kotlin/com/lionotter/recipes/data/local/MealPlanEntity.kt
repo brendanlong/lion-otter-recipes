@@ -4,6 +4,7 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.model.MealType
+import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
 
 @Entity(tableName = "meal_plans")
@@ -16,8 +17,8 @@ data class MealPlanEntity(
     val date: String, // ISO-8601 date string (yyyy-MM-dd)
     val mealType: String, // MealType enum name
     val servings: Double = 1.0,
-    val createdAt: Long,
-    val updatedAt: Long,
+    val createdAt: Instant,
+    val updatedAt: Instant,
     val deleted: Boolean = false // Soft delete for sync tracking
 ) {
     fun toMealPlanEntry(): MealPlanEntry {

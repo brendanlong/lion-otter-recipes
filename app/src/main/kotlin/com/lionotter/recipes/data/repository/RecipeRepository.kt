@@ -75,7 +75,7 @@ class RecipeRepository @Inject constructor(
     }
 
     suspend fun deleteRecipe(id: String) {
-        val now = Clock.System.now().toEpochMilliseconds()
+        val now = Clock.System.now()
         recipeDao.softDeleteRecipe(id, now)
     }
 

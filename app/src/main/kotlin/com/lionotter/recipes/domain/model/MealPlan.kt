@@ -1,6 +1,7 @@
 package com.lionotter.recipes.domain.model
 
 import androidx.compose.runtime.Immutable
+import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
 import kotlinx.serialization.Serializable
 
@@ -29,6 +30,6 @@ data class MealPlanEntry(
     val date: LocalDate,
     val mealType: MealType,
     val servings: Double = 1.0,
-    val createdAt: Long,
-    val updatedAt: Long
+    val createdAt: Instant,
+    val updatedAt: Instant
 )
