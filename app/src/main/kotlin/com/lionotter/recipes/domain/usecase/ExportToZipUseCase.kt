@@ -1,5 +1,6 @@
 package com.lionotter.recipes.domain.usecase
 
+import android.util.Log
 import com.lionotter.recipes.data.repository.MealPlanRepository
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.MealPlanEntry
@@ -26,6 +27,7 @@ class ExportToZipUseCase @Inject constructor(
     private val json: Json
 ) {
     companion object {
+        private const val TAG = "ExportToZipUseCase"
         const val MEAL_PLANS_FOLDER = "meal-plans"
     }
 
@@ -96,6 +98,7 @@ class ExportToZipUseCase @Inject constructor(
 
                         exportedCount++
                     } catch (e: Exception) {
+                        Log.e(TAG, "Failed to export recipe: ${recipe.name}", e)
                         failedCount++
                     }
                 }
@@ -110,8 +113,8 @@ class ExportToZipUseCase @Inject constructor(
                             zipOut.putNextEntry(ZipEntry("$MEAL_PLANS_FOLDER/$date.json"))
                             zipOut.write(mealPlanJson.toByteArray(Charsets.UTF_8))
                             zipOut.closeEntry()
-                        } catch (_: Exception) {
-                            // Non-critical: continue with other dates
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to export meal plans for date $date", e)
                         }
                     }
                 }

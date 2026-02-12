@@ -1,5 +1,6 @@
 package com.lionotter.recipes.domain.usecase
 
+import android.util.Log
 import com.lionotter.recipes.data.local.ImportDebugEntity
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AnthropicService
@@ -31,6 +32,9 @@ class ParseHtmlUseCase @Inject constructor(
     private val settingsDataStore: SettingsDataStore,
     private val imageDownloadService: ImageDownloadService
 ) {
+    companion object {
+        private const val TAG = "ParseHtmlUseCase"
+    }
     sealed class ParseResult {
         data class Success(val recipe: Recipe) : ParseResult()
         data class Error(val message: String) : ParseResult()
@@ -269,6 +273,7 @@ class ParseHtmlUseCase @Inject constructor(
                 append(content)
             }
         } catch (e: Exception) {
+            Log.w(TAG, "Failed to extract content from HTML, falling back to raw HTML", e)
             html
         }
     }
@@ -285,6 +290,7 @@ class ParseHtmlUseCase @Inject constructor(
                 ?: doc.selectFirst("meta[name=image]")?.attr("content")
                     ?.takeIf { it.isNotBlank() }
         } catch (e: Exception) {
+            Log.w(TAG, "Failed to extract image URL from HTML", e)
             null
         }
     }

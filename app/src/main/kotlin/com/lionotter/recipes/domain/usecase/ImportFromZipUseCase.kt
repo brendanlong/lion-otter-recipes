@@ -1,5 +1,6 @@
 package com.lionotter.recipes.domain.usecase
 
+import android.util.Log
 import com.lionotter.recipes.domain.util.RecipeSerializer
 import com.lionotter.recipes.domain.util.ZipImportHelper
 import kotlinx.coroutines.ensureActive
@@ -21,6 +22,9 @@ class ImportFromZipUseCase @Inject constructor(
     private val zipImportHelper: ZipImportHelper,
     private val recipeSerializer: RecipeSerializer
 ) {
+    companion object {
+        private const val TAG = "ImportFromZipUseCase"
+    }
     sealed class ImportResult {
         data class Success(
             val importedCount: Int,
@@ -70,7 +74,8 @@ class ImportFromZipUseCase @Inject constructor(
                         try {
                             val recipe = recipeSerializer.deserializeRecipe(jsonContent)
                             recipe.id in selectedRecipeIds
-                        } catch (_: Exception) {
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to deserialize recipe during pre-filter, including for error reporting", e)
                             true // include failures so they're counted as failed
                         }
                     }

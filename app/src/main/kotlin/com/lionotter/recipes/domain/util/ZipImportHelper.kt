@@ -69,6 +69,7 @@ class ZipImportHelper @Inject constructor(
                 }
             }
         } catch (e: Exception) {
+            Log.e(TAG, "Failed to read ZIP contents", e)
             return null
         }
 

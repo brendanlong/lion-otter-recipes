@@ -22,25 +22,28 @@ class FirestoreMealPlanSyncUseCase @Inject constructor(
         private const val TAG = "FirestoreMealPlanSync"
     }
 
-    data class SyncResult(
-        val uploaded: Int = 0,
-        val downloaded: Int = 0,
-        val updated: Int = 0,
-        val deleted: Int = 0
-    )
+    sealed class SyncResult {
+        data class Success(
+            val uploaded: Int = 0,
+            val downloaded: Int = 0,
+            val updated: Int = 0,
+            val deleted: Int = 0
+        ) : SyncResult()
+        data class Error(val message: String) : SyncResult()
+    }
 
     /**
      * Sync meal plans with Firestore.
      * Call this as part of the regular Firebase sync.
      */
     suspend fun sync(): SyncResult {
-        if (!firestoreService.isSignedIn()) return SyncResult()
+        if (!firestoreService.isSignedIn()) return SyncResult.Success()
 
         return try {
             performSync()
         } catch (e: Exception) {
             Log.e(TAG, "Meal plan sync failed", e)
-            SyncResult()
+            SyncResult.Error("Meal plan sync failed: ${e.message}")
         }
     }
 
@@ -56,8 +59,9 @@ class FirestoreMealPlanSyncUseCase @Inject constructor(
         // Get remote meal plans from Firestore
         val remoteResult = firestoreService.getAllMealPlans()
         if (remoteResult.isFailure) {
-            Log.e(TAG, "Failed to fetch remote meal plans", remoteResult.exceptionOrNull())
-            return SyncResult()
+            val error = remoteResult.exceptionOrNull()
+            Log.e(TAG, "Failed to fetch remote meal plans", error)
+            return SyncResult.Error("Failed to fetch remote meal plans: ${error?.message}")
         }
         val remoteEntries = remoteResult.getOrThrow()
         val remoteById = remoteEntries.associateBy { it.id }
@@ -115,7 +119,7 @@ class FirestoreMealPlanSyncUseCase @Inject constructor(
             mealPlanRepository.purgeDeletedMealPlans()
         }
 
-        return SyncResult(
+        return SyncResult.Success(
             uploaded = uploaded,
             downloaded = downloaded,
             updated = updated,

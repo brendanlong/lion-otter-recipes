@@ -168,12 +168,12 @@ class RecipeNotificationHelper @Inject constructor(
     }
 
     @SuppressLint("MissingPermission")
-    fun showSyncSuccessNotification(uploaded: Int, downloaded: Int, updated: Int, deleted: Int) {
+    fun showSyncSuccessNotification(uploaded: Int, downloaded: Int, updated: Int, deleted: Int, errors: Int = 0) {
         if (!notificationManager.areNotificationsEnabled()) return
 
         notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
 
-        val totalChanges = uploaded + downloaded + updated + deleted
+        val totalChanges = uploaded + downloaded + updated + deleted + errors
         if (totalChanges == 0) {
             // No changes - don't show a notification
             return
@@ -185,11 +185,14 @@ class RecipeNotificationHelper @Inject constructor(
             if (downloaded > 0) parts.add("$downloaded downloaded")
             if (updated > 0) parts.add("$updated updated")
             if (deleted > 0) parts.add("$deleted deleted")
+            if (errors > 0) parts.add("$errors failed")
             append(parts.joinToString(", "))
         }
 
+        val title = if (errors > 0) "Sync Completed with Errors" else "Sync Complete"
+
         val notification = baseNotification()
-            .setContentTitle("Sync Complete")
+            .setContentTitle(title)
             .setContentText(message)
             .build()
 

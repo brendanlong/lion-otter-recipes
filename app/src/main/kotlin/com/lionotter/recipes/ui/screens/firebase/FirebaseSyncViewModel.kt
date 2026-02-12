@@ -185,7 +185,8 @@ class FirebaseSyncViewModel @Inject constructor(
                     val downloaded = workInfo.outputData.getInt(FirestoreSyncWorker.KEY_DOWNLOADED_COUNT, 0)
                     val updated = workInfo.outputData.getInt(FirestoreSyncWorker.KEY_UPDATED_COUNT, 0)
                     val deleted = workInfo.outputData.getInt(FirestoreSyncWorker.KEY_DELETED_COUNT, 0)
-                    _operationState.value = SyncOperationState.SyncComplete(uploaded, downloaded, updated, deleted)
+                    val errors = workInfo.outputData.getInt(FirestoreSyncWorker.KEY_ERROR_COUNT, 0)
+                    _operationState.value = SyncOperationState.SyncComplete(uploaded, downloaded, updated, deleted, errors)
                 } else {
                     _operationState.value = SyncOperationState.Idle
                 }
@@ -227,6 +228,6 @@ sealed class FirebaseSyncUiState {
 sealed class SyncOperationState {
     object Idle : SyncOperationState()
     object Syncing : SyncOperationState()
-    data class SyncComplete(val uploaded: Int, val downloaded: Int, val updated: Int, val deleted: Int) : SyncOperationState()
+    data class SyncComplete(val uploaded: Int, val downloaded: Int, val updated: Int, val deleted: Int, val errors: Int = 0) : SyncOperationState()
     data class Error(val message: String) : SyncOperationState()
 }

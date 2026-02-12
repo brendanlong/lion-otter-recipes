@@ -1,5 +1,6 @@
 package com.lionotter.recipes.domain.usecase
 
+import android.util.Log
 import com.lionotter.recipes.data.paprika.PaprikaParser
 import com.lionotter.recipes.data.paprika.PaprikaRecipe
 import com.lionotter.recipes.data.remote.WebScraperService
@@ -23,6 +24,9 @@ class ImportPaprikaUseCase @Inject constructor(
     private val parseHtmlUseCase: ParseHtmlUseCase,
     private val webScraperService: WebScraperService
 ) {
+    companion object {
+        private const val TAG = "ImportPaprikaUseCase"
+    }
     sealed class ImportResult {
         data class Success(
             val importedCount: Int,
@@ -158,6 +162,7 @@ class ImportPaprikaUseCase @Inject constructor(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
+            Log.e(TAG, "Failed to import Paprika recipe: ${paprikaRecipe.name}", e)
             null
         }
     }
@@ -182,6 +187,7 @@ class ImportPaprikaUseCase @Inject constructor(
                 val pageResult = webScraperService.fetchPage(paprikaRecipe.sourceUrl)
                 pageResult.getOrNull()?.imageUrl
             } catch (e: Exception) {
+                Log.w(TAG, "Failed to fetch image URL from source: ${paprikaRecipe.sourceUrl}", e)
                 null
             }
         }

@@ -1,5 +1,6 @@
 package com.lionotter.recipes.data.remote
 
+import android.util.Log
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -78,11 +79,13 @@ class WebScraperService @Inject constructor(
                 ?: doc.selectFirst("meta[name=image]")?.attr("content")
                     ?.takeIf { it.isNotBlank() }
         } catch (e: Exception) {
+            Log.w(TAG, "Failed to extract image URL from HTML", e)
             null
         }
     }
 
     companion object {
+        private const val TAG = "WebScraperService"
         private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
     }
 }
