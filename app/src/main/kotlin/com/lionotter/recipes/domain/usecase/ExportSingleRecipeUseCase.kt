@@ -1,6 +1,7 @@
 package com.lionotter.recipes.domain.usecase
 
 import android.util.Log
+import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.util.RecipeSerializer
@@ -15,13 +16,15 @@ import javax.inject.Inject
  * - recipe-name/recipe.json
  * - recipe-name/original.html (if available)
  * - recipe-name/recipe.md
+ * - recipe-name/image.* (recipe image, if available)
  *
  * The .lorecipes extension allows the app to register as a handler for these files,
  * enabling recipe sharing between users.
  */
 class ExportSingleRecipeUseCase @Inject constructor(
     private val recipeRepository: RecipeRepository,
-    private val recipeSerializer: RecipeSerializer
+    private val recipeSerializer: RecipeSerializer,
+    private val imageDownloadService: ImageDownloadService
 ) {
     companion object {
         private const val TAG = "ExportSingleRecipe"
@@ -60,6 +63,17 @@ class ExportSingleRecipeUseCase @Inject constructor(
                 zipOut.putNextEntry(ZipEntry("$prefix/${RecipeSerializer.RECIPE_MARKDOWN_FILENAME}"))
                 zipOut.write(files.recipeMarkdown.toByteArray(Charsets.UTF_8))
                 zipOut.closeEntry()
+
+                // Write image file (if available)
+                if (recipe.imageUrl != null) {
+                    val imageFile = imageDownloadService.getLocalImageFile(recipe.imageUrl)
+                    if (imageFile != null) {
+                        val imageName = "${RecipeSerializer.IMAGE_FILENAME_PREFIX}${imageFile.extension.let { ".$it" }}"
+                        zipOut.putNextEntry(ZipEntry("$prefix/$imageName"))
+                        imageFile.inputStream().use { it.copyTo(zipOut) }
+                        zipOut.closeEntry()
+                    }
+                }
             }
 
             val fileName = "${recipeSerializer.sanitizeFolderName(recipe.name)}.lorecipes"

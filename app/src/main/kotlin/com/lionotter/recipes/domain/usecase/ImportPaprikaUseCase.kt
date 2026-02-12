@@ -3,6 +3,7 @@ package com.lionotter.recipes.domain.usecase
 import android.util.Log
 import com.lionotter.recipes.data.paprika.PaprikaParser
 import com.lionotter.recipes.data.paprika.PaprikaRecipe
+import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.remote.WebScraperService
 import com.lionotter.recipes.domain.model.Recipe
 import kotlinx.coroutines.ensureActive
@@ -22,7 +23,8 @@ import kotlin.coroutines.coroutineContext
 class ImportPaprikaUseCase @Inject constructor(
     private val paprikaParser: PaprikaParser,
     private val parseHtmlUseCase: ParseHtmlUseCase,
-    private val webScraperService: WebScraperService
+    private val webScraperService: WebScraperService,
+    private val imageDownloadService: ImageDownloadService
 ) {
     companion object {
         private const val TAG = "ImportPaprikaUseCase"
@@ -138,10 +140,7 @@ class ImportPaprikaUseCase @Inject constructor(
             // Format the Paprika recipe content for AI parsing
             val contentForAi = paprikaParser.formatForAi(paprikaRecipe)
 
-            // Determine image URL:
-            // 1. If Paprika has photo_data, we don't have a way to store raw image bytes in our model
-            //    (we only store URLs), so try the image_url from Paprika first
-            // 2. Fall back to fetching from source URL to get og:image
+            // Resolve image: try photo_data first, then image_url, then source page
             val imageUrl = resolveImageUrl(paprikaRecipe)
 
             val sourceUrl = paprikaRecipe.sourceUrl?.takeIf { it.isNotBlank() }
@@ -171,12 +170,23 @@ class ImportPaprikaUseCase @Inject constructor(
      * Resolve the image URL for a Paprika recipe.
      *
      * Priority:
-     * 1. Paprika's image_url field (direct URL to the image)
-     * 2. Fetch the source page and extract og:image
-     * 3. null if no image available
+     * 1. Paprika's photo_data (base64-encoded JPEG) - saved directly to local storage
+     * 2. Paprika's image_url field (direct URL to the image)
+     * 3. Fetch the source page and extract og:image
+     * 4. null if no image available
      */
     private suspend fun resolveImageUrl(paprikaRecipe: PaprikaRecipe): String? {
-        // Try Paprika's image_url first
+        // Try base64-encoded photo_data first (most reliable, doesn't require network)
+        if (!paprikaRecipe.photoData.isNullOrBlank()) {
+            val localUri = imageDownloadService.saveImageFromBase64(paprikaRecipe.photoData, ".jpg")
+            if (localUri != null) {
+                // Return the local URI directly - ParseHtmlUseCase.parseText will see
+                // the file:// URI and keep it as-is via downloadAndStore
+                return localUri
+            }
+        }
+
+        // Try Paprika's image_url
         if (!paprikaRecipe.imageUrl.isNullOrBlank()) {
             return paprikaRecipe.imageUrl
         }

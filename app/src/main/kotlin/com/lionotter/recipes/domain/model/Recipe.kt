@@ -32,6 +32,7 @@ data class Recipe(
     val equipment: List<String> = emptyList(),
     val tags: List<String> = emptyList(),
     val imageUrl: String? = null,
+    val sourceImageUrl: String? = null,
     val createdAt: Instant,
     val updatedAt: Instant,
     val isFavorite: Boolean = false

@@ -183,6 +183,7 @@ class ParseHtmlUseCase @Inject constructor(
             equipment = parsed.equipment,
             tags = parsed.tags,
             imageUrl = localImageUrl,
+            sourceImageUrl = imageUrl,
             createdAt = now,
             updatedAt = now
         )

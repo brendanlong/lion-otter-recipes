@@ -354,6 +354,7 @@ class FirestoreService @Inject constructor(
             "equipment" to recipe.equipment,
             "tags" to recipe.tags,
             "imageUrl" to recipe.imageUrl,
+            "sourceImageUrl" to recipe.sourceImageUrl,
             "createdAt" to recipe.createdAt.toFirestoreTimestamp(),
             FIELD_UPDATED_AT to recipe.updatedAt.toFirestoreTimestamp(),
             "isFavorite" to recipe.isFavorite,
@@ -436,6 +437,7 @@ class FirestoreService @Inject constructor(
             equipment = equipment,
             tags = tags,
             imageUrl = doc.getString("imageUrl"),
+            sourceImageUrl = doc.getString("sourceImageUrl"),
             createdAt = createdAt,
             updatedAt = updatedAt,
             isFavorite = doc.getBoolean("isFavorite") ?: false

@@ -171,8 +171,8 @@ class ImportSelectionViewModel @Inject constructor(
             }
 
             try {
-                val folderContents = inputStream.use { zipImportHelper.readZipContents(it) }
-                if (folderContents == null || folderContents.isEmpty()) {
+                val zipContents = inputStream.use { zipImportHelper.readZipContents(it) }
+                if (zipContents == null || zipContents.textFiles.isEmpty()) {
                     _uiState.value = ImportSelectionUiState.Error("No recipes found in file")
                     return@withContext
                 }
@@ -181,7 +181,7 @@ class ImportSelectionViewModel @Inject constructor(
                 val existingIds = existingRecipes.map { it.id }.toSet()
                 val existingNames = existingRecipes.map { it.name.lowercase() }.toSet()
 
-                val items = folderContents.entries
+                val items = zipContents.textFiles.entries
                     .filter { it.key != ZipImportHelper.MEAL_PLANS_FOLDER }
                     .mapNotNull { (_, files) ->
                         val jsonContent = files[RecipeSerializer.RECIPE_JSON_FILENAME]

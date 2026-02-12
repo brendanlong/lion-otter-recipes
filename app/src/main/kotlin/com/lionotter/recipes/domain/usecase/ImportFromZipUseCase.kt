@@ -14,6 +14,7 @@ import kotlin.coroutines.coroutineContext
  * - recipe-name/recipe.json
  * - recipe-name/original.html (optional)
  * - recipe-name/recipe.md (ignored on import, regenerated from data)
+ * - recipe-name/image.* (recipe image, used if present)
  *
  * Import strategy: JSON-first.
  * Skips recipes that already exist locally (by ID).
@@ -57,14 +58,14 @@ class ImportFromZipUseCase @Inject constructor(
         onProgress(ImportProgress.Starting)
         onProgress(ImportProgress.ReadingZip)
 
-        val folderContents = zipImportHelper.readZipContents(inputStream)
+        val zipContents = zipImportHelper.readZipContents(inputStream)
             ?: return ImportResult.Error("Failed to read ZIP file or no data found")
 
         var importedCount = 0
         var failedCount = 0
         var skippedCount = 0
 
-        val recipeFolders = folderContents.entries
+        val recipeFolders = zipContents.textFiles.entries
             .filter { it.key != ZipImportHelper.MEAL_PLANS_FOLDER }
             .let { entries ->
                 if (selectedRecipeIds != null) {
@@ -96,7 +97,8 @@ class ImportFromZipUseCase @Inject constructor(
                 )
             )
 
-            when (zipImportHelper.importRecipe(files)) {
+            val imageFiles = zipContents.imageFiles[folderName] ?: emptyMap()
+            when (zipImportHelper.importRecipe(files, imageFiles)) {
                 is ZipImportHelper.SingleRecipeResult.Imported -> importedCount++
                 is ZipImportHelper.SingleRecipeResult.Skipped -> skippedCount++
                 is ZipImportHelper.SingleRecipeResult.NoJson -> failedCount++
@@ -105,7 +107,7 @@ class ImportFromZipUseCase @Inject constructor(
         }
 
         // Import meal plans from the meal-plans folder (always, not filtered by selection)
-        val mealPlanFiles = folderContents[ZipImportHelper.MEAL_PLANS_FOLDER]
+        val mealPlanFiles = zipContents.textFiles[ZipImportHelper.MEAL_PLANS_FOLDER]
         if (mealPlanFiles != null) {
             val (mealImported, mealSkipped) = zipImportHelper.importMealPlans(mealPlanFiles)
             importedCount += mealImported

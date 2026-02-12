@@ -134,9 +134,8 @@ class FirestoreSyncUseCase @Inject constructor(
         downloadList.forEachIndexed { index, remoteRecipe ->
             onProgress(SyncProgress.Downloading(remoteRecipe.recipe.name, index + 1, downloadList.size))
             try {
-                val recipeWithLocalImage = remoteRecipe.recipe.copy(
-                    imageUrl = imageDownloadService.downloadImageIfNeeded(remoteRecipe.recipe.imageUrl)
-                )
+                val localImageUrl = resolveImageForSync(remoteRecipe.recipe)
+                val recipeWithLocalImage = remoteRecipe.recipe.copy(imageUrl = localImageUrl)
                 recipeRepository.saveRecipe(recipeWithLocalImage, remoteRecipe.originalHtml)
                 downloaded++
             } catch (e: Exception) {
@@ -164,9 +163,8 @@ class FirestoreSyncUseCase @Inject constructor(
             } else if (remoteRecipe.recipe.updatedAt > localRecipe.updatedAt) {
                 // Remote is newer, update local
                 try {
-                    val recipeWithLocalImage = remoteRecipe.recipe.copy(
-                        imageUrl = imageDownloadService.downloadImageIfNeeded(remoteRecipe.recipe.imageUrl)
-                    )
+                    val localImageUrl = resolveImageForSync(remoteRecipe.recipe)
+                    val recipeWithLocalImage = remoteRecipe.recipe.copy(imageUrl = localImageUrl)
                     recipeRepository.saveRecipe(recipeWithLocalImage, remoteRecipe.originalHtml)
                     updated++
                 } catch (e: Exception) {
@@ -221,5 +219,23 @@ class FirestoreSyncUseCase @Inject constructor(
         )
         onProgress(SyncProgress.Complete(result))
         return result
+    }
+
+    /**
+     * Resolves an image for a recipe being synced from Firestore.
+     * Tries the local imageUrl first (will work if file exists on this device),
+     * then falls back to the sourceImageUrl (original remote URL) to re-download.
+     */
+    private suspend fun resolveImageForSync(recipe: com.lionotter.recipes.domain.model.Recipe): String? {
+        // Try the stored imageUrl (may be a file:// URI or remote URL)
+        val localImage = imageDownloadService.downloadImageIfNeeded(recipe.imageUrl)
+        if (localImage != null) return localImage
+
+        // Fall back to sourceImageUrl (original remote URL) for cross-device sync
+        if (!recipe.sourceImageUrl.isNullOrBlank()) {
+            return imageDownloadService.downloadAndStore(recipe.sourceImageUrl)
+        }
+
+        return null
     }
 }
