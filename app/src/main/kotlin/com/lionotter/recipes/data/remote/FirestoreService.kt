@@ -9,13 +9,20 @@ import androidx.credentials.GetCredentialRequest
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.Companion.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
 import com.lionotter.recipes.R
+import com.lionotter.recipes.domain.model.Amount
+import com.lionotter.recipes.domain.model.Ingredient
+import com.lionotter.recipes.domain.model.InstructionSection
+import com.lionotter.recipes.domain.model.InstructionStep
 import com.lionotter.recipes.domain.model.MealPlanEntry
+import com.lionotter.recipes.domain.model.MealType
 import com.lionotter.recipes.domain.model.Recipe
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -24,8 +31,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import kotlinx.datetime.Instant
+import kotlinx.datetime.LocalDate
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -33,26 +40,26 @@ import javax.inject.Singleton
  * Service for interacting with Firebase Firestore for recipe and meal plan sync.
  * Uses Firebase Auth with Google Sign-In via Credential Manager for authentication.
  *
+ * Data is stored as structured Firestore documents with native types:
+ * - Instants are stored as Firestore Timestamps
+ * - Nested objects (ingredients, instructions) are stored as nested maps/lists
+ * - Enums are stored as strings
+ *
  * Firestore data structure:
  *   users/{userId}/recipes/{recipeId} - Recipe documents
  *   users/{userId}/mealPlans/{mealPlanId} - Meal plan documents
- *   users/{userId}/metadata/sync - Last sync metadata
  */
 @Singleton
 class FirestoreService @Inject constructor(
-    @ApplicationContext private val context: Context,
-    private val json: Json
+    @ApplicationContext private val context: Context
 ) {
     companion object {
         private const val TAG = "FirestoreService"
         private const val COLLECTION_USERS = "users"
         private const val COLLECTION_RECIPES = "recipes"
         private const val COLLECTION_MEAL_PLANS = "mealPlans"
-        private const val FIELD_RECIPE_JSON = "recipeJson"
-        private const val FIELD_ORIGINAL_HTML = "originalHtml"
         private const val FIELD_UPDATED_AT = "updatedAt"
         private const val FIELD_DELETED = "deleted"
-        private const val FIELD_MEAL_PLAN_JSON = "mealPlanJson"
     }
 
     private val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
@@ -153,12 +160,7 @@ class FirestoreService @Inject constructor(
     suspend fun upsertRecipe(recipe: Recipe, originalHtml: String?): Result<Unit> =
         withContext(Dispatchers.IO) {
             try {
-                val data = hashMapOf(
-                    FIELD_RECIPE_JSON to json.encodeToString(recipe),
-                    FIELD_ORIGINAL_HTML to (originalHtml ?: ""),
-                    FIELD_UPDATED_AT to recipe.updatedAt.toEpochMilliseconds(),
-                    FIELD_DELETED to false
-                )
+                val data = recipeToMap(recipe, originalHtml)
                 userRecipesCollection().document(recipe.id).set(data).await()
                 Result.success(Unit)
             } catch (e: Exception) {
@@ -177,7 +179,7 @@ class FirestoreService @Inject constructor(
                     .set(
                         hashMapOf(
                             FIELD_DELETED to true,
-                            FIELD_UPDATED_AT to System.currentTimeMillis()
+                            FIELD_UPDATED_AT to Timestamp.now()
                         ),
                         SetOptions.merge()
                     ).await()
@@ -215,10 +217,7 @@ class FirestoreService @Inject constructor(
 
                 val recipes = snapshot.documents.mapNotNull { doc ->
                     try {
-                        val recipeJson = doc.getString(FIELD_RECIPE_JSON) ?: return@mapNotNull null
-                        val recipe = json.decodeFromString<Recipe>(recipeJson)
-                        val originalHtml = doc.getString(FIELD_ORIGINAL_HTML)?.ifEmpty { null }
-                        RemoteRecipe(recipe, originalHtml)
+                        parseRecipeDocument(doc)
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to parse recipe from document ${doc.id}", e)
                         null
@@ -245,10 +244,7 @@ class FirestoreService @Inject constructor(
 
                 val recipes = snapshot?.documents?.mapNotNull { doc ->
                     try {
-                        val recipeJson = doc.getString(FIELD_RECIPE_JSON) ?: return@mapNotNull null
-                        val recipe = json.decodeFromString<Recipe>(recipeJson)
-                        val originalHtml = doc.getString(FIELD_ORIGINAL_HTML)?.ifEmpty { null }
-                        RemoteRecipe(recipe, originalHtml)
+                        parseRecipeDocument(doc)
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to parse recipe from snapshot ${doc.id}", e)
                         null
@@ -274,11 +270,7 @@ class FirestoreService @Inject constructor(
     suspend fun upsertMealPlan(entry: MealPlanEntry): Result<Unit> =
         withContext(Dispatchers.IO) {
             try {
-                val data = hashMapOf(
-                    FIELD_MEAL_PLAN_JSON to json.encodeToString(entry),
-                    FIELD_UPDATED_AT to entry.updatedAt.toEpochMilliseconds(),
-                    FIELD_DELETED to false
-                )
+                val data = mealPlanToMap(entry)
                 userMealPlansCollection().document(entry.id).set(data).await()
                 Result.success(Unit)
             } catch (e: Exception) {
@@ -297,7 +289,7 @@ class FirestoreService @Inject constructor(
                     .set(
                         hashMapOf(
                             FIELD_DELETED to true,
-                            FIELD_UPDATED_AT to System.currentTimeMillis()
+                            FIELD_UPDATED_AT to Timestamp.now()
                         ),
                         SetOptions.merge()
                     ).await()
@@ -334,9 +326,7 @@ class FirestoreService @Inject constructor(
 
                 val entries = snapshot.documents.mapNotNull { doc ->
                     try {
-                        val entryJson = doc.getString(FIELD_MEAL_PLAN_JSON)
-                            ?: return@mapNotNull null
-                        json.decodeFromString<MealPlanEntry>(entryJson)
+                        parseMealPlanDocument(doc)
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to parse meal plan from document ${doc.id}", e)
                         null
@@ -348,6 +338,200 @@ class FirestoreService @Inject constructor(
                 Result.failure(e)
             }
         }
+
+    // --- Serialization: Domain -> Firestore Maps ---
+
+    private fun recipeToMap(recipe: Recipe, originalHtml: String?): Map<String, Any?> =
+        hashMapOf(
+            "name" to recipe.name,
+            "sourceUrl" to recipe.sourceUrl,
+            "story" to recipe.story,
+            "servings" to recipe.servings,
+            "prepTime" to recipe.prepTime,
+            "cookTime" to recipe.cookTime,
+            "totalTime" to recipe.totalTime,
+            "instructionSections" to recipe.instructionSections.map { instructionSectionToMap(it) },
+            "equipment" to recipe.equipment,
+            "tags" to recipe.tags,
+            "imageUrl" to recipe.imageUrl,
+            "createdAt" to recipe.createdAt.toFirestoreTimestamp(),
+            FIELD_UPDATED_AT to recipe.updatedAt.toFirestoreTimestamp(),
+            "isFavorite" to recipe.isFavorite,
+            "originalHtml" to (originalHtml ?: ""),
+            FIELD_DELETED to false
+        )
+
+    private fun instructionSectionToMap(section: InstructionSection): Map<String, Any?> =
+        hashMapOf(
+            "name" to section.name,
+            "steps" to section.steps.map { instructionStepToMap(it) }
+        )
+
+    private fun instructionStepToMap(step: InstructionStep): Map<String, Any?> =
+        hashMapOf(
+            "stepNumber" to step.stepNumber,
+            "instruction" to step.instruction,
+            "ingredients" to step.ingredients.map { ingredientToMap(it) },
+            "yields" to step.yields,
+            "optional" to step.optional
+        )
+
+    private fun ingredientToMap(ingredient: Ingredient): Map<String, Any?> =
+        hashMapOf(
+            "name" to ingredient.name,
+            "notes" to ingredient.notes,
+            "alternates" to ingredient.alternates.map { ingredientToMap(it) },
+            "amount" to ingredient.amount?.let { amountToMap(it) },
+            "density" to ingredient.density,
+            "optional" to ingredient.optional
+        )
+
+    private fun amountToMap(amount: Amount): Map<String, Any?> =
+        hashMapOf(
+            "value" to amount.value,
+            "unit" to amount.unit
+        )
+
+    private fun mealPlanToMap(entry: MealPlanEntry): Map<String, Any?> =
+        hashMapOf(
+            "recipeId" to entry.recipeId,
+            "recipeName" to entry.recipeName,
+            "recipeImageUrl" to entry.recipeImageUrl,
+            "date" to entry.date.toString(),
+            "mealType" to entry.mealType.name,
+            "servings" to entry.servings,
+            "createdAt" to entry.createdAt.toFirestoreTimestamp(),
+            FIELD_UPDATED_AT to entry.updatedAt.toFirestoreTimestamp(),
+            FIELD_DELETED to false
+        )
+
+    // --- Deserialization: Firestore Documents -> Domain ---
+
+    private fun parseRecipeDocument(doc: DocumentSnapshot): RemoteRecipe? {
+        val id = doc.id
+        val name = doc.getString("name") ?: return null
+        val createdAt = doc.getTimestamp("createdAt")?.toKotlinInstant() ?: return null
+        val updatedAt = doc.getTimestamp(FIELD_UPDATED_AT)?.toKotlinInstant() ?: return null
+
+        @Suppress("UNCHECKED_CAST")
+        val instructionSectionsRaw = doc.get("instructionSections") as? List<Map<String, Any?>>
+        val instructionSections = instructionSectionsRaw?.map { parseInstructionSection(it) } ?: emptyList()
+
+        @Suppress("UNCHECKED_CAST")
+        val equipment = doc.get("equipment") as? List<String> ?: emptyList()
+
+        @Suppress("UNCHECKED_CAST")
+        val tags = doc.get("tags") as? List<String> ?: emptyList()
+
+        val recipe = Recipe(
+            id = id,
+            name = name,
+            sourceUrl = doc.getString("sourceUrl"),
+            story = doc.getString("story"),
+            servings = doc.getLong("servings")?.toInt(),
+            prepTime = doc.getString("prepTime"),
+            cookTime = doc.getString("cookTime"),
+            totalTime = doc.getString("totalTime"),
+            instructionSections = instructionSections,
+            equipment = equipment,
+            tags = tags,
+            imageUrl = doc.getString("imageUrl"),
+            createdAt = createdAt,
+            updatedAt = updatedAt,
+            isFavorite = doc.getBoolean("isFavorite") ?: false
+        )
+
+        val originalHtml = doc.getString("originalHtml")?.ifEmpty { null }
+        return RemoteRecipe(recipe, originalHtml)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun parseInstructionSection(map: Map<String, Any?>): InstructionSection {
+        val stepsRaw = map["steps"] as? List<Map<String, Any?>> ?: emptyList()
+        return InstructionSection(
+            name = map["name"] as? String,
+            steps = stepsRaw.map { parseInstructionStep(it) }
+        )
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun parseInstructionStep(map: Map<String, Any?>): InstructionStep {
+        val ingredientsRaw = map["ingredients"] as? List<Map<String, Any?>> ?: emptyList()
+        return InstructionStep(
+            stepNumber = (map["stepNumber"] as? Number)?.toInt() ?: 0,
+            instruction = map["instruction"] as? String ?: "",
+            ingredients = ingredientsRaw.map { parseIngredient(it) },
+            yields = (map["yields"] as? Number)?.toInt() ?: 1,
+            optional = map["optional"] as? Boolean ?: false
+        )
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun parseIngredient(map: Map<String, Any?>): Ingredient {
+        val alternatesRaw = map["alternates"] as? List<Map<String, Any?>> ?: emptyList()
+        val amountRaw = map["amount"] as? Map<String, Any?>
+        return Ingredient(
+            name = map["name"] as? String ?: "",
+            notes = map["notes"] as? String,
+            alternates = alternatesRaw.map { parseIngredient(it) },
+            amount = amountRaw?.let { parseAmount(it) },
+            density = (map["density"] as? Number)?.toDouble(),
+            optional = map["optional"] as? Boolean ?: false
+        )
+    }
+
+    private fun parseAmount(map: Map<String, Any?>): Amount {
+        return Amount(
+            value = (map["value"] as? Number)?.toDouble(),
+            unit = map["unit"] as? String
+        )
+    }
+
+    private fun parseMealPlanDocument(doc: DocumentSnapshot): MealPlanEntry? {
+        val id = doc.id
+        val recipeId = doc.getString("recipeId") ?: return null
+        val recipeName = doc.getString("recipeName") ?: return null
+        val dateStr = doc.getString("date") ?: return null
+        val mealTypeStr = doc.getString("mealType") ?: return null
+        val createdAt = doc.getTimestamp("createdAt")?.toKotlinInstant() ?: return null
+        val updatedAt = doc.getTimestamp(FIELD_UPDATED_AT)?.toKotlinInstant() ?: return null
+
+        val date = try {
+            LocalDate.parse(dateStr)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse date '$dateStr' for meal plan $id", e)
+            return null
+        }
+
+        val mealType = try {
+            MealType.valueOf(mealTypeStr)
+        } catch (e: Exception) {
+            Log.w(TAG, "Unknown meal type '$mealTypeStr' for meal plan $id", e)
+            return null
+        }
+
+        return MealPlanEntry(
+            id = id,
+            recipeId = recipeId,
+            recipeName = recipeName,
+            recipeImageUrl = doc.getString("recipeImageUrl"),
+            date = date,
+            mealType = mealType,
+            servings = doc.getDouble("servings") ?: 1.0,
+            createdAt = createdAt,
+            updatedAt = updatedAt
+        )
+    }
+
+    // --- Timestamp Conversion Helpers ---
+
+    private fun Instant.toFirestoreTimestamp(): Timestamp {
+        return Timestamp(this.epochSeconds, this.nanosecondsOfSecond)
+    }
+
+    private fun Timestamp.toKotlinInstant(): Instant {
+        return Instant.fromEpochSeconds(this.seconds, this.nanoseconds.toLong())
+    }
 }
 
 /**
