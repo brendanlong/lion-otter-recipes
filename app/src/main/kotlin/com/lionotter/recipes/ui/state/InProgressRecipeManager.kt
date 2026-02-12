@@ -7,7 +7,9 @@ import androidx.work.WorkManager
 import com.lionotter.recipes.data.local.PendingImportEntity
 import com.lionotter.recipes.data.repository.PendingImportRepository
 import com.lionotter.recipes.di.ApplicationScope
+import com.lionotter.recipes.worker.PaprikaImportWorker
 import com.lionotter.recipes.worker.RecipeImportWorker
+import com.lionotter.recipes.worker.ZipImportWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -65,6 +67,8 @@ class InProgressRecipeManager @Inject constructor(
 
     init {
         observeImportWorkStatus()
+        observePaprikaImportWorkStatus()
+        observeZipImportWorkStatus()
     }
 
     fun addInProgressRecipe(id: String, name: String, url: String = "", workManagerId: String? = null) {
@@ -154,6 +158,126 @@ class InProgressRecipeManager @Inject constructor(
                         }
                     }
                 }
+        }
+    }
+
+    /**
+     * Observe WorkManager status for Paprika imports. Matches by KEY_IMPORT_ID in progress/output data.
+     */
+    private fun observePaprikaImportWorkStatus() {
+        appScope.launch {
+            workManager.getWorkInfosByTagFlow(PaprikaImportWorker.TAG_PAPRIKA_IMPORT)
+                .collect { workInfos ->
+                    workInfos.forEach { workInfo ->
+                        val importId = workInfo.progress.getString(PaprikaImportWorker.KEY_IMPORT_ID)
+                            ?: workInfo.outputData.getString(PaprikaImportWorker.KEY_IMPORT_ID)
+
+                        when (workInfo.state) {
+                            WorkInfo.State.RUNNING -> {
+                                if (importId != null) {
+                                    handlePaprikaRunningProgress(importId, workInfo)
+                                }
+                            }
+                            WorkInfo.State.SUCCEEDED, WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> {
+                                if (importId != null) {
+                                    pendingImportRepository.deletePendingImport(importId)
+                                }
+                            }
+                            else -> {}
+                        }
+                    }
+                }
+        }
+    }
+
+    private suspend fun handlePaprikaRunningProgress(importId: String, workInfo: WorkInfo) {
+        val progress = workInfo.progress.getString(PaprikaImportWorker.KEY_PROGRESS)
+        val recipeName = workInfo.progress.getString(PaprikaImportWorker.KEY_RECIPE_NAME)
+        val current = workInfo.progress.getInt(PaprikaImportWorker.KEY_CURRENT, 0)
+        val total = workInfo.progress.getInt(PaprikaImportWorker.KEY_TOTAL, 0)
+
+        try {
+            when (progress) {
+                PaprikaImportWorker.PROGRESS_PARSING -> {
+                    pendingImportRepository.updateStatus(importId, PendingImportEntity.STATUS_PARSING)
+                }
+                PaprikaImportWorker.PROGRESS_IMPORTING -> {
+                    val name = if (recipeName != null && total > 0) {
+                        "Importing $current/$total: $recipeName"
+                    } else {
+                        null
+                    }
+                    val existing = pendingImportRepository.getPendingImportById(importId)
+                    pendingImportRepository.updateMetadata(
+                        id = importId,
+                        name = name ?: existing?.name,
+                        imageUrl = existing?.imageUrl,
+                        status = PendingImportEntity.STATUS_PARSING
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to update Paprika import progress for $importId", e)
+        }
+    }
+
+    /**
+     * Observe WorkManager status for ZIP/.lorecipes imports. Matches by KEY_IMPORT_ID in progress/output data.
+     */
+    private fun observeZipImportWorkStatus() {
+        appScope.launch {
+            workManager.getWorkInfosByTagFlow(ZipImportWorker.TAG_ZIP_IMPORT)
+                .collect { workInfos ->
+                    workInfos.forEach { workInfo ->
+                        val importId = workInfo.progress.getString(ZipImportWorker.KEY_IMPORT_ID)
+                            ?: workInfo.outputData.getString(ZipImportWorker.KEY_IMPORT_ID)
+
+                        when (workInfo.state) {
+                            WorkInfo.State.RUNNING -> {
+                                if (importId != null) {
+                                    handleZipRunningProgress(importId, workInfo)
+                                }
+                            }
+                            WorkInfo.State.SUCCEEDED, WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> {
+                                if (importId != null) {
+                                    pendingImportRepository.deletePendingImport(importId)
+                                }
+                            }
+                            else -> {}
+                        }
+                    }
+                }
+        }
+    }
+
+    private suspend fun handleZipRunningProgress(importId: String, workInfo: WorkInfo) {
+        val progress = workInfo.progress.getString(ZipImportWorker.KEY_PROGRESS)
+        val recipeName = workInfo.progress.getString(ZipImportWorker.KEY_RECIPE_NAME)
+        val current = workInfo.progress.getInt(ZipImportWorker.KEY_CURRENT, 0)
+        val total = workInfo.progress.getInt(ZipImportWorker.KEY_TOTAL, 0)
+
+        try {
+            when (progress) {
+                ZipImportWorker.PROGRESS_READING -> {
+                    pendingImportRepository.updateStatus(importId, PendingImportEntity.STATUS_PENDING)
+                }
+                ZipImportWorker.PROGRESS_IMPORTING -> {
+                    val name = if (recipeName != null && total > 0) {
+                        "Importing $current/$total: $recipeName"
+                    } else {
+                        null
+                    }
+                    val existing = pendingImportRepository.getPendingImportById(importId)
+                    pendingImportRepository.updateMetadata(
+                        id = importId,
+                        name = name ?: existing?.name,
+                        imageUrl = existing?.imageUrl,
+                        status = PendingImportEntity.STATUS_SAVING
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to update ZIP import progress for $importId", e)
         }
     }
 

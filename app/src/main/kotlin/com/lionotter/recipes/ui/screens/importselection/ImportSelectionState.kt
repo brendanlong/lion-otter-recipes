@@ -16,6 +16,14 @@ data class ImportSelectionItem(
 )
 
 /**
+ * Import type enum used by ImportSelectionViewModel.
+ */
+enum class ImportType {
+    PAPRIKA,
+    LORECIPES
+}
+
+/**
  * Shared state for the import selection screen, used across all import types.
  */
 sealed class ImportSelectionUiState {

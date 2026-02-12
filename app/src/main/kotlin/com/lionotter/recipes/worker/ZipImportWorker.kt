@@ -26,6 +26,8 @@ class ZipImportWorker @AssistedInject constructor(
         const val TAG_ZIP_IMPORT = "zip_import"
 
         const val KEY_FILE_URI = "file_uri"
+        const val KEY_IMPORT_ID = "import_id"
+        const val KEY_SELECTED_RECIPE_IDS = "selected_recipe_ids"
         const val KEY_RESULT_TYPE = "result_type"
         const val KEY_IMPORTED_COUNT = "imported_count"
         const val KEY_FAILED_COUNT = "failed_count"
@@ -43,8 +45,16 @@ class ZipImportWorker @AssistedInject constructor(
         const val PROGRESS_READING = "reading"
         const val PROGRESS_IMPORTING = "importing"
 
-        fun createInputData(fileUri: Uri): Data {
-            return workDataOf(KEY_FILE_URI to fileUri.toString())
+        fun createInputData(
+            fileUri: Uri,
+            importId: String? = null,
+            selectedRecipeIds: Set<String>? = null
+        ): Data {
+            return workDataOf(
+                KEY_FILE_URI to fileUri.toString(),
+                KEY_IMPORT_ID to importId,
+                KEY_SELECTED_RECIPE_IDS to selectedRecipeIds?.toTypedArray()
+            )
         }
     }
 
@@ -58,6 +68,8 @@ class ZipImportWorker @AssistedInject constructor(
             )
 
         val fileUri = fileUriString.toUri()
+        val importId = inputData.getString(KEY_IMPORT_ID)
+        val selectedRecipeIds = inputData.getStringArray(KEY_SELECTED_RECIPE_IDS)?.toSet()
         setForegroundProgress("Starting import...")
 
         val inputStream = try {
@@ -80,19 +92,27 @@ class ZipImportWorker @AssistedInject constructor(
         val result = inputStream.use { stream ->
             importFromZipUseCase.importFromZip(
                 inputStream = stream,
+                selectedRecipeIds = selectedRecipeIds,
                 onProgress = { progress ->
                     val progressMessage = when (progress) {
                         is ImportFromZipUseCase.ImportProgress.Starting -> {
-                            setProgress(workDataOf(KEY_PROGRESS to PROGRESS_STARTING))
+                            setProgress(workDataOf(
+                                KEY_PROGRESS to PROGRESS_STARTING,
+                                KEY_IMPORT_ID to importId
+                            ))
                             "Starting import..."
                         }
                         is ImportFromZipUseCase.ImportProgress.ReadingZip -> {
-                            setProgress(workDataOf(KEY_PROGRESS to PROGRESS_READING))
-                            "Reading ZIP file..."
+                            setProgress(workDataOf(
+                                KEY_PROGRESS to PROGRESS_READING,
+                                KEY_IMPORT_ID to importId
+                            ))
+                            "Reading file..."
                         }
                         is ImportFromZipUseCase.ImportProgress.ImportingRecipe -> {
                             setProgress(workDataOf(
                                 KEY_PROGRESS to PROGRESS_IMPORTING,
+                                KEY_IMPORT_ID to importId,
                                 KEY_RECIPE_NAME to progress.recipeName,
                                 KEY_CURRENT to progress.current,
                                 KEY_TOTAL to progress.total
@@ -116,6 +136,7 @@ class ZipImportWorker @AssistedInject constructor(
                 Result.success(
                     workDataOf(
                         KEY_RESULT_TYPE to RESULT_SUCCESS,
+                        KEY_IMPORT_ID to importId,
                         KEY_IMPORTED_COUNT to result.importedCount,
                         KEY_FAILED_COUNT to result.failedCount,
                         KEY_SKIPPED_COUNT to result.skippedCount

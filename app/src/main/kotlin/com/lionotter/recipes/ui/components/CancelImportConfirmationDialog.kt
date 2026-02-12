@@ -9,14 +9,13 @@ import com.lionotter.recipes.R
 
 @Composable
 fun CancelImportConfirmationDialog(
-    recipeName: String,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.cancel_import)) },
-        text = { Text(stringResource(R.string.cancel_import_confirmation, recipeName)) },
+        text = { Text(stringResource(R.string.cancel_import_confirmation)) },
         confirmButton = {
             TextButton(onClick = onConfirm) {
                 Text(stringResource(R.string.cancel_import))

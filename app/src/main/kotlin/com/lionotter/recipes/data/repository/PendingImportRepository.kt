@@ -38,6 +38,10 @@ class PendingImportRepository @Inject constructor(
         pendingImportDao.updateWorkManagerId(id, workManagerId)
     }
 
+    suspend fun getPendingImportByWorkManagerId(workManagerId: String): PendingImportEntity? {
+        return pendingImportDao.getPendingImportByWorkManagerId(workManagerId)
+    }
+
     suspend fun deletePendingImport(id: String) {
         pendingImportDao.deletePendingImport(id)
     }

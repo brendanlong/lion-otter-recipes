@@ -100,7 +100,6 @@ fun RecipeListScreen(
     // Cancel import confirmation dialog
     importToCancel?.let { importRecipe ->
         CancelImportConfirmationDialog(
-            recipeName = importRecipe.name,
             onConfirm = {
                 viewModel.cancelImport(importRecipe.id)
                 importToCancel = null

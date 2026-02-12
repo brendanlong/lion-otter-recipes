@@ -14,8 +14,7 @@ import javax.inject.Inject
 /**
  * Shared helper for importing recipes and meal plans from ZIP files.
  *
- * Consolidates the common logic used by ImportFromZipUseCase, FileImportViewModel,
- * and ImportSelectionViewModel:
+ * Consolidates the common logic used by ImportFromZipUseCase and ImportSelectionViewModel:
  * - Reading ZIP entries into a folder-grouped map
  * - Importing a single recipe (deserialize, deduplicate, download image, save)
  * - Importing meal plan entries from the meal-plans folder
