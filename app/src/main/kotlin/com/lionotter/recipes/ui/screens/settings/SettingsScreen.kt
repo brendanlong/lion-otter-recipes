@@ -195,7 +195,7 @@ fun SettingsScreen(
                     exportLauncher.launch("lion-otter-recipes.lorecipes")
                 },
                 onImportClick = {
-                    importLauncher.launch(arrayOf("*/*"))
+                    importLauncher.launch(arrayOf("application/zip"))
                 }
             )
 
