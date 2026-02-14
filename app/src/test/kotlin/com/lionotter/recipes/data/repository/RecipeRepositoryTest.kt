@@ -296,12 +296,12 @@ class RecipeRepositoryTest {
     }
 
     @Test
-    fun `deleteRecipe calls dao softDeleteRecipe`() = runTest {
-        coEvery { recipeDao.softDeleteRecipe("recipe-1", any()) } just runs
+    fun `deleteRecipe calls dao deleteRecipe`() = runTest {
+        coEvery { recipeDao.deleteRecipe("recipe-1") } just runs
 
         recipeRepository.deleteRecipe("recipe-1")
 
-        coVerify { recipeDao.softDeleteRecipe("recipe-1", any()) }
+        coVerify { recipeDao.deleteRecipe("recipe-1") }
     }
 
     @Test

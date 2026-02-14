@@ -8,7 +8,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [RecipeEntity::class, ImportDebugEntity::class, PendingImportEntity::class, MealPlanEntity::class],
-    version = 9,
+    version = 10,
     exportSchema = true
 )
 @TypeConverters(InstantConverter::class)
@@ -107,6 +107,78 @@ abstract class RecipeDatabase : RoomDatabase() {
         val MIGRATION_8_9 = object : Migration(8, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE recipes ADD COLUMN sourceImageUrl TEXT")
+            }
+        }
+
+        /**
+         * Remove soft-delete columns from recipes and meal_plans.
+         * First purges any soft-deleted rows, then recreates the tables without
+         * the deleted column.
+         */
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Purge soft-deleted rows before dropping the column
+                db.execSQL("DELETE FROM recipes WHERE deleted = 1")
+                db.execSQL("DELETE FROM meal_plans WHERE deleted = 1")
+
+                // Recreate recipes table without deleted column
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS recipes_new (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        sourceUrl TEXT,
+                        story TEXT,
+                        servings INTEGER,
+                        prepTime TEXT,
+                        cookTime TEXT,
+                        totalTime TEXT,
+                        ingredientSectionsJson TEXT NOT NULL,
+                        instructionSectionsJson TEXT NOT NULL,
+                        equipmentJson TEXT NOT NULL DEFAULT '[]',
+                        tagsJson TEXT NOT NULL,
+                        imageUrl TEXT,
+                        sourceImageUrl TEXT,
+                        originalHtml TEXT,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL,
+                        isFavorite INTEGER NOT NULL DEFAULT 0
+                    )
+                """.trimIndent())
+                db.execSQL("""
+                    INSERT INTO recipes_new (id, name, sourceUrl, story, servings, prepTime, cookTime, totalTime,
+                        ingredientSectionsJson, instructionSectionsJson, equipmentJson, tagsJson, imageUrl,
+                        sourceImageUrl, originalHtml, createdAt, updatedAt, isFavorite)
+                    SELECT id, name, sourceUrl, story, servings, prepTime, cookTime, totalTime,
+                        ingredientSectionsJson, instructionSectionsJson, equipmentJson, tagsJson, imageUrl,
+                        sourceImageUrl, originalHtml, createdAt, updatedAt, isFavorite
+                    FROM recipes
+                """.trimIndent())
+                db.execSQL("DROP TABLE recipes")
+                db.execSQL("ALTER TABLE recipes_new RENAME TO recipes")
+
+                // Recreate meal_plans table without deleted column
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS meal_plans_new (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        recipeId TEXT NOT NULL,
+                        recipeName TEXT NOT NULL,
+                        recipeImageUrl TEXT,
+                        date TEXT NOT NULL,
+                        mealType TEXT NOT NULL,
+                        servings REAL NOT NULL DEFAULT 1.0,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                db.execSQL("""
+                    INSERT INTO meal_plans_new (id, recipeId, recipeName, recipeImageUrl, date, mealType,
+                        servings, createdAt, updatedAt)
+                    SELECT id, recipeId, recipeName, recipeImageUrl, date, mealType,
+                        servings, createdAt, updatedAt
+                    FROM meal_plans
+                """.trimIndent())
+                db.execSQL("DROP TABLE meal_plans")
+                db.execSQL("ALTER TABLE meal_plans_new RENAME TO meal_plans")
             }
         }
     }

@@ -142,64 +142,6 @@ class RecipeNotificationHelper @Inject constructor(
     }
 
     @SuppressLint("MissingPermission")
-    fun showImportFromDriveSuccessNotification(importedCount: Int, failedCount: Int, skippedCount: Int = 0) {
-        if (!notificationManager.areNotificationsEnabled()) return
-
-        notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
-
-        val message = buildString {
-            append("Imported $importedCount recipes")
-            if (skippedCount > 0 || failedCount > 0) {
-                append(" (")
-                val parts = mutableListOf<String>()
-                if (skippedCount > 0) parts.add("$skippedCount skipped")
-                if (failedCount > 0) parts.add("$failedCount failed")
-                append(parts.joinToString(", "))
-                append(")")
-            }
-        }
-
-        val notification = baseNotification()
-            .setContentTitle("Import Complete")
-            .setContentText(message)
-            .build()
-
-        notificationManager.notify(NOTIFICATION_ID_COMPLETE, notification)
-    }
-
-    @SuppressLint("MissingPermission")
-    fun showSyncSuccessNotification(uploaded: Int, downloaded: Int, updated: Int, deleted: Int, errors: Int = 0) {
-        if (!notificationManager.areNotificationsEnabled()) return
-
-        notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
-
-        val totalChanges = uploaded + downloaded + updated + deleted + errors
-        if (totalChanges == 0) {
-            // No changes - don't show a notification
-            return
-        }
-
-        val message = buildString {
-            val parts = mutableListOf<String>()
-            if (uploaded > 0) parts.add("$uploaded uploaded")
-            if (downloaded > 0) parts.add("$downloaded downloaded")
-            if (updated > 0) parts.add("$updated updated")
-            if (deleted > 0) parts.add("$deleted deleted")
-            if (errors > 0) parts.add("$errors failed")
-            append(parts.joinToString(", "))
-        }
-
-        val title = if (errors > 0) "Sync Completed with Errors" else "Sync Complete"
-
-        val notification = baseNotification()
-            .setContentTitle(title)
-            .setContentText(message)
-            .build()
-
-        notificationManager.notify(NOTIFICATION_ID_COMPLETE, notification)
-    }
-
-    @SuppressLint("MissingPermission")
     fun showZipExportSuccessNotification(exportedCount: Int, failedCount: Int) {
         if (!notificationManager.areNotificationsEnabled()) return
 
