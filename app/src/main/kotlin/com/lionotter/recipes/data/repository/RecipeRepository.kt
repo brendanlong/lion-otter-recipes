@@ -1,160 +1,144 @@
 package com.lionotter.recipes.data.repository
 
 import android.util.Log
-import com.lionotter.recipes.data.local.RecipeDao
-import com.lionotter.recipes.data.local.RecipeEntity
 import com.lionotter.recipes.data.local.RecipeIdAndName
-import com.lionotter.recipes.domain.model.InstructionSection
+import com.google.firebase.Firebase
+import com.google.firebase.firestore.firestore
+import com.lionotter.recipes.data.remote.FirestoreService
+import com.lionotter.recipes.data.remote.dto.RecipeDto
+import com.lionotter.recipes.data.remote.dto.toDto
 import com.lionotter.recipes.domain.model.Recipe
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.map
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class RecipeRepository @Inject constructor(
-    private val recipeDao: RecipeDao,
-    private val json: Json
+    private val firestoreService: FirestoreService
 ) {
-    private val _errors = MutableSharedFlow<RepositoryError>()
-    val errors: SharedFlow<RepositoryError> = _errors.asSharedFlow()
-
     companion object {
         private const val TAG = "RecipeRepository"
     }
-    fun getAllRecipes(): Flow<List<Recipe>> {
-        return recipeDao.getAllRecipes().map { entities ->
-            entities.map { entity -> entityToRecipe(entity) }
-        }
+
+    fun getAllRecipes(): Flow<List<Recipe>> = callbackFlow {
+        val registration = firestoreService.recipesCollection()
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e(TAG, "Error listening to recipes", error)
+                    firestoreService.reportError("Failed to load recipes: ${error.message}")
+                    return@addSnapshotListener
+                }
+                val recipes = snapshot?.documents?.mapNotNull { doc ->
+                    try {
+                        doc.toObject(RecipeDto::class.java)?.toDomain()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to deserialize recipe ${doc.id}", e)
+                        null
+                    }
+                } ?: emptyList()
+                trySend(recipes)
+            }
+        awaitClose { registration.remove() }
     }
 
-    fun getRecipeById(id: String): Flow<Recipe?> {
-        return recipeDao.getRecipeByIdFlow(id).map { entity ->
-            entity?.let { entityToRecipe(it) }
-        }
+    fun getRecipeById(id: String): Flow<Recipe?> = callbackFlow {
+        val registration = firestoreService.recipesCollection().document(id)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e(TAG, "Error listening to recipe $id", error)
+                    firestoreService.reportError("Failed to load recipe: ${error.message}")
+                    return@addSnapshotListener
+                }
+                val recipe = try {
+                    snapshot?.toObject(RecipeDto::class.java)?.toDomain()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to deserialize recipe $id", e)
+                    null
+                }
+                trySend(recipe)
+            }
+        awaitClose { registration.remove() }
     }
 
     suspend fun getRecipeByIdOnce(id: String): Recipe? {
-        return recipeDao.getRecipeById(id)?.let { entityToRecipeWithErrorReporting(it) }
+        return try {
+            val snapshot = firestoreService.recipesCollection().document(id).get().await()
+            snapshot.toObject(RecipeDto::class.java)?.toDomain()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get recipe $id", e)
+            null
+        }
     }
 
-    /**
-     * Get the original HTML content for a recipe.
-     */
     suspend fun getOriginalHtml(id: String): String? {
-        return recipeDao.getRecipeById(id)?.originalHtml
-    }
-
-    fun getRecipesByTag(tag: String): Flow<List<Recipe>> {
-        return recipeDao.getRecipesByTag(tag).map { entities ->
-            entities.map { entity -> entityToRecipe(entity) }
+        return try {
+            val doc = firestoreService.recipesCollection()
+                .document(id)
+                .collection("content")
+                .document("htmlDoc")
+                .get()
+                .await()
+            doc.getString("originalHtml")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get original HTML for recipe $id", e)
+            null
         }
     }
 
-    fun searchRecipes(query: String): Flow<List<Recipe>> {
-        return recipeDao.searchRecipes(query).map { entities ->
-            entities.map { entity -> entityToRecipe(entity) }
+    fun saveRecipe(recipe: Recipe, originalHtml: String? = null) {
+        val dto = recipe.toDto()
+        val docRef = firestoreService.recipesCollection().document(recipe.id)
+
+        docRef.set(dto)
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Failed to save recipe ${recipe.name}", e)
+                firestoreService.reportError("Failed to save recipe: ${e.message}")
+            }
+
+        if (originalHtml != null) {
+            docRef.collection("content").document("htmlDoc")
+                .set(mapOf("originalHtml" to originalHtml))
+                .addOnFailureListener { e ->
+                    Log.e(TAG, "Failed to save original HTML for recipe ${recipe.id}", e)
+                }
         }
     }
 
-    suspend fun saveRecipe(recipe: Recipe, originalHtml: String? = null) {
-        val entity = RecipeEntity.fromRecipe(
-            recipe = recipe,
-            instructionSectionsJson = json.encodeToString(recipe.instructionSections),
-            equipmentJson = json.encodeToString(recipe.equipment),
-            tagsJson = json.encodeToString(recipe.tags),
-            originalHtml = originalHtml
-        )
-        recipeDao.insertRecipe(entity)
+    fun deleteRecipe(id: String) {
+        val recipeDocRef = firestoreService.recipesCollection().document(id)
+        val contentDocRef = recipeDocRef.collection("content").document("htmlDoc")
+
+        Firebase.firestore.batch().apply {
+            delete(contentDocRef)
+            delete(recipeDocRef)
+        }.commit().addOnFailureListener { e ->
+            Log.e(TAG, "Failed to delete recipe $id", e)
+            firestoreService.reportError("Failed to delete recipe: ${e.message}")
+        }
     }
 
-    suspend fun deleteRecipe(id: String) {
-        recipeDao.deleteRecipe(id)
-    }
-
-    suspend fun setFavorite(id: String, isFavorite: Boolean) {
-        recipeDao.setFavorite(id, isFavorite)
+    fun setFavorite(id: String, isFavorite: Boolean) {
+        firestoreService.recipesCollection().document(id)
+            .update("isFavorite", isFavorite)
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Failed to set favorite for recipe $id", e)
+                firestoreService.reportError("Failed to update favorite: ${e.message}")
+            }
     }
 
     suspend fun getAllRecipeIdsAndNames(): List<RecipeIdAndName> {
-        return recipeDao.getAllRecipeIdsAndNames()
-    }
-
-    private inline fun <reified T> safeDecodeJson(
-        jsonString: String,
-        entityName: String,
-        entityId: String,
-        fieldName: String,
-        default: T,
-        onError: () -> Unit = {}
-    ): T = try {
-        json.decodeFromString(jsonString)
-    } catch (e: Exception) {
-        Log.e(TAG, "Failed to parse $fieldName for recipe '$entityName' ($entityId)", e)
-        onError()
-        default
-    }
-
-    /**
-     * Converts a database entity to a domain Recipe.
-     * If JSON parsing fails for any section, logs the error, emits a typed error,
-     * and returns the recipe with empty data for that section.
-     */
-    private suspend fun entityToRecipeWithErrorReporting(entity: RecipeEntity): Recipe {
-        val failedFields = mutableListOf<String>()
-        fun onError(field: String): () -> Unit = { failedFields.add(field) }
-
-        val instructionSections: List<InstructionSection> = safeDecodeJson(
-            entity.instructionSectionsJson, entity.name, entity.id, "instructions", emptyList(), onError("instructions")
-        )
-        val equipment: List<String> = safeDecodeJson(
-            entity.equipmentJson, entity.name, entity.id, "equipment", emptyList(), onError("equipment")
-        )
-        val tags: List<String> = safeDecodeJson(
-            entity.tagsJson, entity.name, entity.id, "tags", emptyList(), onError("tags")
-        )
-
-        if (failedFields.isNotEmpty()) {
-            _errors.emit(
-                RepositoryError.ParseError(
-                    recipeId = entity.id,
-                    recipeName = entity.name,
-                    failedFields = failedFields
-                )
-            )
+        return try {
+            val snapshot = firestoreService.recipesCollection().get().await()
+            snapshot.documents.mapNotNull { doc ->
+                val name = doc.getString("name") ?: return@mapNotNull null
+                RecipeIdAndName(id = doc.id, name = name)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get recipe IDs and names", e)
+            emptyList()
         }
-
-        return entity.toRecipe(
-            instructionSections = instructionSections,
-            equipment = equipment,
-            tags = tags
-        )
-    }
-
-    /**
-     * Non-suspending version for use in Flow mapping.
-     * Logs errors but cannot emit to the error flow.
-     */
-    private fun entityToRecipe(entity: RecipeEntity): Recipe {
-        val instructionSections: List<InstructionSection> = safeDecodeJson(
-            entity.instructionSectionsJson, entity.name, entity.id, "instructions", emptyList()
-        )
-        val equipment: List<String> = safeDecodeJson(
-            entity.equipmentJson, entity.name, entity.id, "equipment", emptyList()
-        )
-        val tags: List<String> = safeDecodeJson(
-            entity.tagsJson, entity.name, entity.id, "tags", emptyList()
-        )
-
-        return entity.toRecipe(
-            instructionSections = instructionSections,
-            equipment = equipment,
-            tags = tags
-        )
     }
 }

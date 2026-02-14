@@ -109,9 +109,8 @@ class ImportFromZipUseCase @Inject constructor(
         // Import meal plans from the meal-plans folder (always, not filtered by selection)
         val mealPlanFiles = zipContents.textFiles[ZipImportHelper.MEAL_PLANS_FOLDER]
         if (mealPlanFiles != null) {
-            val (mealImported, mealSkipped) = zipImportHelper.importMealPlans(mealPlanFiles)
+            val mealImported = zipImportHelper.importMealPlans(mealPlanFiles)
             importedCount += mealImported
-            skippedCount += mealSkipped
         }
 
         val result = ImportResult.Success(

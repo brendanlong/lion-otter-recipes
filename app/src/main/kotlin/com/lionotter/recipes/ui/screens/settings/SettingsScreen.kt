@@ -26,6 +26,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.screens.settings.components.AboutSection
+import com.lionotter.recipes.ui.screens.settings.components.AccountSection
 import com.lionotter.recipes.ui.screens.settings.components.ApiKeySection
 import com.lionotter.recipes.ui.screens.settings.components.BackupRestoreSection
 import com.lionotter.recipes.ui.screens.settings.components.DisplaySection
@@ -120,6 +121,14 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
+            // Account Section
+            AccountSection(
+                currentUserEmail = viewModel.currentUserEmail,
+                onSignOut = viewModel::signOut
+            )
+
+            HorizontalDivider()
+
             // API Key Section
             ApiKeySection(
                 currentApiKey = apiKey,

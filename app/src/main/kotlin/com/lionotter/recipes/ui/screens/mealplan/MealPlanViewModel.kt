@@ -16,9 +16,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.DayOfWeek
@@ -117,25 +117,26 @@ class MealPlanViewModel @Inject constructor(
     /**
      * Meal plans for the current week, grouped by date.
      */
-    val weekMealPlans: StateFlow<Map<LocalDate, List<MealPlanEntry>>> = combine(
-        currentWeekStart,
-        mealPlanRepository.getAllMealPlans()
-    ) { weekStart, allPlans ->
-        val weekEnd = weekStart.plus(6, DateTimeUnit.DAY)
-        val weekPlans = allPlans.filter { it.date in weekStart..weekEnd }
-        // Group by date and sort within each day
-        weekPlans.groupBy { it.date }
-            .mapValues { (_, entries) ->
-                entries.sortedWith(
-                    compareBy<MealPlanEntry> { it.mealType.displayOrder }
-                        .thenBy { it.recipeName }
-                )
-            }
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyMap()
-    )
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val weekMealPlans: StateFlow<Map<LocalDate, List<MealPlanEntry>>> = currentWeekStart
+        .flatMapLatest { weekStart ->
+            val weekEnd = weekStart.plus(6, DateTimeUnit.DAY)
+            mealPlanRepository.getMealPlansForDateRange(weekStart, weekEnd)
+                .map { weekPlans ->
+                    // Group by date and sort within each day
+                    weekPlans.groupBy { it.date }
+                        .mapValues { (_, entries) ->
+                            entries.sortedWith(
+                                compareBy<MealPlanEntry> { it.mealType.displayOrder }
+                                    .thenBy { it.recipeName }
+                            )
+                        }
+                }
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyMap()
+        )
 
     fun navigateWeek(forward: Boolean) {
         _navigatedDate.value = if (forward) {
@@ -195,62 +196,56 @@ class MealPlanViewModel @Inject constructor(
     }
 
     fun addRecipeToMealPlan(recipe: Recipe) {
-        viewModelScope.launch {
-            val now = Clock.System.now()
-            val existing = _editingEntry.value
-            if (existing != null) {
-                val updated = existing.copy(
-                    recipeId = recipe.id,
-                    recipeName = recipe.name,
-                    recipeImageUrl = recipe.imageUrl,
-                    date = _selectedDate.value,
-                    mealType = _selectedMealType.value,
-                    servings = _selectedServings.value,
-                    updatedAt = now
-                )
-                mealPlanRepository.updateMealPlan(updated)
-            } else {
-                val entry = MealPlanEntry(
-                    id = UUID.randomUUID().toString(),
-                    recipeId = recipe.id,
-                    recipeName = recipe.name,
-                    recipeImageUrl = recipe.imageUrl,
-                    date = _selectedDate.value,
-                    mealType = _selectedMealType.value,
-                    servings = _selectedServings.value,
-                    createdAt = now,
-                    updatedAt = now
-                )
-                mealPlanRepository.saveMealPlan(entry)
-            }
-            _showAddDialog.value = false
-            _editingEntry.value = null
-        }
-    }
-
-    /**
-     * Save edits to an existing meal plan without changing the recipe.
-     */
-    fun saveEditedMealPlan() {
-        viewModelScope.launch {
-            val existing = _editingEntry.value ?: return@launch
-            val now = Clock.System.now()
+        val now = Clock.System.now()
+        val existing = _editingEntry.value
+        if (existing != null) {
             val updated = existing.copy(
+                recipeId = recipe.id,
+                recipeName = recipe.name,
+                recipeImageUrl = recipe.imageUrl,
                 date = _selectedDate.value,
                 mealType = _selectedMealType.value,
                 servings = _selectedServings.value,
                 updatedAt = now
             )
             mealPlanRepository.updateMealPlan(updated)
-            _showAddDialog.value = false
-            _editingEntry.value = null
+        } else {
+            val entry = MealPlanEntry(
+                id = UUID.randomUUID().toString(),
+                recipeId = recipe.id,
+                recipeName = recipe.name,
+                recipeImageUrl = recipe.imageUrl,
+                date = _selectedDate.value,
+                mealType = _selectedMealType.value,
+                servings = _selectedServings.value,
+                createdAt = now,
+                updatedAt = now
+            )
+            mealPlanRepository.saveMealPlan(entry)
         }
+        _showAddDialog.value = false
+        _editingEntry.value = null
+    }
+
+    /**
+     * Save edits to an existing meal plan without changing the recipe.
+     */
+    fun saveEditedMealPlan() {
+        val existing = _editingEntry.value ?: return
+        val now = Clock.System.now()
+        val updated = existing.copy(
+            date = _selectedDate.value,
+            mealType = _selectedMealType.value,
+            servings = _selectedServings.value,
+            updatedAt = now
+        )
+        mealPlanRepository.updateMealPlan(updated)
+        _showAddDialog.value = false
+        _editingEntry.value = null
     }
 
     fun deleteMealPlan(entryId: String) {
-        viewModelScope.launch {
-            mealPlanRepository.deleteMealPlan(entryId)
-        }
+        mealPlanRepository.deleteMealPlan(entryId)
     }
 
     private fun getWeekStart(date: LocalDate, firstDayOfWeek: DayOfWeek): LocalDate {
