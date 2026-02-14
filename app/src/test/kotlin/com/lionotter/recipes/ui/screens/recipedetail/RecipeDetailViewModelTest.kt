@@ -17,7 +17,6 @@ import com.lionotter.recipes.domain.model.createInstructionIngredientKey
 import com.lionotter.recipes.domain.usecase.CalculateIngredientUsageUseCase
 import com.lionotter.recipes.domain.usecase.ExportSingleRecipeUseCase
 import com.lionotter.recipes.domain.util.RecipeSerializer
-import com.lionotter.recipes.worker.MealPlanSyncTrigger
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -46,7 +45,6 @@ class RecipeDetailViewModelTest {
     private lateinit var savedStateHandle: SavedStateHandle
     private lateinit var recipeRepository: RecipeRepository
     private lateinit var mealPlanRepository: MealPlanRepository
-    private lateinit var mealPlanSyncTrigger: MealPlanSyncTrigger
     private lateinit var settingsDataStore: SettingsDataStore
     private lateinit var workManager: WorkManager
     private lateinit var viewModel: RecipeDetailViewModel
@@ -72,7 +70,6 @@ class RecipeDetailViewModelTest {
         savedStateHandle = SavedStateHandle(mapOf("recipeId" to "recipe-1"))
         recipeRepository = mockk()
         mealPlanRepository = mockk()
-        mealPlanSyncTrigger = mockk(relaxed = true)
         settingsDataStore = mockk()
         workManager = mockk()
 
@@ -97,7 +94,6 @@ class RecipeDetailViewModelTest {
             savedStateHandle = savedStateHandle,
             recipeRepository = recipeRepository,
             mealPlanRepository = mealPlanRepository,
-            mealPlanSyncTrigger = mealPlanSyncTrigger,
             settingsDataStore = settingsDataStore,
             calculateIngredientUsage = CalculateIngredientUsageUseCase(),
             workManager = workManager,
@@ -332,7 +328,7 @@ class RecipeDetailViewModelTest {
 
     @Test
     fun `deleteRecipe calls repository and emits event`() = runTest {
-        coEvery { mealPlanRepository.softDeleteMealPlansByRecipeId("recipe-1") } just runs
+        coEvery { mealPlanRepository.deleteMealPlansByRecipeId("recipe-1") } just runs
         coEvery { recipeRepository.deleteRecipe("recipe-1") } just runs
 
         viewModel = createViewModel()
@@ -345,7 +341,7 @@ class RecipeDetailViewModelTest {
             cancelAndIgnoreRemainingEvents()
         }
 
-        coVerify { mealPlanRepository.softDeleteMealPlansByRecipeId("recipe-1") }
+        coVerify { mealPlanRepository.deleteMealPlansByRecipeId("recipe-1") }
         coVerify { recipeRepository.deleteRecipe("recipe-1") }
     }
 

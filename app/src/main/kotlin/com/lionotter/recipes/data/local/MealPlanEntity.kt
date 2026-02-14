@@ -18,8 +18,7 @@ data class MealPlanEntity(
     val mealType: String, // MealType enum name
     val servings: Double = 1.0,
     val createdAt: Instant,
-    val updatedAt: Instant,
-    val deleted: Boolean = false // Soft delete for sync tracking
+    val updatedAt: Instant
 ) {
     fun toMealPlanEntry(): MealPlanEntry {
         return MealPlanEntry(
@@ -40,7 +39,7 @@ data class MealPlanEntity(
     }
 
     companion object {
-        fun fromMealPlanEntry(entry: MealPlanEntry, deleted: Boolean = false): MealPlanEntity {
+        fun fromMealPlanEntry(entry: MealPlanEntry): MealPlanEntity {
             return MealPlanEntity(
                 id = entry.id,
                 recipeId = entry.recipeId,
@@ -50,8 +49,7 @@ data class MealPlanEntity(
                 mealType = entry.mealType.name,
                 servings = entry.servings,
                 createdAt = entry.createdAt,
-                updatedAt = entry.updatedAt,
-                deleted = deleted
+                updatedAt = entry.updatedAt
             )
         }
     }

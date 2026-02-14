@@ -33,13 +33,6 @@ external: {
     shape: rectangle
   }
 
-  firebase: {
-    label: Firebase (Firestore + Auth)
-    shape: rectangle
-    style: {
-      fill: "#FFA000"
-    }
-  }
 }
 
 # Android App
@@ -137,10 +130,6 @@ app: {
       detail_vm: RecipeDetailViewModel
       add_vm: AddRecipeViewModel
       settings_vm: SettingsViewModel
-      firebase_vm: {
-        label: FirebaseSyncViewModel
-        tooltip: "Manages Firebase sign-in state via Google Auth, sync enable/disable, and sync trigger via WorkManager"
-      }
       zip_vm: {
         label: ZipExportImportViewModel
         tooltip: "Manages .lorecipes file export operations via WorkManager. Import is handled by ImportSelectionViewModel."
@@ -155,7 +144,7 @@ app: {
       }
       meal_plan_vm: {
         label: MealPlanViewModel
-        tooltip: "Manages weekly meal plan view state, add/edit dialog, and CRUD operations for meal plan entries. Supports editing existing entries (date, meal type, servings, recipe). Respects user's start-of-week setting from preferences. Triggers incremental Firebase sync on changes."
+        tooltip: "Manages weekly meal plan view state, add/edit dialog, and CRUD operations for meal plan entries. Supports editing existing entries (date, meal type, servings, recipe). Respects user's start-of-week setting from preferences."
       }
       grocery_list_vm: {
         label: GroceryListViewModel
@@ -183,7 +172,6 @@ app: {
     screens.detail -> viewmodels.detail_vm
     screens.add -> viewmodels.add_vm
     screens.settings -> viewmodels.settings_vm
-    screens.settings -> viewmodels.firebase_vm: sign in/out
     screens.settings -> viewmodels.zip_vm: backup/restore
     screens.meal_plan -> viewmodels.meal_plan_vm
     screens.grocery_list -> viewmodels.grocery_list_vm
@@ -226,10 +214,6 @@ app: {
         label: PaprikaImportWorker
         tooltip: "Imports recipes from a Paprika export file (.paprikarecipes). Parses ZIP of gzip-compressed JSON, sends content through AI pipeline."
       }
-      sync_worker: {
-        label: FirestoreSyncWorker
-        tooltip: "Bidirectional sync with Firebase Firestore. Runs on app startup and periodically (every 6 hours). Uploads new local recipes, downloads new remote recipes, updates changed recipes using latest-timestamp-wins conflict resolution."
-      }
       zip_export_worker: {
         label: ZipExportWorker
         tooltip: "Exports all recipes to a ZIP file using RecipeSerializer (recipe.json + original.html + recipe.md per recipe)."
@@ -241,12 +225,11 @@ app: {
       import_worker -> base_worker: extends
       regenerate_worker -> base_worker: extends
       paprika_import_worker -> base_worker: extends
-      sync_worker -> base_worker: extends
       zip_export_worker -> base_worker: extends
       zip_import_worker -> base_worker: extends
       work_ext: {
         label: "observeWorkByTag()"
-        tooltip: "WorkManager extension function that encapsulates the common pattern of observing work by tag and filtering to a specific work ID. Used by AddRecipeViewModel, RecipeDetailViewModel (regenerate), FirebaseSyncViewModel (sync), and ZipExportImportViewModel."
+        tooltip: "WorkManager extension function that encapsulates the common pattern of observing work by tag and filtering to a specific work ID. Used by AddRecipeViewModel, RecipeDetailViewModel (regenerate), and ZipExportImportViewModel."
       }
     }
 
@@ -258,14 +241,13 @@ app: {
 
       helper: {
         label: RecipeNotificationHelper
-        tooltip: "Manages notification channel, foreground info for workers, and shows progress/success/error notifications for recipe imports, Firebase sync, and ZIP operations"
+        tooltip: "Manages notification channel, foreground info for workers, and shows progress/success/error notifications for recipe imports and ZIP operations"
       }
     }
 
     worker.import_worker -> notification.helper: notify progress
     worker.regenerate_worker -> notification.helper: notify progress
     worker.paprika_import_worker -> notification.helper: notify progress
-    worker.sync_worker -> notification.helper: notify progress
     worker.zip_export_worker -> notification.helper: notify progress
     worker.zip_import_worker -> notification.helper: notify progress
   }
@@ -293,10 +275,6 @@ app: {
         label: ImportPaprikaUseCase
         tooltip: "Imports recipes from Paprika export (.paprikarecipes). Parses export, sends recipe content through ParseHtmlUseCase.parseText(). Resolves images by priority: base64 photo_data (saved directly to local storage), image_url, or og:image from source page. Supports cooperative cancellation — checks coroutine state between recipes and preserves already-imported recipes on cancel."
       }
-      sync_firestore: {
-        label: FirestoreSyncUseCase
-        tooltip: "Bidirectional sync: compares local vs remote recipes, uploads new, downloads new, updates changed (latest timestamp wins), deletes remote recipes that were soft-deleted locally. Runs via WorkManager on startup and periodically. Uses sourceImageUrl for cross-device image re-download when local file:// URIs aren't available."
-      }
       export_zip: {
         label: ExportToZipUseCase
         tooltip: "Exports all recipes to a ZIP file using RecipeSerializer. Includes recipe images as binary files in each recipe folder."
@@ -312,10 +290,6 @@ app: {
       regenerate: {
         label: RegenerateRecipeUseCase
         tooltip: "Re-parses a recipe from its stored original HTML via ParseHtmlUseCase.parseHtml(). If no cached HTML exists, fetches fresh HTML from the recipe's source URL via WebScraperService. Passes model/thinking overrides as parameters, preserves recipe ID, favorite status, and creation timestamp."
-      }
-      sync_meal_plans: {
-        label: FirestoreMealPlanSyncUseCase
-        tooltip: "Bidirectional sync of meal plans with Firebase Firestore. Each entry stored as a document. Handles soft-delete tracking, conflict resolution by timestamp, and purges deleted entries after sync."
       }
       aggregate_grocery: {
         label: AggregateGroceryListUseCase
@@ -361,7 +335,7 @@ app: {
 
       recipe: {
         label: Recipe
-        tooltip: "@Immutable. Fields: id, name, sourceUrl, story, servings, times, ingredients, instructions, equipment, tags, imageUrl (local file:// URI), sourceImageUrl (original remote URL for cross-device sync), timestamps, isFavorite"
+        tooltip: "@Immutable. Fields: id, name, sourceUrl, story, servings, times, ingredients, instructions, equipment, tags, imageUrl (local file:// URI), sourceImageUrl (original remote URL), timestamps, isFavorite"
       }
       ingredient: {
         label: Ingredient
@@ -433,7 +407,7 @@ app: {
 
       repo: {
         label: RecipeRepository
-        tooltip: "CRUD operations for recipes. Supports soft-delete for sync tracking, hard-delete for sync cleanup, and purge of soft-deleted entries after sync."
+        tooltip: "CRUD operations for recipes."
       }
       import_debug_repo: {
         label: ImportDebugRepository
@@ -445,7 +419,7 @@ app: {
       }
       meal_plan_repo: {
         label: MealPlanRepository
-        tooltip: "CRUD operations for meal plan entries. Supports date-range queries, soft-delete for sync tracking, and hard-delete for sync cleanup."
+        tooltip: "CRUD operations for meal plan entries. Supports date-range queries."
       }
     }
 
@@ -474,7 +448,7 @@ app: {
       dao: RecipeDao
       entity: {
         label: RecipeEntity
-        tooltip: "Room entity for recipes: id, name, sourceUrl, story, servings, times, JSON fields, imageUrl (local file:// URI), originalHtml, createdAt, updatedAt, isFavorite, deleted (soft-delete flag for sync)"
+        tooltip: "Room entity for recipes: id, name, sourceUrl, story, servings, times, JSON fields, imageUrl (local file:// URI), originalHtml, createdAt, updatedAt, isFavorite"
       }
       import_debug_dao: ImportDebugDao
       pending_import_dao: PendingImportDao
@@ -489,7 +463,7 @@ app: {
       meal_plan_dao: MealPlanDao
       meal_plan_entity: {
         label: MealPlanEntity
-        tooltip: "Room entity for meal plan entries: id, recipeId, recipeName, recipeImageUrl, date, mealType, servings, createdAt, updatedAt, deleted (soft-delete flag for sync)"
+        tooltip: "Room entity for meal plan entries: id, recipeId, recipeName, recipeImageUrl, date, mealType, servings, createdAt, updatedAt"
       }
       image_storage: {
         label: Local Image Storage
@@ -498,7 +472,7 @@ app: {
       }
       settings: {
         label: SettingsDataStore
-        tooltip: "Uses EncryptedSharedPreferences for API key, DataStore for non-sensitive settings (AI model, extended thinking enabled, keep screen on, theme mode, volume/weight unit system preferences, grocery list volume/weight unit system preferences, start of week, import debugging enabled, Firebase sync enabled/last sync timestamp)"
+        tooltip: "Uses EncryptedSharedPreferences for API key, DataStore for non-sensitive settings (AI model, extended thinking enabled, keep screen on, theme mode, volume/weight unit system preferences, grocery list volume/weight unit system preferences, start of week, import debugging enabled)"
       }
 
       dao -> room
@@ -529,11 +503,7 @@ app: {
       }
       image_dl: {
         label: ImageDownloadService
-        tooltip: "Downloads recipe images from remote URLs and stores them locally in app internal storage. Also supports saving images from byte streams (ZIP import) and base64 data (Paprika photo_data). Returns file:// URIs for local access. Used during import, export, sync, and ZIP restore to ensure images are available offline."
-      }
-      firestore_svc: {
-        label: FirestoreService
-        tooltip: "Handles Firebase Auth (Google Sign-In), and Firestore document operations for recipe and meal plan sync. Data stored as structured Firestore documents with native types (Timestamps for Instants, nested maps for complex objects) at users/{userId}/recipes/{recipeId} and users/{userId}/mealPlans/{mealPlanId}."
+        tooltip: "Downloads recipe images from remote URLs and stores them locally in app internal storage. Also supports saving images from byte streams (ZIP import) and base64 data (Paprika photo_data). Returns file:// URIs for local access. Used during import, export, and ZIP restore to ensure images are available offline."
       }
     }
 
@@ -615,9 +585,6 @@ app: {
   ui.viewmodels.import_selection_vm -> state.in_progress_mgr: adds entries
   ui.viewmodels.add_vm -> background.worker: enqueue work
   ui.viewmodels.add_vm -> background.worker.work_ext: observe import
-  ui.viewmodels.firebase_vm -> background.worker.sync_worker: sync
-  ui.viewmodels.firebase_vm -> background.worker.work_ext: observe sync
-  ui.viewmodels.firebase_vm -> data.local.settings: sync settings
   ui.viewmodels.zip_vm -> background.worker.zip_export_worker: export
   ui.viewmodels.zip_vm -> background.worker.work_ext: observe export
   ui.viewmodels.meal_plan_vm -> data.repository.meal_plan_repo: CRUD
@@ -628,15 +595,12 @@ app: {
   ui.viewmodels.grocery_list_vm -> data.repository.repo: recipes
   ui.viewmodels.grocery_list_vm -> domain.usecases.aggregate_grocery: aggregate ingredients
   ui.viewmodels.grocery_list_vm -> data.local.settings: grocery unit prefs
-  domain.usecases.sync_firestore -> domain.usecases.sync_meal_plans: sync meal plans
-  domain.usecases.sync_meal_plans -> data.repository.meal_plan_repo: access data
   ui.viewmodels.settings_vm -> data.repository.import_debug_repo: delete debug data
   ui.viewmodels.import_debug_list_vm -> data.repository.import_debug_repo: list entries
   ui.viewmodels.import_debug_detail_vm -> data.repository.import_debug_repo: get entry
   background.worker.import_worker -> domain.usecases.import: execute
   background.worker.regenerate_worker -> domain.usecases.regenerate: execute
   background.worker.paprika_import_worker -> domain.usecases.import_paprika: execute
-  background.worker.sync_worker -> domain.usecases.sync_firestore: execute
   background.worker.zip_export_worker -> domain.usecases.export_zip: execute
   background.worker.zip_import_worker -> domain.usecases.import_zip: execute
   domain.usecases -> data.repository: access data
@@ -648,11 +612,9 @@ app: {
   domain.usecases.regenerate -> data.remote.scraper: fetch HTML if not cached
   domain.usecases.import_paprika -> data.remote.scraper: fetch source image
   domain.usecases.parse_html -> data.remote.image_dl: download image
-  domain.usecases.sync_firestore -> data.remote.image_dl: download image
   data.remote.scraper -> external.web: fetch HTML
   data.remote.image_dl -> external.web: download image
   data.remote.anthropic_svc -> external.anthropic: parse recipe
-  data.remote.firestore_svc -> external.firebase: sync data
 }
 
 # Data Flow Legend
@@ -677,19 +639,6 @@ legend: {
   flow5: "5. Repository saves to Room"
 
   flow1 -> flow2 -> flow3 -> flow4 -> flow5
-
-  firebase_flow: {
-    label: "Firebase Sync Flow"
-    style: {
-      font-size: 14
-      bold: true
-    }
-  }
-  fb1: "User signs in with Google, enables sync"
-  fb2: "Bidirectional sync on startup + every 6 hours (latest timestamp wins)"
-  fb3: "Uploads new local recipes, downloads new remote recipes, updates changed, deletes soft-deleted from Firestore"
-
-  fb1 -> fb2 -> fb3
 
   zip_flow: {
     label: ".lorecipes Export/Import Flow"
@@ -735,7 +684,7 @@ legend: {
   share1 -> share2 -> share3 -> share4
 
   note: {
-    label: "All imports run in background via WorkManager (URL, Paprika, .lorecipes). Import queue is database-backed (PendingImportEntity) and persists across app restarts. Supports multiple concurrent imports with individual cancellation from the recipe list via swipe-to-dismiss. Page metadata (title, image) is fetched cheaply before AI parsing begins. Firebase sync and Paprika import run in background with progress notifications. Sync runs on app startup and every 6 hours when enabled. Paprika import can be cancelled mid-way, keeping already-imported recipes. Export uses .lorecipes format (ZIP with RecipeSerializer) for both single recipe share and bulk backup."
+    label: "All imports run in background via WorkManager (URL, Paprika, .lorecipes). Import queue is database-backed (PendingImportEntity) and persists across app restarts. Supports multiple concurrent imports with individual cancellation from the recipe list via swipe-to-dismiss. Page metadata (title, image) is fetched cheaply before AI parsing begins. Paprika import runs in background with progress notifications and can be cancelled mid-way, keeping already-imported recipes. Export uses .lorecipes format (ZIP with RecipeSerializer) for both single recipe share and bulk backup."
     style: {
       font-size: 12
       italic: true
@@ -765,12 +714,10 @@ legend: {
   mp1: "Weekly planner view with day-grouped meal entries"
   mp2: "Add meals via bottom sheet: recipe search + tag filter, date picker, meal type, servings"
   mp3: "Swipe-to-delete and long-press menu (shared pattern with recipe list)"
-  mp4: "Persistent in Room DB with soft-delete for sync tracking"
-  mp5: "Firebase Firestore sync: each entry stored as a document"
-  mp6: "Included in ZIP export/import for backup/restore"
-  mp7: "Incremental sync triggered on add/update/delete"
+  mp4: "Persistent in Room DB"
+  mp5: "Included in ZIP export/import for backup/restore"
 
-  mp1 -> mp2 -> mp3 -> mp4 -> mp5 -> mp6 -> mp7
+  mp1 -> mp2 -> mp3 -> mp4 -> mp5
 
   grocery_flow: {
     label: "Grocery List Feature"

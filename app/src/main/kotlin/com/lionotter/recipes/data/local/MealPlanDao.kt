@@ -6,18 +6,17 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
-import kotlinx.datetime.Instant
 
 @Dao
 interface MealPlanDao {
 
-    @Query("SELECT * FROM meal_plans WHERE deleted = 0 ORDER BY date ASC, mealType ASC, recipeName ASC")
+    @Query("SELECT * FROM meal_plans ORDER BY date ASC, mealType ASC, recipeName ASC")
     fun getAllMealPlans(): Flow<List<MealPlanEntity>>
 
-    @Query("SELECT * FROM meal_plans WHERE date BETWEEN :startDate AND :endDate AND deleted = 0 ORDER BY date ASC, mealType ASC, recipeName ASC")
+    @Query("SELECT * FROM meal_plans WHERE date BETWEEN :startDate AND :endDate ORDER BY date ASC, mealType ASC, recipeName ASC")
     fun getMealPlansForDateRange(startDate: String, endDate: String): Flow<List<MealPlanEntity>>
 
-    @Query("SELECT * FROM meal_plans WHERE date = :date AND deleted = 0 ORDER BY mealType ASC, recipeName ASC")
+    @Query("SELECT * FROM meal_plans WHERE date = :date ORDER BY mealType ASC, recipeName ASC")
     fun getMealPlansForDate(date: String): Flow<List<MealPlanEntity>>
 
     @Query("SELECT * FROM meal_plans WHERE id = :id")
@@ -30,26 +29,17 @@ interface MealPlanDao {
     suspend fun updateMealPlan(mealPlan: MealPlanEntity)
 
     @Query("DELETE FROM meal_plans WHERE id = :id")
-    suspend fun hardDeleteMealPlan(id: String)
+    suspend fun deleteMealPlan(id: String)
 
-    @Query("UPDATE meal_plans SET deleted = 1, updatedAt = :updatedAt WHERE id = :id")
-    suspend fun softDeleteMealPlan(id: String, updatedAt: Instant)
-
-    @Query("SELECT * FROM meal_plans WHERE deleted = 1")
-    suspend fun getDeletedMealPlans(): List<MealPlanEntity>
-
-    @Query("DELETE FROM meal_plans WHERE deleted = 1")
-    suspend fun purgeDeletedMealPlans()
-
-    @Query("SELECT * FROM meal_plans WHERE deleted = 0")
+    @Query("SELECT * FROM meal_plans")
     suspend fun getAllMealPlansOnce(): List<MealPlanEntity>
 
-    @Query("SELECT * FROM meal_plans WHERE date BETWEEN :startDate AND :endDate AND deleted = 0 ORDER BY date ASC, mealType ASC, recipeName ASC")
+    @Query("SELECT * FROM meal_plans WHERE date BETWEEN :startDate AND :endDate ORDER BY date ASC, mealType ASC, recipeName ASC")
     suspend fun getMealPlansForDateRangeOnce(startDate: String, endDate: String): List<MealPlanEntity>
 
-    @Query("SELECT COUNT(*) FROM meal_plans WHERE recipeId = :recipeId AND deleted = 0")
+    @Query("SELECT COUNT(*) FROM meal_plans WHERE recipeId = :recipeId")
     suspend fun countMealPlansByRecipeId(recipeId: String): Int
 
-    @Query("UPDATE meal_plans SET deleted = 1, updatedAt = :updatedAt WHERE recipeId = :recipeId AND deleted = 0")
-    suspend fun softDeleteMealPlansByRecipeId(recipeId: String, updatedAt: Instant)
+    @Query("DELETE FROM meal_plans WHERE recipeId = :recipeId")
+    suspend fun deleteMealPlansByRecipeId(recipeId: String)
 }

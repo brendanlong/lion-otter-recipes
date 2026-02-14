@@ -6,7 +6,6 @@ plugins {
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
     alias(libs.plugins.baselineprofile)
-    alias(libs.plugins.google.services)
 }
 
 android {
@@ -76,7 +75,7 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             excludes += "META-INF/DEPENDENCIES"
             excludes += "META-INF/INDEX.LIST"
-            // Duplicate from httpclient5 (Anthropic SDK) and httpclient (Google API)
+            // Duplicate from httpclient5 (Anthropic SDK)
             pickFirsts += "mozilla/public-suffix-list.txt"
         }
     }
@@ -150,17 +149,6 @@ dependencies {
 
     // Optimization (ILP tag selection)
     implementation(libs.ojalgo)
-
-    // Firebase
-    implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.auth)
-    implementation(libs.firebase.firestore)
-
-    // Google Sign-In (via Credential Manager)
-    implementation(libs.credentials)
-    implementation(libs.credentials.play.services.auth)
-    implementation(libs.google.id)
-    implementation(libs.kotlinx.coroutines.play.services)
 
     // Baseline Profile
     implementation(libs.androidx.profileinstaller)

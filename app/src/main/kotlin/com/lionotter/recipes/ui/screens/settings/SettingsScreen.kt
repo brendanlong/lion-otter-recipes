@@ -25,12 +25,10 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
-import com.lionotter.recipes.ui.screens.firebase.FirebaseSyncViewModel
 import com.lionotter.recipes.ui.screens.settings.components.AboutSection
 import com.lionotter.recipes.ui.screens.settings.components.ApiKeySection
 import com.lionotter.recipes.ui.screens.settings.components.BackupRestoreSection
 import com.lionotter.recipes.ui.screens.settings.components.DisplaySection
-import com.lionotter.recipes.ui.screens.settings.components.FirebaseSyncSection
 import com.lionotter.recipes.ui.screens.settings.components.ImportDebuggingSection
 import com.lionotter.recipes.ui.screens.settings.components.MealPlannerSection
 import com.lionotter.recipes.ui.screens.settings.components.ModelSelectionSection
@@ -43,7 +41,6 @@ fun SettingsScreen(
     onNavigateToImportDebug: () -> Unit = {},
     onNavigateToImportSelection: (importType: String, uri: Uri) -> Unit = { _, _ -> },
     viewModel: SettingsViewModel = hiltViewModel(),
-    firebaseSyncViewModel: FirebaseSyncViewModel = hiltViewModel(),
     zipViewModel: ZipExportImportViewModel = hiltViewModel()
 ) {
     val apiKey by viewModel.apiKey.collectAsStateWithLifecycle()
@@ -53,10 +50,6 @@ fun SettingsScreen(
     val keepScreenOn by viewModel.keepScreenOn.collectAsStateWithLifecycle()
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val saveState by viewModel.saveState.collectAsStateWithLifecycle()
-    val syncUiState by firebaseSyncViewModel.uiState.collectAsStateWithLifecycle()
-    val syncEnabled by firebaseSyncViewModel.syncEnabled.collectAsStateWithLifecycle()
-    val lastSyncTimestamp by firebaseSyncViewModel.lastSyncTimestamp.collectAsStateWithLifecycle()
-    val operationState by firebaseSyncViewModel.operationState.collectAsStateWithLifecycle()
     val zipOperationState by zipViewModel.operationState.collectAsStateWithLifecycle()
     val volumeUnitSystem by viewModel.volumeUnitSystem.collectAsStateWithLifecycle()
     val weightUnitSystem by viewModel.weightUnitSystem.collectAsStateWithLifecycle()
@@ -197,21 +190,6 @@ fun SettingsScreen(
                 onImportClick = {
                     importLauncher.launch(arrayOf("application/zip"))
                 }
-            )
-
-            HorizontalDivider()
-
-            // Cloud Sync Section (Firebase)
-            FirebaseSyncSection(
-                uiState = syncUiState,
-                syncEnabled = syncEnabled,
-                lastSyncTimestamp = lastSyncTimestamp,
-                operationState = operationState,
-                onSignInClick = firebaseSyncViewModel::signIn,
-                onSignOutClick = firebaseSyncViewModel::signOut,
-                onEnableSyncClick = firebaseSyncViewModel::enableSync,
-                onDisableSyncClick = firebaseSyncViewModel::disableSync,
-                onSyncNowClick = firebaseSyncViewModel::triggerSync
             )
 
             HorizontalDivider()

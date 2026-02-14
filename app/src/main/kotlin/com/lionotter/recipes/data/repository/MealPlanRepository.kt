@@ -5,7 +5,6 @@ import com.lionotter.recipes.data.local.MealPlanEntity
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import kotlinx.datetime.Clock
 import kotlinx.datetime.LocalDate
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -33,7 +32,7 @@ class MealPlanRepository @Inject constructor(
     }
 
     suspend fun getMealPlanByIdOnce(id: String): MealPlanEntry? {
-        return mealPlanDao.getMealPlanById(id)?.takeIf { !it.deleted }?.toMealPlanEntry()
+        return mealPlanDao.getMealPlanById(id)?.toMealPlanEntry()
     }
 
     suspend fun saveMealPlan(entry: MealPlanEntry) {
@@ -45,16 +44,7 @@ class MealPlanRepository @Inject constructor(
     }
 
     suspend fun deleteMealPlan(id: String) {
-        val now = Clock.System.now()
-        mealPlanDao.softDeleteMealPlan(id, updatedAt = now)
-    }
-
-    suspend fun getDeletedMealPlans(): List<MealPlanEntry> {
-        return mealPlanDao.getDeletedMealPlans().map { it.toMealPlanEntry() }
-    }
-
-    suspend fun purgeDeletedMealPlans() {
-        mealPlanDao.purgeDeletedMealPlans()
+        mealPlanDao.deleteMealPlan(id)
     }
 
     suspend fun getAllMealPlansOnce(): List<MealPlanEntry> {
@@ -66,31 +56,16 @@ class MealPlanRepository @Inject constructor(
     }
 
     /**
-     * Hard delete a meal plan (used during sync when remote deletion is detected).
-     */
-    suspend fun hardDeleteMealPlan(id: String) {
-        mealPlanDao.hardDeleteMealPlan(id)
-    }
-
-    /**
-     * Save a meal plan directly from sync (may include already-deleted entries from remote).
-     */
-    suspend fun saveMealPlanFromSync(entry: MealPlanEntry) {
-        mealPlanDao.insertMealPlan(MealPlanEntity.fromMealPlanEntry(entry))
-    }
-
-    /**
-     * Count non-deleted meal plan entries that reference the given recipe.
+     * Count meal plan entries that reference the given recipe.
      */
     suspend fun countMealPlansByRecipeId(recipeId: String): Int {
         return mealPlanDao.countMealPlansByRecipeId(recipeId)
     }
 
     /**
-     * Soft-delete all meal plan entries that reference the given recipe.
+     * Delete all meal plan entries that reference the given recipe.
      */
-    suspend fun softDeleteMealPlansByRecipeId(recipeId: String) {
-        val now = Clock.System.now()
-        mealPlanDao.softDeleteMealPlansByRecipeId(recipeId, updatedAt = now)
+    suspend fun deleteMealPlansByRecipeId(recipeId: String) {
+        mealPlanDao.deleteMealPlansByRecipeId(recipeId)
     }
 }

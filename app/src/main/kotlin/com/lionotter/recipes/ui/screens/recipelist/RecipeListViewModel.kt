@@ -8,7 +8,6 @@ import com.lionotter.recipes.data.repository.RepositoryError
 import com.lionotter.recipes.domain.usecase.GetTagsUseCase
 import com.lionotter.recipes.ui.state.InProgressRecipeManager
 import com.lionotter.recipes.ui.state.RecipeListItem
-import com.lionotter.recipes.worker.MealPlanSyncTrigger
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -28,7 +27,6 @@ class RecipeListViewModel @Inject constructor(
     private val inProgressRecipeManager: InProgressRecipeManager,
     private val recipeRepository: RecipeRepository,
     private val mealPlanRepository: MealPlanRepository,
-    private val mealPlanSyncTrigger: MealPlanSyncTrigger,
 ) : ViewModel() {
 
     /**
@@ -159,9 +157,8 @@ class RecipeListViewModel @Inject constructor(
             // Only delete if it's a saved recipe (not in-progress)
             val item = recipes.value.find { it.id == recipeId }
             if (item is RecipeListItem.Saved) {
-                mealPlanRepository.softDeleteMealPlansByRecipeId(recipeId)
+                mealPlanRepository.deleteMealPlansByRecipeId(recipeId)
                 recipeRepository.deleteRecipe(recipeId)
-                mealPlanSyncTrigger.triggerIncrementalSync()
             }
         }
     }

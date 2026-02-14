@@ -11,7 +11,6 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.map
-import kotlinx.datetime.Clock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
@@ -41,7 +40,7 @@ class RecipeRepository @Inject constructor(
     }
 
     suspend fun getRecipeByIdOnce(id: String): Recipe? {
-        return recipeDao.getRecipeById(id)?.takeIf { !it.deleted }?.let { entityToRecipeWithErrorReporting(it) }
+        return recipeDao.getRecipeById(id)?.let { entityToRecipeWithErrorReporting(it) }
     }
 
     /**
@@ -75,20 +74,7 @@ class RecipeRepository @Inject constructor(
     }
 
     suspend fun deleteRecipe(id: String) {
-        val now = Clock.System.now()
-        recipeDao.softDeleteRecipe(id, now)
-    }
-
-    suspend fun getDeletedRecipes(): List<Recipe> {
-        return recipeDao.getDeletedRecipes().map { entityToRecipe(it) }
-    }
-
-    suspend fun purgeDeletedRecipes() {
-        recipeDao.purgeDeletedRecipes()
-    }
-
-    suspend fun hardDeleteRecipe(id: String) {
-        recipeDao.hardDeleteRecipeById(id)
+        recipeDao.deleteRecipe(id)
     }
 
     suspend fun setFavorite(id: String, isFavorite: Boolean) {

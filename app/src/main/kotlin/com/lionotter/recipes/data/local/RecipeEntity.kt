@@ -26,8 +26,7 @@ data class RecipeEntity(
     val originalHtml: String?,
     val createdAt: Instant,
     val updatedAt: Instant,
-    val isFavorite: Boolean = false,
-    val deleted: Boolean = false
+    val isFavorite: Boolean = false
 ) {
     fun toRecipe(
         instructionSections: List<InstructionSection>,

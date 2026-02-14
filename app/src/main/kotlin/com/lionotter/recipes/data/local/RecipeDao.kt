@@ -6,26 +6,25 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
-import kotlinx.datetime.Instant
 
 @Dao
 interface RecipeDao {
-    @Query("SELECT * FROM recipes WHERE deleted = 0 ORDER BY updatedAt DESC")
+    @Query("SELECT * FROM recipes ORDER BY updatedAt DESC")
     fun getAllRecipes(): Flow<List<RecipeEntity>>
 
     @Query("SELECT * FROM recipes WHERE id = :id")
     suspend fun getRecipeById(id: String): RecipeEntity?
 
-    @Query("SELECT * FROM recipes WHERE id = :id AND deleted = 0")
+    @Query("SELECT * FROM recipes WHERE id = :id")
     fun getRecipeByIdFlow(id: String): Flow<RecipeEntity?>
 
-    @Query("SELECT * FROM recipes WHERE tagsJson LIKE '%' || :tag || '%' AND deleted = 0 ORDER BY updatedAt DESC")
+    @Query("SELECT * FROM recipes WHERE tagsJson LIKE '%' || :tag || '%' ORDER BY updatedAt DESC")
     fun getRecipesByTag(tag: String): Flow<List<RecipeEntity>>
 
-    @Query("SELECT * FROM recipes WHERE name LIKE '%' || :query || '%' AND deleted = 0 ORDER BY updatedAt DESC")
+    @Query("SELECT * FROM recipes WHERE name LIKE '%' || :query || '%' ORDER BY updatedAt DESC")
     fun searchRecipes(query: String): Flow<List<RecipeEntity>>
 
-    @Query("SELECT id, name FROM recipes WHERE deleted = 0")
+    @Query("SELECT id, name FROM recipes")
     suspend fun getAllRecipeIdsAndNames(): List<RecipeIdAndName>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -34,17 +33,8 @@ interface RecipeDao {
     @Update
     suspend fun updateRecipe(recipe: RecipeEntity)
 
-    @Query("UPDATE recipes SET deleted = 1, updatedAt = :updatedAt WHERE id = :id")
-    suspend fun softDeleteRecipe(id: String, updatedAt: Instant)
-
     @Query("DELETE FROM recipes WHERE id = :id")
-    suspend fun hardDeleteRecipeById(id: String)
-
-    @Query("SELECT * FROM recipes WHERE deleted = 1")
-    suspend fun getDeletedRecipes(): List<RecipeEntity>
-
-    @Query("DELETE FROM recipes WHERE deleted = 1")
-    suspend fun purgeDeletedRecipes()
+    suspend fun deleteRecipe(id: String)
 
     @Query("UPDATE recipes SET isFavorite = :isFavorite WHERE id = :id")
     suspend fun setFavorite(id: String, isFavorite: Boolean)
