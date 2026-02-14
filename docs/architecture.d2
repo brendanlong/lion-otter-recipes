@@ -506,7 +506,7 @@ app: {
       }
       firestore_svc: {
         label: FirestoreService
-        tooltip: "Primary data store for recipes and meal plans. Uses local UUID (network disabled) for offline-only users, upgradeable to Google Auth for cross-device sync. Manages auth state, network enable/disable, user data migration on sign-in/sign-out. Data stored as Firestore documents at users/{userId}/recipes/{recipeId} and users/{userId}/mealPlans/{mealPlanId} with offline persistence cache. Writes are fire-and-forget (queued locally), reads use Source.CACHE."
+        tooltip: "Primary data store for recipes and meal plans. Uses local UUID (network disabled) for offline-only users, upgradeable to Google Auth for cross-device sync. Manages auth state, network enable/disable, user data migration on sign-in/sign-out. Data stored as Firestore documents at users/{userId}/recipes/{recipeId} and users/{userId}/mealPlans/{mealPlanId} with offline persistence cache. Writes are fire-and-forget (queued locally), reads use Source.CACHE. Network state (enableNetwork/disableNetwork) is always awaited and established before setting the user ID, which triggers snapshot listener registration via flatMapLatest. Initialization has a 10s timeout; failures are surfaced to the UI."
       }
     }
 

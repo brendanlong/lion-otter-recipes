@@ -15,6 +15,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.Source
 import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.Amount
@@ -28,8 +29,11 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.filterNotNull
@@ -74,7 +78,7 @@ class FirestoreService @Inject constructor(
     }
 
     private val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
-    private val firestore: FirebaseFirestore by lazy { FirebaseFirestore.getInstance() }
+    private var firestore: FirebaseFirestore = FirebaseFirestore.getInstance()
     private val credentialManager: CredentialManager by lazy { CredentialManager.create(context) }
 
     /**
@@ -96,29 +100,65 @@ class FirestoreService @Inject constructor(
     val networkEnabled: StateFlow<Boolean> = _networkEnabled.asStateFlow()
 
     /**
+     * Non-null when [ensureUser] failed and the data layer is non-functional.
+     * The UI should observe this and display the error to the user.
+     */
+    private val _initializationError = MutableStateFlow<String?>(null)
+    val initializationError: StateFlow<String?> = _initializationError.asStateFlow()
+
+    /**
+     * Errors from snapshot listeners that the UI should display.
+     * Emitted when a listener encounters a non-recoverable error (e.g. permission
+     * denied). The listener is dead after this — [flatMapLatest] keeps the outer
+     * flow alive so a new [_currentUserId] emission can restart it.
+     */
+    private val _listenerErrors = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val listenerErrors: SharedFlow<String> = _listenerErrors.asSharedFlow()
+
+    /**
+     * Called by the application when initialization fails.
+     * Sets the error message that the UI should display.
+     */
+    fun setInitializationError(message: String) {
+        _initializationError.value = message
+    }
+
+    /**
      * Ensures a user ID is available for Firestore operations.
      * If signed in with Google, uses the Firebase Auth UID.
      * Otherwise, uses a locally-generated UUID (no Firebase Auth needed).
-     * Network is disabled by default and only enabled for Google-signed-in users with sync on.
+     *
+     * IMPORTANT: Network state is always established and awaited *before* setting
+     * [_currentUserId], because setting the user ID triggers [flatMapLatest] to
+     * register snapshot listeners. If the network state hasn't been applied yet,
+     * listeners may try to contact the server for a local-only user (which will
+     * hang) or read from an empty cache for a Google user (missing data).
+     *
+     * @param syncEnabled For Google-signed-in users, whether sync (network access)
+     *   is enabled. Ignored for local-only users (network is always disabled).
      */
-    suspend fun ensureUser() {
+    suspend fun ensureUser(syncEnabled: Boolean = false) {
         withContext(Dispatchers.IO) {
             val currentUser = auth.currentUser
             if (currentUser != null && !currentUser.isAnonymous) {
-                // Existing Google-signed-in user — don't disable network here.
-                // LionOtterApp will control network based on sync preference.
-                // Disabling and immediately re-enabling causes snapshot listeners
-                // to miss cached data while waiting for a server reconnection.
-                _currentUserId.value = currentUser.uid
+                // Set network state BEFORE userId to avoid listeners firing
+                // with the wrong source. Awaiting ensures the Firestore SDK
+                // has completed the transition before we register listeners.
                 _isGoogleSignedIn.value = true
-                Log.d(TAG, "ensureUser: Google user ${currentUser.uid}")
+                if (syncEnabled) {
+                    enableNetwork()
+                } else {
+                    disableNetwork()
+                }
+                _currentUserId.value = currentUser.uid
+                Log.d(TAG, "ensureUser: Google user ${currentUser.uid} (sync=$syncEnabled)")
             } else {
                 // No Google user — disable network and use a local-only user ID.
                 // No Firebase Auth needed; Firestore offline cache works with any path.
+                _isGoogleSignedIn.value = false
                 disableNetwork()
                 val localId = getOrCreateLocalUserId()
                 _currentUserId.value = localId
-                _isGoogleSignedIn.value = false
                 Log.d(TAG, "ensureUser: local user $localId")
             }
         }
@@ -140,20 +180,41 @@ class FirestoreService @Inject constructor(
 
     /**
      * Enable Firestore network access. Called when sync is enabled for Google-signed-in users.
+     * Suspends until the Firestore SDK has completed the network state transition,
+     * ensuring snapshot listeners registered afterward will use the correct source.
      */
-    fun enableNetwork() {
+    suspend fun enableNetwork() {
         _networkEnabled.value = true
-        firestore.enableNetwork()
+        firestore.enableNetwork().await()
         Log.d(TAG, "Network enabled")
     }
 
     /**
      * Disable Firestore network access. Called for anonymous users and when sync is disabled.
+     * Suspends until the Firestore SDK has completed the network state transition,
+     * ensuring snapshot listeners registered afterward will read from cache only.
      */
-    fun disableNetwork() {
+    suspend fun disableNetwork() {
         _networkEnabled.value = false
-        firestore.disableNetwork()
+        firestore.disableNetwork().await()
         Log.d(TAG, "Network disabled")
+    }
+
+    /**
+     * Terminate the current Firestore instance and clear its persistence cache
+     * (including any pending writes), then obtain a fresh instance.
+     *
+     * This MUST be called when switching users (sign-in / sign-out) because
+     * pending writes queued under the old user's path (e.g. users/local_xxx/…)
+     * will be rejected by security rules once the authenticated UID changes.
+     * Those permanently-rejected writes block the Firestore gRPC stream,
+     * preventing all subsequent snapshot listener updates from being delivered.
+     */
+    private suspend fun resetFirestore() {
+        firestore.terminate().await()
+        firestore.clearPersistence().await()
+        firestore = FirebaseFirestore.getInstance()
+        Log.d(TAG, "Firestore instance reset (terminated + cleared persistence)")
     }
 
     /**
@@ -194,9 +255,17 @@ class FirestoreService @Inject constructor(
                         if (localUserId != null && localUserId != googleUser.uid) {
                             copyUserData(localUserId, googleUser.uid)
                         }
+                        // Reset Firestore to clear pending writes queued under the
+                        // old local_* user path. Those writes would be rejected by
+                        // security rules (auth.uid != "local_*") and block the
+                        // gRPC stream, hanging all subsequent reads.
+                        resetFirestore()
+                        // Enable network BEFORE setting userId — setting userId
+                        // triggers flatMapLatest to register snapshot listeners,
+                        // which need the network already enabled to reach the server.
                         _isGoogleSignedIn.value = true
-                        _currentUserId.value = googleUser.uid
                         enableNetwork()
+                        _currentUserId.value = googleUser.uid
                         return@withContext true
                     }
                     return@withContext false
@@ -230,9 +299,6 @@ class FirestoreService @Inject constructor(
         withContext(Dispatchers.IO) {
             if (!_isGoogleSignedIn.value) return@withContext
 
-            // Go offline first to prevent any sync during cleanup
-            disableNetwork()
-
             // Sign out of Firebase Auth and clear credential state
             auth.signOut()
             try {
@@ -241,12 +307,10 @@ class FirestoreService @Inject constructor(
                 Log.w(TAG, "Failed to clear credential state during sign-out", e)
             }
 
-            // Delete Firestore persistence cache (on-disk)
-            val firestoreDir = java.io.File(context.filesDir, "com.google.firebase.firestore")
-            if (firestoreDir.exists()) {
-                val deleted = firestoreDir.deleteRecursively()
-                Log.d(TAG, "Deleted Firestore persistence dir: $deleted")
-            }
+            // Terminate and clear Firestore persistence (pending writes + cache).
+            // This replaces the old approach of deleting files on disk, which was
+            // unreliable while the Firestore instance was still running.
+            resetFirestore()
 
             // Delete locally stored recipe images
             val imageDir = java.io.File(context.filesDir, "recipe_images")
@@ -260,10 +324,11 @@ class FirestoreService @Inject constructor(
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             prefs.edit { putString(KEY_LOCAL_USER_ID, newLocalId) }
 
-            // Switch to new local user — flatMapLatest restarts snapshot listeners
-            // on the new (empty) collection path
-            _currentUserId.value = newLocalId
+            // Disable network BEFORE setting userId — new local user should
+            // never contact the server.
             _isGoogleSignedIn.value = false
+            disableNetwork()
+            _currentUserId.value = newLocalId
             Log.d(TAG, "Signed out and cleared local data. New local user: $newLocalId")
         }
     }
@@ -312,7 +377,7 @@ class FirestoreService @Inject constructor(
             }
 
             if (recipeCount + mealPlanCount > 0) {
-                batch.commit()
+                batch.commit().await()
             }
 
             Log.d(TAG, "Copied $recipeCount recipes and $mealPlanCount meal plans from $fromUserId to $toUserId")
@@ -437,7 +502,16 @@ class FirestoreService @Inject constructor(
                 val registration = userRecipesCollection(userId)
                     .addSnapshotListener { snapshot, error ->
                         if (error != null) {
-                            Log.e(TAG, "Recipe snapshot listener error", error)
+                            // Always close without error so flatMapLatest keeps
+                            // the outer flow alive — a new _currentUserId emission
+                            // can restart the listener.
+                            if (isTerminationError(error)) {
+                                Log.d(TAG, "Recipe snapshot listener closed (instance terminated)")
+                            } else {
+                                Log.e(TAG, "Recipe snapshot listener error", error)
+                                _listenerErrors.tryEmit(error.message ?: "Failed to load recipes")
+                            }
+                            close()
                             return@addSnapshotListener
                         }
 
@@ -468,7 +542,13 @@ class FirestoreService @Inject constructor(
                 val registration = userRecipesCollection(userId).document(recipeId)
                     .addSnapshotListener { snapshot, error ->
                         if (error != null) {
-                            Log.e(TAG, "Recipe snapshot listener error for $recipeId", error)
+                            if (isTerminationError(error)) {
+                                Log.d(TAG, "Recipe detail listener closed for $recipeId (instance terminated)")
+                            } else {
+                                Log.e(TAG, "Recipe snapshot listener error for $recipeId", error)
+                                _listenerErrors.tryEmit(error.message ?: "Failed to load recipe")
+                            }
+                            close()
                             return@addSnapshotListener
                         }
 
@@ -618,7 +698,13 @@ class FirestoreService @Inject constructor(
                 val registration = userMealPlansCollection(userId)
                     .addSnapshotListener { snapshot, error ->
                         if (error != null) {
-                            Log.e(TAG, "Meal plan snapshot listener error", error)
+                            if (isTerminationError(error)) {
+                                Log.d(TAG, "Meal plan listener closed (instance terminated)")
+                            } else {
+                                Log.e(TAG, "Meal plan snapshot listener error", error)
+                                _listenerErrors.tryEmit(error.message ?: "Failed to load meal plans")
+                            }
+                            close()
                             return@addSnapshotListener
                         }
 
@@ -873,6 +959,17 @@ class FirestoreService @Inject constructor(
     private fun Timestamp.toKotlinInstant(): Instant {
         return Instant.fromEpochSeconds(this.seconds, this.nanoseconds.toLong())
     }
+
+    /**
+     * Returns true if the error is a [FirebaseFirestoreException] with code [CANCELLED],
+     * which is the expected error when the Firestore instance is terminated during
+     * user transitions (sign-in / sign-out). These are not real errors — the
+     * [flatMapLatest] will re-register listeners on the new instance once
+     * [_currentUserId] is updated.
+     */
+    private fun isTerminationError(error: Exception): Boolean =
+        error is FirebaseFirestoreException &&
+            error.code == FirebaseFirestoreException.Code.CANCELLED
 }
 
 /**

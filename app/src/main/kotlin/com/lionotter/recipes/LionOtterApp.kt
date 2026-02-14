@@ -12,6 +12,7 @@ import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import javax.inject.Inject
 
 @HiltAndroidApp
@@ -42,30 +43,29 @@ class LionOtterApp : Application(), Configuration.Provider {
     private fun initializeFirestore() {
         applicationScope.launch {
             try {
-                // Ensure a Firebase user exists (anonymous or Google)
-                firestoreService.ensureUser()
-
-                // If signed in with Google, check the sync preference to control network
-                if (firestoreService.isSignedIn()) {
+                withTimeout(INIT_TIMEOUT_MS) {
+                    // Read the sync preference first so ensureUser() can set the
+                    // correct network state *before* setting the user ID (which
+                    // triggers snapshot listeners via flatMapLatest).
                     val syncEnabled = settingsDataStore.firebaseSyncEnabled.first()
-                    if (syncEnabled) {
-                        firestoreService.enableNetwork()
-                    } else {
-                        firestoreService.disableNetwork()
-                    }
+                    firestoreService.ensureUser(syncEnabled = syncEnabled)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to initialize Firestore", e)
+                firestoreService.setInitializationError(
+                    "Failed to initialize data store: ${e.message}"
+                )
             }
         }
+    }
+
+    companion object {
+        private const val TAG = "LionOtterApp"
+        private const val INIT_TIMEOUT_MS = 10_000L
     }
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
             .setWorkerFactory(workerFactory)
             .build()
-
-    companion object {
-        private const val TAG = "LionOtterApp"
-    }
 }

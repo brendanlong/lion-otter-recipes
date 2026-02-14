@@ -65,8 +65,22 @@ fun RecipeListScreen(
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val selectedTag by viewModel.selectedTag.collectAsStateWithLifecycle()
     val availableTags by viewModel.availableTags.collectAsStateWithLifecycle()
+    val initError by viewModel.initializationError.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // Show snackbar for initialization errors
+    LaunchedEffect(initError) {
+        val message = initError ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+    }
+
+    // Show snackbar for Firestore listener errors (e.g., permission denied)
+    LaunchedEffect(Unit) {
+        viewModel.listenerErrors.collect { message ->
+            snackbarHostState.showSnackbar("Data sync error: $message")
+        }
+    }
 
     // Show snackbar for repository errors (e.g., corrupted recipe data)
     LaunchedEffect(Unit) {

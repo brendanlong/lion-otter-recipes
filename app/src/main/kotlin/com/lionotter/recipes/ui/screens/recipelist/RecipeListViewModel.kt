@@ -2,6 +2,7 @@ package com.lionotter.recipes.ui.screens.recipelist
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lionotter.recipes.data.remote.FirestoreService
 import com.lionotter.recipes.data.repository.MealPlanRepository
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.data.repository.RepositoryError
@@ -27,12 +28,24 @@ class RecipeListViewModel @Inject constructor(
     private val inProgressRecipeManager: InProgressRecipeManager,
     private val recipeRepository: RecipeRepository,
     private val mealPlanRepository: MealPlanRepository,
+    firestoreService: FirestoreService,
 ) : ViewModel() {
 
     /**
-     * Errors from the repository mapped to user-facing strings.
+     * Errors from the repository (e.g., parse errors for corrupted data).
      */
     val repositoryErrors: SharedFlow<RepositoryError> = recipeRepository.errors
+
+    /**
+     * Errors from Firestore snapshot listeners (e.g., permission denied).
+     */
+    val listenerErrors: SharedFlow<String> = firestoreService.listenerErrors
+
+    /**
+     * Non-null when Firestore initialization failed.
+     * Displayed as a persistent error in the UI.
+     */
+    val initializationError: StateFlow<String?> = firestoreService.initializationError
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()

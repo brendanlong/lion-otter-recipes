@@ -14,4 +14,5 @@ sealed class RepositoryError {
         val recipeName: String,
         val failedFields: List<String>
     ) : RepositoryError()
+
 }
