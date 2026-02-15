@@ -2,6 +2,7 @@ package com.lionotter.recipes.data.remote.dto
 
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentId
+import com.google.firebase.firestore.IgnoreExtraProperties
 import com.google.firebase.firestore.ServerTimestamp
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.model.MealType
@@ -9,6 +10,7 @@ import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.toKotlinInstant
 
+@IgnoreExtraProperties
 data class MealPlanDto(
     @DocumentId val id: String = "",
     val recipeId: String = "",

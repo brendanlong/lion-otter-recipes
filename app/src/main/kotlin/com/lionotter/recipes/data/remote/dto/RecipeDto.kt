@@ -2,6 +2,8 @@ package com.lionotter.recipes.data.remote.dto
 
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentId
+import com.google.firebase.firestore.IgnoreExtraProperties
+import com.google.firebase.firestore.PropertyName
 import com.google.firebase.firestore.ServerTimestamp
 import com.lionotter.recipes.domain.model.Amount
 import com.lionotter.recipes.domain.model.Ingredient
@@ -11,6 +13,7 @@ import com.lionotter.recipes.domain.model.Recipe
 import kotlinx.datetime.Instant
 import kotlinx.datetime.toKotlinInstant
 
+@IgnoreExtraProperties
 data class RecipeDto(
     @DocumentId val id: String = "",
     val name: String = "",
@@ -22,7 +25,7 @@ data class RecipeDto(
     val prepTime: String? = null,
     val cookTime: String? = null,
     val totalTime: String? = null,
-    val isFavorite: Boolean = false,
+    @get:PropertyName("isFavorite") @set:PropertyName("isFavorite") var isFavorite: Boolean = false,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null,
     val tags: List<String> = emptyList(),

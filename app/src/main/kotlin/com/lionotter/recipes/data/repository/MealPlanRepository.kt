@@ -38,6 +38,7 @@ class MealPlanRepository @Inject constructor(
                         doc.toObject(MealPlanDto::class.java)?.toDomain()
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to deserialize meal plan ${doc.id}", e)
+                        firestoreService.reportError("Failed to load meal plan ${doc.id}: ${e.message}")
                         null
                     }
                 } ?: emptyList()
@@ -114,6 +115,7 @@ class MealPlanRepository @Inject constructor(
                     doc.toObject(MealPlanDto::class.java)?.toDomain()
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to deserialize meal plan ${doc.id}", e)
+                    firestoreService.reportError("Failed to load meal plan ${doc.id}: ${e.message}")
                     null
                 }
             }

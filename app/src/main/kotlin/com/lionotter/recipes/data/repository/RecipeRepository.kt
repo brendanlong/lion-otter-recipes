@@ -36,6 +36,7 @@ class RecipeRepository @Inject constructor(
                         doc.toObject(RecipeDto::class.java)?.toDomain()
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to deserialize recipe ${doc.id}", e)
+                        firestoreService.reportError("Failed to load recipe ${doc.id}: ${e.message}")
                         null
                     }
                 } ?: emptyList()
@@ -56,6 +57,7 @@ class RecipeRepository @Inject constructor(
                     snapshot?.toObject(RecipeDto::class.java)?.toDomain()
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to deserialize recipe $id", e)
+                    firestoreService.reportError("Failed to load recipe $id: ${e.message}")
                     null
                 }
                 trySend(recipe)
@@ -69,6 +71,7 @@ class RecipeRepository @Inject constructor(
             snapshot.toObject(RecipeDto::class.java)?.toDomain()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to get recipe $id", e)
+            firestoreService.reportError("Failed to load recipe: ${e.message}")
             null
         }
     }
@@ -84,6 +87,7 @@ class RecipeRepository @Inject constructor(
             doc.getString("originalHtml")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to get original HTML for recipe $id", e)
+            firestoreService.reportError("Failed to load recipe content: ${e.message}")
             null
         }
     }
