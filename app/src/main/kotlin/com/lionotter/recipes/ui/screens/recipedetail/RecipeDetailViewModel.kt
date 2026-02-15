@@ -234,10 +234,8 @@ class RecipeDetailViewModel @Inject constructor(
      * Toggles the favorite status of the current recipe.
      */
     fun toggleFavorite() {
-        viewModelScope.launch {
-            val currentRecipe = recipe.value ?: return@launch
-            recipeRepository.setFavorite(recipeId, !currentRecipe.isFavorite)
-        }
+        val currentRecipe = recipe.value ?: return
+        recipeRepository.setFavorite(recipeId, !currentRecipe.isFavorite)
     }
 
     /**

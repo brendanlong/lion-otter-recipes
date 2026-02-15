@@ -138,34 +138,28 @@ class ZipImportHelper @Inject constructor(
 
     /**
      * Imports meal plan entries from the meal-plans folder in a ZIP backup.
-     * Skips entries that already exist (by ID).
+     * Saves directly (overwrites via Firestore .set()).
      *
      * @param mealPlanFiles map of filename to content from the meal-plans folder
-     * @return pair of (imported count, skipped count)
+     * @return the number of entries imported
      */
-    suspend fun importMealPlans(mealPlanFiles: Map<String, String>): Pair<Int, Int> {
+    fun importMealPlans(mealPlanFiles: Map<String, String>): Int {
         var imported = 0
-        var skipped = 0
 
         for ((fileName, content) in mealPlanFiles) {
             if (!fileName.endsWith(".json")) continue
             try {
                 val entries = json.decodeFromString<List<MealPlanEntry>>(content)
                 for (entry in entries) {
-                    val existing = mealPlanRepository.getMealPlanByIdOnce(entry.id)
-                    if (existing == null) {
-                        mealPlanRepository.saveMealPlan(entry)
-                        imported++
-                    } else {
-                        skipped++
-                    }
+                    mealPlanRepository.saveMealPlan(entry)
+                    imported++
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to import meal plan file $fileName", e)
             }
         }
 
-        return Pair(imported, skipped)
+        return imported
     }
 
     /**

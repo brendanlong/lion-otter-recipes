@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
     alias(libs.plugins.baselineprofile)
+    alias(libs.plugins.google.services)
 }
 
 android {
@@ -146,6 +147,16 @@ dependencies {
 
     // HTML parsing
     implementation(libs.jsoup)
+
+    // Firebase
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.firestore)
+    implementation(libs.firebase.auth)
+
+    // Credential Manager (Google Sign-In)
+    implementation(libs.credentials)
+    implementation(libs.credentials.play.services)
+    implementation(libs.googleid)
 
     // Optimization (ILP tag selection)
     implementation(libs.ojalgo)

@@ -59,7 +59,7 @@ class GroceryListViewModelTest {
 
         every { settingsDataStore.groceryVolumeUnitSystem } returns flowOf(UnitSystem.CUSTOMARY)
         every { settingsDataStore.groceryWeightUnitSystem } returns flowOf(UnitSystem.METRIC)
-        coEvery { mealPlanRepository.getMealPlansForDateRangeOnce(testWeekStart, testWeekEnd) } returns emptyList()
+        every { mealPlanRepository.getMealPlansForDateRange(testWeekStart, testWeekEnd) } returns flowOf(emptyList())
     }
 
     @After
@@ -108,7 +108,7 @@ class GroceryListViewModelTest {
     )
 
     private fun createViewModel(entries: List<MealPlanEntry> = emptyList()): GroceryListViewModel {
-        coEvery { mealPlanRepository.getMealPlansForDateRangeOnce(testWeekStart, testWeekEnd) } returns entries
+        every { mealPlanRepository.getMealPlansForDateRange(testWeekStart, testWeekEnd) } returns flowOf(entries)
         val savedStateHandle = SavedStateHandle(mapOf("weekStart" to testWeekStart.toString()))
         return GroceryListViewModel(
             savedStateHandle = savedStateHandle,

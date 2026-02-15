@@ -1,9 +1,11 @@
 package com.lionotter.recipes.ui.screens.settings
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AnthropicService
+import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
@@ -20,8 +22,16 @@ import javax.inject.Inject
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settingsDataStore: SettingsDataStore,
-    private val importDebugRepository: ImportDebugRepository
+    private val importDebugRepository: ImportDebugRepository,
+    private val authService: AuthService
 ) : ViewModel() {
+
+    companion object {
+        private const val TAG = "SettingsViewModel"
+    }
+
+    val currentUserEmail: String?
+        get() = authService.currentUserEmail
 
     val apiKey: StateFlow<String?> = settingsDataStore.anthropicApiKey
         .stateIn(
@@ -202,6 +212,16 @@ class SettingsViewModel @Inject constructor(
 
     fun resetSaveState() {
         _saveState.value = SaveState.Idle
+    }
+
+    fun signOut() {
+        viewModelScope.launch {
+            try {
+                authService.signOut()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error during sign-out", e)
+            }
+        }
     }
 
     sealed class SaveState {

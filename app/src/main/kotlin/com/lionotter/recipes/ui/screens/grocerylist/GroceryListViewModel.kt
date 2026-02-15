@@ -129,7 +129,7 @@ class GroceryListViewModel @Inject constructor(
     )
 
     init {
-        loadMealPlans()
+        observeMealPlans()
         viewModelScope.launch {
             settingsDataStore.groceryVolumeUnitSystem.collect { _volumeSystem.value = it }
         }
@@ -138,16 +138,23 @@ class GroceryListViewModel @Inject constructor(
         }
     }
 
-    private fun loadMealPlans() {
+    private var initialSelectionDone = false
+
+    private fun observeMealPlans() {
         viewModelScope.launch {
-            val entries = mealPlanRepository.getMealPlansForDateRangeOnce(weekStart, weekEnd)
-            _mealPlanEntries.value = entries.sortedWith(
-                compareBy<MealPlanEntry> { it.date }
-                    .thenBy { it.mealType.displayOrder }
-                    .thenBy { it.recipeName }
-            )
-            // Select all by default
-            _selectedEntryIds.value = entries.map { it.id }.toSet()
+            mealPlanRepository.getMealPlansForDateRange(weekStart, weekEnd).collect { entries ->
+                val sorted = entries.sortedWith(
+                    compareBy<MealPlanEntry> { it.date }
+                        .thenBy { it.mealType.displayOrder }
+                        .thenBy { it.recipeName }
+                )
+                _mealPlanEntries.value = sorted
+                // Select all by default on first load
+                if (!initialSelectionDone) {
+                    _selectedEntryIds.value = sorted.map { it.id }.toSet()
+                    initialSelectionDone = true
+                }
+            }
         }
     }
 
