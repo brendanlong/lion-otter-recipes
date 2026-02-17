@@ -27,6 +27,16 @@ class ImageDownloadService @Inject constructor(
     @ApplicationContext private val context: Context,
     private val httpClient: HttpClient
 ) {
+    /**
+     * Result of downloading an image, containing both the local file URI
+     * and the URL that was actually used to download (which may differ from
+     * the original if an HTTP URL was upgraded to HTTPS).
+     */
+    data class DownloadResult(
+        val localUri: String,
+        val effectiveUrl: String
+    )
+
     companion object {
         private const val TAG = "ImageDownloadService"
         private const val IMAGE_DIR = "recipe_images"
@@ -64,13 +74,47 @@ class ImageDownloadService @Inject constructor(
      * Returns the local file URI string, or null if download fails.
      *
      * If the URL is already a local file URI, returns it as-is.
+     * If the URL uses HTTP and the download fails, retries with HTTPS.
      */
     suspend fun downloadAndStore(imageUrl: String): String? {
+        return downloadAndStoreWithResult(imageUrl)?.localUri
+    }
+
+    /**
+     * Downloads an image from a URL and stores it locally.
+     * Returns a [DownloadResult] containing both the local file URI and the
+     * effective URL that was used for the download, or null if download fails.
+     *
+     * If the URL is already a local file URI, returns it as-is.
+     * If the URL uses HTTP and the download fails, retries with HTTPS.
+     */
+    suspend fun downloadAndStoreWithResult(imageUrl: String): DownloadResult? {
         // Skip if already a local file
         if (imageUrl.startsWith("file://")) {
-            return imageUrl
+            return DownloadResult(localUri = imageUrl, effectiveUrl = imageUrl)
         }
 
+        // Try the original URL first
+        attemptDownload(imageUrl)?.let { return it }
+
+        // If the original URL was HTTP, retry with HTTPS
+        if (imageUrl.startsWith("http://")) {
+            val httpsUrl = imageUrl.replaceFirst("http://", "https://")
+            Log.d(TAG, "Retrying image download with HTTPS: $httpsUrl")
+            attemptDownload(httpsUrl)?.let {
+                Log.d(TAG, "HTTPS retry succeeded for $httpsUrl")
+                return it
+            }
+        }
+
+        return null
+    }
+
+    /**
+     * Attempts to download an image from the given URL and store it locally.
+     * Returns a [DownloadResult] on success, or null on failure.
+     */
+    private suspend fun attemptDownload(imageUrl: String): DownloadResult? {
         return try {
             val response = httpClient.get(imageUrl) {
                 header(HttpHeaders.UserAgent, "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
@@ -109,7 +153,7 @@ class ImageDownloadService @Inject constructor(
 
             val localUri = "file://${imageFile.absolutePath}"
             Log.d(TAG, "Downloaded image: $imageUrl -> $localUri (${imageFile.length()} bytes)")
-            localUri
+            DownloadResult(localUri = localUri, effectiveUrl = imageUrl)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {

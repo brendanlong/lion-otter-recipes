@@ -503,7 +503,7 @@ app: {
       }
       image_dl: {
         label: ImageDownloadService
-        tooltip: "Downloads recipe images from remote URLs and stores them locally in app internal storage. Also supports saving images from byte streams (ZIP import) and base64 data (Paprika photo_data). Returns file:// URIs for local access. Used during import, export, and ZIP restore to ensure images are available offline."
+        tooltip: "Downloads recipe images from remote URLs and stores them locally in app internal storage. Automatically retries with HTTPS if an HTTP download fails (e.g., cleartext traffic not permitted). Also supports saving images from byte streams (ZIP import) and base64 data (Paprika photo_data). Returns file:// URIs for local access. Used during import, export, and ZIP restore to ensure images are available offline."
       }
     }
 

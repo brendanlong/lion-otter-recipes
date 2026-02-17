@@ -166,7 +166,7 @@ class ParseHtmlUseCase @Inject constructor(
         onProgress(ParseProgress.RecipeNameAvailable(parsed.name))
 
         // Download image locally if available
-        val localImageUrl = imageUrl?.let { imageDownloadService.downloadAndStore(it) }
+        val downloadResult = imageUrl?.let { imageDownloadService.downloadAndStoreWithResult(it) }
 
         // Create Recipe
         val now = Clock.System.now()
@@ -182,8 +182,8 @@ class ParseHtmlUseCase @Inject constructor(
             instructionSections = parsed.instructionSections,
             equipment = parsed.equipment,
             tags = parsed.tags,
-            imageUrl = localImageUrl,
-            sourceImageUrl = imageUrl,
+            imageUrl = downloadResult?.localUri,
+            sourceImageUrl = downloadResult?.effectiveUrl ?: imageUrl,
             createdAt = now,
             updatedAt = now
         )
