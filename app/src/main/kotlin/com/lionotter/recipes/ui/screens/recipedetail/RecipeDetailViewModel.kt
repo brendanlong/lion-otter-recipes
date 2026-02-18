@@ -183,10 +183,11 @@ class RecipeDetailViewModel @Inject constructor(
     /**
      * Computes the usage status for all aggregated ingredients based on which instruction
      * ingredients have been marked as used.
-     * Key: ingredient name (lowercase)
+     * Outer key: section name (null for unnamed sections)
+     * Inner key: ingredient name (lowercase)
      * Value: IngredientUsageStatus with total, used, and remaining amounts
      */
-    val globalIngredientUsage: StateFlow<Map<String, IngredientUsageStatus>> = combine(
+    val ingredientUsageBySection: StateFlow<Map<String?, Map<String, IngredientUsageStatus>>> = combine(
         recipe,
         _usedInstructionIngredients,
         _scale,

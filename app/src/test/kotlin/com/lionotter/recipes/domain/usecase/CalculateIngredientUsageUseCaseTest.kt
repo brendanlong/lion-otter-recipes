@@ -2,6 +2,7 @@ package com.lionotter.recipes.domain.usecase
 
 import com.lionotter.recipes.domain.model.Amount
 import com.lionotter.recipes.domain.model.Ingredient
+import com.lionotter.recipes.domain.model.IngredientUsageStatus
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.InstructionStep
 import com.lionotter.recipes.domain.model.MeasurementPreference
@@ -51,6 +52,14 @@ class CalculateIngredientUsageUseCaseTest {
             ?: error("Unknown unit: $unit")
     }
 
+    /**
+     * Helper to get the ingredient usage for an unnamed section (name = null).
+     * Most tests use unnamed sections.
+     */
+    private fun Map<String?, Map<String, IngredientUsageStatus>>.unnamed(): Map<String, IngredientUsageStatus> {
+        return this[null] ?: emptyMap()
+    }
+
     @Before
     fun setup() {
         useCase = CalculateIngredientUsageUseCase()
@@ -79,7 +88,7 @@ class CalculateIngredientUsageUseCaseTest {
             weightSystem = UnitSystem.METRIC
         )
 
-        val flour = result["flour"]
+        val flour = result.unnamed()["flour"]
         assertNotNull(flour)
         assertFalse(flour!!.isFullyUsed)
         // Remaining in base units should be ~14.787 mL (1 tbsp), regardless of display unit chosen
@@ -105,7 +114,7 @@ class CalculateIngredientUsageUseCaseTest {
             weightSystem = UnitSystem.METRIC
         )
 
-        val flour = result["flour"]
+        val flour = result.unnamed()["flour"]
         assertNotNull(flour)
         assertFalse(flour!!.isFullyUsed)
         // 1 tbsp flour in weight: 14.787 mL * 0.51 g/mL ≈ 7.54g
@@ -134,7 +143,7 @@ class CalculateIngredientUsageUseCaseTest {
             weightSystem = UnitSystem.METRIC
         )
 
-        val flour = result["flour"]
+        val flour = result.unnamed()["flour"]
         assertNotNull(flour)
         assertTrue(flour!!.isFullyUsed)
     }
@@ -156,7 +165,7 @@ class CalculateIngredientUsageUseCaseTest {
             weightSystem = UnitSystem.METRIC
         )
 
-        val sugar = result["sugar"]
+        val sugar = result.unnamed()["sugar"]
         assertNotNull(sugar)
         assertFalse(sugar!!.isFullyUsed)
         assertEquals(0.0, sugar.usedAmount, 0.01)
@@ -179,7 +188,7 @@ class CalculateIngredientUsageUseCaseTest {
             weightSystem = UnitSystem.METRIC
         )
 
-        val sugar = result["sugar"]
+        val sugar = result.unnamed()["sugar"]
         assertNotNull(sugar)
         assertTrue(sugar!!.isFullyUsed)
     }
@@ -204,7 +213,7 @@ class CalculateIngredientUsageUseCaseTest {
             weightSystem = UnitSystem.METRIC
         )
 
-        val eggs = result["eggs"]
+        val eggs = result.unnamed()["eggs"]
         assertNotNull(eggs)
         assertFalse(eggs!!.isFullyUsed)
         // Count items have no unit category, so remaining display is null
@@ -232,7 +241,7 @@ class CalculateIngredientUsageUseCaseTest {
             weightSystem = UnitSystem.METRIC
         )
 
-        val butter = result["butter"]
+        val butter = result.unnamed()["butter"]
         assertNotNull(butter)
         assertFalse(butter!!.isFullyUsed)
         // Total: 5 tbsp (73.935 mL), used: 2 tbsp (29.574 mL), remaining: 3 tbsp (44.361 mL)
@@ -257,7 +266,7 @@ class CalculateIngredientUsageUseCaseTest {
             weightSystem = UnitSystem.METRIC
         )
 
-        val salt = result["salt"]
+        val salt = result.unnamed()["salt"]
         assertNotNull(salt)
         // 2 tsp total at scale 2 → 9.858 mL → bestUnit picks tsp: 2.0
         val totalMl = toBase(salt!!.totalAmount!!, salt.unit!!)
@@ -281,7 +290,7 @@ class CalculateIngredientUsageUseCaseTest {
             weightSystem = UnitSystem.METRIC
         )
 
-        val flour = result["flour"]
+        val flour = result.unnamed()["flour"]
         assertNotNull(flour)
         // 3 cups total → 709.764 mL
         val totalMl = toBase(flour!!.totalAmount!!, flour.unit!!)
@@ -308,7 +317,7 @@ class CalculateIngredientUsageUseCaseTest {
             weightSystem = UnitSystem.METRIC
         )
 
-        val flour = result["flour"]
+        val flour = result.unnamed()["flour"]
         assertNotNull(flour)
         assertFalse(flour!!.isFullyUsed)
         // Remaining should be 50g
@@ -336,7 +345,7 @@ class CalculateIngredientUsageUseCaseTest {
             weightSystem = UnitSystem.METRIC
         )
 
-        val flour = result["flour"]
+        val flour = result.unnamed()["flour"]
         assertNotNull(flour)
         assertFalse(flour!!.isFullyUsed)
         // Total: 3 cups (709.764 mL), used: 2 cups (473.176 mL), remaining: 1 cup (236.588 mL)
@@ -363,7 +372,7 @@ class CalculateIngredientUsageUseCaseTest {
             weightSystem = UnitSystem.METRIC
         )
 
-        val salt = result["salt"]
+        val salt = result.unnamed()["salt"]
         assertNotNull(salt)
         // Null amount means totalAmount is null; usedAmount is 0 since there's no numeric value
         assertNull(salt!!.totalAmount)
@@ -407,18 +416,149 @@ class CalculateIngredientUsageUseCaseTest {
             weightSystem = UnitSystem.METRIC
         )
 
-        val kosherSalt = result["kosher salt"]
+        val kosherSalt = result.unnamed()["kosher salt"]
         assertNotNull(kosherSalt)
         assertFalse(kosherSalt!!.isFullyUsed)
         // Total: 1.5 tsp (7.3935 mL), used: 1 tsp (4.929 mL), remaining: 0.5 tsp (2.4645 mL)
         val remainingMl = toBase(kosherSalt.remainingAmount!!, kosherSalt.remainingUnit!!)
         assertEquals(2.4645, remainingMl, 0.5)
 
-        val tableSalt = result["table salt"]
+        val tableSalt = result.unnamed()["table salt"]
         assertNotNull(tableSalt)
         assertFalse(tableSalt!!.isFullyUsed)
         // Total: 0.75 tsp (3.697 mL), used: 0.5 tsp (2.4645 mL), remaining: 0.25 tsp (1.232 mL)
         val altRemainingMl = toBase(tableSalt.remainingAmount!!, tableSalt.remainingUnit!!)
         assertEquals(1.232, altRemainingMl, 0.5)
+    }
+
+    // --- Bug #246: Per-section isolation ---
+
+    @Test
+    fun `checking off ingredient in one section does not affect another section`() {
+        // Issue #246: Section A has 1 tbsp salt, Section B has 1 tsp salt.
+        // Checking off the 1 tsp salt in Section B should not affect Section A.
+        val recipe = recipe(listOf(
+            section(
+                name = "Section A",
+                steps = listOf(
+                    step(1, listOf(Ingredient(name = "salt", amount = Amount(1.0, "tbsp"), density = 1.22)))
+                )
+            ),
+            section(
+                name = "Section B",
+                steps = listOf(
+                    step(2, listOf(Ingredient(name = "salt", amount = Amount(1.0, "tsp"), density = 1.22)))
+                )
+            )
+        ))
+
+        // Check off the salt in Section B (section index 1, step 0, ingredient 0)
+        val usedKeys = setOf(createInstructionIngredientKey(1, 0, 0))
+
+        val result = useCase.execute(
+            recipe = recipe,
+            usedInstructionIngredients = usedKeys,
+            scale = 1.0,
+            measurementPreference = MeasurementPreference.DEFAULT,
+            volumeSystem = UnitSystem.CUSTOMARY,
+            weightSystem = UnitSystem.METRIC
+        )
+
+        // Section A's salt should be completely unaffected
+        val sectionA = result["Section A"]
+        assertNotNull("Section A should exist in results", sectionA)
+        val saltA = sectionA!!["salt"]
+        assertNotNull("Salt should exist in Section A", saltA)
+        assertFalse("Section A salt should NOT be fully used", saltA!!.isFullyUsed)
+        assertEquals("Section A salt should have 0 used", 0.0, saltA.usedAmount, 0.01)
+        // Total should be 1 tbsp (14.787 mL)
+        val totalMlA = toBase(saltA.totalAmount!!, saltA.unit!!)
+        assertEquals(14.787, totalMlA, 0.5)
+
+        // Section B's salt should be fully used
+        val sectionB = result["Section B"]
+        assertNotNull("Section B should exist in results", sectionB)
+        val saltB = sectionB!!["salt"]
+        assertNotNull("Salt should exist in Section B", saltB)
+        assertTrue("Section B salt should be fully used", saltB!!.isFullyUsed)
+    }
+
+    @Test
+    fun `same ingredient in multiple sections tracked independently`() {
+        // Two sections each with flour; checking off flour in section 1 should
+        // not affect section 2's remaining amount.
+        val recipe = recipe(listOf(
+            section(
+                name = "Dough",
+                steps = listOf(
+                    step(1, listOf(Ingredient(name = "flour", amount = Amount(2.0, "cup"), density = 0.51))),
+                    step(2, listOf(Ingredient(name = "flour", amount = Amount(1.0, "cup"), density = 0.51)))
+                )
+            ),
+            section(
+                name = "Glaze",
+                steps = listOf(
+                    step(3, listOf(Ingredient(name = "flour", amount = Amount(1.0, "tbsp"), density = 0.51)))
+                )
+            )
+        ))
+
+        // Check off step 1 flour in the Dough section (section 0, step 0, ingredient 0)
+        val usedKeys = setOf(createInstructionIngredientKey(0, 0, 0))
+
+        val result = useCase.execute(
+            recipe = recipe,
+            usedInstructionIngredients = usedKeys,
+            scale = 1.0,
+            measurementPreference = MeasurementPreference.DEFAULT,
+            volumeSystem = UnitSystem.CUSTOMARY,
+            weightSystem = UnitSystem.METRIC
+        )
+
+        // Dough section: total 3 cups, used 2 cups, remaining 1 cup
+        val dough = result["Dough"]
+        assertNotNull(dough)
+        val flourDough = dough!!["flour"]
+        assertNotNull(flourDough)
+        assertFalse(flourDough!!.isFullyUsed)
+        val remainingDoughMl = toBase(flourDough.remainingAmount!!, flourDough.remainingUnit!!)
+        assertEquals(236.588, remainingDoughMl, 1.0) // ~1 cup
+
+        // Glaze section: total 1 tbsp, nothing used, remaining 1 tbsp
+        val glaze = result["Glaze"]
+        assertNotNull(glaze)
+        val flourGlaze = glaze!!["flour"]
+        assertNotNull(flourGlaze)
+        assertFalse(flourGlaze!!.isFullyUsed)
+        assertEquals(0.0, flourGlaze.usedAmount, 0.01)
+        val totalGlazeMl = toBase(flourGlaze.totalAmount!!, flourGlaze.unit!!)
+        assertEquals(14.787, totalGlazeMl, 0.5) // ~1 tbsp
+    }
+
+    @Test
+    fun `results keyed by section name for named sections`() {
+        val recipe = recipe(listOf(
+            section(
+                name = "Sauce",
+                steps = listOf(step(1, listOf(Ingredient(name = "garlic", amount = Amount(2.0, null)))))
+            ),
+            section(
+                name = "Pasta",
+                steps = listOf(step(2, listOf(Ingredient(name = "garlic", amount = Amount(1.0, null)))))
+            )
+        ))
+
+        val result = useCase.execute(
+            recipe = recipe,
+            usedInstructionIngredients = emptySet(),
+            scale = 1.0,
+            measurementPreference = MeasurementPreference.DEFAULT,
+            volumeSystem = UnitSystem.CUSTOMARY,
+            weightSystem = UnitSystem.METRIC
+        )
+
+        assertTrue("Result should contain Sauce section", result.containsKey("Sauce"))
+        assertTrue("Result should contain Pasta section", result.containsKey("Pasta"))
+        assertFalse("Result should not contain null section", result.containsKey(null))
     }
 }

@@ -26,7 +26,7 @@ internal fun IngredientSectionContent(
     section: IngredientSection,
     scale: Double,
     measurementPreference: MeasurementPreference,
-    globalIngredientUsage: Map<String, IngredientUsageStatus>,
+    ingredientUsage: Map<String, IngredientUsageStatus>,
     volumeUnitSystem: UnitSystem = UnitSystem.localeDefault(),
     weightUnitSystem: UnitSystem = UnitSystem.localeDefault()
 ) {
@@ -42,7 +42,7 @@ internal fun IngredientSectionContent(
         }
 
         section.ingredients.forEach { ingredient ->
-            val usage = globalIngredientUsage[ingredient.name.lowercase()]
+            val usage = ingredientUsage[ingredient.name.lowercase()]
             val isFullyUsed = usage?.isFullyUsed == true
             val hasPartialUsage = usage != null && usage.usedAmount > 0 && !isFullyUsed
 
@@ -77,7 +77,7 @@ internal fun IngredientSectionContent(
 
             // Display alternates
             ingredient.alternates.forEach { alternate ->
-                val altUsage = globalIngredientUsage[alternate.name.lowercase()]
+                val altUsage = ingredientUsage[alternate.name.lowercase()]
                 val altIsFullyUsed = altUsage?.isFullyUsed == true
                 val altHasPartialUsage = altUsage != null && altUsage.usedAmount > 0 && !altIsFullyUsed
 
