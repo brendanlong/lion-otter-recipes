@@ -1,11 +1,11 @@
 package com.lionotter.recipes.domain.usecase
 
+import com.lionotter.recipes.domain.model.BaseUnitAccumulator
 import com.lionotter.recipes.domain.model.Ingredient
 import com.lionotter.recipes.domain.model.IngredientUsageStatus
 import com.lionotter.recipes.domain.model.InstructionIngredientKey
 import com.lionotter.recipes.domain.model.MeasurementPreference
 import com.lionotter.recipes.domain.model.Recipe
-import com.lionotter.recipes.domain.model.UnitCategory
 import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.domain.model.createInstructionIngredientKey
 import com.lionotter.recipes.domain.model.fromBaseUnit
@@ -22,21 +22,6 @@ import javax.inject.Inject
  * use different units (e.g. cups in one step and tbsp in another).
  */
 class CalculateIngredientUsageUseCase @Inject constructor() {
-
-    /**
-     * Tracks accumulated base-unit value and the unit category for an ingredient.
-     */
-    private data class BaseUnitAccumulator(
-        var baseValue: Double? = null,
-        val category: UnitCategory? = null
-    ) {
-        fun add(value: Double?) {
-            baseValue = when {
-                baseValue == null || value == null -> null
-                else -> baseValue!! + value
-            }
-        }
-    }
 
     fun execute(
         recipe: Recipe,
