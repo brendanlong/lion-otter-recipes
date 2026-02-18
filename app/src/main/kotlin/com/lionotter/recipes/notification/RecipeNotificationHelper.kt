@@ -19,7 +19,7 @@ import javax.inject.Singleton
 
 @Singleton
 class RecipeNotificationHelper @Inject constructor(
-    @ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context
 ) {
     companion object {
         const val CHANNEL_ID = "recipe_import"

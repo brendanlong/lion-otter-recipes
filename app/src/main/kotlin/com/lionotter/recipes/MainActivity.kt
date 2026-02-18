@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.core.content.IntentCompat
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -89,7 +90,7 @@ class MainActivity : ComponentActivity() {
         return when (intent?.action) {
             Intent.ACTION_SEND -> {
                 // Only extract text URL if there's no file stream (to avoid treating file shares as URL shares)
-                if (intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM) != null) null
+                if (IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java) != null) null
                 else intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() }
             }
             else -> null
@@ -100,8 +101,7 @@ class MainActivity : ComponentActivity() {
         return when (intent?.action) {
             Intent.ACTION_VIEW -> intent.data
             Intent.ACTION_SEND -> {
-                @Suppress("DEPRECATION")
-                intent.getParcelableExtra(Intent.EXTRA_STREAM)
+                IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
             }
             else -> null
         }

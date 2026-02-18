@@ -54,7 +54,7 @@ internal fun InstructionSectionContent(
 
         section.steps.forEachIndexed { stepIndex, step ->
             val isHighlighted = highlightedInstructionStep?.sectionIndex == sectionIndex &&
-                                highlightedInstructionStep?.stepIndex == stepIndex
+                                highlightedInstructionStep.stepIndex == stepIndex
 
             Column(
                 modifier = Modifier

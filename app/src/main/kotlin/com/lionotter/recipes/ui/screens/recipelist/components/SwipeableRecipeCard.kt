@@ -34,6 +34,7 @@ fun SwipeableRecipeCard(
     onFavoriteClick: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    @Suppress("DEPRECATION") // TODO: migrate to AnchoredDraggable dynamic anchors
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             if (value == SwipeToDismissBoxValue.EndToStart) {

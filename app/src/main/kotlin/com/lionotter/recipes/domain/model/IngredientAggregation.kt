@@ -33,7 +33,7 @@ data class BaseUnitAccumulator(
  */
 fun Ingredient.getBaseValue(yields: Int): Double? {
     val rawValue = amount?.value?.let { it * yields } ?: return null
-    val unit = amount?.unit ?: return rawValue  // count item
+    val unit = amount.unit ?: return rawValue  // count item
     return toBaseUnitValue(rawValue, unit) ?: rawValue
 }
 

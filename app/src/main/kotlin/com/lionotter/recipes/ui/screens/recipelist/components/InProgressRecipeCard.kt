@@ -40,6 +40,7 @@ fun InProgressRecipeCard(
     inProgressRecipe: InProgressRecipe,
     onCancelRequest: () -> Unit
 ) {
+    @Suppress("DEPRECATION") // TODO: migrate to AnchoredDraggable dynamic anchors
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             if (value == SwipeToDismissBoxValue.EndToStart) {
