@@ -445,10 +445,10 @@ app: {
         label: DataStore
         shape: cylinder
       }
-      encrypted_prefs: {
-        label: EncryptedSharedPreferences
+      tink_encrypted: {
+        label: Tink Encrypted Storage
         shape: cylinder
-        tooltip: "AES256-GCM encrypted storage for sensitive data like API keys"
+        tooltip: "Google Tink AEAD (AES256-GCM) encrypted SharedPreferences for sensitive data like API keys. Keyset protected by Android Keystore."
         style: {
           fill: "#c8e6c9"
         }
@@ -480,7 +480,7 @@ app: {
       }
       settings: {
         label: SettingsDataStore
-        tooltip: "Uses EncryptedSharedPreferences for API key, DataStore for non-sensitive settings (AI model, extended thinking enabled, keep screen on, theme mode, volume/weight unit system preferences, grocery list volume/weight unit system preferences, start of week, import debugging enabled)"
+        tooltip: "Uses Tink AEAD encryption for API key, DataStore for non-sensitive settings (AI model, extended thinking enabled, keep screen on, theme mode, volume/weight unit system preferences, grocery list volume/weight unit system preferences, start of week, import debugging enabled)"
       }
 
       dao -> room
@@ -492,7 +492,7 @@ app: {
       meal_plan_dao -> room
       meal_plan_entity -> room
       settings -> datastore: non-sensitive settings
-      settings -> encrypted_prefs: API key
+      settings -> tink_encrypted: API key
     }
 
     remote: {

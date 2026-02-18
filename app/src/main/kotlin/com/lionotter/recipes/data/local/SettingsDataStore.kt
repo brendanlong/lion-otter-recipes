@@ -1,17 +1,13 @@
-@file:Suppress("DEPRECATION") // TODO: migrate EncryptedSharedPreferences to DataStore + Tink
-
 package com.lionotter.recipes.data.local
 
 import android.content.Context
-import android.content.SharedPreferences
+import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -23,6 +19,7 @@ import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -43,28 +40,62 @@ class SettingsDataStore @Inject constructor(
         val GROCERY_VOLUME_UNIT_SYSTEM = stringPreferencesKey("grocery_volume_unit_system")
         val GROCERY_WEIGHT_UNIT_SYSTEM = stringPreferencesKey("grocery_weight_unit_system")
         val START_OF_WEEK = stringPreferencesKey("start_of_week")
-        const val ENCRYPTED_API_KEY = "anthropic_api_key"
     }
 
-    private val encryptedPrefs: SharedPreferences by lazy {
-        val masterKey = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
+    private val tinkEncryption: TinkEncryption by lazy { TinkEncryption(context) }
 
-        EncryptedSharedPreferences.create(
-            context,
-            "secure_settings",
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
+    private val apiKeyPrefs by lazy {
+        context.getSharedPreferences(API_KEY_PREFS_FILE, Context.MODE_PRIVATE)
     }
 
     private val _anthropicApiKey = MutableStateFlow<String?>(null)
 
     init {
-        // Load the API key from encrypted storage on initialization
-        _anthropicApiKey.value = encryptedPrefs.getString(Keys.ENCRYPTED_API_KEY, null)
+        cleanUpOldEncryptedSharedPreferences()
+        _anthropicApiKey.value = loadApiKey()
+    }
+
+    /**
+     * Loads the API key from Tink-encrypted SharedPreferences.
+     * Returns null if no key is stored or decryption fails.
+     */
+    private fun loadApiKey(): String? {
+        return try {
+            apiKeyPrefs.getString(API_KEY_PREF_KEY, null)?.let {
+                tinkEncryption.decrypt(it)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load API key", e)
+            null
+        }
+    }
+
+    /**
+     * Cleans up old EncryptedSharedPreferences files from the deprecated
+     * androidx.security:security-crypto library. The API key stored there
+     * cannot be read without the old library, so users will need to re-enter
+     * their key after this migration.
+     */
+    private fun cleanUpOldEncryptedSharedPreferences() {
+        try {
+            val prefsDir = File(context.applicationInfo.dataDir, "shared_prefs")
+            val filesToDelete = listOf(
+                "secure_settings.xml",
+                "__androidx_security_crypto_encrypted_prefs__.xml"
+            )
+            for (fileName in filesToDelete) {
+                val file = File(prefsDir, fileName)
+                if (file.exists()) {
+                    if (file.delete()) {
+                        Log.i(TAG, "Cleaned up old encrypted prefs file: $fileName")
+                    } else {
+                        Log.w(TAG, "Failed to delete old encrypted prefs file: $fileName")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error cleaning up old EncryptedSharedPreferences files", e)
+        }
     }
 
     val anthropicApiKey: Flow<String?> = _anthropicApiKey.asStateFlow()
@@ -163,14 +194,15 @@ class SettingsDataStore @Inject constructor(
 
     suspend fun setAnthropicApiKey(apiKey: String) {
         withContext(Dispatchers.IO) {
-            encryptedPrefs.edit().putString(Keys.ENCRYPTED_API_KEY, apiKey).apply()
+            val encrypted = tinkEncryption.encrypt(apiKey)
+            apiKeyPrefs.edit().putString(API_KEY_PREF_KEY, encrypted).commit()
             _anthropicApiKey.value = apiKey
         }
     }
 
     suspend fun clearAnthropicApiKey() {
         withContext(Dispatchers.IO) {
-            encryptedPrefs.edit().remove(Keys.ENCRYPTED_API_KEY).apply()
+            apiKeyPrefs.edit().remove(API_KEY_PREF_KEY).commit()
             _anthropicApiKey.value = null
         }
     }
@@ -233,5 +265,11 @@ class SettingsDataStore @Inject constructor(
         context.dataStore.edit { preferences ->
             preferences[Keys.IMPORT_DEBUGGING_ENABLED] = enabled
         }
+    }
+
+    companion object {
+        private const val TAG = "SettingsDataStore"
+        private const val API_KEY_PREFS_FILE = "tink_encrypted_api_key"
+        private const val API_KEY_PREF_KEY = "encrypted_api_key"
     }
 }
