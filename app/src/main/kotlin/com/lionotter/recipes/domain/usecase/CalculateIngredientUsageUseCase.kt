@@ -20,6 +20,10 @@ import javax.inject.Inject
  * All amounts are normalized to base units (grams for weight, mL for volume)
  * before summing to avoid unit mismatch errors when ingredients across steps
  * use different units (e.g. cups in one step and tbsp in another).
+ *
+ * Totals and usage are tracked per instruction section so that checking off
+ * an ingredient in one section does not affect another section's remaining
+ * amounts.
  */
 class CalculateIngredientUsageUseCase @Inject constructor() {
 
@@ -30,67 +34,71 @@ class CalculateIngredientUsageUseCase @Inject constructor() {
         measurementPreference: MeasurementPreference,
         volumeSystem: UnitSystem = UnitSystem.localeDefault(),
         weightSystem: UnitSystem = UnitSystem.localeDefault()
-    ): Map<String, IngredientUsageStatus> {
-        val globalTotals = buildGlobalTotals(recipe, scale, measurementPreference, volumeSystem, weightSystem)
-        val usedAmounts = buildUsedAmounts(recipe, usedInstructionIngredients, scale, measurementPreference, volumeSystem, weightSystem)
+    ): Map<String?, Map<String, IngredientUsageStatus>> {
+        val sectionTotals = buildSectionTotals(recipe, scale, measurementPreference, volumeSystem, weightSystem)
+        val sectionUsed = buildSectionUsedAmounts(recipe, usedInstructionIngredients, scale, measurementPreference, volumeSystem, weightSystem)
 
-        return globalTotals.mapValues { (key, accumulator) ->
-            val totalBase = accumulator.baseValue
-            val usedBase = usedAmounts[key] ?: 0.0
-            val remainingBase = totalBase?.let { (it - usedBase).coerceAtLeast(0.0) }
-            val isFullyUsed = when {
-                totalBase == null -> usedBase > 0
-                totalBase <= 0 -> usedBase > 0
-                else -> usedBase >= totalBase
-            }
+        return sectionTotals.mapValues { (sectionName, totals) ->
+            val usedAmounts = sectionUsed[sectionName] ?: emptyMap()
+            totals.mapValues { (key, accumulator) ->
+                val totalBase = accumulator.baseValue
+                val usedBase = usedAmounts[key] ?: 0.0
+                val remainingBase = totalBase?.let { (it - usedBase).coerceAtLeast(0.0) }
+                val isFullyUsed = when {
+                    totalBase == null -> usedBase > 0
+                    totalBase <= 0 -> usedBase > 0
+                    else -> usedBase >= totalBase
+                }
 
-            // Convert base unit values back to display units
-            val category = accumulator.category
-            val totalDisplay = if (totalBase != null && category != null) {
-                fromBaseUnit(totalBase, category, volumeSystem, weightSystem)
-            } else {
-                null
-            }
-            val remainingDisplay = if (remainingBase != null && category != null) {
-                fromBaseUnit(remainingBase, category, volumeSystem, weightSystem)
-            } else {
-                null
-            }
+                // Convert base unit values back to display units
+                val category = accumulator.category
+                val totalDisplay = if (totalBase != null && category != null) {
+                    fromBaseUnit(totalBase, category, volumeSystem, weightSystem)
+                } else {
+                    null
+                }
+                val remainingDisplay = if (remainingBase != null && category != null) {
+                    fromBaseUnit(remainingBase, category, volumeSystem, weightSystem)
+                } else {
+                    null
+                }
 
-            IngredientUsageStatus(
-                totalAmount = totalDisplay?.value,
-                usedAmount = usedBase,
-                unit = totalDisplay?.unit,
-                isFullyUsed = isFullyUsed,
-                remainingAmount = remainingDisplay?.value,
-                remainingUnit = remainingDisplay?.unit ?: totalDisplay?.unit
-            )
+                IngredientUsageStatus(
+                    totalAmount = totalDisplay?.value,
+                    usedAmount = usedBase,
+                    unit = totalDisplay?.unit,
+                    isFullyUsed = isFullyUsed,
+                    remainingAmount = remainingDisplay?.value,
+                    remainingUnit = remainingDisplay?.unit ?: totalDisplay?.unit
+                )
+            }
         }
     }
 
     /**
-     * Build global totals by aggregating ingredients from all steps in base units.
+     * Build totals per section by aggregating ingredients from steps in base units.
      */
-    private fun buildGlobalTotals(
+    private fun buildSectionTotals(
         recipe: Recipe,
         scale: Double,
         preference: MeasurementPreference,
         volumeSystem: UnitSystem,
         weightSystem: UnitSystem
-    ): Map<String, BaseUnitAccumulator> {
-        val globalTotals = mutableMapOf<String, BaseUnitAccumulator>()
+    ): Map<String?, Map<String, BaseUnitAccumulator>> {
+        val sectionTotals = linkedMapOf<String?, MutableMap<String, BaseUnitAccumulator>>()
         recipe.instructionSections.forEach { section ->
+            val totals = sectionTotals.getOrPut(section.name) { mutableMapOf() }
             section.steps.forEach { step ->
                 val yields = step.yields
                 step.ingredients.forEach { ingredient ->
-                    addIngredientTotal(ingredient, globalTotals, scale, preference, yields, volumeSystem, weightSystem)
+                    addIngredientTotal(ingredient, totals, scale, preference, yields, volumeSystem, weightSystem)
                     ingredient.alternates.forEach { alt ->
-                        addIngredientTotal(alt, globalTotals, scale, preference, yields, volumeSystem, weightSystem)
+                        addIngredientTotal(alt, totals, scale, preference, yields, volumeSystem, weightSystem)
                     }
                 }
             }
         }
-        return globalTotals
+        return sectionTotals
     }
 
     private fun addIngredientTotal(
@@ -124,16 +132,17 @@ class CalculateIngredientUsageUseCase @Inject constructor() {
         }
     }
 
-    private fun buildUsedAmounts(
+    private fun buildSectionUsedAmounts(
         recipe: Recipe,
         usedKeys: Set<InstructionIngredientKey>,
         scale: Double,
         preference: MeasurementPreference,
         volumeSystem: UnitSystem,
         weightSystem: UnitSystem
-    ): Map<String, Double> {
-        val usedAmounts = mutableMapOf<String, Double>()
+    ): Map<String?, Map<String, Double>> {
+        val sectionUsed = linkedMapOf<String?, MutableMap<String, Double>>()
         recipe.instructionSections.forEachIndexed { sectionIndex, section ->
+            val usedAmounts = sectionUsed.getOrPut(section.name) { mutableMapOf() }
             section.steps.forEachIndexed { stepIndex, step ->
                 val yields = step.yields
                 step.ingredients.forEachIndexed { ingredientIndex, ingredient ->
@@ -147,7 +156,7 @@ class CalculateIngredientUsageUseCase @Inject constructor() {
                 }
             }
         }
-        return usedAmounts
+        return sectionUsed
     }
 
     private fun addIngredientUsage(

@@ -55,7 +55,7 @@ fun RecipeContent(
     onMeasurementPreferenceChange: (MeasurementPreference) -> Unit,
     showMeasurementToggle: Boolean,
     usedInstructionIngredients: Set<InstructionIngredientKey>,
-    globalIngredientUsage: Map<String, IngredientUsageStatus>,
+    ingredientUsageBySection: Map<String?, Map<String, IngredientUsageStatus>>,
     onToggleInstructionIngredient: (Int, Int, Int) -> Unit,
     highlightedInstructionStep: HighlightedInstructionStep?,
     onToggleHighlightedInstruction: (Int, Int) -> Unit,
@@ -155,7 +155,7 @@ fun RecipeContent(
                     section = section,
                     scale = scale,
                     measurementPreference = measurementPreference,
-                    globalIngredientUsage = globalIngredientUsage,
+                    ingredientUsage = ingredientUsageBySection[section.name] ?: emptyMap(),
                     volumeUnitSystem = volumeUnitSystem,
                     weightUnitSystem = weightUnitSystem
                 )
