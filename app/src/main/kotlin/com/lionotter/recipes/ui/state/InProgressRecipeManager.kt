@@ -35,7 +35,7 @@ data class InProgressRecipe(
 class InProgressRecipeManager @Inject constructor(
     private val workManager: WorkManager,
     private val pendingImportRepository: PendingImportRepository,
-    @ApplicationScope private val appScope: CoroutineScope
+    @param:ApplicationScope private val appScope: CoroutineScope
 ) {
     companion object {
         private const val TAG = "InProgressRecipeManager"

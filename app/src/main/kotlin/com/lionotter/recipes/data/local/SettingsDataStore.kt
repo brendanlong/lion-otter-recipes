@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION") // TODO: migrate EncryptedSharedPreferences to DataStore + Tink
+
 package com.lionotter.recipes.data.local
 
 import android.content.Context
@@ -28,7 +30,7 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 
 @Singleton
 class SettingsDataStore @Inject constructor(
-    @ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context
 ) {
     private object Keys {
         val AI_MODEL = stringPreferencesKey("ai_model")

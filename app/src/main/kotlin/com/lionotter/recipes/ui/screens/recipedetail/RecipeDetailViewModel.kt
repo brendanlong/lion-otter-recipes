@@ -67,7 +67,7 @@ class RecipeDetailViewModel @Inject constructor(
     private val workManager: WorkManager,
     private val exportSingleRecipeUseCase: ExportSingleRecipeUseCase,
     private val recipeSerializer: RecipeSerializer,
-    @ApplicationContext private val applicationContext: Context
+    @param:ApplicationContext private val applicationContext: Context
 ) : ViewModel() {
 
     private val recipeId: String = savedStateHandle.get<String>("recipeId")
@@ -197,6 +197,7 @@ class RecipeDetailViewModel @Inject constructor(
     ) { args ->
         @Suppress("UNCHECKED_CAST")
         val recipe = args[0] as Recipe?
+        @Suppress("UNCHECKED_CAST")
         val usedKeys = args[1] as Set<InstructionIngredientKey>
         val scale = args[2] as Double
         val preference = args[3] as MeasurementPreference
