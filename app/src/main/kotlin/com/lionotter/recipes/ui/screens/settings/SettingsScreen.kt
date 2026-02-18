@@ -26,6 +26,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.screens.settings.components.AboutSection
+import com.lionotter.recipes.ui.screens.settings.components.AccountSection
 import com.lionotter.recipes.ui.screens.settings.components.ApiKeySection
 import com.lionotter.recipes.ui.screens.settings.components.BackupRestoreSection
 import com.lionotter.recipes.ui.screens.settings.components.DisplaySection
@@ -57,6 +58,7 @@ fun SettingsScreen(
     val groceryWeightUnitSystem by viewModel.groceryWeightUnitSystem.collectAsStateWithLifecycle()
     val startOfWeek by viewModel.startOfWeek.collectAsStateWithLifecycle()
     val importDebuggingEnabled by viewModel.importDebuggingEnabled.collectAsStateWithLifecycle()
+    val currentUserEmail by viewModel.currentUserEmail.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -131,6 +133,13 @@ fun SettingsScreen(
                 onClearClick = viewModel::clearApiKey,
                 saveState = saveState,
                 onResetSaveState = viewModel::resetSaveState
+            )
+
+            HorizontalDivider()
+
+            AccountSection(
+                userEmail = currentUserEmail,
+                onSignOut = { viewModel.signOut() }
             )
 
             HorizontalDivider()

@@ -3,6 +3,7 @@ package com.lionotter.recipes.ui.screens.settings
 import app.cash.turbine.test
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AnthropicService
+import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
@@ -31,6 +32,7 @@ class SettingsViewModelTest {
 
     private lateinit var settingsDataStore: SettingsDataStore
     private lateinit var importDebugRepository: ImportDebugRepository
+    private lateinit var authService: AuthService
     private lateinit var viewModel: SettingsViewModel
     private val testDispatcher = StandardTestDispatcher()
 
@@ -51,6 +53,7 @@ class SettingsViewModelTest {
         Dispatchers.setMain(testDispatcher)
         settingsDataStore = mockk()
         importDebugRepository = mockk()
+        authService = mockk()
         every { settingsDataStore.anthropicApiKey } returns apiKeyFlow
         every { settingsDataStore.aiModel } returns aiModelFlow
         every { settingsDataStore.extendedThinkingEnabled } returns extendedThinkingFlow
@@ -62,7 +65,8 @@ class SettingsViewModelTest {
         every { settingsDataStore.groceryVolumeUnitSystem } returns groceryVolumeUnitSystemFlow
         every { settingsDataStore.groceryWeightUnitSystem } returns groceryWeightUnitSystemFlow
         every { settingsDataStore.startOfWeek } returns startOfWeekFlow
-        viewModel = SettingsViewModel(settingsDataStore, importDebugRepository)
+        every { authService.currentUserEmail } returns MutableStateFlow(null)
+        viewModel = SettingsViewModel(settingsDataStore, importDebugRepository, authService)
     }
 
     @After

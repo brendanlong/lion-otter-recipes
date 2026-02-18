@@ -4,13 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lionotter.recipes.data.repository.MealPlanRepository
 import com.lionotter.recipes.data.repository.RecipeRepository
-import com.lionotter.recipes.data.repository.RepositoryError
+
 import com.lionotter.recipes.domain.usecase.GetTagsUseCase
 import com.lionotter.recipes.ui.state.InProgressRecipeManager
 import com.lionotter.recipes.ui.state.RecipeListItem
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
+
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,11 +28,6 @@ class RecipeListViewModel @Inject constructor(
     private val recipeRepository: RecipeRepository,
     private val mealPlanRepository: MealPlanRepository,
 ) : ViewModel() {
-
-    /**
-     * Errors from the repository mapped to user-facing strings.
-     */
-    val repositoryErrors: SharedFlow<RepositoryError> = recipeRepository.errors
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()

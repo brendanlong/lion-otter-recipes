@@ -1,71 +1,128 @@
 package com.lionotter.recipes.data.repository
 
-import com.lionotter.recipes.data.local.MealPlanDao
-import com.lionotter.recipes.data.local.MealPlanEntity
+import android.util.Log
+import com.google.firebase.Firebase
+import com.google.firebase.firestore.firestore
+import com.lionotter.recipes.data.remote.FirestoreService
+import com.lionotter.recipes.data.remote.dto.MealPlanDto
+import com.lionotter.recipes.data.remote.dto.toDto
 import com.lionotter.recipes.domain.model.MealPlanEntry
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.tasks.await
 import kotlinx.datetime.LocalDate
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class MealPlanRepository @Inject constructor(
-    private val mealPlanDao: MealPlanDao
+    private val firestoreService: FirestoreService
 ) {
-    fun getAllMealPlans(): Flow<List<MealPlanEntry>> {
-        return mealPlanDao.getAllMealPlans().map { entities ->
-            entities.map { it.toMealPlanEntry() }
+    companion object {
+        private const val TAG = "MealPlanRepository"
+    }
+
+    fun getMealPlansForDateRange(startDate: LocalDate, endDate: LocalDate): Flow<List<MealPlanEntry>> = callbackFlow {
+        val registration = firestoreService.mealPlansCollection()
+            .whereGreaterThanOrEqualTo("date", startDate.toString())
+            .whereLessThanOrEqualTo("date", endDate.toString())
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e(TAG, "Error listening to meal plans", error)
+                    firestoreService.reportError("Failed to load meal plans: ${error.message}")
+                    return@addSnapshotListener
+                }
+                val entries = snapshot?.documents?.mapNotNull { doc ->
+                    try {
+                        doc.toObject(MealPlanDto::class.java)?.toDomain()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error deserializing meal plan ${doc.id}", e)
+                        null
+                    }
+                } ?: emptyList()
+                trySend(entries)
+            }
+        awaitClose { registration.remove() }
+    }
+
+    fun saveMealPlan(entry: MealPlanEntry) {
+        val dto = entry.toDto()
+        firestoreService.mealPlansCollection().document(entry.id).set(dto)
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Error saving meal plan ${entry.id}", e)
+                firestoreService.reportError("Failed to save meal plan: ${e.message}")
+            }
+    }
+
+    fun updateMealPlan(entry: MealPlanEntry) {
+        val dto = entry.toDto()
+        firestoreService.mealPlansCollection().document(entry.id).set(dto)
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Error updating meal plan ${entry.id}", e)
+                firestoreService.reportError("Failed to update meal plan: ${e.message}")
+            }
+    }
+
+    fun deleteMealPlan(id: String) {
+        firestoreService.mealPlansCollection().document(id).delete()
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Error deleting meal plan $id", e)
+                firestoreService.reportError("Failed to delete meal plan: ${e.message}")
+            }
+    }
+
+    suspend fun deleteMealPlansByRecipeId(recipeId: String) {
+        try {
+            val snapshot = firestoreService.mealPlansCollection()
+                .whereEqualTo("recipeId", recipeId)
+                .get()
+                .await()
+
+            if (snapshot.documents.isEmpty()) return
+
+            val batch = com.google.firebase.Firebase.firestore.batch()
+            for (doc in snapshot.documents) {
+                batch.delete(doc.reference)
+            }
+            batch.commit()
+                .addOnFailureListener { e ->
+                    Log.e(TAG, "Error batch deleting meal plans for recipe $recipeId", e)
+                    firestoreService.reportError("Failed to delete meal plans: ${e.message}")
+                }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error querying meal plans for recipe $recipeId", e)
+            firestoreService.reportError("Failed to delete meal plans: ${e.message}")
         }
     }
 
-    fun getMealPlansForDateRange(startDate: LocalDate, endDate: LocalDate): Flow<List<MealPlanEntry>> {
-        return mealPlanDao.getMealPlansForDateRange(startDate.toString(), endDate.toString()).map { entities ->
-            entities.map { it.toMealPlanEntry() }
+    suspend fun countMealPlansByRecipeId(recipeId: String): Int {
+        return try {
+            val snapshot = firestoreService.mealPlansCollection()
+                .whereEqualTo("recipeId", recipeId)
+                .get()
+                .await()
+            snapshot.size()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error counting meal plans for recipe $recipeId", e)
+            0
         }
-    }
-
-    fun getMealPlansForDate(date: LocalDate): Flow<List<MealPlanEntry>> {
-        return mealPlanDao.getMealPlansForDate(date.toString()).map { entities ->
-            entities.map { it.toMealPlanEntry() }
-        }
-    }
-
-    suspend fun getMealPlanByIdOnce(id: String): MealPlanEntry? {
-        return mealPlanDao.getMealPlanById(id)?.toMealPlanEntry()
-    }
-
-    suspend fun saveMealPlan(entry: MealPlanEntry) {
-        mealPlanDao.insertMealPlan(MealPlanEntity.fromMealPlanEntry(entry))
-    }
-
-    suspend fun updateMealPlan(entry: MealPlanEntry) {
-        mealPlanDao.updateMealPlan(MealPlanEntity.fromMealPlanEntry(entry))
-    }
-
-    suspend fun deleteMealPlan(id: String) {
-        mealPlanDao.deleteMealPlan(id)
     }
 
     suspend fun getAllMealPlansOnce(): List<MealPlanEntry> {
-        return mealPlanDao.getAllMealPlansOnce().map { it.toMealPlanEntry() }
-    }
-
-    suspend fun getMealPlansForDateRangeOnce(startDate: LocalDate, endDate: LocalDate): List<MealPlanEntry> {
-        return mealPlanDao.getMealPlansForDateRangeOnce(startDate.toString(), endDate.toString()).map { it.toMealPlanEntry() }
-    }
-
-    /**
-     * Count meal plan entries that reference the given recipe.
-     */
-    suspend fun countMealPlansByRecipeId(recipeId: String): Int {
-        return mealPlanDao.countMealPlansByRecipeId(recipeId)
-    }
-
-    /**
-     * Delete all meal plan entries that reference the given recipe.
-     */
-    suspend fun deleteMealPlansByRecipeId(recipeId: String) {
-        mealPlanDao.deleteMealPlansByRecipeId(recipeId)
+        return try {
+            val snapshot = firestoreService.mealPlansCollection().get().await()
+            snapshot.documents.mapNotNull { doc ->
+                try {
+                    doc.toObject(MealPlanDto::class.java)?.toDomain()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error deserializing meal plan ${doc.id}", e)
+                    null
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching all meal plans", e)
+            emptyList()
+        }
     }
 }

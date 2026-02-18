@@ -23,6 +23,7 @@ import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.runs
+import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
@@ -300,7 +301,7 @@ class RecipeDetailViewModelTest {
     fun `toggleFavorite calls repository with toggled value`() = runTest {
         val recipe = createTestRecipe(isFavorite = false)
         every { recipeRepository.getRecipeById("recipe-1") } returns flowOf(recipe)
-        coEvery { recipeRepository.setFavorite("recipe-1", true) } just runs
+        every { recipeRepository.setFavorite("recipe-1", true) } just runs
 
         viewModel = createViewModel()
         testDispatcher.scheduler.advanceUntilIdle()
@@ -308,14 +309,14 @@ class RecipeDetailViewModelTest {
         viewModel.toggleFavorite()
         testDispatcher.scheduler.advanceUntilIdle()
 
-        coVerify { recipeRepository.setFavorite("recipe-1", true) }
+        verify { recipeRepository.setFavorite("recipe-1", true) }
     }
 
     @Test
     fun `toggleFavorite toggles from true to false`() = runTest {
         val recipe = createTestRecipe(isFavorite = true)
         every { recipeRepository.getRecipeById("recipe-1") } returns flowOf(recipe)
-        coEvery { recipeRepository.setFavorite("recipe-1", false) } just runs
+        every { recipeRepository.setFavorite("recipe-1", false) } just runs
 
         viewModel = createViewModel()
         testDispatcher.scheduler.advanceUntilIdle()
@@ -323,13 +324,13 @@ class RecipeDetailViewModelTest {
         viewModel.toggleFavorite()
         testDispatcher.scheduler.advanceUntilIdle()
 
-        coVerify { recipeRepository.setFavorite("recipe-1", false) }
+        verify { recipeRepository.setFavorite("recipe-1", false) }
     }
 
     @Test
     fun `deleteRecipe calls repository and emits event`() = runTest {
         coEvery { mealPlanRepository.deleteMealPlansByRecipeId("recipe-1") } just runs
-        coEvery { recipeRepository.deleteRecipe("recipe-1") } just runs
+        every { recipeRepository.deleteRecipe("recipe-1") } just runs
 
         viewModel = createViewModel()
 
@@ -342,7 +343,7 @@ class RecipeDetailViewModelTest {
         }
 
         coVerify { mealPlanRepository.deleteMealPlansByRecipeId("recipe-1") }
-        coVerify { recipeRepository.deleteRecipe("recipe-1") }
+        verify { recipeRepository.deleteRecipe("recipe-1") }
     }
 
     @Test
