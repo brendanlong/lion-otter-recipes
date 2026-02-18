@@ -7,12 +7,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -24,30 +20,26 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.ui.components.SwipeActionBox
+import com.lionotter.recipes.ui.components.SwipeActionBoxState
+import com.lionotter.recipes.ui.components.rememberSwipeActionBoxState
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun SwipeableRecipeCard(
     recipe: Recipe,
     onClick: () -> Unit,
     onDeleteRequest: () -> Unit,
-    onFavoriteClick: () -> Unit
+    onFavoriteClick: () -> Unit,
+    swipeState: SwipeActionBoxState = rememberSwipeActionBoxState()
 ) {
     var showMenu by remember { mutableStateOf(false) }
-    @Suppress("DEPRECATION") // TODO: migrate to AnchoredDraggable dynamic anchors
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            if (value == SwipeToDismissBoxValue.EndToStart) {
-                onDeleteRequest()
-                false // Don't dismiss - wait for confirmation
-            } else {
-                false
-            }
-        }
-    )
 
-    SwipeToDismissBox(
-        state = dismissState,
+    SwipeActionBox(
+        state = swipeState,
+        onEndToStartAction = onDeleteRequest,
+        enableStartToEnd = false,
+        enableEndToStart = true,
         backgroundContent = {
             Box(
                 modifier = Modifier
@@ -61,8 +53,7 @@ fun SwipeableRecipeCard(
                     tint = MaterialTheme.colorScheme.error
                 )
             }
-        },
-        enableDismissFromStartToEnd = false
+        }
     ) {
         RecipeCard(
             recipe = recipe,
