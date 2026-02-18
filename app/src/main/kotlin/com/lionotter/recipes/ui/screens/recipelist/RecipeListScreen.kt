@@ -34,6 +34,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,10 +48,13 @@ import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.ui.components.CancelImportConfirmationDialog
 import com.lionotter.recipes.ui.components.DeleteConfirmationDialog
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
+import com.lionotter.recipes.ui.components.SwipeActionBoxState
+import com.lionotter.recipes.ui.components.rememberSwipeActionBoxState
 import com.lionotter.recipes.ui.screens.recipelist.components.InProgressRecipeCard
 import com.lionotter.recipes.ui.screens.recipelist.components.SwipeableRecipeCard
 import com.lionotter.recipes.ui.state.InProgressRecipe
 import com.lionotter.recipes.ui.state.RecipeListItem
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -79,8 +83,11 @@ fun RecipeListScreen(
         }
     }
 
-    // State for delete confirmation dialog
+    val scope = rememberCoroutineScope()
+
+    // State for delete confirmation dialog (recipe + its swipe state)
     var recipeToDelete by remember { mutableStateOf<Recipe?>(null) }
+    var deleteSwipeState by remember { mutableStateOf<SwipeActionBoxState?>(null) }
     var affectedMealPlanCount by remember { mutableStateOf(0) }
 
     // Load affected meal plan count when a recipe is selected for deletion
@@ -95,6 +102,7 @@ fun RecipeListScreen(
 
     // State for cancel import confirmation dialog
     var importToCancel by remember { mutableStateOf<InProgressRecipe?>(null) }
+    var cancelSwipeState by remember { mutableStateOf<SwipeActionBoxState?>(null) }
 
     // Delete confirmation dialog
     recipeToDelete?.let { recipe ->
@@ -102,10 +110,20 @@ fun RecipeListScreen(
             recipeName = recipe.name,
             affectedMealPlanCount = affectedMealPlanCount,
             onConfirm = {
-                viewModel.deleteRecipe(recipe.id)
+                val swipe = deleteSwipeState
                 recipeToDelete = null
+                deleteSwipeState = null
+                scope.launch {
+                    swipe?.confirm()
+                    viewModel.deleteRecipe(recipe.id)
+                }
             },
-            onDismiss = { recipeToDelete = null }
+            onDismiss = {
+                val swipe = deleteSwipeState
+                recipeToDelete = null
+                deleteSwipeState = null
+                scope.launch { swipe?.reset() }
+            }
         )
     }
 
@@ -113,10 +131,20 @@ fun RecipeListScreen(
     importToCancel?.let { importRecipe ->
         CancelImportConfirmationDialog(
             onConfirm = {
-                viewModel.cancelImport(importRecipe.id)
+                val swipe = cancelSwipeState
                 importToCancel = null
+                cancelSwipeState = null
+                scope.launch {
+                    swipe?.confirm()
+                    viewModel.cancelImport(importRecipe.id)
+                }
             },
-            onDismiss = { importToCancel = null }
+            onDismiss = {
+                val swipe = cancelSwipeState
+                importToCancel = null
+                cancelSwipeState = null
+                scope.launch { swipe?.reset() }
+            }
         )
     }
 
@@ -225,17 +253,27 @@ fun RecipeListScreen(
                     ) { item ->
                         when (item) {
                             is RecipeListItem.Saved -> {
+                                val swipeState = rememberSwipeActionBoxState()
                                 SwipeableRecipeCard(
                                     recipe = item.recipe,
                                     onClick = { onRecipeClick(item.id) },
-                                    onDeleteRequest = { recipeToDelete = item.recipe },
-                                    onFavoriteClick = { viewModel.toggleFavorite(item.id) }
+                                    onDeleteRequest = {
+                                        recipeToDelete = item.recipe
+                                        deleteSwipeState = swipeState
+                                    },
+                                    onFavoriteClick = { viewModel.toggleFavorite(item.id) },
+                                    swipeState = swipeState
                                 )
                             }
                             is RecipeListItem.InProgress -> {
+                                val swipeState = rememberSwipeActionBoxState()
                                 InProgressRecipeCard(
                                     inProgressRecipe = item.inProgressRecipe,
-                                    onCancelRequest = { importToCancel = item.inProgressRecipe }
+                                    onCancelRequest = {
+                                        importToCancel = item.inProgressRecipe
+                                        cancelSwipeState = swipeState
+                                    },
+                                    swipeState = swipeState
                                 )
                             }
                         }

@@ -35,14 +35,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,8 +53,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.ui.components.RecipeThumbnail
+import com.lionotter.recipes.ui.components.SwipeActionBox
+import com.lionotter.recipes.ui.components.SwipeActionBoxState
+import com.lionotter.recipes.ui.components.SwipeActionDirection
+import com.lionotter.recipes.ui.components.rememberSwipeActionBoxState
 import com.lionotter.recipes.domain.model.MealType
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
+import kotlinx.coroutines.launch
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.plus
@@ -77,18 +80,31 @@ fun MealPlanScreen(
     val weekMealPlans by viewModel.weekMealPlans.collectAsStateWithLifecycle()
     val showAddDialog by viewModel.showAddDialog.collectAsStateWithLifecycle()
 
+    val scope = rememberCoroutineScope()
+
     // State for delete confirmation
     var entryToDelete by remember { mutableStateOf<MealPlanEntry?>(null) }
+    var deleteSwipeState by remember { mutableStateOf<SwipeActionBoxState?>(null) }
 
     // Delete confirmation dialog
     entryToDelete?.let { entry ->
         MealPlanDeleteDialog(
             recipeName = entry.recipeName,
             onConfirm = {
-                viewModel.deleteMealPlan(entry.id)
+                val swipe = deleteSwipeState
                 entryToDelete = null
+                deleteSwipeState = null
+                scope.launch {
+                    swipe?.confirm()
+                    viewModel.deleteMealPlan(entry.id)
+                }
             },
-            onDismiss = { entryToDelete = null }
+            onDismiss = {
+                val swipe = deleteSwipeState
+                entryToDelete = null
+                deleteSwipeState = null
+                scope.launch { swipe?.reset() }
+            }
         )
     }
 
@@ -162,11 +178,19 @@ fun MealPlanScreen(
                             items = meals,
                             key = { it.id }
                         ) { entry ->
+                            val swipeState = rememberSwipeActionBoxState()
                             SwipeableMealPlanCard(
                                 entry = entry,
                                 onClick = { onRecipeClick(entry.recipeId) },
-                                onEditRequest = { viewModel.openEditDialog(entry) },
-                                onDeleteRequest = { entryToDelete = entry }
+                                onEditRequest = {
+                                    viewModel.openEditDialog(entry)
+                                    scope.launch { swipeState.reset() }
+                                },
+                                onDeleteRequest = {
+                                    entryToDelete = entry
+                                    deleteSwipeState = swipeState
+                                },
+                                swipeState = swipeState
                             )
                         }
                     }
@@ -242,37 +266,26 @@ private fun DayHeader(date: LocalDate) {
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SwipeableMealPlanCard(
     entry: MealPlanEntry,
     onClick: () -> Unit,
     onEditRequest: () -> Unit,
-    onDeleteRequest: () -> Unit
+    onDeleteRequest: () -> Unit,
+    swipeState: SwipeActionBoxState = rememberSwipeActionBoxState()
 ) {
     var showMenu by remember { mutableStateOf(false) }
-    @Suppress("DEPRECATION") // TODO: migrate to AnchoredDraggable dynamic anchors
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            when (value) {
-                SwipeToDismissBoxValue.EndToStart -> {
-                    onDeleteRequest()
-                    false
-                }
-                SwipeToDismissBoxValue.StartToEnd -> {
-                    onEditRequest()
-                    false
-                }
-                else -> false
-            }
-        }
-    )
 
-    SwipeToDismissBox(
-        state = dismissState,
-        backgroundContent = {
-            val alignment = when (dismissState.dismissDirection) {
-                SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
+    SwipeActionBox(
+        state = swipeState,
+        onStartToEndAction = onEditRequest,
+        onEndToStartAction = onDeleteRequest,
+        enableStartToEnd = true,
+        enableEndToStart = true,
+        backgroundContent = { direction ->
+            val alignment = when (direction) {
+                SwipeActionDirection.StartToEnd -> Alignment.CenterStart
                 else -> Alignment.CenterEnd
             }
             Box(
@@ -281,8 +294,8 @@ private fun SwipeableMealPlanCard(
                     .padding(horizontal = 16.dp),
                 contentAlignment = alignment
             ) {
-                when (dismissState.dismissDirection) {
-                    SwipeToDismissBoxValue.StartToEnd -> Icon(
+                when (direction) {
+                    SwipeActionDirection.StartToEnd -> Icon(
                         imageVector = Icons.Default.Edit,
                         contentDescription = stringResource(R.string.edit),
                         tint = MaterialTheme.colorScheme.primary
@@ -294,8 +307,7 @@ private fun SwipeableMealPlanCard(
                     )
                 }
             }
-        },
-        enableDismissFromStartToEnd = true
+        }
     ) {
         MealPlanCard(
             entry = entry,

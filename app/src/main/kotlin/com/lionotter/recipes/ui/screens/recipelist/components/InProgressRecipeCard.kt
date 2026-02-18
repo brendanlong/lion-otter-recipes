@@ -15,13 +15,9 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,28 +28,22 @@ import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
 import com.lionotter.recipes.data.local.PendingImportEntity
 import com.lionotter.recipes.ui.components.RecipeThumbnail
+import com.lionotter.recipes.ui.components.SwipeActionBox
+import com.lionotter.recipes.ui.components.SwipeActionBoxState
+import com.lionotter.recipes.ui.components.rememberSwipeActionBoxState
 import com.lionotter.recipes.ui.state.InProgressRecipe
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InProgressRecipeCard(
     inProgressRecipe: InProgressRecipe,
-    onCancelRequest: () -> Unit
+    onCancelRequest: () -> Unit,
+    swipeState: SwipeActionBoxState = rememberSwipeActionBoxState()
 ) {
-    @Suppress("DEPRECATION") // TODO: migrate to AnchoredDraggable dynamic anchors
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            if (value == SwipeToDismissBoxValue.EndToStart) {
-                onCancelRequest()
-                false
-            } else {
-                false
-            }
-        }
-    )
-
-    SwipeToDismissBox(
-        state = dismissState,
+    SwipeActionBox(
+        state = swipeState,
+        onEndToStartAction = onCancelRequest,
+        enableStartToEnd = false,
+        enableEndToStart = true,
         backgroundContent = {
             Box(
                 modifier = Modifier
@@ -67,8 +57,7 @@ fun InProgressRecipeCard(
                     tint = MaterialTheme.colorScheme.error
                 )
             }
-        },
-        enableDismissFromStartToEnd = false
+        }
     ) {
         Card(
             modifier = Modifier
