@@ -3,8 +3,8 @@ package com.lionotter.recipes.ui.screens.mealplan
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lionotter.recipes.data.local.SettingsDataStore
-import com.lionotter.recipes.data.repository.MealPlanRepository
-import com.lionotter.recipes.data.repository.RecipeRepository
+import com.lionotter.recipes.data.repository.IMealPlanRepository
+import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.model.MealType
 import com.lionotter.recipes.domain.model.Recipe
@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -33,8 +34,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class MealPlanViewModel @Inject constructor(
-    private val mealPlanRepository: MealPlanRepository,
-    private val recipeRepository: RecipeRepository,
+    private val mealPlanRepository: IMealPlanRepository,
+    private val recipeRepository: IRecipeRepository,
     private val getTagsUseCase: GetTagsUseCase,
     settingsDataStore: SettingsDataStore
 ) : ViewModel() {
@@ -118,25 +119,26 @@ class MealPlanViewModel @Inject constructor(
     /**
      * Meal plans for the current week, grouped by date.
      */
-    val weekMealPlans: StateFlow<Map<LocalDate, List<MealPlanEntry>>> = combine(
-        currentWeekStart,
-        mealPlanRepository.getAllMealPlans()
-    ) { weekStart, allPlans ->
-        val weekEnd = weekStart.plus(6, DateTimeUnit.DAY)
-        val weekPlans = allPlans.filter { it.date in weekStart..weekEnd }
-        // Group by date and sort within each day
-        weekPlans.groupBy { it.date }
-            .mapValues { (_, entries) ->
-                entries.sortedWith(
-                    compareBy<MealPlanEntry> { it.mealType.displayOrder }
-                        .thenBy { it.recipeName }
-                )
-            }
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyMap()
-    )
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val weekMealPlans: StateFlow<Map<LocalDate, List<MealPlanEntry>>> = currentWeekStart
+        .flatMapLatest { weekStart ->
+            val weekEnd = weekStart.plus(6, DateTimeUnit.DAY)
+            mealPlanRepository.getMealPlansForDateRange(weekStart, weekEnd)
+                .map { weekPlans ->
+                    // Group by date and sort within each day
+                    weekPlans.groupBy { it.date }
+                        .mapValues { (_, entries) ->
+                            entries.sortedWith(
+                                compareBy<MealPlanEntry> { it.mealType.displayOrder }
+                                    .thenBy { it.recipeName }
+                            )
+                        }
+                }
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyMap()
+        )
 
     fun navigateWeek(forward: Boolean) {
         _navigatedDate.value = if (forward) {

@@ -2,10 +2,10 @@ package com.lionotter.recipes.di
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.lionotter.recipes.data.local.ImportDebugDao
-import com.lionotter.recipes.data.local.MealPlanDao
 import com.lionotter.recipes.data.local.PendingImportDao
-import com.lionotter.recipes.data.local.RecipeDao
 import com.lionotter.recipes.data.local.RecipeDatabase
 import dagger.Module
 import dagger.Provides
@@ -14,40 +14,33 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
+private val MIGRATION_10_11 = object : Migration(10, 11) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("DROP TABLE IF EXISTS recipes")
+        db.execSQL("DROP TABLE IF EXISTS meal_plans")
+    }
+}
+
+private val MIGRATION_11_12 = object : Migration(11, 12) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE import_debug ADD COLUMN batchMode INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
 @Module
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
 
     @Provides
     @Singleton
-    fun provideRecipeDatabase(
-        @ApplicationContext context: Context
-    ): RecipeDatabase {
+    fun provideDatabase(@ApplicationContext context: Context): RecipeDatabase {
         return Room.databaseBuilder(
             context,
             RecipeDatabase::class.java,
             "recipes.db"
         )
-            .addMigrations(
-                RecipeDatabase.MIGRATION_1_2,
-                RecipeDatabase.MIGRATION_2_3,
-                RecipeDatabase.MIGRATION_3_4,
-                RecipeDatabase.MIGRATION_4_5,
-                RecipeDatabase.MIGRATION_5_6,
-                RecipeDatabase.MIGRATION_6_7,
-                RecipeDatabase.MIGRATION_7_8,
-                RecipeDatabase.MIGRATION_8_9,
-                RecipeDatabase.MIGRATION_9_10,
-                RecipeDatabase.MIGRATION_10_11,
-                RecipeDatabase.MIGRATION_11_12
-            )
+            .addMigrations(MIGRATION_10_11, MIGRATION_11_12)
             .build()
-    }
-
-    @Provides
-    @Singleton
-    fun provideRecipeDao(database: RecipeDatabase): RecipeDao {
-        return database.recipeDao()
     }
 
     @Provides
@@ -60,11 +53,5 @@ object DatabaseModule {
     @Singleton
     fun providePendingImportDao(database: RecipeDatabase): PendingImportDao {
         return database.pendingImportDao()
-    }
-
-    @Provides
-    @Singleton
-    fun provideMealPlanDao(database: RecipeDatabase): MealPlanDao {
-        return database.mealPlanDao()
     }
 }

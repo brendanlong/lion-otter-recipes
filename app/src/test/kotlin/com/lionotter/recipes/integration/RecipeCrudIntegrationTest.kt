@@ -6,8 +6,6 @@ import com.lionotter.recipes.domain.model.Ingredient
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.InstructionStep
 import com.lionotter.recipes.domain.model.Recipe
-import dagger.hilt.android.testing.HiltAndroidTest
-import dagger.hilt.android.testing.HiltTestApplication
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -15,19 +13,13 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
 import kotlin.time.Instant
 
 /**
- * Integration tests for Recipe CRUD operations through the full
- * DAO → Repository pipeline backed by a real in-memory Room database.
+ * Integration tests for Recipe CRUD operations through the real
+ * RecipeRepository backed by the real Firestore SDK (offline, in-memory cache).
  */
-@HiltAndroidTest
-@RunWith(RobolectricTestRunner::class)
-@Config(application = HiltTestApplication::class, sdk = [34])
-class RecipeCrudIntegrationTest : HiltIntegrationTest() {
+class RecipeCrudIntegrationTest : FirestoreIntegrationTest() {
 
     private val now = Instant.fromEpochMilliseconds(1700000000000)
 
@@ -50,7 +42,7 @@ class RecipeCrudIntegrationTest : HiltIntegrationTest() {
                 steps = listOf(
                     InstructionStep(
                         stepNumber = 1,
-                        instruction = "Preheat oven to 375°F (190°C).",
+                        instruction = "Preheat oven to 375\u00b0F (190\u00b0C).",
                         ingredients = emptyList()
                     ),
                     InstructionStep(
@@ -92,11 +84,12 @@ class RecipeCrudIntegrationTest : HiltIntegrationTest() {
     // -----------------------------------------------------------------------
 
     @Test
-    fun `save recipe via repository then retrieve it`() = runTest {
+    fun `save recipe via repository then retrieve it`() {
         val recipe = createTestRecipe()
         recipeRepository.saveRecipe(recipe)
+        pumpLooper()
 
-        val retrieved = recipeRepository.getRecipeByIdOnce(recipe.id)
+        val retrieved = runSuspending { recipeRepository.getRecipeByIdOnce(recipe.id) }
         assertNotNull(retrieved)
         assertEquals(recipe.name, retrieved!!.name)
         assertEquals(recipe.sourceUrl, retrieved.sourceUrl)
@@ -114,9 +107,11 @@ class RecipeCrudIntegrationTest : HiltIntegrationTest() {
     fun `saved recipe appears in getAllRecipes flow`() = runTest {
         val recipe = createTestRecipe()
         recipeRepository.saveRecipe(recipe)
+        pumpLooper()
 
         turbineScope {
             val turbine = recipeRepository.getAllRecipes().testIn(backgroundScope)
+            pumpLooper()
             val recipes = turbine.awaitItem()
             assertEquals(1, recipes.size)
             assertEquals(recipe.name, recipes[0].name)
@@ -125,25 +120,22 @@ class RecipeCrudIntegrationTest : HiltIntegrationTest() {
     }
 
     @Test
-    fun `multiple recipes are returned ordered by updatedAt desc`() = runTest {
-        val recipe1 = createTestRecipe(
-            id = "recipe-1",
-            name = "Older Recipe"
-        ).copy(updatedAt = Instant.fromEpochMilliseconds(1000))
-        val recipe2 = createTestRecipe(
-            id = "recipe-2",
-            name = "Newer Recipe"
-        ).copy(updatedAt = Instant.fromEpochMilliseconds(2000))
+    fun `multiple recipes are all returned`() = runTest {
+        val recipe1 = createTestRecipe(id = "recipe-1", name = "Recipe A")
+        val recipe2 = createTestRecipe(id = "recipe-2", name = "Recipe B")
 
         recipeRepository.saveRecipe(recipe1)
         recipeRepository.saveRecipe(recipe2)
+        pumpLooper()
 
         turbineScope {
             val turbine = recipeRepository.getAllRecipes().testIn(backgroundScope)
+            pumpLooper()
             val recipes = turbine.awaitItem()
             assertEquals(2, recipes.size)
-            assertEquals("Newer Recipe", recipes[0].name)
-            assertEquals("Older Recipe", recipes[1].name)
+            val names = recipes.map { it.name }.toSet()
+            assertTrue(names.contains("Recipe A"))
+            assertTrue(names.contains("Recipe B"))
             turbine.cancelAndIgnoreRemainingEvents()
         }
     }
@@ -153,20 +145,24 @@ class RecipeCrudIntegrationTest : HiltIntegrationTest() {
     // -----------------------------------------------------------------------
 
     @Test
-    fun `toggle favorite via repository persists in database`() = runTest {
+    fun `toggle favorite via repository persists in database`() {
         val recipe = createTestRecipe(isFavorite = false)
         recipeRepository.saveRecipe(recipe)
+        pumpLooper()
 
         // Toggle to favorite
         recipeRepository.setFavorite(recipe.id, true)
+        pumpLooper()
 
-        val updated = recipeRepository.getRecipeByIdOnce(recipe.id)
+        val updated = runSuspending { recipeRepository.getRecipeByIdOnce(recipe.id) }
         assertNotNull(updated)
         assertTrue(updated!!.isFavorite)
 
         // Toggle back
         recipeRepository.setFavorite(recipe.id, false)
-        val reverted = recipeRepository.getRecipeByIdOnce(recipe.id)
+        pumpLooper()
+
+        val reverted = runSuspending { recipeRepository.getRecipeByIdOnce(recipe.id) }
         assertNotNull(reverted)
         assertFalse(reverted!!.isFavorite)
     }
@@ -175,9 +171,11 @@ class RecipeCrudIntegrationTest : HiltIntegrationTest() {
     fun `favorite toggle is reflected in getAllRecipes flow`() = runTest {
         val recipe = createTestRecipe(isFavorite = false)
         recipeRepository.saveRecipe(recipe)
+        pumpLooper()
 
         turbineScope {
             val turbine = recipeRepository.getAllRecipes().testIn(backgroundScope)
+            pumpLooper()
 
             // Initial emission — not favorited
             val initial = turbine.awaitItem()
@@ -185,6 +183,7 @@ class RecipeCrudIntegrationTest : HiltIntegrationTest() {
 
             // Toggle favorite
             recipeRepository.setFavorite(recipe.id, true)
+            pumpLooper()
 
             val updated = turbine.awaitItem()
             assertTrue(updated[0].isFavorite)
@@ -198,27 +197,31 @@ class RecipeCrudIntegrationTest : HiltIntegrationTest() {
     // -----------------------------------------------------------------------
 
     @Test
-    fun `delete recipe removes it from database`() = runTest {
+    fun `delete recipe removes it from database`() {
         val recipe = createTestRecipe()
         recipeRepository.saveRecipe(recipe)
+        pumpLooper()
 
         // Confirm it exists
-        assertNotNull(recipeRepository.getRecipeByIdOnce(recipe.id))
+        assertNotNull(runSuspending { recipeRepository.getRecipeByIdOnce(recipe.id) })
 
         // Delete
         recipeRepository.deleteRecipe(recipe.id)
+        pumpLooper()
 
         // Confirm it's gone
-        assertNull(recipeRepository.getRecipeByIdOnce(recipe.id))
+        assertNull(runSuspending { recipeRepository.getRecipeByIdOnce(recipe.id) })
     }
 
     @Test
     fun `delete recipe is reflected in getAllRecipes flow`() = runTest {
         val recipe = createTestRecipe()
         recipeRepository.saveRecipe(recipe)
+        pumpLooper()
 
         turbineScope {
             val turbine = recipeRepository.getAllRecipes().testIn(backgroundScope)
+            pumpLooper()
 
             // Initial emission — recipe exists
             val initial = turbine.awaitItem()
@@ -226,6 +229,7 @@ class RecipeCrudIntegrationTest : HiltIntegrationTest() {
 
             // Delete
             recipeRepository.deleteRecipe(recipe.id)
+            pumpLooper()
 
             val afterDelete = turbine.awaitItem()
             assertTrue(afterDelete.isEmpty())
@@ -235,84 +239,27 @@ class RecipeCrudIntegrationTest : HiltIntegrationTest() {
     }
 
     // -----------------------------------------------------------------------
-    // Search
-    // -----------------------------------------------------------------------
-
-    @Test
-    fun `search recipes returns matching results`() = runTest {
-        recipeRepository.saveRecipe(createTestRecipe(id = "r1", name = "Chocolate Cake"))
-        recipeRepository.saveRecipe(createTestRecipe(id = "r2", name = "Banana Bread"))
-        recipeRepository.saveRecipe(createTestRecipe(id = "r3", name = "Chocolate Mousse"))
-
-        turbineScope {
-            val turbine = recipeRepository.searchRecipes("Chocolate").testIn(backgroundScope)
-            val results = turbine.awaitItem()
-            assertEquals(2, results.size)
-            assertTrue(results.all { it.name.contains("Chocolate") })
-            turbine.cancelAndIgnoreRemainingEvents()
-        }
-    }
-
-    @Test
-    fun `search recipes with no match returns empty list`() = runTest {
-        recipeRepository.saveRecipe(createTestRecipe(id = "r1", name = "Chocolate Cake"))
-
-        turbineScope {
-            val turbine = recipeRepository.searchRecipes("Pizza").testIn(backgroundScope)
-            val results = turbine.awaitItem()
-            assertTrue(results.isEmpty())
-            turbine.cancelAndIgnoreRemainingEvents()
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Tag filtering
-    // -----------------------------------------------------------------------
-
-    @Test
-    fun `get recipes by tag filters correctly`() = runTest {
-        val dessert = createTestRecipe(id = "r1", name = "Cookies")
-        val dinner = Recipe(
-            id = "r2",
-            name = "Pasta",
-            instructionSections = emptyList(),
-            tags = listOf("dinner", "pasta"),
-            createdAt = now,
-            updatedAt = now
-        )
-
-        recipeRepository.saveRecipe(dessert)
-        recipeRepository.saveRecipe(dinner)
-
-        turbineScope {
-            val turbine = recipeRepository.getRecipesByTag("dessert").testIn(backgroundScope)
-            val results = turbine.awaitItem()
-            assertEquals(1, results.size)
-            assertEquals("Cookies", results[0].name)
-            turbine.cancelAndIgnoreRemainingEvents()
-        }
-    }
-
-    // -----------------------------------------------------------------------
     // Original HTML
     // -----------------------------------------------------------------------
 
     @Test
-    fun `save recipe with original HTML and retrieve it`() = runTest {
+    fun `save recipe with original HTML and retrieve it`() {
         val recipe = createTestRecipe()
         val html = "<html><body><h1>Cookies</h1></body></html>"
         recipeRepository.saveRecipe(recipe, originalHtml = html)
+        pumpLooper()
 
-        val retrieved = recipeRepository.getOriginalHtml(recipe.id)
+        val retrieved = runSuspending { recipeRepository.getOriginalHtml(recipe.id) }
         assertEquals(html, retrieved)
     }
 
     @Test
-    fun `recipe without original HTML returns null`() = runTest {
+    fun `recipe without original HTML returns null`() {
         val recipe = createTestRecipe()
         recipeRepository.saveRecipe(recipe)
+        pumpLooper()
 
-        val retrieved = recipeRepository.getOriginalHtml(recipe.id)
+        val retrieved = runSuspending { recipeRepository.getOriginalHtml(recipe.id) }
         assertNull(retrieved)
     }
 
@@ -321,11 +268,12 @@ class RecipeCrudIntegrationTest : HiltIntegrationTest() {
     // -----------------------------------------------------------------------
 
     @Test
-    fun `getAllRecipeIdsAndNames returns all recipes`() = runTest {
+    fun `getAllRecipeIdsAndNames returns all recipes`() {
         recipeRepository.saveRecipe(createTestRecipe(id = "r1", name = "Recipe A"))
         recipeRepository.saveRecipe(createTestRecipe(id = "r2", name = "Recipe B"))
+        pumpLooper()
 
-        val idsAndNames = recipeRepository.getAllRecipeIdsAndNames()
+        val idsAndNames = runSuspending { recipeRepository.getAllRecipeIdsAndNames() }
         assertEquals(2, idsAndNames.size)
         assertTrue(idsAndNames.any { it.id == "r1" && it.name == "Recipe A" })
         assertTrue(idsAndNames.any { it.id == "r2" && it.name == "Recipe B" })

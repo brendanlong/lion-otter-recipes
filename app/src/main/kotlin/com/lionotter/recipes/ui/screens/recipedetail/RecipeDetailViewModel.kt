@@ -7,8 +7,8 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lionotter.recipes.data.local.SettingsDataStore
-import com.lionotter.recipes.data.repository.MealPlanRepository
-import com.lionotter.recipes.data.repository.RecipeRepository
+import com.lionotter.recipes.data.repository.IMealPlanRepository
+import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.IngredientUsageStatus
 import com.lionotter.recipes.domain.model.InstructionIngredientKey
 import com.lionotter.recipes.domain.model.MeasurementPreference
@@ -45,8 +45,8 @@ data class HighlightedInstructionStep(
 @HiltViewModel
 class RecipeDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    private val recipeRepository: RecipeRepository,
-    private val mealPlanRepository: MealPlanRepository,
+    private val recipeRepository: IRecipeRepository,
+    private val mealPlanRepository: IMealPlanRepository,
     private val settingsDataStore: SettingsDataStore,
     private val calculateIngredientUsage: CalculateIngredientUsageUseCase,
     private val exportSingleRecipeUseCase: ExportSingleRecipeUseCase,

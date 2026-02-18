@@ -2,8 +2,8 @@ package com.lionotter.recipes.domain.util
 
 import android.util.Log
 import com.lionotter.recipes.data.remote.ImageDownloadService
-import com.lionotter.recipes.data.repository.MealPlanRepository
-import com.lionotter.recipes.data.repository.RecipeRepository
+import com.lionotter.recipes.data.repository.IMealPlanRepository
+import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import kotlin.time.Clock
 import kotlinx.serialization.json.Json
@@ -21,9 +21,9 @@ import javax.inject.Inject
  * - Importing meal plan entries from the meal-plans folder
  */
 class ZipImportHelper @Inject constructor(
-    private val recipeRepository: RecipeRepository,
+    private val recipeRepository: IRecipeRepository,
     private val recipeSerializer: RecipeSerializer,
-    private val mealPlanRepository: MealPlanRepository,
+    private val mealPlanRepository: IMealPlanRepository,
     private val json: Json,
     private val imageDownloadService: ImageDownloadService
 ) {
@@ -138,27 +138,22 @@ class ZipImportHelper @Inject constructor(
 
     /**
      * Imports meal plan entries from the meal-plans folder in a ZIP backup.
-     * Skips entries that already exist (by ID).
+     * Uses Firestore's idempotent set() — existing entries are overwritten.
      *
      * @param mealPlanFiles map of filename to content from the meal-plans folder
      * @return pair of (imported count, skipped count)
      */
-    suspend fun importMealPlans(mealPlanFiles: Map<String, String>): Pair<Int, Int> {
+    fun importMealPlans(mealPlanFiles: Map<String, String>): Pair<Int, Int> {
         var imported = 0
-        var skipped = 0
+        val skipped = 0
 
         for ((fileName, content) in mealPlanFiles) {
             if (!fileName.endsWith(".json")) continue
             try {
                 val entries = json.decodeFromString<List<MealPlanEntry>>(content)
                 for (entry in entries) {
-                    val existing = mealPlanRepository.getMealPlanByIdOnce(entry.id)
-                    if (existing == null) {
-                        mealPlanRepository.saveMealPlan(entry)
-                        imported++
-                    } else {
-                        skipped++
-                    }
+                    mealPlanRepository.saveMealPlan(entry)
+                    imported++
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to import meal plan file $fileName", e)

@@ -3,9 +3,7 @@ package com.lionotter.recipes.di
 import android.content.Context
 import androidx.room.Room
 import com.lionotter.recipes.data.local.ImportDebugDao
-import com.lionotter.recipes.data.local.MealPlanDao
 import com.lionotter.recipes.data.local.PendingImportDao
-import com.lionotter.recipes.data.local.RecipeDao
 import com.lionotter.recipes.data.local.RecipeDatabase
 import dagger.Module
 import dagger.Provides
@@ -24,14 +22,6 @@ object TestDatabaseModule {
         Room.inMemoryDatabaseBuilder(context, RecipeDatabase::class.java)
             .allowMainThreadQueries()
             .build()
-
-    @Provides
-    @Singleton
-    fun provideRecipeDao(db: RecipeDatabase): RecipeDao = db.recipeDao()
-
-    @Provides
-    @Singleton
-    fun provideMealPlanDao(db: RecipeDatabase): MealPlanDao = db.mealPlanDao()
 
     @Provides
     @Singleton

@@ -1,172 +1,187 @@
 package com.lionotter.recipes.data.repository
 
 import android.util.Log
-import com.lionotter.recipes.data.local.RecipeDao
-import com.lionotter.recipes.data.local.RecipeEntity
 import com.lionotter.recipes.data.local.RecipeIdAndName
-import com.lionotter.recipes.domain.model.InstructionSection
+import com.lionotter.recipes.data.remote.FirestoreService
+import com.lionotter.recipes.data.remote.dto.RecipeDto
+import com.lionotter.recipes.data.remote.dto.toDto
 import com.lionotter.recipes.domain.model.Recipe
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class RecipeRepository @Inject constructor(
-    private val recipeDao: RecipeDao,
-    private val json: Json
-) {
-    private val _errors = MutableSharedFlow<RepositoryError>()
-    val errors: SharedFlow<RepositoryError> = _errors.asSharedFlow()
-
+    private val firestoreService: FirestoreService
+) : IRecipeRepository {
     companion object {
         private const val TAG = "RecipeRepository"
-    }
-    fun getAllRecipes(): Flow<List<Recipe>> {
-        return recipeDao.getAllRecipes().map { entities ->
-            entities.map { entity -> entityToRecipe(entity) }
-        }
+        private const val HTML_DOC_ID = "htmlDoc"
+        private const val HTML_FIELD = "originalHtml"
     }
 
-    fun getRecipeById(id: String): Flow<Recipe?> {
-        return recipeDao.getRecipeByIdFlow(id).map { entity ->
-            entity?.let { entityToRecipe(it) }
-        }
-    }
-
-    suspend fun getRecipeByIdOnce(id: String): Recipe? {
-        return recipeDao.getRecipeById(id)?.let { entityToRecipeWithErrorReporting(it) }
-    }
+    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     /**
-     * Get the original HTML content for a recipe.
+     * Single shared Firestore snapshot listener for all recipes.
+     * All recipe queries (list and by-id) derive from this shared flow,
+     * avoiding multiple redundant listeners.
      */
-    suspend fun getOriginalHtml(id: String): String? {
-        return recipeDao.getRecipeById(id)?.originalHtml
-    }
+    private val allRecipesShared: Flow<List<Recipe>> = callbackFlow {
+        val collection = try {
+            firestoreService.recipesCollection()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error accessing recipes collection", e)
+            close(e)
+            return@callbackFlow
+        }
+        val listener = collection.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                Log.e(TAG, "Error listening to recipes", error)
+                firestoreService.reportError("Failed to load recipes: ${error.message}")
+                close(error)
+                return@addSnapshotListener
+            }
+            val recipes = snapshot?.documents?.mapNotNull { doc ->
+                try {
+                    doc.toObject(RecipeDto::class.java)?.toDomain()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error deserializing recipe ${doc.id}", e)
+                    null
+                }
+            } ?: emptyList()
+            trySend(recipes)
+        }
+        awaitClose { listener.remove() }
+    }.conflate().shareIn(
+        scope = repositoryScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        replay = 1
+    )
 
-    fun getRecipesByTag(tag: String): Flow<List<Recipe>> {
-        return recipeDao.getRecipesByTag(tag).map { entities ->
-            entities.map { entity -> entityToRecipe(entity) }
+    override fun getAllRecipes(): Flow<List<Recipe>> = allRecipesShared
+
+    override fun getRecipeById(id: String): Flow<Recipe?> =
+        allRecipesShared
+            .map { recipes -> recipes.find { it.id == id } }
+            .distinctUntilChanged()
+
+    override suspend fun getRecipeByIdOnce(id: String): Recipe? {
+        return try {
+            val snapshot = firestoreService.recipesCollection().document(id).get().await()
+            snapshot.toObject(RecipeDto::class.java)?.toDomain()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching recipe $id", e)
+            null
         }
     }
 
-    fun searchRecipes(query: String): Flow<List<Recipe>> {
-        return recipeDao.searchRecipes(query).map { entities ->
-            entities.map { entity -> entityToRecipe(entity) }
+    override suspend fun getOriginalHtml(recipeId: String): String? {
+        return try {
+            val snapshot = firestoreService.recipeContentCollection(recipeId)
+                .document(HTML_DOC_ID).get().await()
+            snapshot.getString(HTML_FIELD)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching original HTML for $recipeId", e)
+            null
         }
     }
 
-    suspend fun saveRecipe(recipe: Recipe, originalHtml: String? = null) {
-        val entity = RecipeEntity.fromRecipe(
-            recipe = recipe,
-            instructionSectionsJson = json.encodeToString(recipe.instructionSections),
-            equipmentJson = json.encodeToString(recipe.equipment),
-            tagsJson = json.encodeToString(recipe.tags),
-            originalHtml = originalHtml
-        )
-        recipeDao.insertRecipe(entity)
-    }
+    override fun saveRecipe(recipe: Recipe, originalHtml: String?) {
+        val dto = recipe.toDto()
+        firestoreService.recipesCollection().document(recipe.id).set(dto)
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Error saving recipe ${recipe.id}", e)
+                firestoreService.reportError("Failed to save recipe: ${e.message}")
+            }
 
-    suspend fun deleteRecipe(id: String) {
-        recipeDao.deleteRecipe(id)
-    }
-
-    suspend fun setFavorite(id: String, isFavorite: Boolean) {
-        recipeDao.setFavorite(id, isFavorite)
-    }
-
-    suspend fun setUserNotes(id: String, userNotes: String?) {
-        recipeDao.setUserNotes(id, userNotes, kotlin.time.Clock.System.now())
-    }
-
-    suspend fun setImageUrl(id: String, imageUrl: String?) {
-        recipeDao.setImageUrl(id, imageUrl, kotlin.time.Clock.System.now())
-    }
-
-    suspend fun updateTitleAndUrl(id: String, name: String, sourceUrl: String?) {
-        recipeDao.updateTitleAndUrl(id, name, sourceUrl, kotlin.time.Clock.System.now())
-    }
-
-    suspend fun getAllRecipeIdsAndNames(): List<RecipeIdAndName> {
-        return recipeDao.getAllRecipeIdsAndNames()
-    }
-
-    private inline fun <reified T> safeDecodeJson(
-        jsonString: String,
-        entityName: String,
-        entityId: String,
-        fieldName: String,
-        default: T,
-        onError: () -> Unit = {}
-    ): T = try {
-        json.decodeFromString(jsonString)
-    } catch (e: Exception) {
-        Log.e(TAG, "Failed to parse $fieldName for recipe '$entityName' ($entityId)", e)
-        onError()
-        default
-    }
-
-    /**
-     * Converts a database entity to a domain Recipe.
-     * If JSON parsing fails for any section, logs the error, emits a typed error,
-     * and returns the recipe with empty data for that section.
-     */
-    private suspend fun entityToRecipeWithErrorReporting(entity: RecipeEntity): Recipe {
-        val failedFields = mutableListOf<String>()
-        fun onError(field: String): () -> Unit = { failedFields.add(field) }
-
-        val instructionSections: List<InstructionSection> = safeDecodeJson(
-            entity.instructionSectionsJson, entity.name, entity.id, "instructions", emptyList(), onError("instructions")
-        )
-        val equipment: List<String> = safeDecodeJson(
-            entity.equipmentJson, entity.name, entity.id, "equipment", emptyList(), onError("equipment")
-        )
-        val tags: List<String> = safeDecodeJson(
-            entity.tagsJson, entity.name, entity.id, "tags", emptyList(), onError("tags")
-        )
-
-        if (failedFields.isNotEmpty()) {
-            _errors.emit(
-                RepositoryError.ParseError(
-                    recipeId = entity.id,
-                    recipeName = entity.name,
-                    failedFields = failedFields
-                )
-            )
+        if (originalHtml != null) {
+            firestoreService.recipeContentCollection(recipe.id)
+                .document(HTML_DOC_ID)
+                .set(mapOf(HTML_FIELD to originalHtml))
+                .addOnFailureListener { e ->
+                    Log.e(TAG, "Error saving original HTML for ${recipe.id}", e)
+                }
         }
-
-        return entity.toRecipe(
-            instructionSections = instructionSections,
-            equipment = equipment,
-            tags = tags
-        )
     }
 
-    /**
-     * Non-suspending version for use in Flow mapping.
-     * Logs errors but cannot emit to the error flow.
-     */
-    private fun entityToRecipe(entity: RecipeEntity): Recipe {
-        val instructionSections: List<InstructionSection> = safeDecodeJson(
-            entity.instructionSectionsJson, entity.name, entity.id, "instructions", emptyList()
-        )
-        val equipment: List<String> = safeDecodeJson(
-            entity.equipmentJson, entity.name, entity.id, "equipment", emptyList()
-        )
-        val tags: List<String> = safeDecodeJson(
-            entity.tagsJson, entity.name, entity.id, "tags", emptyList()
-        )
+    override fun deleteRecipe(id: String) {
+        // Delete subcollection content doc first
+        firestoreService.recipeContentCollection(id)
+            .document(HTML_DOC_ID)
+            .delete()
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Error deleting content for recipe $id", e)
+            }
 
-        return entity.toRecipe(
-            instructionSections = instructionSections,
-            equipment = equipment,
-            tags = tags
+        firestoreService.recipesCollection().document(id).delete()
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Error deleting recipe $id", e)
+                firestoreService.reportError("Failed to delete recipe: ${e.message}")
+            }
+    }
+
+    override fun setFavorite(id: String, isFavorite: Boolean) {
+        firestoreService.recipesCollection().document(id)
+            .update("isFavorite", isFavorite)
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Error updating favorite for $id", e)
+                firestoreService.reportError("Failed to update favorite: ${e.message}")
+            }
+    }
+
+    override fun setUserNotes(id: String, userNotes: String?) {
+        firestoreService.recipesCollection().document(id)
+            .update("userNotes", userNotes)
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Error updating user notes for $id", e)
+                firestoreService.reportError("Failed to update notes: ${e.message}")
+            }
+    }
+
+    override fun setImageUrl(id: String, imageUrl: String?) {
+        firestoreService.recipesCollection().document(id)
+            .update("imageUrl", imageUrl)
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Error updating image URL for $id", e)
+                firestoreService.reportError("Failed to update image: ${e.message}")
+            }
+    }
+
+    override fun updateTitleAndUrl(id: String, name: String, sourceUrl: String?) {
+        val updates = mutableMapOf<String, Any?>(
+            "name" to name,
+            "sourceUrl" to sourceUrl
         )
+        firestoreService.recipesCollection().document(id)
+            .update(updates)
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Error updating title/URL for $id", e)
+                firestoreService.reportError("Failed to update recipe: ${e.message}")
+            }
+    }
+
+    override suspend fun getAllRecipeIdsAndNames(): List<RecipeIdAndName> {
+        return try {
+            val snapshot = firestoreService.recipesCollection().get().await()
+            snapshot.documents.mapNotNull { doc ->
+                val name = doc.getString("name") ?: return@mapNotNull null
+                RecipeIdAndName(id = doc.id, name = name)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching recipe IDs and names", e)
+            emptyList()
+        }
     }
 }

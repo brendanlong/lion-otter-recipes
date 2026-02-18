@@ -2,8 +2,8 @@ package com.lionotter.recipes.domain.usecase
 
 import android.util.Log
 import com.lionotter.recipes.data.remote.ImageDownloadService
-import com.lionotter.recipes.data.repository.MealPlanRepository
-import com.lionotter.recipes.data.repository.RecipeRepository
+import com.lionotter.recipes.data.repository.IMealPlanRepository
+import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.util.RecipeSerializer
 import kotlinx.coroutines.flow.first
@@ -23,9 +23,9 @@ import javax.inject.Inject
  * - recipe-name/image.* (recipe image, if available)
  */
 class ExportToZipUseCase @Inject constructor(
-    private val recipeRepository: RecipeRepository,
+    private val recipeRepository: IRecipeRepository,
     private val recipeSerializer: RecipeSerializer,
-    private val mealPlanRepository: MealPlanRepository,
+    private val mealPlanRepository: IMealPlanRepository,
     private val imageDownloadService: ImageDownloadService,
     private val json: Json
 ) {
