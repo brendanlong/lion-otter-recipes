@@ -55,10 +55,12 @@ import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.MealType
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.ui.components.RecipeThumbnail
-import kotlinx.datetime.Instant
+import kotlin.time.Instant
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atStartOfDayIn
+import kotlinx.datetime.toJavaDayOfWeek
+import kotlinx.datetime.toJavaMonth
 import kotlinx.datetime.toLocalDateTime
 import java.time.format.TextStyle
 import java.util.Locale
@@ -355,11 +357,11 @@ private fun mealTypeLabel(mealType: MealType): String {
 }
 
 private fun formatDate(date: LocalDate): String {
-    val dayName = java.time.DayOfWeek.of(date.dayOfWeek.value)
+    val dayName = date.dayOfWeek.toJavaDayOfWeek()
         .getDisplayName(TextStyle.SHORT, Locale.getDefault())
-    val monthName = java.time.Month.of(date.monthNumber)
+    val monthName = date.month.toJavaMonth()
         .getDisplayName(TextStyle.SHORT, Locale.getDefault())
-    return "$dayName, $monthName ${date.dayOfMonth}"
+    return "$dayName, $monthName ${date.day}"
 }
 
 private fun formatServingsDisplay(servings: Double): String {

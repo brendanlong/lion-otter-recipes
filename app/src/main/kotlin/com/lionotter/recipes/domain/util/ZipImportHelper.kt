@@ -5,7 +5,7 @@ import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.repository.MealPlanRepository
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.MealPlanEntry
-import kotlinx.datetime.Clock
+import kotlin.time.Clock
 import kotlinx.serialization.json.Json
 import java.io.ByteArrayInputStream
 import java.io.InputStream

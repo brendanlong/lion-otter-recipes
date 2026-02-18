@@ -11,7 +11,7 @@ import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
-import kotlinx.datetime.Clock
+import kotlin.time.Clock
 import net.dankito.readability4j.Readability4J
 import org.jsoup.Jsoup
 import java.util.UUID

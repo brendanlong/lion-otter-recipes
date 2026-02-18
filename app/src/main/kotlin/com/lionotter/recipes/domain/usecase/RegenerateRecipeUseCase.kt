@@ -3,7 +3,7 @@ package com.lionotter.recipes.domain.usecase
 import com.lionotter.recipes.data.remote.WebScraperService
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
-import kotlinx.datetime.Clock
+import kotlin.time.Clock
 import javax.inject.Inject
 
 class RegenerateRecipeUseCase @Inject constructor(

@@ -41,6 +41,8 @@ import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.MealType
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.toJavaDayOfWeek
+import kotlinx.datetime.toJavaMonth
 import java.time.format.TextStyle
 import java.util.Locale
 
@@ -173,13 +175,13 @@ private fun RecipeSelectionScreen(
 
 @Composable
 private fun DateHeader(date: LocalDate) {
-    val dayName = java.time.DayOfWeek.of(date.dayOfWeek.value)
+    val dayName = date.dayOfWeek.toJavaDayOfWeek()
         .getDisplayName(TextStyle.FULL, Locale.getDefault())
-    val monthName = java.time.Month.of(date.monthNumber)
+    val monthName = date.month.toJavaMonth()
         .getDisplayName(TextStyle.SHORT, Locale.getDefault())
 
     Text(
-        text = "$dayName, $monthName ${date.dayOfMonth}",
+        text = "$dayName, $monthName ${date.day}",
         style = MaterialTheme.typography.titleSmall,
         fontWeight = FontWeight.Bold,
         color = MaterialTheme.colorScheme.primary,

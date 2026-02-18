@@ -4,7 +4,7 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.Recipe
-import kotlinx.datetime.Instant
+import kotlin.time.Instant
 
 @Entity(tableName = "recipes")
 data class RecipeEntity(
