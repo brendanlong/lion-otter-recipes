@@ -2,8 +2,6 @@ package com.lionotter.recipes.domain.model
 
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
-import com.lionotter.recipes.util.pluralize
-import com.lionotter.recipes.util.singularize
 import kotlinx.datetime.Instant
 import kotlinx.serialization.Serializable
 
@@ -41,6 +39,11 @@ data class Recipe(
      * Aggregates all ingredients from all steps across all instruction sections.
      * Combines amounts for the same ingredient name (case-insensitive),
      * respecting the yields multiplier on each step.
+     *
+     * Amounts are summed in base units (grams for weight, mL for volume) to avoid
+     * unit mismatch errors (e.g., "1 lb butter" + "1 tsp butter" sum correctly).
+     * Amount-less occurrences (e.g., "a pinch of butter") are skipped gracefully.
+     *
      * Returns grouped by instruction section name for display.
      */
     fun aggregateIngredients(): List<IngredientSection> {
@@ -52,9 +55,6 @@ data class Recipe(
                 val yields = step.yields
                 for (ingredient in step.ingredients) {
                     addToAggregation(sectionIngredients, ingredient, yields)
-                    for (alt in ingredient.alternates) {
-                        // Don't aggregate alternates into the main map - they stay on the ingredient
-                    }
                 }
             }
         }
@@ -73,23 +73,22 @@ data class Recipe(
         yields: Int
     ) {
         val key = ingredient.name.lowercase()
+        val baseValue = ingredient.getBaseValue(yields)
+        val unit = ingredient.amount?.unit
+        val category = unit?.let { unitType(it) }
+
         val existing = map[key]
         if (existing != null) {
-            // Add to existing amount
-            val additionalAmount = ingredient.amount?.let { it.value?.let { v -> v * yields } }
-            existing.totalAmount = when {
-                existing.totalAmount == null || additionalAmount == null -> null
-                else -> existing.totalAmount!! + additionalAmount
-            }
+            existing.accumulator.add(baseValue)
         } else {
-            val totalAmount = ingredient.amount?.let { it.value?.let { v -> v * yields } }
             map[key] = AggregatedIngredient(
                 name = ingredient.name,
                 notes = ingredient.notes,
-                amount = ingredient.amount?.let { Amount(value = totalAmount, unit = it.unit) },
                 density = ingredient.density,
                 optional = ingredient.optional,
-                alternates = ingredient.alternates
+                alternates = ingredient.alternates,
+                accumulator = BaseUnitAccumulator(baseValue = baseValue, category = category),
+                originalUnit = unit
             )
         }
     }
@@ -98,21 +97,44 @@ data class Recipe(
 private data class AggregatedIngredient(
     val name: String,
     val notes: String?,
-    var amount: Amount?,
     val density: Double?,
     val optional: Boolean,
-    val alternates: List<Ingredient>
+    val alternates: List<Ingredient>,
+    val accumulator: BaseUnitAccumulator,
+    val originalUnit: String?
 ) {
-    var totalAmount: Double? = amount?.value
+    fun toIngredient(): Ingredient {
+        val baseValue = accumulator.baseValue
+        val category = accumulator.category
 
-    fun toIngredient(): Ingredient = Ingredient(
-        name = name,
-        notes = notes,
-        alternates = alternates,
-        amount = amount?.let { Amount(value = totalAmount, unit = it.unit) },
-        density = density,
-        optional = optional
-    )
+        // Convert base value back to the original unit so downstream callers
+        // (Ingredient.format(), getDisplayAmount()) see the unit the recipe used.
+        val amount = when {
+            baseValue != null && originalUnit != null && category != null -> {
+                val conversionFactor = toBaseUnitValue(1.0, originalUnit)
+                val displayValue = if (conversionFactor != null && conversionFactor > 0) {
+                    kotlin.math.round(baseValue / conversionFactor * 100) / 100
+                } else {
+                    baseValue
+                }
+                Amount(value = displayValue, unit = originalUnit)
+            }
+            baseValue != null -> {
+                // Count item (no unit)
+                Amount(value = baseValue, unit = null)
+            }
+            else -> null
+        }
+
+        return Ingredient(
+            name = name,
+            notes = notes,
+            alternates = alternates,
+            amount = amount,
+            density = density,
+            optional = optional
+        )
+    }
 }
 
 @Immutable
@@ -159,21 +181,8 @@ data class Ingredient(
         val value = displayAmount.value
             ?: return name + (notes?.let { ", $it" } ?: "")
 
-        val isWeight = displayAmount.unit != null && unitType(displayAmount.unit) == UnitCategory.WEIGHT
-
         return buildString {
-            // Compound lb+oz display for customary weight >= 16 oz
-            if (displayAmount.unit == "oz" && value >= 16) {
-                append(formatLbOz(value))
-            } else {
-                append(if (isWeight) formatWeightQuantity(value) else formatQuantity(value))
-                val unit = displayAmount.unit
-                if (unit != null) {
-                    append(" ")
-                    val count = if (value > 1.0) 2 else 1
-                    append(displayUnit(unit.singularize().pluralize(count)))
-                }
-            }
+            append(formatAmount(value, displayAmount.unit))
             append(" ")
             append(name)
             notes?.let {
@@ -227,66 +236,6 @@ data class Ingredient(
         return density != null && amount?.unit != null && unitType(amount.unit) != null
     }
 
-    private fun formatQuantity(qty: Double): String {
-        return if (qty == qty.toLong().toDouble()) {
-            qty.toLong().toString()
-        } else {
-            val fractions = mapOf(
-                0.25 to "1/4",
-                0.33 to "1/3",
-                0.5 to "1/2",
-                0.66 to "2/3",
-                0.75 to "3/4"
-            )
-            val whole = qty.toLong()
-            val decimal = qty - whole
-
-            val fraction = fractions.entries.minByOrNull {
-                kotlin.math.abs(it.key - decimal)
-            }?.takeIf {
-                kotlin.math.abs(it.key - decimal) < 0.05
-            }?.value
-
-            when {
-                fraction != null && whole > 0 -> "$whole $fraction"
-                fraction != null -> fraction
-                else -> "%.2f".format(qty).trimEnd('0').trimEnd('.')
-            }
-        }
-    }
-
-    /**
-     * Format a weight quantity using decimals instead of fractions.
-     * People think about weights in decimals (2.5 g, 250 g), not fractions (1/4 kg).
-     */
-    private fun formatWeightQuantity(qty: Double): String {
-        return when {
-            qty == qty.toLong().toDouble() -> qty.toLong().toString()
-            qty >= 10 -> kotlin.math.round(qty).toLong().toString()
-            qty >= 1 -> "%.1f".format(qty).trimEnd('0').trimEnd('.')
-            else -> "%.2f".format(qty).trimEnd('0').trimEnd('.')
-        }
-    }
-
-    /**
-     * Format ounces as compound "X lbs Y oz" like a kitchen scale would show.
-     * Drops the oz part if it rounds to 0.
-     */
-    private fun formatLbOz(totalOz: Double): String {
-        val wholeLbs = (totalOz / 16).toLong()
-        val remainingOz = totalOz - wholeLbs * 16
-        val roundedOz = kotlin.math.round(remainingOz * 10) / 10
-
-        return buildString {
-            append(wholeLbs)
-            append(" lb")
-            if (roundedOz >= 0.1) {
-                append(" ")
-                append(formatWeightQuantity(roundedOz))
-                append(" oz")
-            }
-        }
-    }
 }
 
 @Immutable
@@ -309,9 +258,6 @@ data class InstructionStep(
 // --- Unit conversion utilities ---
 
 enum class UnitCategory { WEIGHT, VOLUME }
-
-/** Convert internal unit identifiers to display-friendly strings (e.g. "fl_oz" → "fl oz"). */
-private fun displayUnit(unit: String): String = unit.replace('_', ' ')
 
 private val WEIGHT_UNITS = setOf("mg", "g", "kg", "oz", "lb")
 private val VOLUME_UNITS = setOf("mL", "L", "tsp", "tbsp", "cup", "fl_oz", "pint", "quart", "gal")

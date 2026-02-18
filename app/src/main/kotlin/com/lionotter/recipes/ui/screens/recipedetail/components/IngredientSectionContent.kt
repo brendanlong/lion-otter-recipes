@@ -18,11 +18,8 @@ import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.IngredientSection
 import com.lionotter.recipes.domain.model.IngredientUsageStatus
 import com.lionotter.recipes.domain.model.MeasurementPreference
-import com.lionotter.recipes.domain.model.UnitCategory
 import com.lionotter.recipes.domain.model.UnitSystem
-import com.lionotter.recipes.domain.model.unitType
-import com.lionotter.recipes.util.pluralize
-import com.lionotter.recipes.util.singularize
+import com.lionotter.recipes.domain.model.formatAmount
 
 @Composable
 internal fun IngredientSectionContent(
@@ -125,76 +122,5 @@ internal fun IngredientSectionContent(
  * Formats the remaining amount for display (e.g., "1/2 cup left").
  */
 internal fun formatRemainingAmount(amount: Double, unit: String?): String {
-    // Compound lb+oz display for customary weight >= 16 oz
-    if (unit == "oz" && amount >= 16) {
-        return "${formatLbOz(amount)} left"
-    }
-    val isWeight = unit != null && unitType(unit) == UnitCategory.WEIGHT
-    val formattedAmount = if (isWeight) formatWeightQuantity(amount) else formatQuantity(amount)
-    return if (unit != null) {
-        val count = if (amount > 1.0) 2 else 1
-        val pluralizedUnit = unit.singularize().pluralize(count)
-        "$formattedAmount $pluralizedUnit left"
-    } else {
-        "$formattedAmount left"
-    }
-}
-
-internal fun formatQuantity(qty: Double): String {
-    return if (qty == qty.toLong().toDouble()) {
-        qty.toLong().toString()
-    } else {
-        val fractions = mapOf(
-            0.25 to "1/4",
-            0.33 to "1/3",
-            0.5 to "1/2",
-            0.66 to "2/3",
-            0.75 to "3/4"
-        )
-        val whole = qty.toLong()
-        val decimal = qty - whole
-
-        val fraction = fractions.entries.minByOrNull {
-            kotlin.math.abs(it.key - decimal)
-        }?.takeIf {
-            kotlin.math.abs(it.key - decimal) < 0.05
-        }?.value
-
-        when {
-            fraction != null && whole > 0 -> "$whole $fraction"
-            fraction != null -> fraction
-            else -> "%.2f".format(qty).trimEnd('0').trimEnd('.')
-        }
-    }
-}
-
-/**
- * Format a weight quantity using decimals instead of fractions.
- */
-internal fun formatWeightQuantity(qty: Double): String {
-    return when {
-        qty == qty.toLong().toDouble() -> qty.toLong().toString()
-        qty >= 10 -> kotlin.math.round(qty).toLong().toString()
-        qty >= 1 -> "%.1f".format(qty).trimEnd('0').trimEnd('.')
-        else -> "%.2f".format(qty).trimEnd('0').trimEnd('.')
-    }
-}
-
-/**
- * Format ounces as compound "X lbs Y oz" like a kitchen scale would show.
- */
-internal fun formatLbOz(totalOz: Double): String {
-    val wholeLbs = (totalOz / 16).toLong()
-    val remainingOz = totalOz - wholeLbs * 16
-    val roundedOz = kotlin.math.round(remainingOz * 10) / 10
-
-    return buildString {
-        append(wholeLbs)
-        append(if (wholeLbs == 1L) " lb" else " lbs")
-        if (roundedOz >= 0.1) {
-            append(" ")
-            append(formatWeightQuantity(roundedOz))
-            append(" oz")
-        }
-    }
+    return "${formatAmount(amount, unit)} left"
 }

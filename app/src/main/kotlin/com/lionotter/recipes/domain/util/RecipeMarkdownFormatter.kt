@@ -6,6 +6,7 @@ import com.lionotter.recipes.domain.model.IngredientSection
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.InstructionStep
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.model.formatQuantity
 
 /**
  * Converts a Recipe to a human-readable Markdown format.
@@ -137,35 +138,6 @@ object RecipeMarkdownFormatter {
             "$formattedValue ${amount.unit}"
         } else {
             formattedValue
-        }
-    }
-
-    private fun formatQuantity(qty: Double): String {
-        return if (qty == qty.toLong().toDouble()) {
-            qty.toLong().toString()
-        } else {
-            // Convert to fractions for common values
-            val fractions = mapOf(
-                0.25 to "1/4",
-                0.33 to "1/3",
-                0.5 to "1/2",
-                0.66 to "2/3",
-                0.75 to "3/4"
-            )
-            val whole = qty.toLong()
-            val decimal = qty - whole
-
-            val fraction = fractions.entries.minByOrNull {
-                kotlin.math.abs(it.key - decimal)
-            }?.takeIf {
-                kotlin.math.abs(it.key - decimal) < 0.05
-            }?.value
-
-            when {
-                fraction != null && whole > 0 -> "$whole $fraction"
-                fraction != null -> fraction
-                else -> "%.2f".format(qty).trimEnd('0').trimEnd('.')
-            }
         }
     }
 

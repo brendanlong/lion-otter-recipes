@@ -293,7 +293,7 @@ app: {
       }
       aggregate_grocery: {
         label: AggregateGroceryListUseCase
-        tooltip: "Aggregates ingredients from selected meal plan recipes into a deduplicated grocery list. Normalizes ingredient names by removing size prefixes (small/medium/large), sums amounts in base units across recipes."
+        tooltip: "Aggregates ingredients from selected meal plan recipes into a deduplicated grocery list. Normalizes ingredient names by removing size prefixes (small/medium/large). Uses Recipe.aggregateIngredients() which sums amounts in base units (grams/mL) via shared BaseUnitAccumulator to handle mixed-unit ingredients correctly."
       }
       tags: {
         label: GetTagsUseCase
@@ -368,6 +368,14 @@ app: {
       start_of_week: {
         label: StartOfWeek
         tooltip: "Enum: LOCALE_DEFAULT, MONDAY..SUNDAY. User preference for which day the week starts on in the meal planner. LOCALE_DEFAULT resolves to device locale's first day of week."
+      }
+      ingredient_formatter: {
+        label: IngredientFormatter
+        tooltip: "Shared formatting functions for ingredient amounts: formatQuantity (fractions), formatWeightQuantity (decimals), formatLbOz (compound lb+oz), formatAmount (convenience). Used by Ingredient.format(), IngredientSectionContent, RecipeMarkdownFormatter, and GroceryListViewModel."
+      }
+      ingredient_aggregation: {
+        label: IngredientAggregation
+        tooltip: "Shared BaseUnitAccumulator for summing ingredient amounts in base units (grams for weight, mL for volume). Used by Recipe.aggregateIngredients() and CalculateIngredientUsageUseCase."
       }
       meal_plan_entry -> meal_type: type
 

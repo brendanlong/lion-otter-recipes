@@ -9,6 +9,8 @@ import com.lionotter.recipes.domain.model.Amount
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.model.UnitCategory
 import com.lionotter.recipes.domain.model.UnitSystem
+import com.lionotter.recipes.domain.model.formatAmount
+import com.lionotter.recipes.domain.model.formatQuantity
 import com.lionotter.recipes.domain.model.fromBaseUnit
 import com.lionotter.recipes.domain.model.toBaseUnitValue
 import com.lionotter.recipes.domain.model.unitType
@@ -429,19 +431,10 @@ class GroceryListViewModel @Inject constructor(
 
     private fun formatAmountForDisplay(amount: Amount): String? {
         val value = amount.value ?: return null
-        val formatted = if (value == value.toLong().toDouble()) {
-            value.toLong().toString()
-        } else {
-            "%.1f".format(value).trimEnd('0').trimEnd('.')
-        }
-        return if (amount.unit != null) "$formatted ${amount.unit}" else formatted
+        return formatAmount(value, amount.unit)
     }
 
     private fun formatCountForDisplay(count: Double): String {
-        return if (count == count.toLong().toDouble()) {
-            count.toLong().toString()
-        } else {
-            "%.1f".format(count).trimEnd('0').trimEnd('.')
-        }
+        return formatQuantity(count)
     }
 }
