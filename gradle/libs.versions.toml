@@ -1,25 +1,25 @@
 [versions]
 agp = "8.13.2"
-kotlin = "2.1.0"
-coreKtx = "1.15.0"
-lifecycleRuntimeKtx = "2.8.7"
-activityCompose = "1.9.3"
-composeBom = "2024.12.01"
-hilt = "2.54"
-hiltNavigationCompose = "1.2.0"
-workRuntimeKtx = "2.10.0"
-hiltWork = "1.2.0"
-room = "2.6.1"
-ktor = "3.0.3"
+kotlin = "2.1.21"
+coreKtx = "1.17.0"
+lifecycleRuntimeKtx = "2.10.0"
+activityCompose = "1.12.4"
+composeBom = "2026.01.01"
+hilt = "2.58"
+hiltNavigationCompose = "1.3.0"
+workRuntimeKtx = "2.11.1"
+hiltWork = "1.3.0"
+room = "2.8.4"
+ktor = "3.1.3"
 kotlinxSerialization = "1.7.3"
 kotlinxDatetime = "0.6.1"
-datastore = "1.1.1"
-securityCrypto = "1.1.0-alpha06"
-navigationCompose = "2.8.5"
+datastore = "1.2.0"
+securityCrypto = "1.1.0"
+navigationCompose = "2.9.6"
 coil = "2.7.0"
-ksp = "2.1.0-1.0.29"
+ksp = "2.1.21-2.0.2"
 readability4j = "1.0.8"
-jsoup = "1.18.1"
+jsoup = "1.22.1"
 benchmarkMacroJunit4 = "1.4.1"
 profileinstaller = "1.4.1"
 uiautomator = "2.3.0"
@@ -97,9 +97,9 @@ ojalgo = { group = "org.ojalgo", name = "ojalgo", version.ref = "ojalgo" }
 
 # Testing
 junit = { group = "junit", name = "junit", version = "4.13.2" }
-kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version = "1.9.0" }
-mockk = { group = "io.mockk", name = "mockk", version = "1.13.13" }
-turbine = { group = "app.cash.turbine", name = "turbine", version = "1.2.0" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version = "1.10.2" }
+mockk = { group = "io.mockk", name = "mockk", version = "1.14.9" }
+turbine = { group = "app.cash.turbine", name = "turbine", version = "1.2.1" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
