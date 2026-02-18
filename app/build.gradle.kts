@@ -130,8 +130,8 @@ dependencies {
     // DataStore
     implementation(libs.datastore.preferences)
 
-    // Security
-    implementation(libs.security.crypto)
+    // Encryption
+    implementation(libs.tink.android)
 
     // Coil
     implementation(libs.coil.compose)

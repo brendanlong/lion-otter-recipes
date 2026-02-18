@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
-    <!-- Exclude encrypted preferences containing API key -->
-    <exclude domain="sharedpref" path="secure_settings.xml" />
-    <!-- Exclude security-crypto master key prefs -->
-    <exclude domain="sharedpref" path="__androidx_security_crypto_encrypted_prefs__.xml" />
+    <!-- Exclude Tink-encrypted API key storage -->
+    <exclude domain="sharedpref" path="tink_encrypted_api_key.xml" />
+    <!-- Exclude Tink keyset prefs (contains encrypted keyset for AEAD) -->
+    <exclude domain="sharedpref" path="tink_api_key_keyset_prefs.xml" />
 </full-backup-content>
