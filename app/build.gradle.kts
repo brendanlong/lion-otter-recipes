@@ -10,7 +10,7 @@ plugins {
 
 android {
     namespace = "com.lionotter.recipes"
-    compileSdk = 35
+    compileSdk = 36
 
     signingConfigs {
         getByName("debug") {
@@ -24,7 +24,7 @@ android {
     defaultConfig {
         applicationId = "com.lionotter.recipes"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0.0"
 

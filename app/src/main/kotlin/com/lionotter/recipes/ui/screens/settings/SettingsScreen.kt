@@ -84,6 +84,8 @@ fun SettingsScreen(
     }
 
     // Show snackbar for export operation results
+    // Context is used for string formatting in a side-effect, not for rendering
+    @Suppress("LocalContextGetResourceValueCall")
     LaunchedEffect(zipOperationState) {
         when (val state = zipOperationState) {
             is ZipOperationState.ExportComplete -> {
