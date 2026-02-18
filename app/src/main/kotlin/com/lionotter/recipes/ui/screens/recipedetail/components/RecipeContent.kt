@@ -34,8 +34,8 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
-import coil.compose.SubcomposeAsyncImage
-import coil.compose.SubcomposeAsyncImageContent
+import coil3.compose.SubcomposeAsyncImage
+import coil3.compose.SubcomposeAsyncImageContent
 import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.IngredientUsageStatus
 import com.lionotter.recipes.domain.model.InstructionIngredientKey
