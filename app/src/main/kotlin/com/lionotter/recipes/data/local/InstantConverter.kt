@@ -1,7 +1,7 @@
 package com.lionotter.recipes.data.local
 
 import androidx.room.TypeConverter
-import kotlinx.datetime.Instant
+import kotlin.time.Instant
 
 class InstantConverter {
     @TypeConverter

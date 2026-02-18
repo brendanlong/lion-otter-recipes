@@ -60,6 +60,8 @@ import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.plus
+import kotlinx.datetime.toJavaDayOfWeek
+import kotlinx.datetime.toJavaMonth
 import java.time.format.TextStyle
 import java.util.Locale
 
@@ -184,17 +186,17 @@ private fun WeekNavigationHeader(
     onNextWeek: () -> Unit
 ) {
     val weekEnd = weekStart.plus(6, DateTimeUnit.DAY)
-    val startMonth = java.time.Month.of(weekStart.monthNumber)
+    val startMonth = weekStart.month.toJavaMonth()
         .getDisplayName(TextStyle.SHORT, Locale.getDefault())
-    val endMonth = java.time.Month.of(weekEnd.monthNumber)
+    val endMonth = weekEnd.month.toJavaMonth()
         .getDisplayName(TextStyle.SHORT, Locale.getDefault())
 
-    val dateRangeText = if (weekStart.monthNumber == weekEnd.monthNumber) {
-        "$startMonth ${weekStart.dayOfMonth} - ${weekEnd.dayOfMonth}, ${weekStart.year}"
+    val dateRangeText = if (weekStart.month == weekEnd.month) {
+        "$startMonth ${weekStart.day} - ${weekEnd.day}, ${weekStart.year}"
     } else if (weekStart.year == weekEnd.year) {
-        "$startMonth ${weekStart.dayOfMonth} - $endMonth ${weekEnd.dayOfMonth}, ${weekStart.year}"
+        "$startMonth ${weekStart.day} - $endMonth ${weekEnd.day}, ${weekStart.year}"
     } else {
-        "$startMonth ${weekStart.dayOfMonth}, ${weekStart.year} - $endMonth ${weekEnd.dayOfMonth}, ${weekEnd.year}"
+        "$startMonth ${weekStart.day}, ${weekStart.year} - $endMonth ${weekEnd.day}, ${weekEnd.year}"
     }
 
     Row(
@@ -226,13 +228,13 @@ private fun WeekNavigationHeader(
 
 @Composable
 private fun DayHeader(date: LocalDate) {
-    val dayName = java.time.DayOfWeek.of(date.dayOfWeek.value)
+    val dayName = date.dayOfWeek.toJavaDayOfWeek()
         .getDisplayName(TextStyle.FULL, Locale.getDefault())
-    val monthName = java.time.Month.of(date.monthNumber)
+    val monthName = date.month.toJavaMonth()
         .getDisplayName(TextStyle.SHORT, Locale.getDefault())
 
     Text(
-        text = "$dayName, $monthName ${date.dayOfMonth}",
+        text = "$dayName, $monthName ${date.day}",
         style = MaterialTheme.typography.titleSmall,
         fontWeight = FontWeight.Bold,
         color = MaterialTheme.colorScheme.primary,

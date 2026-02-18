@@ -9,7 +9,7 @@ import com.lionotter.recipes.domain.model.MeasurementPreference
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.domain.model.createInstructionIngredientKey
-import kotlinx.datetime.Instant
+import kotlin.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull

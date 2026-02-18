@@ -20,7 +20,7 @@ import io.mockk.slot
 import io.mockk.unmockkStatic
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import kotlinx.datetime.Instant
+import kotlin.time.Instant
 import kotlinx.serialization.json.Json
 import org.junit.After
 import org.junit.Assert.assertEquals

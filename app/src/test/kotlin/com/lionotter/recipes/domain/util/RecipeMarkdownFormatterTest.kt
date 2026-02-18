@@ -5,7 +5,7 @@ import com.lionotter.recipes.domain.model.Ingredient
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.InstructionStep
 import com.lionotter.recipes.domain.model.Recipe
-import kotlinx.datetime.Instant
+import kotlin.time.Instant
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test

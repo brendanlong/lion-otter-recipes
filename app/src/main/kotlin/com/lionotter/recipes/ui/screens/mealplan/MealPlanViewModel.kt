@@ -19,11 +19,12 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.datetime.Clock
+import kotlin.time.Clock
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.isoDayNumber
 import kotlinx.datetime.minus
 import kotlinx.datetime.plus
 import kotlinx.datetime.todayIn
@@ -255,7 +256,7 @@ class MealPlanViewModel @Inject constructor(
 
     private fun getWeekStart(date: LocalDate, firstDayOfWeek: DayOfWeek): LocalDate {
         val currentDay = date.dayOfWeek
-        val daysFromStart = (currentDay.value - firstDayOfWeek.value + 7) % 7
+        val daysFromStart = (currentDay.isoDayNumber - firstDayOfWeek.isoDayNumber + 7) % 7
         return date.minus(daysFromStart, DateTimeUnit.DAY)
     }
 }

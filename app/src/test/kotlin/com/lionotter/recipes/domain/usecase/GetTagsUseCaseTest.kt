@@ -1,7 +1,7 @@
 package com.lionotter.recipes.domain.usecase
 
 import com.lionotter.recipes.domain.model.Recipe
-import kotlinx.datetime.Instant
+import kotlin.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before

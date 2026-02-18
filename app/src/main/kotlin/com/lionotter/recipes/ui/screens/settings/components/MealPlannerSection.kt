@@ -21,6 +21,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.StartOfWeek
+import kotlinx.datetime.toJavaDayOfWeek
 import java.time.DayOfWeek
 import java.time.format.TextStyle
 import java.util.Locale
@@ -33,7 +34,7 @@ fun MealPlannerSection(
 ) {
     var expanded by remember { mutableStateOf(false) }
 
-    val localeDefaultDay = DayOfWeek.of(StartOfWeek.LOCALE_DEFAULT.resolve().value)
+    val localeDefaultDay = StartOfWeek.LOCALE_DEFAULT.resolve().toJavaDayOfWeek()
         .getDisplayName(TextStyle.FULL, Locale.getDefault())
 
     val options = listOf(

@@ -2,7 +2,7 @@ package com.lionotter.recipes.domain.model
 
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
-import kotlinx.datetime.Instant
+import kotlin.time.Instant
 import kotlinx.serialization.Serializable
 
 /**
