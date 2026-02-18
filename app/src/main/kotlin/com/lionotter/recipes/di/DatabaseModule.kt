@@ -2,16 +2,23 @@ package com.lionotter.recipes.di
 
 import android.content.Context
 import androidx.room.Room
+import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import co.touchlab.kermit.Logger
 import com.lionotter.recipes.data.local.ImportDebugDao
 import com.lionotter.recipes.data.local.MealPlanDao
 import com.lionotter.recipes.data.local.PendingImportDao
 import com.lionotter.recipes.data.local.RecipeDao
 import com.lionotter.recipes.data.local.RecipeDatabase
+import com.lionotter.recipes.data.sync.powerSyncSchema
+import com.powersync.PowerSyncDatabase
+import com.powersync.integrations.room.RoomConnectionPool
+import com.powersync.integrations.room.loadPowerSyncExtension
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CoroutineScope
 import javax.inject.Singleton
 
 @Module
@@ -23,11 +30,13 @@ object DatabaseModule {
     fun provideRecipeDatabase(
         @ApplicationContext context: Context
     ): RecipeDatabase {
+        val driver = BundledSQLiteDriver().also { it.loadPowerSyncExtension() }
         return Room.databaseBuilder(
             context,
             RecipeDatabase::class.java,
             "recipes.db"
         )
+            .setDriver(driver)
             .addMigrations(
                 RecipeDatabase.MIGRATION_1_2,
                 RecipeDatabase.MIGRATION_2_3,
@@ -40,6 +49,22 @@ object DatabaseModule {
                 RecipeDatabase.MIGRATION_9_10
             )
             .build()
+    }
+
+    @Provides
+    @Singleton
+    fun providePowerSyncDatabase(
+        database: RecipeDatabase,
+        @ApplicationScope scope: CoroutineScope
+    ): PowerSyncDatabase {
+        val pool = RoomConnectionPool(database, powerSyncSchema)
+        return PowerSyncDatabase.PowerSyncOpenFactory.opened(
+            pool = pool,
+            scope = scope,
+            schema = powerSyncSchema,
+            identifier = "recipes.db",
+            logger = Logger.withTag("PowerSync")
+        )
     }
 
     @Provides

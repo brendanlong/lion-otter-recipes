@@ -26,6 +26,8 @@ uiautomator = "2.3.0"
 androidxTestExtJunit = "1.2.1"
 anthropicSdk = "2.14.0"
 ojalgo = "56.2.1"
+powersync = "1.10.4"
+supabaseKt = "3.3.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -62,6 +64,7 @@ ktor-client-core = { group = "io.ktor", name = "ktor-client-core", version.ref =
 ktor-client-android = { group = "io.ktor", name = "ktor-client-android", version.ref = "ktor" }
 ktor-client-content-negotiation = { group = "io.ktor", name = "ktor-client-content-negotiation", version.ref = "ktor" }
 ktor-serialization-kotlinx-json = { group = "io.ktor", name = "ktor-serialization-kotlinx-json", version.ref = "ktor" }
+ktor-client-cio = { group = "io.ktor", name = "ktor-client-cio", version.ref = "ktor" }
 ktor-client-logging = { group = "io.ktor", name = "ktor-client-logging", version.ref = "ktor" }
 
 # Anthropic SDK
@@ -91,6 +94,20 @@ androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchm
 androidx-profileinstaller = { group = "androidx.profileinstaller", name = "profileinstaller", version.ref = "profileinstaller" }
 androidx-uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "uiautomator" }
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExtJunit" }
+
+# PowerSync
+powersync-core = { group = "com.powersync", name = "core", version.ref = "powersync" }
+powersync-room = { group = "com.powersync", name = "integration-room", version.ref = "powersync" }
+powersync-compose = { group = "com.powersync", name = "compose", version.ref = "powersync" }
+powersync-connector-supabase = { group = "com.powersync", name = "connector-supabase", version.ref = "powersync" }
+
+# Supabase
+supabase-bom = { group = "io.github.jan-tennert.supabase", name = "bom", version.ref = "supabaseKt" }
+supabase-auth-kt = { group = "io.github.jan-tennert.supabase", name = "auth-kt" }
+supabase-postgrest-kt = { group = "io.github.jan-tennert.supabase", name = "postgrest-kt" }
+supabase-storage-kt = { group = "io.github.jan-tennert.supabase", name = "storage-kt" }
+supabase-compose-auth = { group = "io.github.jan-tennert.supabase", name = "compose-auth" }
+supabase-compose-auth-ui = { group = "io.github.jan-tennert.supabase", name = "compose-auth-ui" }
 
 # Optimization
 ojalgo = { group = "org.ojalgo", name = "ojalgo", version.ref = "ojalgo" }

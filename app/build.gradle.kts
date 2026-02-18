@@ -28,6 +28,14 @@ android {
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Supabase + PowerSync config (public client-side values, protected by RLS).
+        // Empty defaults are intentional — sync is optional and the app works without it.
+        // SyncModule skips initialization when these are blank.
+        buildConfigField("String", "SUPABASE_URL", "\"${System.getenv("SUPABASE_URL") ?: ""}\"")
+        buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"${System.getenv("SUPABASE_PUBLISHABLE_KEY") ?: ""}\"")
+        buildConfigField("String", "POWERSYNC_URL", "\"${System.getenv("POWERSYNC_URL") ?: ""}\"")
+        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${System.getenv("GOOGLE_WEB_CLIENT_ID") ?: ""}\"")
     }
 
     buildTypes {
@@ -72,6 +80,8 @@ android {
             excludes += "META-INF/INDEX.LIST"
             // Duplicate from httpclient5 (Anthropic SDK)
             pickFirsts += "mozilla/public-suffix-list.txt"
+            // PowerSync native libraries
+            pickFirsts += "lib/**/libpowersync.so"
         }
     }
 }
@@ -113,9 +123,10 @@ dependencies {
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
 
-    // Ktor (used for WebScraperService HTTP requests)
+    // Ktor (used for WebScraperService HTTP requests and Supabase)
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.android)
+    implementation(libs.ktor.client.cio)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
     implementation(libs.ktor.client.logging)
@@ -141,6 +152,20 @@ dependencies {
 
     // HTML parsing
     implementation(libs.jsoup)
+
+    // PowerSync (real-time sync)
+    implementation(libs.powersync.core)
+    implementation(libs.powersync.room)
+    implementation(libs.powersync.compose)
+    implementation(libs.powersync.connector.supabase)
+
+    // Supabase (backend + auth)
+    implementation(platform(libs.supabase.bom))
+    implementation(libs.supabase.auth.kt)
+    implementation(libs.supabase.postgrest.kt)
+    implementation(libs.supabase.storage.kt)
+    implementation(libs.supabase.compose.auth)
+    implementation(libs.supabase.compose.auth.ui)
 
     // Optimization (ILP tag selection)
     implementation(libs.ojalgo)

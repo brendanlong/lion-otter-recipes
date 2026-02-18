@@ -18,7 +18,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -26,6 +25,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.screens.settings.components.AboutSection
+import com.lionotter.recipes.ui.screens.settings.components.AccountSection
 import com.lionotter.recipes.ui.screens.settings.components.ApiKeySection
 import com.lionotter.recipes.ui.screens.settings.components.BackupRestoreSection
 import com.lionotter.recipes.ui.screens.settings.components.DisplaySection
@@ -57,8 +57,9 @@ fun SettingsScreen(
     val groceryWeightUnitSystem by viewModel.groceryWeightUnitSystem.collectAsStateWithLifecycle()
     val startOfWeek by viewModel.startOfWeek.collectAsStateWithLifecycle()
     val importDebuggingEnabled by viewModel.importDebuggingEnabled.collectAsStateWithLifecycle()
+    val authState by viewModel.authState.collectAsStateWithLifecycle()
+    val syncStatus by viewModel.syncStatus.collectAsStateWithLifecycle()
 
-    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
     // Export file picker (create .lorecipes document)
@@ -83,25 +84,26 @@ fun SettingsScreen(
         }
     }
 
+    // Resolve snackbar message from state so we don't call context.getString inside LaunchedEffect
+    val snackbarMessage = when (val state = zipOperationState) {
+        is ZipOperationState.ExportComplete -> {
+            if (state.failedCount > 0) {
+                stringResource(R.string.exported_recipes_with_failures, state.exportedCount, state.failedCount)
+            } else {
+                stringResource(R.string.exported_recipes, state.exportedCount)
+            }
+        }
+        is ZipOperationState.Error -> state.message
+        else -> null
+    }
+
     // Show snackbar for export operation results
     // Context is used for string formatting in a side-effect, not for rendering
     @Suppress("LocalContextGetResourceValueCall")
     LaunchedEffect(zipOperationState) {
-        when (val state = zipOperationState) {
-            is ZipOperationState.ExportComplete -> {
-                val message = if (state.failedCount > 0) {
-                    context.getString(R.string.exported_recipes_with_failures, state.exportedCount, state.failedCount)
-                } else {
-                    context.getString(R.string.exported_recipes, state.exportedCount)
-                }
-                snackbarHostState.showSnackbar(message)
-                zipViewModel.resetOperationState()
-            }
-            is ZipOperationState.Error -> {
-                snackbarHostState.showSnackbar(state.message)
-                zipViewModel.resetOperationState()
-            }
-            else -> {}
+        if (snackbarMessage != null) {
+            snackbarHostState.showSnackbar(snackbarMessage)
+            zipViewModel.resetOperationState()
         }
     }
 
@@ -122,6 +124,17 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
+            // Account Section
+            AccountSection(
+                supabaseClient = viewModel.supabaseClient,
+                authState = authState,
+                syncStatus = syncStatus,
+                onSignOut = viewModel::signOut,
+                onSyncNow = viewModel::forceSync
+            )
+
+            HorizontalDivider()
+
             // API Key Section
             ApiKeySection(
                 currentApiKey = apiKey,

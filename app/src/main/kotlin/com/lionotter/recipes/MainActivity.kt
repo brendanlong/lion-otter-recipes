@@ -20,6 +20,8 @@ import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.ui.navigation.NavGraph
 import com.lionotter.recipes.ui.theme.LionOtterTheme
 import dagger.hilt.android.AndroidEntryPoint
+import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.auth.handleDeeplinks
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -30,9 +32,13 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var settingsDataStore: SettingsDataStore
 
+    @Inject
+    lateinit var supabaseClient: SupabaseClient
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        supabaseClient.handleDeeplinks(intent)
 
         val sharedUrl = extractSharedUrl(intent)
         val sharedFileUri = extractFileUri(intent)
@@ -72,6 +78,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        supabaseClient.handleDeeplinks(intent)
         val sharedUrl = extractSharedUrl(intent)
         if (sharedUrl != null) {
             lifecycleScope.launch {

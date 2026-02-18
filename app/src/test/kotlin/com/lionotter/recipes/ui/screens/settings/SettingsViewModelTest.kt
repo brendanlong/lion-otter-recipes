@@ -4,6 +4,11 @@ import app.cash.turbine.test
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.repository.ImportDebugRepository
+import com.lionotter.recipes.data.sync.AuthRepository
+import com.lionotter.recipes.data.sync.AuthState
+import com.lionotter.recipes.data.sync.SyncManager
+import com.lionotter.recipes.data.sync.SyncStatus
+import io.github.jan.supabase.SupabaseClient
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
@@ -31,6 +36,9 @@ class SettingsViewModelTest {
 
     private lateinit var settingsDataStore: SettingsDataStore
     private lateinit var importDebugRepository: ImportDebugRepository
+    private lateinit var authRepository: AuthRepository
+    private lateinit var syncManager: SyncManager
+    private lateinit var supabaseClient: SupabaseClient
     private lateinit var viewModel: SettingsViewModel
     private val testDispatcher = StandardTestDispatcher()
 
@@ -51,6 +59,11 @@ class SettingsViewModelTest {
         Dispatchers.setMain(testDispatcher)
         settingsDataStore = mockk()
         importDebugRepository = mockk()
+        authRepository = mockk(relaxed = true)
+        syncManager = mockk(relaxed = true)
+        supabaseClient = mockk(relaxed = true)
+        every { authRepository.authState } returns MutableStateFlow(AuthState())
+        every { syncManager.syncStatus } returns MutableStateFlow(SyncStatus.DISABLED)
         every { settingsDataStore.anthropicApiKey } returns apiKeyFlow
         every { settingsDataStore.aiModel } returns aiModelFlow
         every { settingsDataStore.extendedThinkingEnabled } returns extendedThinkingFlow
@@ -62,7 +75,7 @@ class SettingsViewModelTest {
         every { settingsDataStore.groceryVolumeUnitSystem } returns groceryVolumeUnitSystemFlow
         every { settingsDataStore.groceryWeightUnitSystem } returns groceryWeightUnitSystemFlow
         every { settingsDataStore.startOfWeek } returns startOfWeekFlow
-        viewModel = SettingsViewModel(settingsDataStore, importDebugRepository)
+        viewModel = SettingsViewModel(settingsDataStore, importDebugRepository, authRepository, syncManager, supabaseClient)
     }
 
     @After

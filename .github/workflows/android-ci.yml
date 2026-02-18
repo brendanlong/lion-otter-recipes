@@ -131,6 +131,11 @@ jobs:
           fi
 
       - name: Build debug APK
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+          POWERSYNC_URL: ${{ vars.POWERSYNC_URL }}
+          GOOGLE_WEB_CLIENT_ID: ${{ vars.GOOGLE_WEB_CLIENT_ID }}
         run: ./gradlew assembleDebug
 
       - name: Upload debug APK
@@ -175,6 +180,11 @@ jobs:
           fi
 
       - name: Build release APK
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+          POWERSYNC_URL: ${{ vars.POWERSYNC_URL }}
+          GOOGLE_WEB_CLIENT_ID: ${{ vars.GOOGLE_WEB_CLIENT_ID }}
         run: ./gradlew assembleRelease
 
       - name: Upload release APK

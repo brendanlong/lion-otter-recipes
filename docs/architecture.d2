@@ -33,6 +33,22 @@ external: {
     shape: rectangle
   }
 
+  supabase: {
+    label: Supabase (Postgres + Auth + Storage)
+    shape: rectangle
+    style: {
+      fill: "#3ecf8e"
+    }
+  }
+
+  powersync: {
+    label: PowerSync Cloud
+    shape: rectangle
+    style: {
+      fill: "#6366f1"
+    }
+  }
+
 }
 
 # Android App
@@ -491,8 +507,18 @@ app: {
       pending_import_entity -> room
       meal_plan_dao -> room
       meal_plan_entity -> room
+      powersync_db: {
+        label: PowerSyncDatabase
+        shape: cylinder
+        tooltip: "PowerSync database backed by Room via RoomConnectionPool. Handles sync, change tracking, and upload queuing."
+        style: {
+          fill: "#e8eaf6"
+        }
+      }
+
       settings -> datastore: non-sensitive settings
       settings -> tink_encrypted: API key
+      powersync_db -> room: shares SQLite via RoomConnectionPool
     }
 
     remote: {
@@ -513,6 +539,10 @@ app: {
         label: ImageDownloadService
         tooltip: "Downloads recipe images from remote URLs and stores them locally in app internal storage. Automatically retries with HTTPS if an HTTP download fails (e.g., cleartext traffic not permitted). Also supports saving images from byte streams (ZIP import) and base64 data (Paprika photo_data). Returns file:// URIs for local access. Used during import, export, and ZIP restore to ensure images are available offline."
       }
+      supabase_postgrest: {
+        label: Supabase PostgREST
+        tooltip: "Supabase PostgREST client for uploading local changes. Uses LWW upsert functions for conflict resolution."
+      }
     }
 
     paprika: {
@@ -531,12 +561,42 @@ app: {
       }
     }
 
+    sync: {
+      label: Sync Layer
+      style: {
+        fill: "#e8eaf6"
+        stroke: "#3f51b5"
+      }
+
+      auth_repo: {
+        label: AuthRepository
+        tooltip: "Manages Supabase Auth state. Observes session status and exposes reactive AuthState (signed-in, user info). Handles Google Sign-In via compose-auth."
+      }
+      sync_mgr: {
+        label: SyncManager
+        tooltip: "Manages PowerSync connection lifecycle. Connects on sign-in, disconnects on sign-out. Exposes sync status (syncing, up to date, offline, error)."
+      }
+      connector: {
+        label: RecipeSupabaseConnector
+        tooltip: "PowerSync backend connector. Implements fetchCredentials (Supabase JWT) and uploadData (LWW upsert via Postgres functions)."
+      }
+      schema: {
+        label: PowerSyncSchema
+        tooltip: "Defines synced tables (recipes, meal_plans) as PowerSync Table entries matching Room entities."
+      }
+
+      sync_mgr -> connector: creates
+      sync_mgr -> auth_repo: observes auth state
+    }
+
     repository.repo -> local.dao
     repository.repo -> local.settings
     repository.import_debug_repo -> local.import_debug_dao
     repository.pending_import_repo -> local.pending_import_dao
     repository.meal_plan_repo -> local.meal_plan_dao
     remote.image_dl -> local.image_storage: stores images
+    sync.connector -> remote.supabase_postgrest: upload changes
+    sync.sync_mgr -> local.powersync_db: connect/disconnect
   }
 
   # Performance
@@ -572,6 +632,7 @@ app: {
     db_module: DatabaseModule
     net_module: NetworkModule
     worker_module: WorkerModule
+    sync_module: SyncModule
   }
 
   # Connections within app
@@ -623,6 +684,12 @@ app: {
   data.remote.scraper -> external.web: fetch HTML
   data.remote.image_dl -> external.web: download image
   data.remote.anthropic_svc -> external.anthropic: parse recipe
+  data.remote.supabase_postgrest -> external.supabase: CRUD via PostgREST
+  data.local.powersync_db -> external.powersync: WebSocket streaming sync
+  data.sync.auth_repo -> external.supabase: Google Sign-In via Supabase Auth
+  external.powersync -> external.supabase: logical replication
+  ui.viewmodels.settings_vm -> data.sync.auth_repo: auth state, sign out
+  ui.viewmodels.settings_vm -> data.sync.sync_mgr: sync status, force sync
 }
 
 # Data Flow Legend
@@ -690,6 +757,22 @@ legend: {
   share4: "User selects recipes to import, ImportSelectionViewModel enqueues WorkManager job and navigates to RecipeList"
 
   share1 -> share2 -> share3 -> share4
+
+  sync_flow: {
+    label: "Sync Flow (PowerSync + Supabase)"
+    style: {
+      font-size: 14
+      bold: true
+    }
+  }
+  sync1: "1. User signs in with Google via Supabase Auth (Credential Manager)"
+  sync2: "2. SyncManager connects PowerSync to Supabase Postgres"
+  sync3: "3. PowerSync streams changes via WebSocket (real-time sync)"
+  sync4: "4. Local writes go through Room DAOs as before"
+  sync5: "5. PowerSync upload queue sends changes via LWW upsert functions"
+  sync6: "6. Offline changes queue and sync when connectivity returns"
+
+  sync1 -> sync2 -> sync3 -> sync4 -> sync5 -> sync6
 
   note: {
     label: "All imports run in background via WorkManager (URL, Paprika, .lorecipes). Import queue is database-backed (PendingImportEntity) and persists across app restarts. Supports multiple concurrent imports with individual cancellation from the recipe list via swipe-to-dismiss. Page metadata (title, image) is fetched cheaply before AI parsing begins. Paprika import runs in background with progress notifications and can be cancelled mid-way, keeping already-imported recipes. Export uses .lorecipes format (ZIP with RecipeSerializer) for both single recipe share and bulk backup."

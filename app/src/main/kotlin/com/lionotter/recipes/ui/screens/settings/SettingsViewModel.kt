@@ -1,10 +1,16 @@
 package com.lionotter.recipes.ui.screens.settings
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.repository.ImportDebugRepository
+import com.lionotter.recipes.data.sync.AuthRepository
+import com.lionotter.recipes.data.sync.AuthState
+import com.lionotter.recipes.data.sync.SyncManager
+import com.lionotter.recipes.data.sync.SyncStatus
+import io.github.jan.supabase.SupabaseClient
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
@@ -20,8 +26,15 @@ import javax.inject.Inject
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settingsDataStore: SettingsDataStore,
-    private val importDebugRepository: ImportDebugRepository
+    private val importDebugRepository: ImportDebugRepository,
+    private val authRepository: AuthRepository,
+    private val syncManager: SyncManager,
+    val supabaseClient: SupabaseClient
 ) : ViewModel() {
+
+    companion object {
+        private const val TAG = "SettingsViewModel"
+    }
 
     val apiKey: StateFlow<String?> = settingsDataStore.anthropicApiKey
         .stateIn(
@@ -202,6 +215,38 @@ class SettingsViewModel @Inject constructor(
 
     fun resetSaveState() {
         _saveState.value = SaveState.Idle
+    }
+
+    // Auth & Sync
+
+    val authState: StateFlow<AuthState> = authRepository.authState
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = AuthState()
+        )
+
+    val syncStatus: StateFlow<SyncStatus> = syncManager.syncStatus
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = SyncStatus.DISABLED
+        )
+
+    fun signOut() {
+        viewModelScope.launch {
+            try {
+                authRepository.signOut()
+            } catch (e: Exception) {
+                Log.e(TAG, "Sign out failed", e)
+            }
+        }
+    }
+
+    fun forceSync() {
+        viewModelScope.launch {
+            syncManager.forceSync()
+        }
     }
 
     sealed class SaveState {
