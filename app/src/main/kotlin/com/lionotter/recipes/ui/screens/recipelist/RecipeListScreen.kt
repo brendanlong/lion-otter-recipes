@@ -38,12 +38,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
 import com.lionotter.recipes.data.repository.RepositoryError
+import com.lionotter.recipes.ui.TestTags
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.ui.components.CancelImportConfirmationDialog
 import com.lionotter.recipes.ui.components.DeleteConfirmationDialog
@@ -225,7 +227,9 @@ fun RecipeListScreen(
             // Recipe list
             if (recipes.isEmpty()) {
                 Box(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .testTag(TestTags.EMPTY_STATE),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -244,6 +248,7 @@ fun RecipeListScreen(
                 }
             } else {
                 LazyColumn(
+                    modifier = Modifier.testTag(TestTags.RECIPE_LIST),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {

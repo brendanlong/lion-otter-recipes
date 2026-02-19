@@ -27,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -38,6 +39,7 @@ import coil3.compose.SubcomposeAsyncImage
 import coil3.compose.SubcomposeAsyncImageContent
 import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.IngredientUsageStatus
+import com.lionotter.recipes.ui.TestTags
 import com.lionotter.recipes.domain.model.InstructionIngredientKey
 import com.lionotter.recipes.domain.model.MeasurementPreference
 import com.lionotter.recipes.domain.model.Recipe
@@ -66,6 +68,7 @@ fun RecipeContent(
     Column(
         modifier = modifier
             .fillMaxSize()
+            .testTag(TestTags.RECIPE_DETAIL_CONTENT)
             .verticalScroll(rememberScrollState())
     ) {
         // Hero image (only shown if image loads successfully)
@@ -146,7 +149,8 @@ fun RecipeContent(
             Text(
                 text = stringResource(R.string.ingredients),
                 style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.testTag(TestTags.INGREDIENTS_SECTION)
             )
             Spacer(modifier = Modifier.height(12.dp))
             val aggregatedSections = recipe.aggregateIngredients()
@@ -184,7 +188,8 @@ fun RecipeContent(
             Text(
                 text = stringResource(R.string.instructions),
                 style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.testTag(TestTags.INSTRUCTIONS_SECTION)
             )
             Spacer(modifier = Modifier.height(12.dp))
             recipe.instructionSections.forEachIndexed { sectionIndex, section ->

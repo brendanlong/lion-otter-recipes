@@ -28,11 +28,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.ui.TestTags
 import com.lionotter.recipes.ui.components.RecipeThumbnail
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
@@ -50,6 +52,7 @@ internal fun RecipeCard(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
+                .testTag(TestTags.recipeCard(recipe.id))
                 .combinedClickable(
                     onClick = onClick,
                     onLongClick = onLongClick
@@ -128,7 +131,9 @@ internal fun RecipeCard(
                 // Favorite button
                 IconButton(
                     onClick = onFavoriteClick,
-                    modifier = Modifier.align(Alignment.Top)
+                    modifier = Modifier
+                        .align(Alignment.Top)
+                        .testTag(TestTags.favoriteButton(recipe.id))
                 ) {
                     Icon(
                         imageVector = if (recipe.isFavorite) Icons.Filled.Star else Icons.Outlined.StarOutline,
