@@ -743,3 +743,38 @@ legend: {
 
   gl1 -> gl1a -> gl2 -> gl3 -> gl4 -> gl5
 }
+
+# Testing Layer
+testing: {
+  label: Testing
+  style: {
+    fill: "#f5f5dc"
+    stroke: "#999"
+  }
+
+  unit_tests: {
+    label: Unit Tests
+    shape: rectangle
+    style: {
+      fill: "#e8f5e9"
+    }
+  }
+
+  ui_integration_tests: {
+    label: UI Integration Tests\n(Robolectric + Compose)
+    shape: rectangle
+    style: {
+      fill: "#e3f2fd"
+    }
+  }
+
+  test_tags: {
+    label: TestTags\n(ui.TestTags)
+    shape: rectangle
+    style: {
+      fill: "#fff3e0"
+    }
+  }
+
+  ui_integration_tests -> test_tags: uses
+}

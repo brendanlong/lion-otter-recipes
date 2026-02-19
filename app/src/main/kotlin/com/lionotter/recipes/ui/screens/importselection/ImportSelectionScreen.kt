@@ -22,9 +22,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
+import com.lionotter.recipes.ui.TestTags
 import com.lionotter.recipes.ui.components.ErrorCard
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 
@@ -148,6 +150,7 @@ private fun SelectionContent(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
+                .testTag(TestTags.IMPORT_SELECTION_LIST)
         ) {
             items(items, key = { it.id }) { item ->
                 RecipeChecklistItem(
@@ -172,7 +175,9 @@ private fun SelectionContent(
             }
             Button(
                 onClick = onImportClick,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag(TestTags.IMPORT_BUTTON),
                 enabled = hasSelection
             ) {
                 Text(stringResource(R.string.import_selected, selectedCount))
@@ -189,13 +194,15 @@ private fun RecipeChecklistItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .testTag(TestTags.importItem(item.id))
             .clickable(onClick = onToggle)
             .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Checkbox(
             checked = item.isSelected,
-            onCheckedChange = { onToggle() }
+            onCheckedChange = { onToggle() },
+            modifier = Modifier.testTag(TestTags.importCheckbox(item.id))
         )
         Column(modifier = Modifier.padding(start = 8.dp)) {
             Text(

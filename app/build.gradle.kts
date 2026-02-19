@@ -61,6 +61,10 @@ android {
         metricsDestination = layout.buildDirectory.dir("compose_compiler")
     }
 
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+
     lint {
         checkReleaseBuilds = false
     }
@@ -154,4 +158,16 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
     testImplementation(libs.turbine)
+
+    // Robolectric + Compose UI Testing
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core.ktx)
+    testImplementation(libs.androidx.test.ext.junit)
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
+
+    // Hilt Testing
+    testImplementation(libs.hilt.android.testing)
+    kspTest(libs.hilt.compiler)
 }
