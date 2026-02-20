@@ -170,4 +170,10 @@ dependencies {
     // Hilt Testing
     testImplementation(libs.hilt.android.testing)
     kspTest(libs.hilt.compiler)
+
+    // WorkManager Testing
+    testImplementation(libs.work.testing)
+
+    // Ktor Mock Engine (for Hilt integration tests)
+    testImplementation(libs.ktor.client.mock)
 }
