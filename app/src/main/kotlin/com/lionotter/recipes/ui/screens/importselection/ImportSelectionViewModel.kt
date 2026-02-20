@@ -8,7 +8,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.lionotter.recipes.data.paprika.PaprikaParser
-import com.lionotter.recipes.data.repository.RecipeRepository
+import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.util.RecipeSerializer
 import com.lionotter.recipes.domain.util.ZipImportHelper
 import com.lionotter.recipes.ui.state.InProgressRecipeManager
@@ -29,7 +29,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class ImportSelectionViewModel @Inject constructor(
-    private val recipeRepository: RecipeRepository,
+    private val recipeRepository: IRecipeRepository,
     private val paprikaParser: PaprikaParser,
     private val recipeSerializer: RecipeSerializer,
     private val zipImportHelper: ZipImportHelper,

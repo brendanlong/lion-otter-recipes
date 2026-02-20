@@ -7,7 +7,7 @@ import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.remote.RecipeParseException
 import com.lionotter.recipes.data.repository.ImportDebugRepository
-import com.lionotter.recipes.data.repository.RecipeRepository
+import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
@@ -27,7 +27,7 @@ import kotlin.coroutines.coroutineContext
  */
 class ParseHtmlUseCase @Inject constructor(
     private val anthropicService: AnthropicService,
-    private val recipeRepository: RecipeRepository,
+    private val recipeRepository: IRecipeRepository,
     private val importDebugRepository: ImportDebugRepository,
     private val settingsDataStore: SettingsDataStore,
     private val imageDownloadService: ImageDownloadService

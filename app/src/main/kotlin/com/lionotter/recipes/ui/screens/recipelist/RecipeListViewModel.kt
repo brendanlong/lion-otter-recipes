@@ -2,8 +2,8 @@ package com.lionotter.recipes.ui.screens.recipelist
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lionotter.recipes.data.repository.MealPlanRepository
-import com.lionotter.recipes.data.repository.RecipeRepository
+import com.lionotter.recipes.data.repository.IMealPlanRepository
+import com.lionotter.recipes.data.repository.IRecipeRepository
 
 import com.lionotter.recipes.domain.usecase.GetTagsUseCase
 import com.lionotter.recipes.ui.state.InProgressRecipeManager
@@ -25,8 +25,8 @@ import javax.inject.Inject
 class RecipeListViewModel @Inject constructor(
     private val getTagsUseCase: GetTagsUseCase,
     private val inProgressRecipeManager: InProgressRecipeManager,
-    private val recipeRepository: RecipeRepository,
-    private val mealPlanRepository: MealPlanRepository,
+    private val recipeRepository: IRecipeRepository,
+    private val mealPlanRepository: IMealPlanRepository,
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")

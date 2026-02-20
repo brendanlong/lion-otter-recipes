@@ -16,7 +16,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class FirestoreService @Inject constructor() {
+open class FirestoreService @Inject constructor() {
 
     companion object {
         private const val TAG = "FirestoreService"
@@ -26,12 +26,16 @@ class FirestoreService @Inject constructor() {
     val errors: SharedFlow<String> = _errors.asSharedFlow()
 
     init {
-        val settings = firestoreSettings {
-            setLocalCacheSettings(persistentCacheSettings {
-                setSizeBytes(FirebaseFirestoreSettings.CACHE_SIZE_UNLIMITED)
-            })
+        try {
+            val settings = firestoreSettings {
+                setLocalCacheSettings(persistentCacheSettings {
+                    setSizeBytes(FirebaseFirestoreSettings.CACHE_SIZE_UNLIMITED)
+                })
+            }
+            Firebase.firestore.firestoreSettings = settings
+        } catch (e: IllegalStateException) {
+            Log.w(TAG, "Firestore settings already configured: ${e.message}")
         }
-        Firebase.firestore.firestoreSettings = settings
 
         Firebase.firestore.persistentCacheIndexManager?.let { indexManager ->
             indexManager.enableIndexAutoCreation()
@@ -44,17 +48,17 @@ class FirestoreService @Inject constructor() {
             ?: throw IllegalStateException("User not authenticated")
     }
 
-    fun recipesCollection(): CollectionReference {
+    open fun recipesCollection(): CollectionReference {
         val uid = requireUid()
         return Firebase.firestore.collection("users").document(uid).collection("recipes")
     }
 
-    fun mealPlansCollection(): CollectionReference {
+    open fun mealPlansCollection(): CollectionReference {
         val uid = requireUid()
         return Firebase.firestore.collection("users").document(uid).collection("mealPlans")
     }
 
-    fun recipeContentCollection(recipeId: String): CollectionReference {
+    open fun recipeContentCollection(recipeId: String): CollectionReference {
         val uid = requireUid()
         return Firebase.firestore.collection("users").document(uid)
             .collection("recipes").document(recipeId).collection("content")

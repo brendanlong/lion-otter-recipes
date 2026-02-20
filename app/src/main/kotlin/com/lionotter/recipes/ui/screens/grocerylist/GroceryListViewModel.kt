@@ -3,8 +3,8 @@ package com.lionotter.recipes.ui.screens.grocerylist
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lionotter.recipes.data.local.SettingsDataStore
-import com.lionotter.recipes.data.repository.MealPlanRepository
-import com.lionotter.recipes.data.repository.RecipeRepository
+import com.lionotter.recipes.data.repository.IMealPlanRepository
+import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.Amount
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.model.UnitCategory
@@ -67,8 +67,8 @@ enum class GroceryListStep {
 @HiltViewModel
 class GroceryListViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    private val mealPlanRepository: MealPlanRepository,
-    private val recipeRepository: RecipeRepository,
+    private val mealPlanRepository: IMealPlanRepository,
+    private val recipeRepository: IRecipeRepository,
     private val aggregateGroceryListUseCase: AggregateGroceryListUseCase,
     private val settingsDataStore: SettingsDataStore
 ) : ViewModel() {

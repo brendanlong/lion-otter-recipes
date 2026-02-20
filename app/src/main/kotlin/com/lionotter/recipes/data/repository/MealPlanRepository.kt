@@ -18,12 +18,12 @@ import javax.inject.Singleton
 @Singleton
 class MealPlanRepository @Inject constructor(
     private val firestoreService: FirestoreService
-) {
+) : IMealPlanRepository {
     companion object {
         private const val TAG = "MealPlanRepository"
     }
 
-    fun getMealPlansForDateRange(startDate: LocalDate, endDate: LocalDate): Flow<List<MealPlanEntry>> = callbackFlow {
+    override fun getMealPlansForDateRange(startDate: LocalDate, endDate: LocalDate): Flow<List<MealPlanEntry>> = callbackFlow {
         val registration = firestoreService.mealPlansCollection()
             .whereGreaterThanOrEqualTo("date", startDate.toString())
             .whereLessThanOrEqualTo("date", endDate.toString())
@@ -46,7 +46,7 @@ class MealPlanRepository @Inject constructor(
         awaitClose { registration.remove() }
     }
 
-    fun saveMealPlan(entry: MealPlanEntry) {
+    override fun saveMealPlan(entry: MealPlanEntry) {
         val dto = entry.toDto()
         firestoreService.mealPlansCollection().document(entry.id).set(dto)
             .addOnFailureListener { e ->
@@ -55,7 +55,7 @@ class MealPlanRepository @Inject constructor(
             }
     }
 
-    fun updateMealPlan(entry: MealPlanEntry) {
+    override fun updateMealPlan(entry: MealPlanEntry) {
         val dto = entry.toDto()
         firestoreService.mealPlansCollection().document(entry.id).set(dto)
             .addOnFailureListener { e ->
@@ -64,7 +64,7 @@ class MealPlanRepository @Inject constructor(
             }
     }
 
-    fun deleteMealPlan(id: String) {
+    override fun deleteMealPlan(id: String) {
         firestoreService.mealPlansCollection().document(id).delete()
             .addOnFailureListener { e ->
                 Log.e(TAG, "Error deleting meal plan $id", e)
@@ -72,7 +72,7 @@ class MealPlanRepository @Inject constructor(
             }
     }
 
-    suspend fun deleteMealPlansByRecipeId(recipeId: String) {
+    override suspend fun deleteMealPlansByRecipeId(recipeId: String) {
         try {
             val snapshot = firestoreService.mealPlansCollection()
                 .whereEqualTo("recipeId", recipeId)
@@ -96,7 +96,7 @@ class MealPlanRepository @Inject constructor(
         }
     }
 
-    suspend fun countMealPlansByRecipeId(recipeId: String): Int {
+    override suspend fun countMealPlansByRecipeId(recipeId: String): Int {
         return try {
             val snapshot = firestoreService.mealPlansCollection()
                 .whereEqualTo("recipeId", recipeId)
@@ -109,7 +109,7 @@ class MealPlanRepository @Inject constructor(
         }
     }
 
-    suspend fun getAllMealPlansOnce(): List<MealPlanEntry> {
+    override suspend fun getAllMealPlansOnce(): List<MealPlanEntry> {
         return try {
             val snapshot = firestoreService.mealPlansCollection().get().await()
             snapshot.documents.mapNotNull { doc ->

@@ -17,14 +17,14 @@ import javax.inject.Singleton
 @Singleton
 class RecipeRepository @Inject constructor(
     private val firestoreService: FirestoreService
-) {
+) : IRecipeRepository {
     companion object {
         private const val TAG = "RecipeRepository"
         private const val HTML_DOC_ID = "htmlDoc"
         private const val HTML_FIELD = "originalHtml"
     }
 
-    fun getAllRecipes(): Flow<List<Recipe>> = callbackFlow {
+    override fun getAllRecipes(): Flow<List<Recipe>> = callbackFlow {
         val registration = firestoreService.recipesCollection()
             .orderBy("updatedAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, error ->
@@ -46,7 +46,7 @@ class RecipeRepository @Inject constructor(
         awaitClose { registration.remove() }
     }
 
-    fun getRecipeById(id: String): Flow<Recipe?> = callbackFlow {
+    override fun getRecipeById(id: String): Flow<Recipe?> = callbackFlow {
         val registration = firestoreService.recipesCollection().document(id)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
@@ -65,7 +65,7 @@ class RecipeRepository @Inject constructor(
         awaitClose { registration.remove() }
     }
 
-    suspend fun getRecipeByIdOnce(id: String): Recipe? {
+    override suspend fun getRecipeByIdOnce(id: String): Recipe? {
         return try {
             val snapshot = firestoreService.recipesCollection().document(id).get().await()
             snapshot.toObject(RecipeDto::class.java)?.toDomain()
@@ -75,7 +75,7 @@ class RecipeRepository @Inject constructor(
         }
     }
 
-    suspend fun getOriginalHtml(recipeId: String): String? {
+    override suspend fun getOriginalHtml(recipeId: String): String? {
         return try {
             val snapshot = firestoreService.recipeContentCollection(recipeId)
                 .document(HTML_DOC_ID).get().await()
@@ -86,7 +86,7 @@ class RecipeRepository @Inject constructor(
         }
     }
 
-    fun saveRecipe(recipe: Recipe, originalHtml: String? = null) {
+    override fun saveRecipe(recipe: Recipe, originalHtml: String?) {
         val dto = recipe.toDto()
         firestoreService.recipesCollection().document(recipe.id).set(dto)
             .addOnFailureListener { e ->
@@ -104,7 +104,7 @@ class RecipeRepository @Inject constructor(
         }
     }
 
-    fun deleteRecipe(id: String) {
+    override fun deleteRecipe(id: String) {
         // Delete subcollection content doc first
         firestoreService.recipeContentCollection(id)
             .document(HTML_DOC_ID)
@@ -120,7 +120,7 @@ class RecipeRepository @Inject constructor(
             }
     }
 
-    fun setFavorite(id: String, isFavorite: Boolean) {
+    override fun setFavorite(id: String, isFavorite: Boolean) {
         firestoreService.recipesCollection().document(id)
             .update("isFavorite", isFavorite)
             .addOnFailureListener { e ->
@@ -129,7 +129,7 @@ class RecipeRepository @Inject constructor(
             }
     }
 
-    suspend fun getAllRecipeIdsAndNames(): List<RecipeIdAndName> {
+    override suspend fun getAllRecipeIdsAndNames(): List<RecipeIdAndName> {
         return try {
             val snapshot = firestoreService.recipesCollection().get().await()
             snapshot.documents.mapNotNull { doc ->

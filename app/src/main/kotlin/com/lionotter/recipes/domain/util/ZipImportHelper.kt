@@ -2,8 +2,8 @@ package com.lionotter.recipes.domain.util
 
 import android.util.Log
 import com.lionotter.recipes.data.remote.ImageDownloadService
-import com.lionotter.recipes.data.repository.MealPlanRepository
-import com.lionotter.recipes.data.repository.RecipeRepository
+import com.lionotter.recipes.data.repository.IMealPlanRepository
+import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import kotlin.time.Clock
 import kotlinx.serialization.json.Json
@@ -21,9 +21,9 @@ import javax.inject.Inject
  * - Importing meal plan entries from the meal-plans folder
  */
 class ZipImportHelper @Inject constructor(
-    private val recipeRepository: RecipeRepository,
+    private val recipeRepository: IRecipeRepository,
     private val recipeSerializer: RecipeSerializer,
-    private val mealPlanRepository: MealPlanRepository,
+    private val mealPlanRepository: IMealPlanRepository,
     private val json: Json,
     private val imageDownloadService: ImageDownloadService
 ) {
