@@ -768,6 +768,15 @@ testing: {
     }
   }
 
+  hilt_integration_tests: {
+    label: Full-Stack Integration Tests\n(Hilt + Robolectric + Room)
+    shape: rectangle
+    tooltip: "HiltAndroidTest with real in-memory Room database, real DAOs, repositories, and use cases. External services (network, WorkManager, SettingsDataStore) are replaced with test doubles via @TestInstallIn and @BindValue. Tests: Recipe CRUD, Meal Plan + Grocery List, Data Consistency (JSON round-trip), Error Propagation."
+    style: {
+      fill: "#fce4ec"
+    }
+  }
+
   test_tags: {
     label: TestTags\n(ui.TestTags)
     shape: rectangle
@@ -776,5 +785,15 @@ testing: {
     }
   }
 
+  test_di: {
+    label: Test DI Modules\n(TestDatabaseModule, TestNetworkModule, TestWorkerModule)
+    shape: rectangle
+    tooltip: "@TestInstallIn modules replacing production DI: in-memory Room database, Ktor MockEngine, WorkManager test helper."
+    style: {
+      fill: "#fff3e0"
+    }
+  }
+
   ui_integration_tests -> test_tags: uses
+  hilt_integration_tests -> test_di: uses
 }
