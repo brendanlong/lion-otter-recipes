@@ -1,5 +1,6 @@
 package com.lionotter.recipes.data.local
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -22,5 +23,7 @@ data class ImportDebugEntity(
     val errorMessage: String?,
     val isError: Boolean,
     val durationMs: Long?,
-    val createdAt: Long
+    val createdAt: Long,
+    @ColumnInfo(defaultValue = "0")
+    val batchMode: Boolean = false
 )
