@@ -221,6 +221,34 @@ class ImageDownloadService @Inject constructor(
     }
 
     /**
+     * Saves an image from a content:// URI (e.g., from the image picker) to local storage.
+     * Returns the local file:// URI, or null if saving fails.
+     */
+    fun saveImageFromContentUri(contentUri: android.net.Uri): String? {
+        return try {
+            val inputStream = context.contentResolver.openInputStream(contentUri) ?: run {
+                Log.w(TAG, "Could not open input stream for content URI: $contentUri")
+                return null
+            }
+
+            // Determine extension from content type
+            val mimeType = context.contentResolver.getType(contentUri)
+            val extension = when (mimeType) {
+                "image/png" -> ".png"
+                "image/webp" -> ".webp"
+                "image/gif" -> ".gif"
+                "image/jpeg" -> ".jpg"
+                else -> ".jpg"
+            }
+
+            saveImageFromStream(inputStream, extension)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to save image from content URI: $contentUri", e)
+            null
+        }
+    }
+
+    /**
      * Returns the local File for a file:// URI, or null if the URI is not a local file
      * or the file doesn't exist.
      */

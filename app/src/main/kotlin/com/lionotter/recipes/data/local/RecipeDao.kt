@@ -42,4 +42,7 @@ interface RecipeDao {
 
     @Query("UPDATE recipes SET userNotes = :userNotes, updatedAt = :updatedAt WHERE id = :id")
     suspend fun setUserNotes(id: String, userNotes: String?, updatedAt: Instant)
+
+    @Query("UPDATE recipes SET imageUrl = :imageUrl, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun setImageUrl(id: String, imageUrl: String?, updatedAt: Instant)
 }

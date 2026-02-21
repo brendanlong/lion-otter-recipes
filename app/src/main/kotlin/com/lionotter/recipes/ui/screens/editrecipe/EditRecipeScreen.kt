@@ -1,10 +1,15 @@
 package com.lionotter.recipes.ui.screens.editrecipe
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,15 +20,19 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.HideImage
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -42,14 +51,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil3.compose.SubcomposeAsyncImage
+import coil3.compose.SubcomposeAsyncImageContent
 import com.lionotter.recipes.R
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.screens.settings.components.ModelSelectionSection
@@ -62,6 +76,7 @@ fun EditRecipeScreen(
     viewModel: EditRecipeViewModel = hiltViewModel()
 ) {
     val recipe by viewModel.recipe.collectAsStateWithLifecycle()
+    val imageUrl by viewModel.imageUrl.collectAsStateWithLifecycle()
     val markdownText by viewModel.markdownText.collectAsStateWithLifecycle()
     val editState by viewModel.editState.collectAsStateWithLifecycle()
     val model by viewModel.model.collectAsStateWithLifecycle()
@@ -72,6 +87,15 @@ fun EditRecipeScreen(
     var showRegenerateConfirmDialog by remember { mutableStateOf(false) }
 
     val isLoading = editState is EditUiState.Loading
+
+    // Image picker launcher
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            viewModel.onImageSelected(uri)
+        }
+    }
 
     // Handle edit result — navigate back immediately on success
     LaunchedEffect(editState) {
@@ -159,6 +183,13 @@ fun EditRecipeScreen(
             }
             else -> {
                 EditContent(
+                    imageUrl = imageUrl,
+                    onChangeImage = {
+                        imagePickerLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    },
+                    onRemoveImage = viewModel::removeImage,
                     markdownText = markdownText,
                     onMarkdownChange = viewModel::setMarkdownText,
                     model = model,
@@ -241,6 +272,9 @@ private fun EditLoadingContent(
 
 @Composable
 private fun EditContent(
+    imageUrl: String?,
+    onChangeImage: () -> Unit,
+    onRemoveImage: () -> Unit,
     markdownText: String,
     onMarkdownChange: (String) -> Unit,
     model: String,
@@ -266,6 +300,26 @@ private fun EditContent(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Image section
+            Text(
+                text = stringResource(R.string.recipe_image),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            ImageEditSection(
+                imageUrl = imageUrl,
+                onChangeImage = onChangeImage,
+                onRemoveImage = onRemoveImage
+            )
+
+            HorizontalDivider()
+
+            // Recipe text section
+            Text(
+                text = stringResource(R.string.recipe_text),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
             Text(
                 text = stringResource(R.string.edit_recipe_description),
                 style = MaterialTheme.typography.bodyMedium,
@@ -340,6 +394,106 @@ private fun EditContent(
                     modifier = Modifier.padding(start = 8.dp)
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun ImageEditSection(
+    imageUrl: String?,
+    onChangeImage: () -> Unit,
+    onRemoveImage: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        if (imageUrl != null) {
+            // Show current image preview
+            var showImage by remember(imageUrl) { mutableStateOf(true) }
+            if (showImage) {
+                SubcomposeAsyncImage(
+                    model = imageUrl,
+                    contentDescription = stringResource(R.string.recipe_image),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f)
+                        .clip(MaterialTheme.shapes.medium),
+                    contentScale = ContentScale.Crop,
+                    loading = { },
+                    error = { showImage = false },
+                    success = { SubcomposeAsyncImageContent() }
+                )
+            }
+            if (!showImage) {
+                // Image failed to load, show placeholder
+                ImagePlaceholder()
+            }
+        } else {
+            // No image set
+            ImagePlaceholder()
+        }
+
+        // Image action buttons
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(onClick = onChangeImage) {
+                Icon(
+                    imageVector = if (imageUrl != null) Icons.Default.Image else Icons.Default.AddPhotoAlternate,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    text = stringResource(R.string.change_image),
+                    modifier = Modifier.padding(start = 8.dp)
+                )
+            }
+            if (imageUrl != null) {
+                OutlinedButton(onClick = onRemoveImage) {
+                    Icon(
+                        imageVector = Icons.Default.HideImage,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = stringResource(R.string.remove_image),
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ImagePlaceholder(
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .aspectRatio(16f / 9f)
+            .clip(MaterialTheme.shapes.medium)
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = Icons.Default.Image,
+                contentDescription = null,
+                modifier = Modifier.size(48.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = stringResource(R.string.no_image),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

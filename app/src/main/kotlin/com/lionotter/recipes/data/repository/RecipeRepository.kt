@@ -85,6 +85,10 @@ class RecipeRepository @Inject constructor(
         recipeDao.setUserNotes(id, userNotes, kotlin.time.Clock.System.now())
     }
 
+    suspend fun setImageUrl(id: String, imageUrl: String?) {
+        recipeDao.setImageUrl(id, imageUrl, kotlin.time.Clock.System.now())
+    }
+
     suspend fun getAllRecipeIdsAndNames(): List<RecipeIdAndName> {
         return recipeDao.getAllRecipeIdsAndNames()
     }

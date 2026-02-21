@@ -66,6 +66,11 @@
     <string name="cancel_edit">Cancel Edit</string>
     <string name="regenerate_from_original">Regenerate from original</string>
     <string name="regenerate_from_original_description">Re-parse this recipe from the original page content using AI. This will discard any edits you\'ve made and replace the recipe with a fresh parse from the original source.</string>
+    <string name="recipe_image">Recipe image</string>
+    <string name="change_image">Change Image</string>
+    <string name="remove_image">Remove Image</string>
+    <string name="no_image">No image</string>
+    <string name="recipe_text">Recipe Text</string>
 
     <!-- Regenerate Recipe -->
     <string name="regenerate">Regenerate</string>

@@ -1,5 +1,7 @@
 package com.lionotter.recipes.ui.screens.editrecipe
 
+import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -8,6 +10,7 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AnthropicService
+import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
@@ -38,7 +41,8 @@ class EditRecipeViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val recipeRepository: RecipeRepository,
     private val settingsDataStore: SettingsDataStore,
-    private val workManager: WorkManager
+    private val workManager: WorkManager,
+    private val imageDownloadService: ImageDownloadService
 ) : ViewModel() {
 
     private val recipeId: String = savedStateHandle.get<String>("recipeId")
@@ -51,8 +55,17 @@ class EditRecipeViewModel @Inject constructor(
             initialValue = null
         )
 
+    private val _imageUrl = MutableStateFlow<String?>(null)
+    val imageUrl: StateFlow<String?> = _imageUrl.asStateFlow()
+
+    /** Whether the user has explicitly changed the image (pick or remove). */
+    private var imageChanged = false
+
     private val _markdownText = MutableStateFlow("")
     val markdownText: StateFlow<String> = _markdownText.asStateFlow()
+
+    /** The original markdown loaded from the recipe, used to detect changes. */
+    private var originalMarkdownText: String = ""
 
     private val _editState = MutableStateFlow<EditUiState>(EditUiState.Idle)
     val editState: StateFlow<EditUiState> = _editState.asStateFlow()
@@ -106,9 +119,62 @@ class EditRecipeViewModel @Inject constructor(
     }
 
     /**
-     * Save the edited markdown by sending it through AI for re-parsing.
+     * Handle image selection from the image picker.
+     * Copies the image to local storage and updates the recipe.
+     */
+    fun onImageSelected(contentUri: Uri) {
+        viewModelScope.launch {
+            try {
+                val localUri = imageDownloadService.saveImageFromContentUri(contentUri)
+                if (localUri != null) {
+                    _imageUrl.value = localUri
+                    imageChanged = true
+                    recipeRepository.setImageUrl(recipeId, localUri)
+                } else {
+                    Log.w(TAG, "Failed to save selected image")
+                    _editState.value = EditUiState.Error("Failed to save selected image")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to save selected image", e)
+                _editState.value = EditUiState.Error("Failed to save image: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Remove the recipe image.
+     */
+    fun removeImage() {
+        viewModelScope.launch {
+            try {
+                val currentImageUrl = _imageUrl.value
+                _imageUrl.value = null
+                imageChanged = true
+                recipeRepository.setImageUrl(recipeId, null)
+                // Clean up the old image file if it was a local file
+                if (currentImageUrl != null) {
+                    imageDownloadService.deleteLocalImage(currentImageUrl)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to remove image", e)
+                _editState.value = EditUiState.Error("Failed to remove image: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Save all changes. Only triggers the AI cycle if the recipe text was actually modified.
+     * Title and image changes are saved directly without AI.
      */
     fun saveEdits() {
+        val markdownChanged = _markdownText.value != originalMarkdownText
+        if (!markdownChanged) {
+            // No recipe text changes — title and image are already saved directly,
+            // so just report success without triggering AI.
+            _editState.value = EditUiState.Success()
+            return
+        }
+
         val workRequest = OneTimeWorkRequestBuilder<RecipeEditWorker>()
             .setInputData(
                 RecipeEditWorker.createInputData(
@@ -178,10 +244,15 @@ class EditRecipeViewModel @Inject constructor(
             val html = recipeRepository.getOriginalHtml(recipeId)
             _hasOriginalHtml.value = !html.isNullOrBlank()
 
-            // Load recipe and generate markdown (only if user hasn't started typing)
+            // Load recipe and populate fields (only if user hasn't started editing)
             val currentRecipe = recipe.first { it != null } ?: return@launch
+            if (!imageChanged) {
+                _imageUrl.value = currentRecipe.imageUrl
+            }
             if (_markdownText.value.isBlank()) {
-                _markdownText.value = RecipeMarkdownFormatter.format(currentRecipe)
+                val markdown = RecipeMarkdownFormatter.format(currentRecipe)
+                _markdownText.value = markdown
+                originalMarkdownText = markdown
             }
         }
     }
@@ -270,5 +341,9 @@ class EditRecipeViewModel @Inject constructor(
         loadInitialData()
         observeEditWorkStatus()
         observeRegenerateWorkStatus()
+    }
+
+    companion object {
+        private const val TAG = "EditRecipeViewModel"
     }
 }
