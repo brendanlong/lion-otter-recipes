@@ -29,7 +29,7 @@ import javax.inject.Inject
 sealed class EditUiState {
     object Idle : EditUiState()
     data class Loading(val progress: String) : EditUiState()
-    object Success : EditUiState()
+    data class Success(val newRecipeId: String? = null) : EditUiState()
     data class Error(val message: String) : EditUiState()
 }
 
@@ -127,6 +127,28 @@ class EditRecipeViewModel @Inject constructor(
     }
 
     /**
+     * Save the edited markdown as a new recipe (copy) instead of updating the existing one.
+     */
+    fun saveAsCopy() {
+        val workRequest = OneTimeWorkRequestBuilder<RecipeEditWorker>()
+            .setInputData(
+                RecipeEditWorker.createInputData(
+                    recipeId = recipeId,
+                    markdownText = _markdownText.value,
+                    model = _model.value,
+                    extendedThinking = _extendedThinking.value,
+                    saveAsCopy = true
+                )
+            )
+            .addTag(RecipeEditWorker.TAG_RECIPE_EDIT)
+            .build()
+
+        currentEditWorkId = workRequest.id
+        workManager.enqueue(workRequest)
+        _editState.value = EditUiState.Loading("Preparing...")
+    }
+
+    /**
      * Regenerate the recipe from the original source HTML/URL.
      */
     fun regenerateFromOriginal() {
@@ -182,7 +204,8 @@ class EditRecipeViewModel @Inject constructor(
                             _editState.value = EditUiState.Loading(message)
                         }
                         WorkInfo.State.SUCCEEDED -> {
-                            _editState.value = EditUiState.Success
+                            val newRecipeId = workInfo.outputData.getString(RecipeEditWorker.KEY_NEW_RECIPE_ID)
+                            _editState.value = EditUiState.Success(newRecipeId = newRecipeId)
                             currentEditWorkId = null
                             workManager.pruneWork()
                         }
@@ -222,7 +245,7 @@ class EditRecipeViewModel @Inject constructor(
                             _editState.value = EditUiState.Loading(message)
                         }
                         WorkInfo.State.SUCCEEDED -> {
-                            _editState.value = EditUiState.Success
+                            _editState.value = EditUiState.Success()
                             currentRegenerateWorkId = null
                             workManager.pruneWork()
                         }

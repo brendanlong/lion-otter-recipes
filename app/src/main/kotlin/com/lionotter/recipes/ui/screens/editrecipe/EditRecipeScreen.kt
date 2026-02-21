@@ -17,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -57,6 +58,7 @@ import com.lionotter.recipes.ui.screens.settings.components.ModelSelectionSectio
 fun EditRecipeScreen(
     onBackClick: () -> Unit,
     onEditSuccess: () -> Unit,
+    onCopySuccess: (newRecipeId: String) -> Unit,
     viewModel: EditRecipeViewModel = hiltViewModel()
 ) {
     val recipe by viewModel.recipe.collectAsStateWithLifecycle()
@@ -75,8 +77,13 @@ fun EditRecipeScreen(
     LaunchedEffect(editState) {
         when (editState) {
             is EditUiState.Success -> {
+                val newRecipeId = (editState as EditUiState.Success).newRecipeId
                 viewModel.resetEditState()
-                onEditSuccess()
+                if (newRecipeId != null) {
+                    onCopySuccess(newRecipeId)
+                } else {
+                    onEditSuccess()
+                }
             }
             else -> {}
         }
@@ -160,6 +167,7 @@ fun EditRecipeScreen(
                     onExtendedThinkingChange = viewModel::setExtendedThinking,
                     editState = editState,
                     onSave = viewModel::saveEdits,
+                    onSaveAsCopy = viewModel::saveAsCopy,
                     onCancel = onBackClick,
                     modifier = Modifier.padding(paddingValues)
                 )
@@ -241,6 +249,7 @@ private fun EditContent(
     onExtendedThinkingChange: (Boolean) -> Unit,
     editState: EditUiState,
     onSave: () -> Unit,
+    onSaveAsCopy: () -> Unit,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -302,6 +311,20 @@ private fun EditContent(
         ) {
             OutlinedButton(onClick = onCancel) {
                 Text(stringResource(R.string.cancel))
+            }
+            OutlinedButton(
+                onClick = onSaveAsCopy,
+                enabled = markdownText.isNotBlank()
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ContentCopy,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    text = stringResource(R.string.save_as_copy),
+                    modifier = Modifier.padding(start = 8.dp)
+                )
             }
             Button(
                 onClick = onSave,

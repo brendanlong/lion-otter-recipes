@@ -65,7 +65,7 @@ app: {
       }
       edit: {
         label: EditRecipeScreen
-        tooltip: "Full-screen markdown editor for recipes. Shows markdown version of the recipe (same format as share-as-text). Users edit the markdown and save to have AI clean up formatting and regenerate structured data (densities, etc.). Includes model selection and extended thinking toggle. Also supports regeneration from original source via refresh icon (when original HTML or source URL is available)."
+        tooltip: "Full-screen markdown editor for recipes. Shows markdown version of the recipe (same format as share-as-text). Users edit the markdown and save to have AI clean up formatting and regenerate structured data (densities, etc.). Includes model selection and extended thinking toggle. Also supports regeneration from original source via refresh icon (when original HTML or source URL is available). Save as Copy creates a new recipe from the edited markdown instead of updating the existing one."
       }
       add: AddRecipeScreen
       settings: SettingsScreen
@@ -135,7 +135,7 @@ app: {
       detail_vm: RecipeDetailViewModel
       edit_vm: {
         label: EditRecipeViewModel
-        tooltip: "Manages edit recipe screen state. Loads recipe as markdown, tracks model/thinking settings, and enqueues RecipeEditWorker for save or RecipeRegenerateWorker for regeneration from original source."
+        tooltip: "Manages edit recipe screen state. Loads recipe as markdown, tracks model/thinking settings, and enqueues RecipeEditWorker for save (or save as copy) or RecipeRegenerateWorker for regeneration from original source."
       }
       add_vm: AddRecipeViewModel
       settings_vm: SettingsViewModel
@@ -222,7 +222,7 @@ app: {
       }
       edit_worker: {
         label: RecipeEditWorker
-        tooltip: "CoroutineWorker that processes user-edited recipe markdown through AI re-parsing via EditRecipeUseCase. Preserves recipe metadata (ID, favorite, image, source URL, original HTML)."
+        tooltip: "CoroutineWorker that processes user-edited recipe markdown through AI re-parsing via EditRecipeUseCase. Preserves recipe metadata (ID, favorite, image, source URL, original HTML). Supports save-as-copy mode which creates a new recipe with a fresh ID."
       }
       paprika_import_worker: {
         label: PaprikaImportWorker
@@ -309,7 +309,7 @@ app: {
       }
       edit_recipe: {
         label: EditRecipeUseCase
-        tooltip: "Edits a recipe by sending user-modified markdown text through ParseHtmlUseCase.parseText() for AI re-parsing. Preserves recipe ID, createdAt, favorite status, image, source URL, and original HTML (for future regeneration)."
+        tooltip: "Edits a recipe by sending user-modified markdown text through ParseHtmlUseCase.parseText() for AI re-parsing. Preserves recipe ID, createdAt, favorite status, image, source URL, and original HTML (for future regeneration). Supports saveAsCopy mode which generates a new UUID and fresh timestamps for the copied recipe."
       }
       aggregate_grocery: {
         label: AggregateGroceryListUseCase
@@ -711,9 +711,9 @@ legend: {
   }
   edit1: "1. User taps edit (pencil icon) on recipe detail screen"
   edit2: "2. EditRecipeScreen shows markdown of recipe (same as share-as-text)"
-  edit3: "3. User edits markdown, selects model/thinking, taps Save"
+  edit3: "3. User edits markdown, selects model/thinking, taps Save or Save as Copy"
   edit4: "4. RecipeEditWorker sends markdown to AI via EditRecipeUseCase"
-  edit5: "5. AI re-parses into structured recipe, preserving ID/metadata"
+  edit5: "5. AI re-parses into structured recipe (Save preserves ID/metadata; Save as Copy creates new recipe)"
 
   edit1 -> edit2 -> edit3 -> edit4 -> edit5
 

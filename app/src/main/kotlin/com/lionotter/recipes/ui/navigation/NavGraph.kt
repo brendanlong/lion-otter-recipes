@@ -170,6 +170,12 @@ fun NavGraph(
                         ?.savedStateHandle
                         ?.set("edit_success", true)
                     navigateBack()
+                },
+                onCopySuccess = { newRecipeId ->
+                    // Navigate to the new recipe, clearing the edit screen from the back stack
+                    navController.navigate(Screen.RecipeDetail.createRoute(newRecipeId)) {
+                        popUpTo(Screen.RecipeDetail.route) { inclusive = false }
+                    }
                 }
             )
         }
