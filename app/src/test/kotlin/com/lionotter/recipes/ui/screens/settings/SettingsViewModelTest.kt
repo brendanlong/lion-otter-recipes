@@ -36,6 +36,7 @@ class SettingsViewModelTest {
 
     private val apiKeyFlow = MutableStateFlow<String?>(null)
     private val aiModelFlow = MutableStateFlow(AnthropicService.DEFAULT_MODEL)
+    private val editModelFlow = MutableStateFlow(AnthropicService.DEFAULT_EDIT_MODEL)
     private val extendedThinkingFlow = MutableStateFlow(true)
     private val keepScreenOnFlow = MutableStateFlow(true)
     private val themeModeFlow = MutableStateFlow(ThemeMode.AUTO)
@@ -53,6 +54,7 @@ class SettingsViewModelTest {
         importDebugRepository = mockk()
         every { settingsDataStore.anthropicApiKey } returns apiKeyFlow
         every { settingsDataStore.aiModel } returns aiModelFlow
+        every { settingsDataStore.editModel } returns editModelFlow
         every { settingsDataStore.extendedThinkingEnabled } returns extendedThinkingFlow
         every { settingsDataStore.keepScreenOn } returns keepScreenOnFlow
         every { settingsDataStore.themeMode } returns themeModeFlow

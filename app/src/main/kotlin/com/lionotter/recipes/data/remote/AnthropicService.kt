@@ -133,6 +133,7 @@ class AnthropicService @Inject constructor(
 
     companion object {
         const val DEFAULT_MODEL = "claude-opus-4-6"
+        const val DEFAULT_EDIT_MODEL = "claude-sonnet-4-6"
         private const val API_KEY_PREFIX = "sk-ant-"
 
         /**

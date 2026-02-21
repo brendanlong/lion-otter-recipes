@@ -66,7 +66,7 @@ import coil3.compose.SubcomposeAsyncImage
 import coil3.compose.SubcomposeAsyncImageContent
 import com.lionotter.recipes.R
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
-import com.lionotter.recipes.ui.screens.settings.components.ModelSelectionSection
+import com.lionotter.recipes.ui.screens.settings.components.SingleModelSelectionSection
 
 @Composable
 fun EditRecipeScreen(
@@ -377,7 +377,7 @@ private fun EditContent(
                 )
             )
 
-            ModelSelectionSection(
+            SingleModelSelectionSection(
                 currentModel = model,
                 onModelChange = onModelChange,
                 extendedThinkingEnabled = extendedThinking,

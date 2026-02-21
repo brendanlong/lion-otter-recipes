@@ -111,8 +111,13 @@
     <string name="save_api_key">Save API Key</string>
     <string name="remove_api_key">Remove API key</string>
     <string name="get_api_key">Get an API Key from Anthropic</string>
+    <string name="ai_models">AI Models</string>
     <string name="ai_model">AI Model</string>
-    <string name="ai_model_description">Choose the Claude model to use for parsing recipes. Better models may provide more accurate results but cost more.</string>
+    <string name="ai_model_description">Choose the Claude models to use for recipe operations. Better models may provide more accurate results but cost more.</string>
+    <string name="import_model">Import model</string>
+    <string name="import_model_description">Used when importing new recipes from URLs.</string>
+    <string name="edit_model">Edit model</string>
+    <string name="edit_model_description">Used when editing or regenerating existing recipes. Editing is simpler than importing, so a cheaper model often works well.</string>
     <string name="extended_thinking">Extended thinking</string>
     <string name="extended_thinking_description">Allow the AI to think through complex recipes before responding. Improves accuracy but increases cost and import time.</string>
     <string name="theme">Theme</string>
@@ -139,7 +144,8 @@
     <!-- Model names -->
     <string name="model_opus_4_6">Claude Opus 4.6 (Best quality)</string>
     <string name="model_opus">Claude Opus 4.5</string>
-    <string name="model_sonnet">Claude Sonnet 4.5 (Balanced)</string>
+    <string name="model_sonnet_4_6">Claude Sonnet 4.6 (Balanced)</string>
+    <string name="model_sonnet">Claude Sonnet 4.5</string>
     <string name="model_haiku">Claude Haiku 4.5 (Fastest)</string>
 
     <!-- Common count strings -->

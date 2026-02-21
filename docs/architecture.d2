@@ -135,7 +135,7 @@ app: {
       detail_vm: RecipeDetailViewModel
       edit_vm: {
         label: EditRecipeViewModel
-        tooltip: "Manages edit recipe screen state. Supports direct image editing (saved immediately without AI). Separates title, source URL, and recipe body: title/URL changes are saved directly without AI, while body changes trigger AI re-parsing via RecipeEditWorker. Tracks model/thinking settings. Supports save as copy and regeneration from original source via RecipeRegenerateWorker. Uses ImageDownloadService to save picked images from gallery."
+        tooltip: "Manages edit recipe screen state. Supports direct image editing (saved immediately without AI). Separates title, source URL, and recipe body: title/URL changes are saved directly without AI, while body changes trigger AI re-parsing via RecipeEditWorker. Defaults to the separate edit model setting (default: Sonnet) rather than the import model. Tracks model/thinking settings. Supports save as copy and regeneration from original source via RecipeRegenerateWorker. Uses ImageDownloadService to save picked images from gallery."
       }
       add_vm: AddRecipeViewModel
       settings_vm: SettingsViewModel
@@ -501,7 +501,7 @@ app: {
       }
       settings: {
         label: SettingsDataStore
-        tooltip: "Uses Tink AEAD encryption for API key, DataStore for non-sensitive settings (AI model, extended thinking enabled, keep screen on, theme mode, volume/weight unit system preferences, grocery list volume/weight unit system preferences, start of week, import debugging enabled)"
+        tooltip: "Uses Tink AEAD encryption for API key, DataStore for non-sensitive settings (AI model, edit model, extended thinking enabled, keep screen on, theme mode, volume/weight unit system preferences, grocery list volume/weight unit system preferences, start of week, import debugging enabled)"
       }
 
       dao -> room
@@ -605,7 +605,7 @@ app: {
   ui.viewmodels.detail_vm -> domain.usecases.export_single: export .lorecipes
   ui.viewmodels.detail_vm -> data.local.settings: keep screen on, unit prefs
   ui.viewmodels.edit_vm -> data.repository.repo: recipe, original HTML, image
-  ui.viewmodels.edit_vm -> data.local.settings: model, thinking prefs
+  ui.viewmodels.edit_vm -> data.local.settings: edit model, thinking prefs
   ui.viewmodels.edit_vm -> data.remote.image_dl: save picked images
   ui.viewmodels.edit_vm -> background.worker.edit_worker: save edits
   ui.viewmodels.edit_vm -> background.worker.regenerate_worker: regenerate from original
