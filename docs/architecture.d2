@@ -61,7 +61,11 @@ app: {
       list: RecipeListScreen
       detail: {
         label: RecipeDetailScreen
-        tooltip: "Displays recipe details with share menu (Markdown text or .lorecipes file), regenerate, and delete buttons. Regenerate re-parses from original HTML (or re-fetches from source URL if no cached HTML) with selectable model/thinking mode. All text is selectable."
+        tooltip: "Displays recipe details with edit (pencil icon), share menu (Markdown text or .lorecipes file), favorite, and delete buttons. All text is selectable."
+      }
+      edit: {
+        label: EditRecipeScreen
+        tooltip: "Full-screen markdown editor for recipes. Shows markdown version of the recipe (same format as share-as-text). Users edit the markdown and save to have AI clean up formatting and regenerate structured data (densities, etc.). Includes model selection and extended thinking toggle. Also supports regeneration from original source via refresh icon (when original HTML or source URL is available)."
       }
       add: AddRecipeScreen
       settings: SettingsScreen
@@ -90,6 +94,7 @@ app: {
       }
 
       list -> detail: tap recipe
+      detail -> edit: tap edit (pencil icon)
       list -> add: tap +
       list -> settings: tap gear
       list -> meal_plan: tap calendar
@@ -128,6 +133,10 @@ app: {
 
       list_vm: RecipeListViewModel
       detail_vm: RecipeDetailViewModel
+      edit_vm: {
+        label: EditRecipeViewModel
+        tooltip: "Manages edit recipe screen state. Loads recipe as markdown, tracks model/thinking settings, and enqueues RecipeEditWorker for save or RecipeRegenerateWorker for regeneration from original source."
+      }
       add_vm: AddRecipeViewModel
       settings_vm: SettingsViewModel
       zip_vm: {
@@ -170,6 +179,7 @@ app: {
 
     screens.list -> viewmodels.list_vm
     screens.detail -> viewmodels.detail_vm
+    screens.edit -> viewmodels.edit_vm
     screens.add -> viewmodels.add_vm
     screens.settings -> viewmodels.settings_vm
     screens.settings -> viewmodels.zip_vm: backup/restore
@@ -210,6 +220,10 @@ app: {
         label: RecipeRegenerateWorker
         tooltip: "CoroutineWorker that re-parses a recipe from its stored original HTML using the AI. Supports selecting a different model and thinking mode. Overwrites the existing recipe, preserving ID, favorite status, and creation timestamp."
       }
+      edit_worker: {
+        label: RecipeEditWorker
+        tooltip: "CoroutineWorker that processes user-edited recipe markdown through AI re-parsing via EditRecipeUseCase. Preserves recipe metadata (ID, favorite, image, source URL, original HTML)."
+      }
       paprika_import_worker: {
         label: PaprikaImportWorker
         tooltip: "Imports recipes from a Paprika export file (.paprikarecipes). Parses ZIP of gzip-compressed JSON, sends content through AI pipeline."
@@ -224,6 +238,7 @@ app: {
       }
       import_worker -> base_worker: extends
       regenerate_worker -> base_worker: extends
+      edit_worker -> base_worker: extends
       paprika_import_worker -> base_worker: extends
       zip_export_worker -> base_worker: extends
       zip_import_worker -> base_worker: extends
@@ -247,6 +262,7 @@ app: {
 
     worker.import_worker -> notification.helper: notify progress
     worker.regenerate_worker -> notification.helper: notify progress
+    worker.edit_worker -> notification.helper: notify progress
     worker.paprika_import_worker -> notification.helper: notify progress
     worker.zip_export_worker -> notification.helper: notify progress
     worker.zip_import_worker -> notification.helper: notify progress
@@ -290,6 +306,10 @@ app: {
       regenerate: {
         label: RegenerateRecipeUseCase
         tooltip: "Re-parses a recipe from its stored original HTML via ParseHtmlUseCase.parseHtml(). If no cached HTML exists, fetches fresh HTML from the recipe's source URL via WebScraperService. Passes model/thinking overrides as parameters, preserves recipe ID, favorite status, and creation timestamp."
+      }
+      edit_recipe: {
+        label: EditRecipeUseCase
+        tooltip: "Edits a recipe by sending user-modified markdown text through ParseHtmlUseCase.parseText() for AI re-parsing. Preserves recipe ID, createdAt, favorite status, image, source URL, and original HTML (for future regeneration)."
       }
       aggregate_grocery: {
         label: AggregateGroceryListUseCase
@@ -390,6 +410,7 @@ app: {
 
     usecases.import -> usecases.parse_html: uses
     usecases.regenerate -> usecases.parse_html: uses
+    usecases.edit_recipe -> usecases.parse_html: uses
     usecases.parse_html -> data.repository.import_debug_repo: save debug data
     usecases.export_zip -> util.serializer: serialize
     usecases.export_zip -> data.remote.image_dl: read local images
@@ -583,8 +604,11 @@ app: {
   ui.viewmodels.detail_vm -> domain.usecases.calc_usage: ingredient usage
   ui.viewmodels.detail_vm -> domain.usecases.export_single: export .lorecipes
   ui.viewmodels.detail_vm -> data.local.settings: keep screen on, unit prefs
-  ui.viewmodels.detail_vm -> background.worker.regenerate_worker: regenerate
-  ui.viewmodels.detail_vm -> background.worker.work_ext: observe regenerate
+  ui.viewmodels.edit_vm -> data.repository.repo: recipe, original HTML
+  ui.viewmodels.edit_vm -> data.local.settings: model, thinking prefs
+  ui.viewmodels.edit_vm -> background.worker.edit_worker: save edits
+  ui.viewmodels.edit_vm -> background.worker.regenerate_worker: regenerate from original
+  ui.viewmodels.edit_vm -> background.worker.work_ext: observe edit/regenerate
   ui.viewmodels.import_selection_vm -> data.repository.repo: check duplicates
   ui.viewmodels.import_selection_vm -> domain.util.serializer: deserialize (for selection preview)
   ui.viewmodels.import_selection_vm -> domain.util.zip_import_helper: read ZIP contents
@@ -608,6 +632,7 @@ app: {
   ui.viewmodels.import_debug_detail_vm -> data.repository.import_debug_repo: get entry
   background.worker.import_worker -> domain.usecases.import: execute
   background.worker.regenerate_worker -> domain.usecases.regenerate: execute
+  background.worker.edit_worker -> domain.usecases.edit_recipe: execute
   background.worker.paprika_import_worker -> domain.usecases.import_paprika: execute
   background.worker.zip_export_worker -> domain.usecases.export_zip: execute
   background.worker.zip_import_worker -> domain.usecases.import_zip: execute
@@ -676,6 +701,21 @@ legend: {
   pap5: "5. Repository saves each parsed recipe to Room"
 
   pap1 -> pap2 -> pap3 -> pap4 -> pap5
+
+  edit_flow: {
+    label: "Recipe Edit Flow"
+    style: {
+      font-size: 14
+      bold: true
+    }
+  }
+  edit1: "1. User taps edit (pencil icon) on recipe detail screen"
+  edit2: "2. EditRecipeScreen shows markdown of recipe (same as share-as-text)"
+  edit3: "3. User edits markdown, selects model/thinking, taps Save"
+  edit4: "4. RecipeEditWorker sends markdown to AI via EditRecipeUseCase"
+  edit5: "5. AI re-parses into structured recipe, preserving ID/metadata"
+
+  edit1 -> edit2 -> edit3 -> edit4 -> edit5
 
   share_flow: {
     label: "Recipe Sharing Flow"

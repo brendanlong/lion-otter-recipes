@@ -6,11 +6,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkInfo
-import androidx.work.WorkManager
 import com.lionotter.recipes.data.local.SettingsDataStore
-import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.repository.MealPlanRepository
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.IngredientUsageStatus
@@ -22,8 +18,6 @@ import com.lionotter.recipes.domain.model.createInstructionIngredientKey
 import com.lionotter.recipes.domain.usecase.CalculateIngredientUsageUseCase
 import com.lionotter.recipes.domain.usecase.ExportSingleRecipeUseCase
 import com.lionotter.recipes.domain.util.RecipeSerializer
-import com.lionotter.recipes.worker.RecipeRegenerateWorker
-import com.lionotter.recipes.worker.observeWorkByTag
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -34,12 +28,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
-import java.util.UUID
 import javax.inject.Inject
 
 /**
@@ -50,13 +42,6 @@ data class HighlightedInstructionStep(
     val stepIndex: Int
 )
 
-sealed class RegenerateUiState {
-    object Idle : RegenerateUiState()
-    data class Loading(val progress: String) : RegenerateUiState()
-    object Success : RegenerateUiState()
-    data class Error(val message: String) : RegenerateUiState()
-}
-
 @HiltViewModel
 class RecipeDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
@@ -64,7 +49,6 @@ class RecipeDetailViewModel @Inject constructor(
     private val mealPlanRepository: MealPlanRepository,
     private val settingsDataStore: SettingsDataStore,
     private val calculateIngredientUsage: CalculateIngredientUsageUseCase,
-    private val workManager: WorkManager,
     private val exportSingleRecipeUseCase: ExportSingleRecipeUseCase,
     private val recipeSerializer: RecipeSerializer,
     @param:ApplicationContext private val applicationContext: Context
@@ -102,6 +86,14 @@ class RecipeDetailViewModel @Inject constructor(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = UnitSystem.localeDefault()
+        )
+
+    val hasApiKey: StateFlow<Boolean> = settingsDataStore.anthropicApiKey
+        .map { !it.isNullOrBlank() }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = false
         )
 
     private val _scale = MutableStateFlow(1.0)
@@ -261,120 +253,6 @@ class RecipeDetailViewModel @Inject constructor(
         }
     }
 
-    // --- Regeneration ---
-
-    private var currentRegenerateWorkId: UUID? = null
-
-    private val _regenerateState = MutableStateFlow<RegenerateUiState>(RegenerateUiState.Idle)
-    val regenerateState: StateFlow<RegenerateUiState> = _regenerateState.asStateFlow()
-
-    private val _regenerateModel = MutableStateFlow(AnthropicService.DEFAULT_MODEL)
-    val regenerateModel: StateFlow<String> = _regenerateModel.asStateFlow()
-
-    private val _regenerateThinking = MutableStateFlow(true)
-    val regenerateThinking: StateFlow<Boolean> = _regenerateThinking.asStateFlow()
-
-    private val _hasOriginalHtml = MutableStateFlow(false)
-    val hasOriginalHtml: StateFlow<Boolean> = _hasOriginalHtml.asStateFlow()
-
-    /**
-     * Whether the regenerate button should be shown.
-     * True if the recipe has cached original HTML or a source URL to re-fetch from.
-     */
-    val canRegenerate: StateFlow<Boolean> = combine(
-        _hasOriginalHtml,
-        recipe
-    ) { hasHtml, recipe ->
-        hasHtml || !recipe?.sourceUrl.isNullOrBlank()
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.Eagerly,
-        initialValue = false
-    )
-
-    private fun loadRegenerateDefaults() {
-        viewModelScope.launch {
-            _regenerateModel.value = settingsDataStore.aiModel.first()
-            _regenerateThinking.value = settingsDataStore.extendedThinkingEnabled.first()
-        }
-    }
-
-    private fun checkOriginalHtml() {
-        viewModelScope.launch {
-            val html = recipeRepository.getOriginalHtml(recipeId)
-            _hasOriginalHtml.value = !html.isNullOrBlank()
-        }
-    }
-
-    fun setRegenerateModel(model: String) {
-        _regenerateModel.value = model
-    }
-
-    fun setRegenerateThinking(enabled: Boolean) {
-        _regenerateThinking.value = enabled
-    }
-
-    fun regenerateRecipe() {
-        val workRequest = OneTimeWorkRequestBuilder<RecipeRegenerateWorker>()
-            .setInputData(
-                RecipeRegenerateWorker.createInputData(
-                    recipeId = recipeId,
-                    model = _regenerateModel.value,
-                    extendedThinking = _regenerateThinking.value
-                )
-            )
-            .addTag(RecipeRegenerateWorker.TAG_RECIPE_REGENERATE)
-            .build()
-
-        currentRegenerateWorkId = workRequest.id
-        workManager.enqueue(workRequest)
-        _regenerateState.value = RegenerateUiState.Loading("Preparing...")
-    }
-
-    fun resetRegenerateState() {
-        _regenerateState.value = RegenerateUiState.Idle
-    }
-
-    private fun observeRegenerateWorkStatus() {
-        viewModelScope.launch {
-            workManager.observeWorkByTag(RecipeRegenerateWorker.TAG_RECIPE_REGENERATE) { currentRegenerateWorkId }
-                .collect { workInfo ->
-                    when (workInfo.state) {
-                        WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> {
-                            _regenerateState.value = RegenerateUiState.Loading("Preparing...")
-                        }
-                        WorkInfo.State.RUNNING -> {
-                            val progress = workInfo.progress.getString(RecipeRegenerateWorker.KEY_PROGRESS)
-                            val message = when (progress) {
-                                RecipeRegenerateWorker.PROGRESS_FETCHING -> "Fetching recipe page..."
-                                RecipeRegenerateWorker.PROGRESS_PARSING -> "AI is re-analyzing..."
-                                RecipeRegenerateWorker.PROGRESS_SAVING -> "Saving recipe..."
-                                else -> "Starting..."
-                            }
-                            _regenerateState.value = RegenerateUiState.Loading(message)
-                        }
-                        WorkInfo.State.SUCCEEDED -> {
-                            _regenerateState.value = RegenerateUiState.Success
-                            currentRegenerateWorkId = null
-                            workManager.pruneWork()
-                        }
-                        WorkInfo.State.FAILED -> {
-                            val errorMessage = workInfo.outputData.getString(RecipeRegenerateWorker.KEY_ERROR_MESSAGE)
-                                ?: "Unknown error"
-                            _regenerateState.value = RegenerateUiState.Error(errorMessage)
-                            currentRegenerateWorkId = null
-                            workManager.pruneWork()
-                        }
-                        WorkInfo.State.CANCELLED -> {
-                            _regenerateState.value = RegenerateUiState.Idle
-                            currentRegenerateWorkId = null
-                            workManager.pruneWork()
-                        }
-                    }
-                }
-        }
-    }
-
     // --- Recipe Export ---
 
     private val _exportedFileUri = MutableSharedFlow<Uri>()
@@ -407,9 +285,4 @@ class RecipeDetailViewModel @Inject constructor(
         }
     }
 
-    init {
-        observeRegenerateWorkStatus()
-        loadRegenerateDefaults()
-        checkOriginalHtml()
-    }
 }
