@@ -13,6 +13,9 @@ import com.lionotter.recipes.domain.model.formatQuantity
  */
 object RecipeMarkdownFormatter {
 
+    /**
+     * Format a recipe as Markdown, including the title and source URL header.
+     */
     fun format(recipe: Recipe): String = buildString {
         // Title
         appendLine("# ${recipe.name}")
@@ -24,6 +27,14 @@ object RecipeMarkdownFormatter {
             appendLine()
         }
 
+        append(formatBody(recipe))
+    }
+
+    /**
+     * Format a recipe body as Markdown, excluding the title and source URL.
+     * Used by the edit screen where title and URL are edited separately.
+     */
+    fun formatBody(recipe: Recipe): String = buildString {
         // Story/Description
         recipe.story?.let { story ->
             appendLine(story)
@@ -176,6 +187,70 @@ object RecipeMarkdownFormatter {
 
         if (step.optional) {
             append(" *(optional)*")
+        }
+    }
+
+    /**
+     * Default ingredient density reference table (g/mL).
+     * These are common baking/cooking densities used by the AI when parsing recipes.
+     */
+    val DEFAULT_DENSITIES: Map<String, Double> = linkedMapOf(
+        "water" to 0.96, "milk" to 0.96, "buttermilk" to 0.96,
+        "heavy cream" to 0.96, "yogurt" to 0.96, "sour cream" to 0.96,
+        "vegetable oil" to 0.84, "olive oil" to 0.84, "coconut oil" to 0.96, "butter" to 0.96,
+        "lard" to 0.96, "vegetable shortening" to 0.78,
+        "honey" to 1.42, "molasses" to 1.44, "corn syrup" to 1.32, "maple syrup" to 1.32,
+        "all-purpose flour" to 0.51, "bread flour" to 0.51, "cake flour" to 0.51,
+        "whole wheat flour" to 0.48,
+        "pastry flour" to 0.45, "almond flour" to 0.41, "coconut flour" to 0.54,
+        "rye flour" to 0.45,
+        "cornmeal" to 0.58, "cornstarch" to 0.47, "cocoa powder" to 0.35,
+        "tapioca starch" to 0.48, "potato starch" to 0.64,
+        "granulated sugar" to 0.84, "brown sugar (packed)" to 0.90,
+        "confectioners sugar" to 0.48,
+        "demerara sugar" to 0.93, "turbinado sugar" to 0.76,
+        "table salt" to 1.22, "kosher salt (Diamond Crystal)" to 0.54,
+        "kosher salt (Morton's)" to 1.08,
+        "baking powder" to 0.81, "baking soda" to 1.22,
+        "peanut butter" to 1.14, "cream cheese" to 0.96,
+        "oats (old-fashioned)" to 0.38, "oats (rolled)" to 0.48,
+        "chocolate chips" to 0.72, "walnuts (chopped)" to 0.48, "pecans (chopped)" to 0.48,
+        "breadcrumbs (dried)" to 0.47, "panko" to 0.21,
+        "vanilla extract" to 0.95, "espresso powder" to 0.47
+    )
+
+    /**
+     * Collect existing ingredient densities from a recipe as a map of
+     * ingredient name (lowercase) to density (g/mL).
+     * Used to provide density hints to the AI during editing.
+     */
+    fun collectDensities(recipe: Recipe): Map<String, Double> {
+        val densities = mutableMapOf<String, Double>()
+        for (section in recipe.instructionSections) {
+            for (step in section.steps) {
+                for (ingredient in step.ingredients) {
+                    ingredient.density?.let { density ->
+                        densities[ingredient.name.lowercase()] = density
+                    }
+                    for (alt in ingredient.alternates) {
+                        alt.density?.let { density ->
+                            densities[alt.name.lowercase()] = density
+                        }
+                    }
+                }
+            }
+        }
+        return densities
+    }
+
+    /**
+     * Format a density map as a text block for the AI system prompt.
+     * Groups entries with commas and line breaks for readability.
+     */
+    fun formatDensityHints(densities: Map<String, Double>): String {
+        if (densities.isEmpty()) return ""
+        return densities.entries.joinToString(",\n") { (name, density) ->
+            "$name $density"
         }
     }
 }

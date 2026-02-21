@@ -89,6 +89,10 @@ class RecipeRepository @Inject constructor(
         recipeDao.setImageUrl(id, imageUrl, kotlin.time.Clock.System.now())
     }
 
+    suspend fun updateTitleAndUrl(id: String, name: String, sourceUrl: String?) {
+        recipeDao.updateTitleAndUrl(id, name, sourceUrl, kotlin.time.Clock.System.now())
+    }
+
     suspend fun getAllRecipeIdsAndNames(): List<RecipeIdAndName> {
         return recipeDao.getAllRecipeIdsAndNames()
     }

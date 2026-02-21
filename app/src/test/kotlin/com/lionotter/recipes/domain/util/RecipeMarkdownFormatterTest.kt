@@ -461,6 +461,130 @@ class RecipeMarkdownFormatterTest {
     }
 
     @Test
+    fun `formatBody excludes title and source url`() {
+        val recipe = createTestRecipe(
+            name = "My Recipe",
+            sourceUrl = "https://example.com/recipe",
+            story = "A great recipe"
+        )
+        val body = RecipeMarkdownFormatter.formatBody(recipe)
+
+        assertFalse(body.contains("# My Recipe"))
+        assertFalse(body.contains("*Source:"))
+        assertTrue(body.contains("A great recipe"))
+    }
+
+    @Test
+    fun `format includes title and url while formatBody does not`() {
+        val recipe = createTestRecipe(
+            name = "My Recipe",
+            sourceUrl = "https://example.com/recipe",
+            story = "A great recipe"
+        )
+        val full = RecipeMarkdownFormatter.format(recipe)
+        val body = RecipeMarkdownFormatter.formatBody(recipe)
+
+        assertTrue(full.contains("# My Recipe"))
+        assertTrue(full.contains("*Source:"))
+        assertFalse(body.contains("# My Recipe"))
+        assertFalse(body.contains("*Source:"))
+        // Body content should be present in both
+        assertTrue(full.contains("A great recipe"))
+        assertTrue(body.contains("A great recipe"))
+    }
+
+    @Test
+    fun `collectDensities returns densities from all ingredients`() {
+        val recipe = createTestRecipe(
+            instructionSections = listOf(
+                InstructionSection(
+                    steps = listOf(
+                        InstructionStep(
+                            stepNumber = 1,
+                            instruction = "Mix",
+                            ingredients = listOf(
+                                Ingredient(name = "flour", amount = Amount(value = 2.0, unit = "cup"), density = 0.51),
+                                Ingredient(name = "sugar", amount = Amount(value = 1.0, unit = "cup"), density = 0.84),
+                                Ingredient(name = "eggs", amount = Amount(value = 3.0))
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        val densities = RecipeMarkdownFormatter.collectDensities(recipe)
+
+        assertTrue(densities.containsKey("flour"))
+        assertTrue(densities.containsKey("sugar"))
+        assertFalse(densities.containsKey("eggs"))
+        assertTrue(densities["flour"] == 0.51)
+        assertTrue(densities["sugar"] == 0.84)
+    }
+
+    @Test
+    fun `collectDensities includes alternate ingredients`() {
+        val recipe = createTestRecipe(
+            instructionSections = listOf(
+                InstructionSection(
+                    steps = listOf(
+                        InstructionStep(
+                            stepNumber = 1,
+                            instruction = "Cream butter",
+                            ingredients = listOf(
+                                Ingredient(
+                                    name = "butter",
+                                    amount = Amount(value = 1.0, unit = "cup"),
+                                    density = 0.96,
+                                    alternates = listOf(
+                                        Ingredient(
+                                            name = "margarine",
+                                            amount = Amount(value = 1.0, unit = "cup"),
+                                            density = 0.88
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        val densities = RecipeMarkdownFormatter.collectDensities(recipe)
+
+        assertTrue(densities.containsKey("butter"))
+        assertTrue(densities.containsKey("margarine"))
+        assertTrue(densities["margarine"] == 0.88)
+    }
+
+    @Test
+    fun `DEFAULT_DENSITIES contains common baking ingredients`() {
+        val defaults = RecipeMarkdownFormatter.DEFAULT_DENSITIES
+        assertTrue(defaults.containsKey("all-purpose flour"))
+        assertTrue(defaults.containsKey("butter"))
+        assertTrue(defaults.containsKey("granulated sugar"))
+        assertTrue(defaults.containsKey("water"))
+        assertTrue(defaults["all-purpose flour"] == 0.51)
+        assertTrue(defaults["butter"] == 0.96)
+    }
+
+    @Test
+    fun `formatDensityHints returns empty string for empty densities`() {
+        val hints = RecipeMarkdownFormatter.formatDensityHints(emptyMap())
+        assertTrue(hints.isEmpty())
+    }
+
+    @Test
+    fun `formatDensityHints formats densities correctly`() {
+        val densities = mapOf("flour" to 0.51, "sugar" to 0.84)
+        val hints = RecipeMarkdownFormatter.formatDensityHints(densities)
+
+        assertTrue(hints.contains("flour 0.51"))
+        assertTrue(hints.contains("sugar 0.84"))
+    }
+
+    @Test
     fun `format complete recipe with all sections`() {
         val recipe = Recipe(
             id = "complete-recipe",

@@ -354,6 +354,24 @@ class RecipeRepositoryTest {
     }
 
     @Test
+    fun `updateTitleAndUrl calls dao updateTitleAndUrl`() = runTest {
+        coEvery { recipeDao.updateTitleAndUrl("recipe-1", "New Title", "https://new.url", any()) } just runs
+
+        recipeRepository.updateTitleAndUrl("recipe-1", "New Title", "https://new.url")
+
+        coVerify { recipeDao.updateTitleAndUrl("recipe-1", "New Title", "https://new.url", any()) }
+    }
+
+    @Test
+    fun `updateTitleAndUrl handles null source url`() = runTest {
+        coEvery { recipeDao.updateTitleAndUrl("recipe-1", "New Title", null, any()) } just runs
+
+        recipeRepository.updateTitleAndUrl("recipe-1", "New Title", null)
+
+        coVerify { recipeDao.updateTitleAndUrl("recipe-1", "New Title", null, any()) }
+    }
+
+    @Test
     fun `entity to recipe mapping handles malformed instruction json`() = runTest {
         val entity = createTestEntity(instructionSectionsJson = "not valid json")
         every { recipeDao.getRecipeByIdFlow("recipe-1") } returns flowOf(entity)

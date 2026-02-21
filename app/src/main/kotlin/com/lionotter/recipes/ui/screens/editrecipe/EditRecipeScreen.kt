@@ -77,6 +77,8 @@ fun EditRecipeScreen(
 ) {
     val recipe by viewModel.recipe.collectAsStateWithLifecycle()
     val imageUrl by viewModel.imageUrl.collectAsStateWithLifecycle()
+    val title by viewModel.title.collectAsStateWithLifecycle()
+    val sourceUrl by viewModel.sourceUrl.collectAsStateWithLifecycle()
     val markdownText by viewModel.markdownText.collectAsStateWithLifecycle()
     val editState by viewModel.editState.collectAsStateWithLifecycle()
     val model by viewModel.model.collectAsStateWithLifecycle()
@@ -190,6 +192,10 @@ fun EditRecipeScreen(
                         )
                     },
                     onRemoveImage = viewModel::removeImage,
+                    title = title,
+                    onTitleChange = viewModel::setTitle,
+                    sourceUrl = sourceUrl,
+                    onSourceUrlChange = viewModel::setSourceUrl,
                     markdownText = markdownText,
                     onMarkdownChange = viewModel::setMarkdownText,
                     model = model,
@@ -275,6 +281,10 @@ private fun EditContent(
     imageUrl: String?,
     onChangeImage: () -> Unit,
     onRemoveImage: () -> Unit,
+    title: String,
+    onTitleChange: (String) -> Unit,
+    sourceUrl: String?,
+    onSourceUrlChange: (String?) -> Unit,
     markdownText: String,
     onMarkdownChange: (String) -> Unit,
     model: String,
@@ -310,6 +320,33 @@ private fun EditContent(
                 imageUrl = imageUrl,
                 onChangeImage = onChangeImage,
                 onRemoveImage = onRemoveImage
+            )
+
+            HorizontalDivider()
+
+            // Title field
+            Text(
+                text = stringResource(R.string.recipe_title),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            OutlinedTextField(
+                value = title,
+                onValueChange = onTitleChange,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.Words
+                )
+            )
+
+            // Source URL field
+            OutlinedTextField(
+                value = sourceUrl ?: "",
+                onValueChange = { onSourceUrlChange(it.ifBlank { null }) },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(stringResource(R.string.source_url_field)) },
+                singleLine = true
             )
 
             HorizontalDivider()
@@ -368,7 +405,7 @@ private fun EditContent(
             }
             OutlinedButton(
                 onClick = onSaveAsCopy,
-                enabled = markdownText.isNotBlank()
+                enabled = title.isNotBlank() && markdownText.isNotBlank()
             ) {
                 Icon(
                     imageVector = Icons.Default.ContentCopy,
@@ -382,7 +419,7 @@ private fun EditContent(
             }
             Button(
                 onClick = onSave,
-                enabled = markdownText.isNotBlank()
+                enabled = title.isNotBlank() && markdownText.isNotBlank()
             ) {
                 Icon(
                     imageVector = Icons.Default.Save,
