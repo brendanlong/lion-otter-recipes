@@ -61,6 +61,7 @@
     <string name="edit_recipe_action">Edit recipe</string>
     <string name="edit_recipe_description">Edit the recipe text below. When you save, the AI will clean up the formatting and regenerate structured data like ingredient amounts and densities.</string>
     <string name="edit_save_success">Recipe updated successfully</string>
+    <string name="save_as_copy">Save as Copy</string>
     <string name="edit_background_notice">You can leave this screen. You\'ll be notified when the update is complete.</string>
     <string name="cancel_edit">Cancel Edit</string>
     <string name="regenerate_from_original">Regenerate from original</string>

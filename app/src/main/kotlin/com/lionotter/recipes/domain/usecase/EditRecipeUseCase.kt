@@ -34,6 +34,7 @@ class EditRecipeUseCase @Inject constructor(
      *
      * @param recipeId The ID of the recipe being edited
      * @param markdownText The user-edited markdown text to parse
+     * @param saveAsCopy If true, saves as a new recipe instead of updating the existing one
      * @param model The AI model to use (null = use current setting)
      * @param extendedThinking Whether to use extended thinking (null = use current setting)
      * @param onProgress Callback for progress updates
@@ -41,6 +42,7 @@ class EditRecipeUseCase @Inject constructor(
     suspend fun execute(
         recipeId: String,
         markdownText: String,
+        saveAsCopy: Boolean = false,
         model: String? = null,
         extendedThinking: Boolean? = null,
         onProgress: suspend (EditProgress) -> Unit = {}
@@ -77,17 +79,31 @@ class EditRecipeUseCase @Inject constructor(
 
         return when (parseResult) {
             is ParseHtmlUseCase.ParseResult.Success -> {
-                // Overwrite with same ID, preserve key metadata
-                val editedRecipe = parseResult.recipe.copy(
-                    id = existingRecipe.id,
-                    createdAt = existingRecipe.createdAt,
-                    updatedAt = Clock.System.now(),
-                    isFavorite = existingRecipe.isFavorite,
-                    sourceUrl = existingRecipe.sourceUrl,
-                    imageUrl = parseResult.recipe.imageUrl ?: existingRecipe.imageUrl,
-                    sourceImageUrl = parseResult.recipe.sourceImageUrl ?: existingRecipe.sourceImageUrl,
-                    userNotes = existingRecipe.userNotes
-                )
+                val now = Clock.System.now()
+                val editedRecipe = if (saveAsCopy) {
+                    // Save as a new recipe with new ID and timestamps
+                    parseResult.recipe.copy(
+                        id = java.util.UUID.randomUUID().toString(),
+                        createdAt = now,
+                        updatedAt = now,
+                        isFavorite = false,
+                        sourceUrl = existingRecipe.sourceUrl,
+                        imageUrl = parseResult.recipe.imageUrl ?: existingRecipe.imageUrl,
+                        sourceImageUrl = parseResult.recipe.sourceImageUrl ?: existingRecipe.sourceImageUrl
+                    )
+                } else {
+                    // Overwrite with same ID, preserve key metadata
+                    parseResult.recipe.copy(
+                        id = existingRecipe.id,
+                        createdAt = existingRecipe.createdAt,
+                        updatedAt = now,
+                        isFavorite = existingRecipe.isFavorite,
+                        sourceUrl = existingRecipe.sourceUrl,
+                        imageUrl = parseResult.recipe.imageUrl ?: existingRecipe.imageUrl,
+                        sourceImageUrl = parseResult.recipe.sourceImageUrl ?: existingRecipe.sourceImageUrl,
+                        userNotes = existingRecipe.userNotes
+                    )
+                }
 
                 onProgress(EditProgress.SavingRecipe)
                 recipeRepository.saveRecipe(editedRecipe, originalHtml = originalHtml)

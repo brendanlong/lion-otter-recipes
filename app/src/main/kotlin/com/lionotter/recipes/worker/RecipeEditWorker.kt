@@ -27,10 +27,12 @@ class RecipeEditWorker @AssistedInject constructor(
         const val KEY_MARKDOWN_TEXT = "markdown_text"
         const val KEY_MODEL = "model"
         const val KEY_EXTENDED_THINKING = "extended_thinking"
+        const val KEY_SAVE_AS_COPY = "save_as_copy"
         const val KEY_ERROR_MESSAGE = "error_message"
         const val KEY_PROGRESS = "progress"
         const val KEY_RESULT_TYPE = "result_type"
         const val KEY_RECIPE_NAME = "recipe_name"
+        const val KEY_NEW_RECIPE_ID = "new_recipe_id"
 
         const val RESULT_SUCCESS = "success"
         const val RESULT_ERROR = "error"
@@ -43,13 +45,15 @@ class RecipeEditWorker @AssistedInject constructor(
             recipeId: String,
             markdownText: String,
             model: String?,
-            extendedThinking: Boolean?
+            extendedThinking: Boolean?,
+            saveAsCopy: Boolean = false
         ): Data {
             return workDataOf(
                 KEY_RECIPE_ID to recipeId,
                 KEY_MARKDOWN_TEXT to markdownText,
                 KEY_MODEL to model,
-                KEY_EXTENDED_THINKING to extendedThinking
+                KEY_EXTENDED_THINKING to extendedThinking,
+                KEY_SAVE_AS_COPY to saveAsCopy
             )
         }
     }
@@ -75,12 +79,14 @@ class RecipeEditWorker @AssistedInject constructor(
         } else {
             null
         }
+        val saveAsCopy = inputData.getBoolean(KEY_SAVE_AS_COPY, false)
 
-        setForegroundProgress("Updating recipe...")
+        setForegroundProgress(if (saveAsCopy) "Saving copy..." else "Updating recipe...")
 
         val result = editRecipeUseCase.execute(
             recipeId = recipeId,
             markdownText = markdownText,
+            saveAsCopy = saveAsCopy,
             model = model,
             extendedThinking = extendedThinking,
             onProgress = { progress ->
@@ -123,7 +129,8 @@ class RecipeEditWorker @AssistedInject constructor(
                     workDataOf(
                         KEY_RECIPE_ID to recipeId,
                         KEY_RESULT_TYPE to RESULT_SUCCESS,
-                        KEY_RECIPE_NAME to result.recipe.name
+                        KEY_RECIPE_NAME to result.recipe.name,
+                        KEY_NEW_RECIPE_ID to if (saveAsCopy) result.recipe.id else null
                     )
                 )
             }
