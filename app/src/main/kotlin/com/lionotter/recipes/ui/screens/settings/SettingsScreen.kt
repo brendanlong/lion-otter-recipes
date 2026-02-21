@@ -46,6 +46,7 @@ fun SettingsScreen(
     val apiKey by viewModel.apiKey.collectAsStateWithLifecycle()
     val apiKeyInput by viewModel.apiKeyInput.collectAsStateWithLifecycle()
     val aiModel by viewModel.aiModel.collectAsStateWithLifecycle()
+    val editModel by viewModel.editModel.collectAsStateWithLifecycle()
     val extendedThinkingEnabled by viewModel.extendedThinkingEnabled.collectAsStateWithLifecycle()
     val keepScreenOn by viewModel.keepScreenOn.collectAsStateWithLifecycle()
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
@@ -139,6 +140,8 @@ fun SettingsScreen(
             ModelSelectionSection(
                 currentModel = aiModel,
                 onModelChange = viewModel::setAiModel,
+                currentEditModel = editModel,
+                onEditModelChange = viewModel::setEditModel,
                 extendedThinkingEnabled = extendedThinkingEnabled,
                 onExtendedThinkingChange = viewModel::setExtendedThinkingEnabled
             )

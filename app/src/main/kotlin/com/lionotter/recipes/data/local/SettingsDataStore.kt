@@ -31,6 +31,7 @@ class SettingsDataStore @Inject constructor(
 ) {
     private object Keys {
         val AI_MODEL = stringPreferencesKey("ai_model")
+        val EDIT_MODEL = stringPreferencesKey("edit_model")
         val EXTENDED_THINKING_ENABLED = booleanPreferencesKey("extended_thinking_enabled")
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
         val THEME_MODE = stringPreferencesKey("theme_mode")
@@ -102,6 +103,10 @@ class SettingsDataStore @Inject constructor(
 
     val aiModel: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[Keys.AI_MODEL] ?: AnthropicService.DEFAULT_MODEL
+    }
+
+    val editModel: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[Keys.EDIT_MODEL] ?: AnthropicService.DEFAULT_EDIT_MODEL
     }
 
     val extendedThinkingEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -210,6 +215,12 @@ class SettingsDataStore @Inject constructor(
     suspend fun setAiModel(model: String) {
         context.dataStore.edit { preferences ->
             preferences[Keys.AI_MODEL] = model
+        }
+    }
+
+    suspend fun setEditModel(model: String) {
+        context.dataStore.edit { preferences ->
+            preferences[Keys.EDIT_MODEL] = model
         }
     }
 

@@ -84,7 +84,7 @@ class EditRecipeViewModel @Inject constructor(
     private val _editState = MutableStateFlow<EditUiState>(EditUiState.Idle)
     val editState: StateFlow<EditUiState> = _editState.asStateFlow()
 
-    private val _model = MutableStateFlow(AnthropicService.DEFAULT_MODEL)
+    private val _model = MutableStateFlow(AnthropicService.DEFAULT_EDIT_MODEL)
     val model: StateFlow<String> = _model.asStateFlow()
 
     private val _extendedThinking = MutableStateFlow(true)
@@ -306,7 +306,7 @@ class EditRecipeViewModel @Inject constructor(
     private fun loadInitialData() {
         viewModelScope.launch {
             // Load settings defaults
-            _model.value = settingsDataStore.aiModel.first()
+            _model.value = settingsDataStore.editModel.first()
             _extendedThinking.value = settingsDataStore.extendedThinkingEnabled.first()
 
             // Check for original HTML

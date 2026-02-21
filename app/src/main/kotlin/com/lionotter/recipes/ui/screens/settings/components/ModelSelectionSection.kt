@@ -24,26 +24,32 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ModelSelectionSection(
-    currentModel: String,
-    onModelChange: (String) -> Unit,
-    extendedThinkingEnabled: Boolean,
-    onExtendedThinkingChange: (Boolean) -> Unit
-) {
-    var expanded by remember { mutableStateOf(false) }
-
-    val models = listOf(
+private val MODELS
+    @Composable get() = listOf(
         "claude-opus-4-6" to stringResource(R.string.model_opus_4_6),
         "claude-opus-4-5" to stringResource(R.string.model_opus),
+        "claude-sonnet-4-6" to stringResource(R.string.model_sonnet_4_6),
         "claude-sonnet-4-5" to stringResource(R.string.model_sonnet),
         "claude-haiku-4-5" to stringResource(R.string.model_haiku)
     )
 
+/**
+ * Model selection section for the settings screen, with separate import and edit model dropdowns.
+ */
+@Composable
+fun ModelSelectionSection(
+    currentModel: String,
+    onModelChange: (String) -> Unit,
+    currentEditModel: String,
+    onEditModelChange: (String) -> Unit,
+    extendedThinkingEnabled: Boolean,
+    onExtendedThinkingChange: (Boolean) -> Unit
+) {
+    val models = MODELS
+
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
-            text = stringResource(R.string.ai_model),
+            text = stringResource(R.string.ai_models),
             style = MaterialTheme.typography.titleMedium
         )
 
@@ -52,6 +58,86 @@ fun ModelSelectionSection(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+
+        ModelDropdown(
+            label = stringResource(R.string.import_model),
+            description = stringResource(R.string.import_model_description),
+            currentModel = currentModel,
+            models = models,
+            onModelChange = onModelChange
+        )
+
+        ModelDropdown(
+            label = stringResource(R.string.edit_model),
+            description = stringResource(R.string.edit_model_description),
+            currentModel = currentEditModel,
+            models = models,
+            onModelChange = onEditModelChange
+        )
+
+        ExtendedThinkingToggle(
+            enabled = extendedThinkingEnabled,
+            onEnabledChange = onExtendedThinkingChange
+        )
+    }
+}
+
+/**
+ * Single model selection section used on the edit recipe screen.
+ */
+@Composable
+fun SingleModelSelectionSection(
+    currentModel: String,
+    onModelChange: (String) -> Unit,
+    extendedThinkingEnabled: Boolean,
+    onExtendedThinkingChange: (Boolean) -> Unit
+) {
+    val models = MODELS
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            text = stringResource(R.string.ai_model),
+            style = MaterialTheme.typography.titleMedium
+        )
+
+        ModelDropdown(
+            currentModel = currentModel,
+            models = models,
+            onModelChange = onModelChange
+        )
+
+        ExtendedThinkingToggle(
+            enabled = extendedThinkingEnabled,
+            onEnabledChange = onExtendedThinkingChange
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ModelDropdown(
+    currentModel: String,
+    models: List<Pair<String, String>>,
+    onModelChange: (String) -> Unit,
+    label: String? = null,
+    description: String? = null
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (label != null) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyLarge
+            )
+        }
+        if (description != null) {
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
 
         ExposedDropdownMenuBox(
             expanded = expanded,
@@ -82,27 +168,33 @@ fun ModelSelectionSection(
                 }
             }
         }
+    }
+}
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.extended_thinking),
-                    style = MaterialTheme.typography.bodyLarge
-                )
-                Text(
-                    text = stringResource(R.string.extended_thinking_description),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Switch(
-                checked = extendedThinkingEnabled,
-                onCheckedChange = onExtendedThinkingChange
+@Composable
+private fun ExtendedThinkingToggle(
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(R.string.extended_thinking),
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Text(
+                text = stringResource(R.string.extended_thinking_description),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+        Switch(
+            checked = enabled,
+            onCheckedChange = onEnabledChange
+        )
     }
 }

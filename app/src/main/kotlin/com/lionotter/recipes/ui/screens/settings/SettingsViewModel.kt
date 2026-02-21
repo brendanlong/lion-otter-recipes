@@ -37,6 +37,13 @@ class SettingsViewModel @Inject constructor(
             initialValue = AnthropicService.DEFAULT_MODEL
         )
 
+    val editModel: StateFlow<String> = settingsDataStore.editModel
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = AnthropicService.DEFAULT_EDIT_MODEL
+        )
+
     val extendedThinkingEnabled: StateFlow<Boolean> = settingsDataStore.extendedThinkingEnabled
         .stateIn(
             scope = viewModelScope,
@@ -140,6 +147,12 @@ class SettingsViewModel @Inject constructor(
     fun setAiModel(model: String) {
         viewModelScope.launch {
             settingsDataStore.setAiModel(model)
+        }
+    }
+
+    fun setEditModel(model: String) {
+        viewModelScope.launch {
+            settingsDataStore.setEditModel(model)
         }
     }
 
