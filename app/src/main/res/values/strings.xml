@@ -73,6 +73,9 @@
     <string name="recipe_title">Title</string>
     <string name="source_url_field">Source URL</string>
     <string name="recipe_text">Recipe Text</string>
+    <string name="ai_instructions">AI Instructions</string>
+    <string name="ai_instructions_placeholder">Parse this recipe</string>
+    <string name="ai_instructions_description">Optionally provide instructions for the AI, e.g. \"Make this recipe vegan\" or \"Convert to metric units\".</string>
 
     <!-- Regenerate Recipe -->
     <string name="regenerate">Regenerate</string>

@@ -29,6 +29,7 @@ class RecipeEditWorker @AssistedInject constructor(
         const val KEY_MODEL = "model"
         const val KEY_EXTENDED_THINKING = "extended_thinking"
         const val KEY_SAVE_AS_COPY = "save_as_copy"
+        const val KEY_AI_INSTRUCTIONS = "ai_instructions"
         const val KEY_ERROR_MESSAGE = "error_message"
         const val KEY_PROGRESS = "progress"
         const val KEY_RESULT_TYPE = "result_type"
@@ -47,14 +48,16 @@ class RecipeEditWorker @AssistedInject constructor(
             markdownText: String,
             model: String?,
             thinkingEnabled: Boolean?,
-            saveAsCopy: Boolean = false
+            saveAsCopy: Boolean = false,
+            aiInstructions: String? = null
         ): Data {
             return workDataOf(
                 KEY_RECIPE_ID to recipeId,
                 KEY_MARKDOWN_TEXT to markdownText,
                 KEY_MODEL to model,
                 KEY_EXTENDED_THINKING to thinkingEnabled,
-                KEY_SAVE_AS_COPY to saveAsCopy
+                KEY_SAVE_AS_COPY to saveAsCopy,
+                KEY_AI_INSTRUCTIONS to aiInstructions
             )
         }
     }
@@ -81,6 +84,7 @@ class RecipeEditWorker @AssistedInject constructor(
             null
         }
         val saveAsCopy = inputData.getBoolean(KEY_SAVE_AS_COPY, false)
+        val aiInstructions = inputData.getString(KEY_AI_INSTRUCTIONS)
 
         setForegroundProgress(if (saveAsCopy) "Saving copy..." else "Updating recipe...")
 
@@ -90,6 +94,7 @@ class RecipeEditWorker @AssistedInject constructor(
             saveAsCopy = saveAsCopy,
             model = model,
             thinkingEnabled = thinkingEnabled,
+            aiInstructions = aiInstructions,
             onProgress = { progress ->
                 val progressMessage = when (progress) {
                     is EditRecipeUseCase.EditProgress.ParsingRecipe -> {
