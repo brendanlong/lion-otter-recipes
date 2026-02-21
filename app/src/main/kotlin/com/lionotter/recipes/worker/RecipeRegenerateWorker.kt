@@ -5,6 +5,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.Data
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.domain.usecase.RegenerateRecipeUseCase
 import com.lionotter.recipes.notification.RecipeNotificationHelper
 import dagger.assisted.Assisted
@@ -63,7 +64,7 @@ class RecipeRegenerateWorker @AssistedInject constructor(
             )
         val model = inputData.getString(KEY_MODEL)
         val thinkingEnabled = if (inputData.keyValueMap.containsKey(KEY_EXTENDED_THINKING)) {
-            inputData.getBoolean(KEY_EXTENDED_THINKING, true)
+            inputData.getBoolean(KEY_EXTENDED_THINKING, SettingsDataStore.DEFAULT_THINKING_ENABLED)
         } else {
             null
         }

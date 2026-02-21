@@ -87,7 +87,7 @@ class EditRecipeViewModel @Inject constructor(
     private val _model = MutableStateFlow(AnthropicService.DEFAULT_EDIT_MODEL)
     val model: StateFlow<String> = _model.asStateFlow()
 
-    private val _thinkingEnabled = MutableStateFlow(true)
+    private val _thinkingEnabled = MutableStateFlow(SettingsDataStore.DEFAULT_THINKING_ENABLED)
     val thinkingEnabled: StateFlow<Boolean> = _thinkingEnabled.asStateFlow()
 
     private val _hasOriginalHtml = MutableStateFlow(false)

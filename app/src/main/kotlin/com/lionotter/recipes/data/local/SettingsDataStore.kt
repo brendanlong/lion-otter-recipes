@@ -110,7 +110,7 @@ class SettingsDataStore @Inject constructor(
     }
 
     val thinkingEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
-        preferences[Keys.EXTENDED_THINKING_ENABLED] ?: true
+        preferences[Keys.EXTENDED_THINKING_ENABLED] ?: DEFAULT_THINKING_ENABLED
     }
 
     val keepScreenOn: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -279,6 +279,7 @@ class SettingsDataStore @Inject constructor(
     }
 
     companion object {
+        const val DEFAULT_THINKING_ENABLED = false
         private const val TAG = "SettingsDataStore"
         private const val API_KEY_PREFS_FILE = "tink_encrypted_api_key"
         private const val API_KEY_PREF_KEY = "encrypted_api_key"
