@@ -1,0 +1,104 @@
+package com.lionotter.recipes.domain.usecase
+
+import com.lionotter.recipes.data.repository.RecipeRepository
+import com.lionotter.recipes.domain.model.Recipe
+import kotlin.time.Clock
+import javax.inject.Inject
+
+/**
+ * Use case for editing a recipe by sending user-modified markdown text through the AI
+ * for re-parsing. The AI cleans up formatting and regenerates structured data (including
+ * ingredient densities) using the standard recipe import prompt.
+ *
+ * Preserves the recipe's ID, createdAt, favorite status, image, and source URL.
+ */
+class EditRecipeUseCase @Inject constructor(
+    private val parseHtmlUseCase: ParseHtmlUseCase,
+    private val recipeRepository: RecipeRepository
+) {
+    sealed class EditResult {
+        data class Success(val recipe: Recipe) : EditResult()
+        data class Error(val message: String) : EditResult()
+        object NoApiKey : EditResult()
+    }
+
+    sealed class EditProgress {
+        object ParsingRecipe : EditProgress()
+        data class RecipeNameAvailable(val name: String) : EditProgress()
+        object SavingRecipe : EditProgress()
+        data class Complete(val result: EditResult) : EditProgress()
+    }
+
+    /**
+     * Edit a recipe by re-parsing user-modified markdown text with AI.
+     *
+     * @param recipeId The ID of the recipe being edited
+     * @param markdownText The user-edited markdown text to parse
+     * @param model The AI model to use (null = use current setting)
+     * @param extendedThinking Whether to use extended thinking (null = use current setting)
+     * @param onProgress Callback for progress updates
+     */
+    suspend fun execute(
+        recipeId: String,
+        markdownText: String,
+        model: String? = null,
+        extendedThinking: Boolean? = null,
+        onProgress: suspend (EditProgress) -> Unit = {}
+    ): EditResult {
+        // Load existing recipe to preserve metadata
+        val existingRecipe = recipeRepository.getRecipeByIdOnce(recipeId)
+            ?: return EditResult.Error("Recipe not found")
+
+        // Preserve original HTML for future regeneration
+        val originalHtml = recipeRepository.getOriginalHtml(recipeId)
+
+        // Parse the edited markdown text with AI (don't save yet)
+        val parseResult = parseHtmlUseCase.parseText(
+            text = markdownText,
+            sourceUrl = existingRecipe.sourceUrl,
+            imageUrl = existingRecipe.sourceImageUrl ?: existingRecipe.imageUrl,
+            saveRecipe = false,
+            originalHtml = originalHtml,
+            model = model,
+            extendedThinking = extendedThinking,
+            onProgress = { progress ->
+                when (progress) {
+                    is ParseHtmlUseCase.ParseProgress.ExtractingContent -> {}
+                    is ParseHtmlUseCase.ParseProgress.ParsingRecipe ->
+                        onProgress(EditProgress.ParsingRecipe)
+                    is ParseHtmlUseCase.ParseProgress.RecipeNameAvailable ->
+                        onProgress(EditProgress.RecipeNameAvailable(progress.name))
+                    is ParseHtmlUseCase.ParseProgress.SavingRecipe ->
+                        onProgress(EditProgress.SavingRecipe)
+                    is ParseHtmlUseCase.ParseProgress.Complete -> {}
+                }
+            }
+        )
+
+        return when (parseResult) {
+            is ParseHtmlUseCase.ParseResult.Success -> {
+                // Overwrite with same ID, preserve key metadata
+                val editedRecipe = parseResult.recipe.copy(
+                    id = existingRecipe.id,
+                    createdAt = existingRecipe.createdAt,
+                    updatedAt = Clock.System.now(),
+                    isFavorite = existingRecipe.isFavorite,
+                    sourceUrl = existingRecipe.sourceUrl,
+                    imageUrl = parseResult.recipe.imageUrl ?: existingRecipe.imageUrl,
+                    sourceImageUrl = parseResult.recipe.sourceImageUrl ?: existingRecipe.sourceImageUrl
+                )
+
+                onProgress(EditProgress.SavingRecipe)
+                recipeRepository.saveRecipe(editedRecipe, originalHtml = originalHtml)
+
+                val result = EditResult.Success(editedRecipe)
+                onProgress(EditProgress.Complete(result))
+                result
+            }
+            is ParseHtmlUseCase.ParseResult.Error ->
+                EditResult.Error(parseResult.message)
+            ParseHtmlUseCase.ParseResult.NoApiKey ->
+                EditResult.NoApiKey
+        }
+    }
+}

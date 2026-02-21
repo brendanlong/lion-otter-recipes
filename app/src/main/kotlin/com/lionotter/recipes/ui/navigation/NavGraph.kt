@@ -24,6 +24,7 @@ import com.lionotter.recipes.ui.screens.importselection.ImportSelectionScreen
 import com.lionotter.recipes.ui.screens.importselection.ImportSelectionViewModel
 import com.lionotter.recipes.ui.screens.importselection.ImportType
 import com.lionotter.recipes.ui.screens.mealplan.MealPlanScreen
+import com.lionotter.recipes.ui.screens.editrecipe.EditRecipeScreen
 import com.lionotter.recipes.ui.screens.recipedetail.RecipeDetailScreen
 import com.lionotter.recipes.ui.screens.recipelist.RecipeListScreen
 import com.lionotter.recipes.ui.screens.settings.SettingsScreen
@@ -33,6 +34,9 @@ sealed class Screen(val route: String) {
     object RecipeList : Screen("recipes")
     object RecipeDetail : Screen("recipes/{recipeId}") {
         fun createRoute(recipeId: String) = "recipes/$recipeId"
+    }
+    object EditRecipe : Screen("recipes/{recipeId}/edit") {
+        fun createRoute(recipeId: String) = "recipes/$recipeId/edit"
     }
     object AddRecipe : Screen("add-recipe?url={url}") {
         fun createRoute(url: String? = null) =
@@ -134,9 +138,39 @@ fun NavGraph(
             arguments = listOf(
                 navArgument("recipeId") { type = NavType.StringType }
             )
-        ) {
+        ) { backStackEntry ->
+            val recipeIdArg = backStackEntry.arguments?.getString("recipeId") ?: ""
+            val editSuccess = backStackEntry.savedStateHandle
+                .get<Boolean>("edit_success") == true
             RecipeDetailScreen(
-                onBackClick = navigateBack
+                onBackClick = navigateBack,
+                onEditClick = {
+                    navController.navigate(Screen.EditRecipe.createRoute(recipeIdArg))
+                },
+                onNavigateToSettings = {
+                    navController.navigate(Screen.Settings.route)
+                },
+                editSuccess = editSuccess,
+                onEditSuccessConsumed = {
+                    backStackEntry.savedStateHandle.remove<Boolean>("edit_success")
+                }
+            )
+        }
+
+        composable(
+            route = Screen.EditRecipe.route,
+            arguments = listOf(
+                navArgument("recipeId") { type = NavType.StringType }
+            )
+        ) {
+            EditRecipeScreen(
+                onBackClick = navigateBack,
+                onEditSuccess = {
+                    navController.previousBackStackEntry
+                        ?.savedStateHandle
+                        ?.set("edit_success", true)
+                    navigateBack()
+                }
             )
         }
 
