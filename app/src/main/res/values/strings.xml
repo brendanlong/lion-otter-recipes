@@ -53,6 +53,8 @@
     <string name="servings_label">Servings: %1$s</string>
     <string name="remaining_amount_with_unit">%1$s %2$s left</string>
     <string name="remaining_amount">%1$s left</string>
+    <string name="notes">Notes</string>
+    <string name="add_notes">Add notes\u2026</string>
 
     <!-- Edit Recipe -->
     <string name="edit_recipe">Edit Recipe</string>

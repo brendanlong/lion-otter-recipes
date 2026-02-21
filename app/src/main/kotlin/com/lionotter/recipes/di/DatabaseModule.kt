@@ -37,7 +37,8 @@ object DatabaseModule {
                 RecipeDatabase.MIGRATION_6_7,
                 RecipeDatabase.MIGRATION_7_8,
                 RecipeDatabase.MIGRATION_8_9,
-                RecipeDatabase.MIGRATION_9_10
+                RecipeDatabase.MIGRATION_9_10,
+                RecipeDatabase.MIGRATION_10_11
             )
             .build()
     }

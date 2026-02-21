@@ -253,6 +253,19 @@ class RecipeDetailViewModel @Inject constructor(
         }
     }
 
+    // --- User Notes ---
+
+    /**
+     * Saves user notes for the current recipe.
+     * Pass null or empty string to clear notes.
+     */
+    fun saveUserNotes(notes: String?) {
+        viewModelScope.launch {
+            val normalizedNotes = notes?.takeIf { it.isNotBlank() }
+            recipeRepository.setUserNotes(recipeId, normalizedNotes)
+        }
+    }
+
     // --- Recipe Export ---
 
     private val _exportedFileUri = MutableSharedFlow<Uri>()

@@ -61,7 +61,7 @@ app: {
       list: RecipeListScreen
       detail: {
         label: RecipeDetailScreen
-        tooltip: "Displays recipe details with edit (pencil icon), share menu (Markdown text or .lorecipes file), favorite, and delete buttons. All text is selectable."
+        tooltip: "Displays recipe details with edit (pencil icon), share menu (Markdown text or .lorecipes file), favorite, and delete buttons. All text is selectable. Includes editable user notes section with auto-save."
       }
       edit: {
         label: EditRecipeScreen
@@ -355,7 +355,7 @@ app: {
 
       recipe: {
         label: Recipe
-        tooltip: "@Immutable. Fields: id, name, sourceUrl, story, servings, times, ingredients, instructions, equipment, tags, imageUrl (local file:// URI), sourceImageUrl (original remote URL), timestamps, isFavorite"
+        tooltip: "@Immutable. Fields: id, name, sourceUrl, story, servings, times, ingredients, instructions, equipment, tags, imageUrl (local file:// URI), sourceImageUrl (original remote URL), timestamps, isFavorite, userNotes (free-form user notes, preserved across AI edits/regeneration, included in markdown sent to AI)"
       }
       ingredient: {
         label: Ingredient
@@ -477,7 +477,7 @@ app: {
       dao: RecipeDao
       entity: {
         label: RecipeEntity
-        tooltip: "Room entity for recipes: id, name, sourceUrl, story, servings, times, JSON fields, imageUrl (local file:// URI), originalHtml, createdAt, updatedAt, isFavorite"
+        tooltip: "Room entity for recipes: id, name, sourceUrl, story, servings, times, JSON fields, imageUrl (local file:// URI), originalHtml, createdAt, updatedAt, isFavorite, userNotes"
       }
       import_debug_dao: ImportDebugDao
       pending_import_dao: PendingImportDao

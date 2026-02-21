@@ -13,20 +13,26 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -45,8 +51,10 @@ import com.lionotter.recipes.domain.model.MeasurementPreference
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.ui.screens.recipedetail.HighlightedInstructionStep
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.debounce
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, FlowPreview::class)
 @Composable
 fun RecipeContent(
     recipe: Recipe,
@@ -61,6 +69,7 @@ fun RecipeContent(
     onToggleInstructionIngredient: (Int, Int, Int) -> Unit,
     highlightedInstructionStep: HighlightedInstructionStep?,
     onToggleHighlightedInstruction: (Int, Int) -> Unit,
+    onSaveNotes: (String?) -> Unit,
     volumeUnitSystem: UnitSystem = UnitSystem.localeDefault(),
     weightUnitSystem: UnitSystem = UnitSystem.localeDefault(),
     modifier: Modifier = Modifier
@@ -204,6 +213,49 @@ fun RecipeContent(
                     onToggleHighlightedInstruction = onToggleHighlightedInstruction,
                     volumeUnitSystem = volumeUnitSystem,
                     weightUnitSystem = weightUnitSystem
+                )
+            }
+
+            // Notes
+            Spacer(modifier = Modifier.height(24.dp))
+            Text(
+                text = stringResource(R.string.notes),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            DisableSelection {
+                var notesText by remember(recipe.id) {
+                    mutableStateOf(recipe.userNotes ?: "")
+                }
+                val currentRecipe by rememberUpdatedState(recipe)
+                val currentOnSaveNotes by rememberUpdatedState(onSaveNotes)
+                // Auto-save notes after the user stops typing
+                LaunchedEffect(recipe.id) {
+                    snapshotFlow { notesText }
+                        .debounce(1000)
+                        .collect { text ->
+                            val normalizedNotes = text.takeIf { it.isNotBlank() }
+                            if (normalizedNotes != currentRecipe.userNotes) {
+                                currentOnSaveNotes(normalizedNotes)
+                            }
+                        }
+                }
+                OutlinedTextField(
+                    value = notesText,
+                    onValueChange = { notesText = it },
+                    placeholder = { Text(stringResource(R.string.add_notes)) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { focusState ->
+                            if (!focusState.isFocused) {
+                                val normalizedNotes = notesText.takeIf { it.isNotBlank() }
+                                if (normalizedNotes != currentRecipe.userNotes) {
+                                    currentOnSaveNotes(normalizedNotes)
+                                }
+                            }
+                        },
+                    minLines = 3
                 )
             }
 

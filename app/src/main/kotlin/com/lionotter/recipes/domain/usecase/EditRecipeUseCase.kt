@@ -85,7 +85,8 @@ class EditRecipeUseCase @Inject constructor(
                     isFavorite = existingRecipe.isFavorite,
                     sourceUrl = existingRecipe.sourceUrl,
                     imageUrl = parseResult.recipe.imageUrl ?: existingRecipe.imageUrl,
-                    sourceImageUrl = parseResult.recipe.sourceImageUrl ?: existingRecipe.sourceImageUrl
+                    sourceImageUrl = parseResult.recipe.sourceImageUrl ?: existingRecipe.sourceImageUrl,
+                    userNotes = existingRecipe.userNotes
                 )
 
                 onProgress(EditProgress.SavingRecipe)

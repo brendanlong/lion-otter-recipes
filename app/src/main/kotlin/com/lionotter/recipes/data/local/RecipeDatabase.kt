@@ -8,7 +8,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [RecipeEntity::class, ImportDebugEntity::class, PendingImportEntity::class, MealPlanEntity::class],
-    version = 10,
+    version = 11,
     exportSchema = true
 )
 @TypeConverters(InstantConverter::class)
@@ -115,6 +115,12 @@ abstract class RecipeDatabase : RoomDatabase() {
          * First purges any soft-deleted rows, then recreates the tables without
          * the deleted column.
          */
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE recipes ADD COLUMN userNotes TEXT")
+            }
+        }
+
         val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // Purge soft-deleted rows before dropping the column

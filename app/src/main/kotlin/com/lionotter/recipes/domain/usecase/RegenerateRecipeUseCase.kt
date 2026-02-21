@@ -99,7 +99,8 @@ class RegenerateRecipeUseCase @Inject constructor(
                     updatedAt = Clock.System.now(),
                     isFavorite = existingRecipe.isFavorite,
                     sourceUrl = existingRecipe.sourceUrl,
-                    imageUrl = parseResult.recipe.imageUrl ?: existingRecipe.imageUrl
+                    imageUrl = parseResult.recipe.imageUrl ?: existingRecipe.imageUrl,
+                    userNotes = existingRecipe.userNotes
                 )
 
                 onProgress(RegenerateProgress.SavingRecipe)

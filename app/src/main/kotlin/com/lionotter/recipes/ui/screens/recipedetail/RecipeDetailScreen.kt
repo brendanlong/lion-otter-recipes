@@ -259,6 +259,7 @@ fun RecipeDetailScreen(
                     onToggleInstructionIngredient = viewModel::toggleInstructionIngredientUsed,
                     highlightedInstructionStep = highlightedInstructionStep,
                     onToggleHighlightedInstruction = viewModel::toggleHighlightedInstructionStep,
+                    onSaveNotes = viewModel::saveUserNotes,
                     volumeUnitSystem = volumeUnitSystem,
                     weightUnitSystem = weightUnitSystem,
                     modifier = Modifier.padding(paddingValues)
