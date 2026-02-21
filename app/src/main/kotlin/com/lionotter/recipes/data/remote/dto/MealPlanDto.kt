@@ -2,7 +2,6 @@ package com.lionotter.recipes.data.remote.dto
 
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentId
-import com.google.firebase.firestore.ServerTimestamp
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.model.MealType
 import kotlin.time.Instant
@@ -16,8 +15,8 @@ data class MealPlanDto(
     val date: String = "",
     val mealType: String = "",
     val servings: Double = 1.0,
-    @ServerTimestamp val createdAt: Timestamp? = null,
-    @ServerTimestamp val updatedAt: Timestamp? = null
+    val createdAt: Timestamp? = null,
+    val updatedAt: Timestamp? = null
 ) {
     fun toDomain(): MealPlanEntry = MealPlanEntry(
         id = id,

@@ -1,7 +1,6 @@
 package com.lionotter.recipes.data.repository
 
 import android.util.Log
-import com.google.firebase.firestore.SetOptions
 import com.lionotter.recipes.data.local.RecipeIdAndName
 import com.lionotter.recipes.data.remote.FirestoreService
 import com.lionotter.recipes.data.remote.dto.RecipeDto
@@ -10,6 +9,7 @@ import com.lionotter.recipes.domain.model.Recipe
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -25,12 +25,19 @@ class RecipeRepository @Inject constructor(
     }
 
     override fun getAllRecipes(): Flow<List<Recipe>> = callbackFlow {
-        val registration = firestoreService.recipesCollection()
-            .orderBy("updatedAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
+        val registration = try {
+            firestoreService.recipesCollection()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error accessing recipes collection", e)
+            close(e)
+            return@callbackFlow
+        }
+        val listener = registration
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     Log.e(TAG, "Error listening to recipes", error)
                     firestoreService.reportError("Failed to load recipes: ${error.message}")
+                    close(error)
                     return@addSnapshotListener
                 }
                 val recipes = snapshot?.documents?.mapNotNull { doc ->
@@ -43,15 +50,23 @@ class RecipeRepository @Inject constructor(
                 } ?: emptyList()
                 trySend(recipes)
             }
-        awaitClose { registration.remove() }
-    }
+        awaitClose { listener.remove() }
+    }.conflate()
 
     override fun getRecipeById(id: String): Flow<Recipe?> = callbackFlow {
-        val registration = firestoreService.recipesCollection().document(id)
+        val docRef = try {
+            firestoreService.recipesCollection().document(id)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error accessing recipe document $id", e)
+            close(e)
+            return@callbackFlow
+        }
+        val listener = docRef
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     Log.e(TAG, "Error listening to recipe $id", error)
                     firestoreService.reportError("Failed to load recipe: ${error.message}")
+                    close(error)
                     return@addSnapshotListener
                 }
                 val recipe = try {
@@ -62,8 +77,8 @@ class RecipeRepository @Inject constructor(
                 }
                 trySend(recipe)
             }
-        awaitClose { registration.remove() }
-    }
+        awaitClose { listener.remove() }
+    }.conflate()
 
     override suspend fun getRecipeByIdOnce(id: String): Recipe? {
         return try {
