@@ -37,7 +37,7 @@ class SettingsViewModelTest {
     private val apiKeyFlow = MutableStateFlow<String?>(null)
     private val aiModelFlow = MutableStateFlow(AnthropicService.DEFAULT_MODEL)
     private val editModelFlow = MutableStateFlow(AnthropicService.DEFAULT_EDIT_MODEL)
-    private val extendedThinkingFlow = MutableStateFlow(true)
+    private val thinkingEnabledFlow = MutableStateFlow(true)
     private val keepScreenOnFlow = MutableStateFlow(true)
     private val themeModeFlow = MutableStateFlow(ThemeMode.AUTO)
     private val importDebuggingEnabledFlow = MutableStateFlow(false)
@@ -55,7 +55,7 @@ class SettingsViewModelTest {
         every { settingsDataStore.anthropicApiKey } returns apiKeyFlow
         every { settingsDataStore.aiModel } returns aiModelFlow
         every { settingsDataStore.editModel } returns editModelFlow
-        every { settingsDataStore.extendedThinkingEnabled } returns extendedThinkingFlow
+        every { settingsDataStore.thinkingEnabled } returns thinkingEnabledFlow
         every { settingsDataStore.keepScreenOn } returns keepScreenOnFlow
         every { settingsDataStore.themeMode } returns themeModeFlow
         every { settingsDataStore.importDebuggingEnabled } returns importDebuggingEnabledFlow
@@ -242,23 +242,23 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `setExtendedThinkingEnabled calls datastore`() = runTest {
-        coEvery { settingsDataStore.setExtendedThinkingEnabled(any()) } just runs
+    fun `setThinkingEnabled calls datastore`() = runTest {
+        coEvery { settingsDataStore.setThinkingEnabled(any()) } just runs
 
-        viewModel.setExtendedThinkingEnabled(false)
+        viewModel.setThinkingEnabled(false)
         testDispatcher.scheduler.advanceUntilIdle()
 
-        coVerify { settingsDataStore.setExtendedThinkingEnabled(false) }
+        coVerify { settingsDataStore.setThinkingEnabled(false) }
     }
 
     @Test
-    fun `extendedThinkingEnabled flow reflects datastore value`() = runTest {
-        viewModel.extendedThinkingEnabled.test {
+    fun `thinkingEnabled flow reflects datastore value`() = runTest {
+        viewModel.thinkingEnabled.test {
             // Initial value (default: true)
             assertEquals(true, awaitItem())
 
             // Update the underlying flow
-            extendedThinkingFlow.value = false
+            thinkingEnabledFlow.value = false
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals(false, awaitItem())

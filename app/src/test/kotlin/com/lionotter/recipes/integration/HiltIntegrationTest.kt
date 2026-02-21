@@ -63,7 +63,7 @@ abstract class HiltIntegrationTest {
         every { anthropicApiKey } returns MutableStateFlow(null)
         every { aiModel } returns MutableStateFlow("claude-sonnet-4-20250514")
         every { editModel } returns MutableStateFlow("claude-sonnet-4-6")
-        every { extendedThinkingEnabled } returns MutableStateFlow(true)
+        every { thinkingEnabled } returns MutableStateFlow(true)
         every { keepScreenOn } returns MutableStateFlow(true)
         every { themeMode } returns MutableStateFlow(ThemeMode.AUTO)
         every { volumeUnitSystem } returns MutableStateFlow(UnitSystem.CUSTOMARY)

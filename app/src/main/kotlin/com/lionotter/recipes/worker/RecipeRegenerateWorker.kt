@@ -43,12 +43,12 @@ class RecipeRegenerateWorker @AssistedInject constructor(
         fun createInputData(
             recipeId: String,
             model: String?,
-            extendedThinking: Boolean?
+            thinkingEnabled: Boolean?
         ): Data {
             return workDataOf(
                 KEY_RECIPE_ID to recipeId,
                 KEY_MODEL to model,
-                KEY_EXTENDED_THINKING to extendedThinking
+                KEY_EXTENDED_THINKING to thinkingEnabled
             )
         }
     }
@@ -62,7 +62,7 @@ class RecipeRegenerateWorker @AssistedInject constructor(
                 )
             )
         val model = inputData.getString(KEY_MODEL)
-        val extendedThinking = if (inputData.keyValueMap.containsKey(KEY_EXTENDED_THINKING)) {
+        val thinkingEnabled = if (inputData.keyValueMap.containsKey(KEY_EXTENDED_THINKING)) {
             inputData.getBoolean(KEY_EXTENDED_THINKING, true)
         } else {
             null
@@ -73,7 +73,7 @@ class RecipeRegenerateWorker @AssistedInject constructor(
         val result = regenerateRecipeUseCase.execute(
             recipeId = recipeId,
             model = model,
-            extendedThinking = extendedThinking,
+            thinkingEnabled = thinkingEnabled,
             onProgress = { progress ->
                 val progressMessage = when (progress) {
                     is RegenerateRecipeUseCase.RegenerateProgress.FetchingFromUrl -> {

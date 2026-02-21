@@ -501,7 +501,7 @@ app: {
       }
       settings: {
         label: SettingsDataStore
-        tooltip: "Uses Tink AEAD encryption for API key, DataStore for non-sensitive settings (AI model, edit model, extended thinking enabled, keep screen on, theme mode, volume/weight unit system preferences, grocery list volume/weight unit system preferences, start of week, import debugging enabled)"
+        tooltip: "Uses Tink AEAD encryption for API key, DataStore for non-sensitive settings (AI model, edit model, thinking enabled, keep screen on, theme mode, volume/weight unit system preferences, grocery list volume/weight unit system preferences, start of week, import debugging enabled)"
       }
 
       dao -> room
@@ -524,7 +524,7 @@ app: {
 
       anthropic_svc: {
         label: AnthropicService
-        tooltip: "Uses the Anthropic Java SDK (OkHttp) to parse recipes with volume/weight conversions, step-level ingredient extraction, and optional field detection. Extended thinking is configurable via settings. Supports Opus 4.6, Opus 4.5, Sonnet 4.5, and Haiku 4.5"
+        tooltip: "Uses the Anthropic Java SDK (OkHttp) to parse recipes with volume/weight conversions, step-level ingredient extraction, and optional field detection. Thinking is configurable via settings: uses adaptive thinking for Opus 4.6 and Sonnet 4.6, extended thinking with budget for older models. Supports Opus 4.6, Opus 4.5, Sonnet 4.5, and Haiku 4.5"
       }
       scraper: {
         label: WebScraperService

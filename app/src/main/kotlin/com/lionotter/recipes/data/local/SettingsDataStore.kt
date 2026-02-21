@@ -109,7 +109,7 @@ class SettingsDataStore @Inject constructor(
         preferences[Keys.EDIT_MODEL] ?: AnthropicService.DEFAULT_EDIT_MODEL
     }
 
-    val extendedThinkingEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
+    val thinkingEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[Keys.EXTENDED_THINKING_ENABLED] ?: true
     }
 
@@ -224,7 +224,7 @@ class SettingsDataStore @Inject constructor(
         }
     }
 
-    suspend fun setExtendedThinkingEnabled(enabled: Boolean) {
+    suspend fun setThinkingEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[Keys.EXTENDED_THINKING_ENABLED] = enabled
         }

@@ -44,7 +44,7 @@ class SettingsViewModel @Inject constructor(
             initialValue = AnthropicService.DEFAULT_EDIT_MODEL
         )
 
-    val extendedThinkingEnabled: StateFlow<Boolean> = settingsDataStore.extendedThinkingEnabled
+    val thinkingEnabled: StateFlow<Boolean> = settingsDataStore.thinkingEnabled
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
@@ -156,9 +156,9 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun setExtendedThinkingEnabled(enabled: Boolean) {
+    fun setThinkingEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            settingsDataStore.setExtendedThinkingEnabled(enabled)
+            settingsDataStore.setThinkingEnabled(enabled)
         }
     }
 

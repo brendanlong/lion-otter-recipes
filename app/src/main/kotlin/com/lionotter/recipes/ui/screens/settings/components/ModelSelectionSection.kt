@@ -42,8 +42,8 @@ fun ModelSelectionSection(
     onModelChange: (String) -> Unit,
     currentEditModel: String,
     onEditModelChange: (String) -> Unit,
-    extendedThinkingEnabled: Boolean,
-    onExtendedThinkingChange: (Boolean) -> Unit
+    thinkingEnabled: Boolean,
+    onThinkingChange: (Boolean) -> Unit
 ) {
     val models = MODELS
 
@@ -75,9 +75,9 @@ fun ModelSelectionSection(
             onModelChange = onEditModelChange
         )
 
-        ExtendedThinkingToggle(
-            enabled = extendedThinkingEnabled,
-            onEnabledChange = onExtendedThinkingChange
+        ThinkingToggle(
+            enabled = thinkingEnabled,
+            onEnabledChange = onThinkingChange
         )
     }
 }
@@ -89,8 +89,8 @@ fun ModelSelectionSection(
 fun SingleModelSelectionSection(
     currentModel: String,
     onModelChange: (String) -> Unit,
-    extendedThinkingEnabled: Boolean,
-    onExtendedThinkingChange: (Boolean) -> Unit
+    thinkingEnabled: Boolean,
+    onThinkingChange: (Boolean) -> Unit
 ) {
     val models = MODELS
 
@@ -106,9 +106,9 @@ fun SingleModelSelectionSection(
             onModelChange = onModelChange
         )
 
-        ExtendedThinkingToggle(
-            enabled = extendedThinkingEnabled,
-            onEnabledChange = onExtendedThinkingChange
+        ThinkingToggle(
+            enabled = thinkingEnabled,
+            onEnabledChange = onThinkingChange
         )
     }
 }
@@ -172,7 +172,7 @@ private fun ModelDropdown(
 }
 
 @Composable
-private fun ExtendedThinkingToggle(
+private fun ThinkingToggle(
     enabled: Boolean,
     onEnabledChange: (Boolean) -> Unit
 ) {
@@ -183,11 +183,11 @@ private fun ExtendedThinkingToggle(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = stringResource(R.string.extended_thinking),
+                text = stringResource(R.string.thinking),
                 style = MaterialTheme.typography.bodyLarge
             )
             Text(
-                text = stringResource(R.string.extended_thinking_description),
+                text = stringResource(R.string.thinking_description),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

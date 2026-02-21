@@ -76,7 +76,7 @@ class RecipeDetailViewModelTest {
         every { settingsDataStore.volumeUnitSystem } returns flowOf(UnitSystem.CUSTOMARY)
         every { settingsDataStore.weightUnitSystem } returns flowOf(UnitSystem.METRIC)
         every { settingsDataStore.aiModel } returns flowOf("claude-sonnet-4-5")
-        every { settingsDataStore.extendedThinkingEnabled } returns flowOf(true)
+        every { settingsDataStore.thinkingEnabled } returns flowOf(true)
         every { settingsDataStore.anthropicApiKey } returns flowOf("test-api-key")
     }
 
