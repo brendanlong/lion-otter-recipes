@@ -1,11 +1,16 @@
 package com.lionotter.recipes.data.remote
 
+import android.util.Log
 import com.anthropic.client.AnthropicClient
 import com.anthropic.client.okhttp.AnthropicOkHttpClient
+import com.anthropic.models.messages.Message
 import com.anthropic.models.messages.MessageCreateParams
 import com.anthropic.models.messages.TextBlockParam
 import com.anthropic.models.messages.ThinkingConfigAdaptive
 import com.anthropic.models.messages.ThinkingConfigEnabled
+import com.anthropic.models.messages.batches.BatchCreateParams
+import com.anthropic.models.messages.batches.MessageBatch
+import com.anthropic.models.messages.batches.MessageBatchIndividualResponse
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
 import kotlinx.coroutines.Dispatchers
@@ -114,6 +119,182 @@ class AnthropicService @Inject constructor(
         }
     }
 
+    /**
+     * Data class representing a single request to include in a batch.
+     */
+    data class BatchRequest(
+        val customId: String,
+        val text: String,
+        val densityOverrides: Map<String, Double>? = null
+    )
+
+    /**
+     * Create a Message Batches API batch for parsing multiple recipes in parallel.
+     * Returns the batch ID for polling.
+     *
+     * Batch processing is 50% cheaper than synchronous API calls.
+     */
+    suspend fun createRecipeBatch(
+        requests: List<BatchRequest>,
+        apiKey: String,
+        model: String = DEFAULT_MODEL,
+        thinkingEnabled: Boolean = SettingsDataStore.DEFAULT_THINKING_ENABLED
+    ): Result<String> {
+        return try {
+            val client = buildClient(apiKey)
+
+            val batchRequests = requests.map { request ->
+                val systemPrompt = buildSystemPrompt(request.densityOverrides)
+
+                val paramsBuilder = BatchCreateParams.Request.Params.builder()
+                    .model(model)
+                    .maxTokens(16000)
+                    .systemOfTextBlockParams(
+                        listOf(
+                            TextBlockParam.builder()
+                                .text(systemPrompt)
+                                .build()
+                        )
+                    )
+                    .addUserMessage("Parse this recipe webpage and extract the structured data:\n\n${request.text}")
+
+                if (thinkingEnabled) {
+                    if (supportsAdaptiveThinking(model)) {
+                        paramsBuilder.thinking(
+                            ThinkingConfigAdaptive.builder().build()
+                        )
+                    } else {
+                        paramsBuilder.thinking(
+                            ThinkingConfigEnabled.builder()
+                                .budgetTokens(8000)
+                                .build()
+                        )
+                    }
+                }
+
+                BatchCreateParams.Request.builder()
+                    .customId(request.customId)
+                    .params(paramsBuilder.build())
+                    .build()
+            }
+
+            val batch = withContext(Dispatchers.IO) {
+                client.messages().batches().create(
+                    BatchCreateParams.builder()
+                        .requests(batchRequests)
+                        .build()
+                )
+            }
+
+            Result.success(batch.id())
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Retrieve the current status of a batch.
+     */
+    suspend fun retrieveBatch(
+        batchId: String,
+        apiKey: String
+    ): Result<MessageBatch> {
+        return try {
+            val client = buildClient(apiKey)
+            val batch = withContext(Dispatchers.IO) {
+                client.messages().batches().retrieve(batchId)
+            }
+            Result.success(batch)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Cancel a batch.
+     */
+    suspend fun cancelBatch(
+        batchId: String,
+        apiKey: String
+    ): Result<Unit> {
+        return try {
+            val client = buildClient(apiKey)
+            withContext(Dispatchers.IO) {
+                client.messages().batches().cancel(batchId)
+            }
+            Result.success(Unit)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to cancel batch $batchId", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Stream results from a completed batch. Returns a list of individual responses.
+     */
+    suspend fun getBatchResults(
+        batchId: String,
+        apiKey: String
+    ): Result<List<MessageBatchIndividualResponse>> {
+        return try {
+            val client = buildClient(apiKey)
+            val results = withContext(Dispatchers.IO) {
+                client.messages().batches().resultsStreaming(batchId).use { stream ->
+                    stream.stream().collect(java.util.stream.Collectors.toList())
+                }
+            }
+            Result.success(results)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Parse a [Message] from a batch result into a [ParseResultWithUsage].
+     */
+    fun parseMessageResult(message: Message): Result<ParseResultWithUsage> {
+        return try {
+            val usage = message.usage()
+            val inputTokens = usage.inputTokens()
+            val outputTokens = usage.outputTokens()
+
+            val textContent = message.content()
+                .firstOrNull { it.isText() }
+                ?.asText()
+                ?.text()
+                ?: return Result.failure(Exception("No text content in response"))
+
+            val jsonContent = extractJson(textContent)
+
+            val parseResponse = json.decodeFromString(RecipeParseResponse.serializer(), jsonContent)
+
+            if (!parseResponse.success) {
+                val errorMessage = parseResponse.error ?: "Failed to parse recipe"
+                return Result.failure(RecipeParseException(errorMessage))
+            }
+
+            val recipeResult = parseResponse.recipe
+                ?: return Result.failure(RecipeParseException("No recipe data in response"))
+
+            Result.success(ParseResultWithUsage(
+                result = recipeResult,
+                inputTokens = inputTokens,
+                outputTokens = outputTokens,
+                aiOutputJson = jsonContent
+            ))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     private fun buildClient(apiKey: String): AnthropicClient {
         return AnthropicOkHttpClient.builder()
             .apiKey(apiKey)
@@ -140,6 +321,7 @@ class AnthropicService @Inject constructor(
     }
 
     companion object {
+        private const val TAG = "AnthropicService"
         const val DEFAULT_MODEL = "claude-opus-4-6"
         const val DEFAULT_EDIT_MODEL = "claude-sonnet-4-6"
         private const val API_KEY_PREFIX = "sk-ant-"

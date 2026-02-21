@@ -5,6 +5,7 @@ import com.lionotter.recipes.data.local.ImportDebugEntity
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.remote.ImageDownloadService
+import com.lionotter.recipes.data.remote.ParseResultWithUsage
 import com.lionotter.recipes.data.remote.RecipeParseException
 import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.data.repository.RecipeRepository
@@ -220,6 +221,119 @@ class ParseHtmlUseCase @Inject constructor(
         return ParseResult.Success(recipe)
     }
 
+    /**
+     * Save a pre-parsed batch result as a Recipe.
+     * Used by batch import flows where the AI response has already been obtained
+     * via the Batch API and parsed into a [ParseResultWithUsage].
+     *
+     * Handles image download, recipe creation, database save, and debug entry.
+     *
+     * @param parsedWithUsage The pre-parsed AI result with token usage
+     * @param sourceUrl Optional URL for the recipe source
+     * @param imageUrl Optional image URL for the recipe
+     * @param originalHtml Optional original HTML for debug data
+     * @param cleanedContent The text that was sent to the AI
+     * @param model The AI model used
+     * @param thinkingEnabled Whether thinking was enabled
+     * @param durationMs Time taken for the batch to process (optional)
+     * @return The saved Recipe, or null if saving failed
+     */
+    suspend fun saveBatchResult(
+        parsedWithUsage: ParseResultWithUsage,
+        sourceUrl: String? = null,
+        imageUrl: String? = null,
+        originalHtml: String? = null,
+        cleanedContent: String? = null,
+        model: String,
+        thinkingEnabled: Boolean,
+        durationMs: Long? = null
+    ): Recipe? {
+        val parsed = parsedWithUsage.result
+
+        // Download image locally if available
+        val downloadResult = imageUrl?.let { imageDownloadService.downloadAndStoreWithResult(it) }
+
+        // Create Recipe
+        val now = Clock.System.now()
+        val recipe = Recipe(
+            id = UUID.randomUUID().toString(),
+            name = parsed.name,
+            sourceUrl = sourceUrl,
+            story = parsed.story,
+            servings = parsed.servings,
+            prepTime = parsed.prepTime,
+            cookTime = parsed.cookTime,
+            totalTime = parsed.totalTime,
+            instructionSections = parsed.instructionSections,
+            equipment = parsed.equipment,
+            tags = parsed.tags,
+            imageUrl = downloadResult?.localUri,
+            sourceImageUrl = downloadResult?.effectiveUrl ?: imageUrl,
+            createdAt = now,
+            updatedAt = now
+        )
+
+        // Save to database
+        coroutineContext.ensureActive()
+        recipeRepository.saveRecipe(recipe, originalHtml = originalHtml)
+
+        // Save debug data if debugging is enabled
+        val debuggingEnabled = settingsDataStore.importDebuggingEnabled.first()
+        if (debuggingEnabled) {
+            saveDebugEntry(
+                sourceUrl = sourceUrl,
+                originalHtml = originalHtml,
+                cleanedContent = cleanedContent,
+                aiOutputJson = parsedWithUsage.aiOutputJson,
+                inputTokens = parsedWithUsage.inputTokens,
+                outputTokens = parsedWithUsage.outputTokens,
+                aiModel = model,
+                thinkingEnabled = thinkingEnabled,
+                recipeId = recipe.id,
+                recipeName = recipe.name,
+                errorMessage = null,
+                isError = false,
+                durationMs = durationMs,
+                batchMode = true
+            )
+        }
+
+        return recipe
+    }
+
+    /**
+     * Save a debug entry for a failed batch result.
+     */
+    suspend fun saveBatchErrorDebugEntry(
+        sourceUrl: String? = null,
+        originalHtml: String? = null,
+        cleanedContent: String? = null,
+        errorMessage: String?,
+        model: String,
+        thinkingEnabled: Boolean,
+        durationMs: Long? = null
+    ) {
+        val debuggingEnabled = settingsDataStore.importDebuggingEnabled.first()
+        if (debuggingEnabled) {
+            saveDebugEntry(
+                sourceUrl = sourceUrl,
+                originalHtml = originalHtml,
+                cleanedContent = cleanedContent,
+                aiOutputJson = null,
+                inputTokens = null,
+                outputTokens = null,
+                aiModel = model,
+                thinkingEnabled = thinkingEnabled,
+                recipeId = null,
+                recipeName = null,
+                errorMessage = errorMessage,
+                isError = true,
+                durationMs = durationMs,
+                batchMode = true
+            )
+        }
+    }
+
     private suspend fun saveDebugEntry(
         sourceUrl: String?,
         originalHtml: String?,
@@ -233,7 +347,8 @@ class ParseHtmlUseCase @Inject constructor(
         recipeName: String?,
         errorMessage: String?,
         isError: Boolean,
-        durationMs: Long?
+        durationMs: Long?,
+        batchMode: Boolean = false
     ) {
         val entry = ImportDebugEntity(
             id = UUID.randomUUID().toString(),
@@ -252,7 +367,8 @@ class ParseHtmlUseCase @Inject constructor(
             errorMessage = errorMessage,
             isError = isError,
             durationMs = durationMs,
-            createdAt = Clock.System.now().toEpochMilliseconds()
+            createdAt = Clock.System.now().toEpochMilliseconds(),
+            batchMode = batchMode
         )
         importDebugRepository.saveDebugEntry(entry)
     }

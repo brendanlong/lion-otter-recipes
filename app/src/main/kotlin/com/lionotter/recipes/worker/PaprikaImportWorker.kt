@@ -44,6 +44,8 @@ class PaprikaImportWorker @AssistedInject constructor(
         const val RESULT_NO_API_KEY = "no_api_key"
 
         const val PROGRESS_PARSING = "parsing"
+        const val PROGRESS_SUBMITTING_BATCH = "submitting_batch"
+        const val PROGRESS_WAITING_FOR_BATCH = "waiting_for_batch"
         const val PROGRESS_IMPORTING = "importing"
 
         fun createInputData(
@@ -103,6 +105,23 @@ class PaprikaImportWorker @AssistedInject constructor(
                             ))
                             "Reading Paprika export..."
                         }
+                        is ImportPaprikaUseCase.ImportProgress.SubmittingBatch -> {
+                            setProgress(workDataOf(
+                                KEY_PROGRESS to PROGRESS_SUBMITTING_BATCH,
+                                KEY_IMPORT_ID to importId,
+                                KEY_TOTAL to progress.total
+                            ))
+                            "Submitting ${progress.total} recipes for batch processing..."
+                        }
+                        is ImportPaprikaUseCase.ImportProgress.WaitingForBatch -> {
+                            setProgress(workDataOf(
+                                KEY_PROGRESS to PROGRESS_WAITING_FOR_BATCH,
+                                KEY_IMPORT_ID to importId,
+                                KEY_TOTAL to progress.total,
+                                KEY_PROGRESS_IMPORTED_COUNT to progress.succeeded
+                            ))
+                            "AI processing: ${progress.succeeded}/${progress.total} complete..."
+                        }
                         is ImportPaprikaUseCase.ImportProgress.ImportingRecipe -> {
                             setProgress(
                                 workDataOf(
@@ -115,7 +134,7 @@ class PaprikaImportWorker @AssistedInject constructor(
                                     KEY_PROGRESS_FAILED_COUNT to progress.failedSoFar
                                 )
                             )
-                            "Importing ${progress.current}/${progress.total}: ${progress.recipeName}"
+                            "Saving ${progress.current}/${progress.total}: ${progress.recipeName}"
                         }
                         is ImportPaprikaUseCase.ImportProgress.Complete -> "Complete!"
                     }

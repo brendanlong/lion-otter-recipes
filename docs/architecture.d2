@@ -289,7 +289,7 @@ app: {
       }
       import_paprika: {
         label: ImportPaprikaUseCase
-        tooltip: "Imports recipes from Paprika export (.paprikarecipes). Parses export, sends recipe content through ParseHtmlUseCase.parseText(). Resolves images by priority: base64 photo_data (saved directly to local storage), image_url, or og:image from source page. Supports cooperative cancellation — checks coroutine state between recipes and preserves already-imported recipes on cancel."
+        tooltip: "Imports recipes from Paprika export (.paprikarecipes). Uses Message Batches API for multiple recipes (50% cheaper): prepares all recipes, submits as a single batch, polls for completion, processes results. Falls back to sequential processing for single recipes or when batch creation fails. Resolves images by priority: base64 photo_data (saved directly to local storage), image_url, or og:image from source page. Supports cooperative cancellation — cancels batch on server and preserves already-imported recipes."
       }
       export_zip: {
         label: ExportToZipUseCase
@@ -524,7 +524,7 @@ app: {
 
       anthropic_svc: {
         label: AnthropicService
-        tooltip: "Uses the Anthropic Java SDK (OkHttp) to parse recipes with volume/weight conversions, step-level ingredient extraction, and optional field detection. Thinking is configurable via settings: uses adaptive thinking for Opus 4.6 and Sonnet 4.6, extended thinking with budget for older models. Supports Opus 4.6, Opus 4.5, Sonnet 4.5, and Haiku 4.5"
+        tooltip: "Uses the Anthropic Java SDK (OkHttp) to parse recipes with volume/weight conversions, step-level ingredient extraction, and optional field detection. Thinking is configurable via settings: uses adaptive thinking for Opus 4.6 and Sonnet 4.6, extended thinking with budget for older models. Supports Opus 4.6, Opus 4.5, Sonnet 4.5, and Haiku 4.5. Supports Message Batches API for bulk imports (Paprika): creates batch, polls for completion, streams results. Batch mode is 50% cheaper than synchronous calls."
       }
       scraper: {
         label: WebScraperService
@@ -642,7 +642,8 @@ app: {
   domain.util.zip_import_helper -> data.repository.meal_plan_repo: import meal plans
   domain.util.zip_import_helper -> data.remote.image_dl: download image
   domain.usecases.import_paprika -> data.paprika.parser: parse export
-  domain.usecases.import_paprika -> domain.usecases.parse_html: parseText
+  domain.usecases.import_paprika -> domain.usecases.parse_html: parseText, saveBatchResult
+  domain.usecases.import_paprika -> data.remote.anthropic_svc: batch API
   domain.usecases.regenerate -> data.remote.scraper: fetch HTML if not cached
   domain.usecases.import_paprika -> data.remote.scraper: fetch source image
   domain.usecases.parse_html -> data.remote.image_dl: download image
@@ -697,9 +698,9 @@ legend: {
   }
   pap1: "1. User picks .paprikarecipes file, selects recipes to import"
   pap2: "2. PaprikaImportWorker parses ZIP of gzip-compressed JSON (filtered to selected)"
-  pap3: "3. Each recipe's content (not source URL) sent to AI"
-  pap4: "4. Image resolved from Paprika data or source page"
-  pap5: "5. Repository saves each parsed recipe to Room"
+  pap3: "3. For multiple recipes: submit all as a batch via Message Batches API (50% cheaper, parallel)"
+  pap4: "4. Poll for batch completion, then stream results and save each recipe"
+  pap5: "5. Images resolved from Paprika data or source page; single recipes use sequential API"
 
   pap1 -> pap2 -> pap3 -> pap4 -> pap5
 
@@ -733,7 +734,7 @@ legend: {
   share1 -> share2 -> share3 -> share4
 
   note: {
-    label: "All imports run in background via WorkManager (URL, Paprika, .lorecipes). Import queue is database-backed (PendingImportEntity) and persists across app restarts. Supports multiple concurrent imports with individual cancellation from the recipe list via swipe-to-dismiss. Page metadata (title, image) is fetched cheaply before AI parsing begins. Paprika import runs in background with progress notifications and can be cancelled mid-way, keeping already-imported recipes. Export uses .lorecipes format (ZIP with RecipeSerializer) for both single recipe share and bulk backup."
+    label: "All imports run in background via WorkManager (URL, Paprika, .lorecipes). Import queue is database-backed (PendingImportEntity) and persists across app restarts. Supports multiple concurrent imports with individual cancellation from the recipe list via swipe-to-dismiss. Page metadata (title, image) is fetched cheaply before AI parsing begins. Paprika import uses the Message Batches API for multiple recipes (50% cheaper), submitting all recipes as a single batch for parallel processing, with fallback to sequential for single recipes. Batch cancellation propagates to the server. Export uses .lorecipes format (ZIP with RecipeSerializer) for both single recipe share and bulk backup."
     style: {
       font-size: 12
       italic: true

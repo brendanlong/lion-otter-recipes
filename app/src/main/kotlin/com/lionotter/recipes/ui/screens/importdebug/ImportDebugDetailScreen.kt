@@ -198,7 +198,7 @@ private fun SummaryTab(
         if (entry.inputTokens != null && entry.outputTokens != null && entry.aiModel != null) {
             SummaryRow(
                 label = stringResource(R.string.ai_cost_label),
-                value = estimateCost(entry.aiModel, entry.inputTokens, entry.outputTokens, entry.thinkingEnabled)
+                value = estimateCost(entry.aiModel, entry.inputTokens, entry.outputTokens, entry.thinkingEnabled, entry.batchMode)
             )
         }
 
@@ -493,9 +493,10 @@ private fun formatTimestamp(epochMillis: Long): String {
     return "${localDateTime.year}-${localDateTime.month.number.toString().padStart(2, '0')}-${localDateTime.day.toString().padStart(2, '0')} ${localDateTime.hour.toString().padStart(2, '0')}:${localDateTime.minute.toString().padStart(2, '0')}:${localDateTime.second.toString().padStart(2, '0')}"
 }
 
-private fun estimateCost(model: String, inputTokens: Long, outputTokens: Long, thinkingEnabled: Boolean): String {
+private fun estimateCost(model: String, inputTokens: Long, outputTokens: Long, thinkingEnabled: Boolean, batchMode: Boolean = false): String {
     // Pricing per million tokens from https://platform.claude.com/docs/en/about-claude/pricing
-    val (inputCostPerM, outputCostPerM) = when {
+    // Batch mode is 50% cheaper than standard API calls
+    val (baseInput, baseOutput) = when {
         model.contains("opus-4-5") || model.contains("opus-4-6") -> 5.0 to 25.0
         model.contains("opus") -> 15.0 to 75.0
         model.contains("sonnet") -> 3.0 to 15.0
@@ -504,10 +505,12 @@ private fun estimateCost(model: String, inputTokens: Long, outputTokens: Long, t
         model.contains("haiku") -> 0.25 to 1.25
         else -> 3.0 to 15.0
     }
-    val inputCost = (inputTokens / 1_000_000.0) * inputCostPerM
-    val outputCost = (outputTokens / 1_000_000.0) * outputCostPerM
+    val multiplier = if (batchMode) 0.5 else 1.0
+    val inputCost = (inputTokens / 1_000_000.0) * baseInput * multiplier
+    val outputCost = (outputTokens / 1_000_000.0) * baseOutput * multiplier
     val totalCost = inputCost + outputCost
-    return "$${String.format("%.4f", totalCost)}"
+    val suffix = if (batchMode) " (batch)" else ""
+    return "$${String.format("%.4f", totalCost)}$suffix"
 }
 
 private fun formatDuration(durationMs: Long): String {
