@@ -4,6 +4,7 @@ import android.util.Log
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.CollectionReference
+import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreSettings
 import com.google.firebase.firestore.firestore
 import com.google.firebase.firestore.firestoreSettings
@@ -26,6 +27,8 @@ open class FirestoreService @Inject constructor() {
     val errors: SharedFlow<String> = _errors.asSharedFlow()
 
     init {
+        FirebaseFirestore.setLoggingEnabled(true)
+
         try {
             val settings = firestoreSettings {
                 setLocalCacheSettings(persistentCacheSettings {

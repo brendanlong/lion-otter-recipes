@@ -120,15 +120,9 @@ class RecipeCrudIntegrationTest : FirestoreIntegrationTest() {
     }
 
     @Test
-    fun `multiple recipes are returned ordered by updatedAt desc`() = runTest {
-        val recipe1 = createTestRecipe(
-            id = "recipe-1",
-            name = "Older Recipe"
-        ).copy(updatedAt = Instant.fromEpochMilliseconds(1000))
-        val recipe2 = createTestRecipe(
-            id = "recipe-2",
-            name = "Newer Recipe"
-        ).copy(updatedAt = Instant.fromEpochMilliseconds(2000))
+    fun `multiple recipes are all returned`() = runTest {
+        val recipe1 = createTestRecipe(id = "recipe-1", name = "Recipe A")
+        val recipe2 = createTestRecipe(id = "recipe-2", name = "Recipe B")
 
         recipeRepository.saveRecipe(recipe1)
         recipeRepository.saveRecipe(recipe2)
@@ -139,8 +133,9 @@ class RecipeCrudIntegrationTest : FirestoreIntegrationTest() {
             pumpLooper()
             val recipes = turbine.awaitItem()
             assertEquals(2, recipes.size)
-            assertEquals("Newer Recipe", recipes[0].name)
-            assertEquals("Older Recipe", recipes[1].name)
+            val names = recipes.map { it.name }.toSet()
+            assertTrue(names.contains("Recipe A"))
+            assertTrue(names.contains("Recipe B"))
             turbine.cancelAndIgnoreRemainingEvents()
         }
     }

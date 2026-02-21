@@ -10,6 +10,7 @@ import com.lionotter.recipes.domain.model.MealPlanEntry
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.tasks.await
 import kotlinx.datetime.LocalDate
 import javax.inject.Inject
@@ -24,15 +25,25 @@ class MealPlanRepository @Inject constructor(
     }
 
     override fun getMealPlansForDateRange(startDate: LocalDate, endDate: LocalDate): Flow<List<MealPlanEntry>> = callbackFlow {
-        val registration = firestoreService.mealPlansCollection()
+        Log.d(TAG, "getMealPlansForDateRange($startDate..$endDate): setting up listener")
+        val collection = try {
+            firestoreService.mealPlansCollection()
+        } catch (e: Exception) {
+            Log.e(TAG, "getMealPlansForDateRange: error accessing collection", e)
+            close(e)
+            return@callbackFlow
+        }
+        val listener = collection
             .whereGreaterThanOrEqualTo("date", startDate.toString())
             .whereLessThanOrEqualTo("date", endDate.toString())
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    Log.e(TAG, "Error listening to meal plans", error)
+                    Log.e(TAG, "getMealPlansForDateRange: listener error", error)
                     firestoreService.reportError("Failed to load meal plans: ${error.message}")
+                    close(error)
                     return@addSnapshotListener
                 }
+                Log.d(TAG, "getMealPlansForDateRange: listener fired, ${snapshot?.documents?.size ?: 0} docs, fromCache=${snapshot?.metadata?.isFromCache}")
                 val entries = snapshot?.documents?.mapNotNull { doc ->
                     try {
                         doc.toObject(MealPlanDto::class.java)?.toDomain()
@@ -43,8 +54,11 @@ class MealPlanRepository @Inject constructor(
                 } ?: emptyList()
                 trySend(entries)
             }
-        awaitClose { registration.remove() }
-    }
+        awaitClose {
+            Log.d(TAG, "getMealPlansForDateRange: removing listener")
+            listener.remove()
+        }
+    }.conflate()
 
     override fun saveMealPlan(entry: MealPlanEntry) {
         val dto = entry.toDto()
