@@ -40,7 +40,7 @@ class EditRecipeUseCase @Inject constructor(
      * @param markdownText The user-edited markdown text to parse
      * @param saveAsCopy If true, saves as a new recipe instead of updating the existing one
      * @param model The AI model to use (null = use current setting)
-     * @param extendedThinking Whether to use extended thinking (null = use current setting)
+     * @param thinkingEnabled Whether to use extended thinking (null = use current setting)
      * @param onProgress Callback for progress updates
      */
     suspend fun execute(
@@ -48,7 +48,7 @@ class EditRecipeUseCase @Inject constructor(
         markdownText: String,
         saveAsCopy: Boolean = false,
         model: String? = null,
-        extendedThinking: Boolean? = null,
+        thinkingEnabled: Boolean? = null,
         onProgress: suspend (EditProgress) -> Unit = {}
     ): EditResult {
         // Load existing recipe to preserve metadata
@@ -70,7 +70,7 @@ class EditRecipeUseCase @Inject constructor(
             saveRecipe = false,
             originalHtml = originalHtml,
             model = model,
-            extendedThinking = extendedThinking,
+            thinkingEnabled = thinkingEnabled,
             densityOverrides = densityOverrides,
             onProgress = { progress ->
                 when (progress) {

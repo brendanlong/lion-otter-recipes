@@ -33,13 +33,13 @@ class RegenerateRecipeUseCase @Inject constructor(
      *
      * @param recipeId The ID of the recipe to regenerate
      * @param model The AI model to use (null = use current setting)
-     * @param extendedThinking Whether to use extended thinking (null = use current setting)
+     * @param thinkingEnabled Whether to use extended thinking (null = use current setting)
      * @param onProgress Callback for progress updates
      */
     suspend fun execute(
         recipeId: String,
         model: String? = null,
-        extendedThinking: Boolean? = null,
+        thinkingEnabled: Boolean? = null,
         onProgress: suspend (RegenerateProgress) -> Unit = {}
     ): RegenerateResult {
         // Load existing recipe
@@ -75,7 +75,7 @@ class RegenerateRecipeUseCase @Inject constructor(
             imageUrl = fetchedImageUrl ?: existingRecipe.imageUrl,
             saveRecipe = false,
             model = model,
-            extendedThinking = extendedThinking,
+            thinkingEnabled = thinkingEnabled,
             onProgress = { progress ->
                 when (progress) {
                     is ParseHtmlUseCase.ParseProgress.ExtractingContent -> {}

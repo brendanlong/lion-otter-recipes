@@ -45,14 +45,14 @@ class RecipeEditWorker @AssistedInject constructor(
             recipeId: String,
             markdownText: String,
             model: String?,
-            extendedThinking: Boolean?,
+            thinkingEnabled: Boolean?,
             saveAsCopy: Boolean = false
         ): Data {
             return workDataOf(
                 KEY_RECIPE_ID to recipeId,
                 KEY_MARKDOWN_TEXT to markdownText,
                 KEY_MODEL to model,
-                KEY_EXTENDED_THINKING to extendedThinking,
+                KEY_EXTENDED_THINKING to thinkingEnabled,
                 KEY_SAVE_AS_COPY to saveAsCopy
             )
         }
@@ -74,7 +74,7 @@ class RecipeEditWorker @AssistedInject constructor(
                 )
             )
         val model = inputData.getString(KEY_MODEL)
-        val extendedThinking = if (inputData.keyValueMap.containsKey(KEY_EXTENDED_THINKING)) {
+        val thinkingEnabled = if (inputData.keyValueMap.containsKey(KEY_EXTENDED_THINKING)) {
             inputData.getBoolean(KEY_EXTENDED_THINKING, true)
         } else {
             null
@@ -88,7 +88,7 @@ class RecipeEditWorker @AssistedInject constructor(
             markdownText = markdownText,
             saveAsCopy = saveAsCopy,
             model = model,
-            extendedThinking = extendedThinking,
+            thinkingEnabled = thinkingEnabled,
             onProgress = { progress ->
                 val progressMessage = when (progress) {
                     is EditRecipeUseCase.EditProgress.ParsingRecipe -> {

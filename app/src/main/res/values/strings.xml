@@ -118,8 +118,8 @@
     <string name="import_model_description">Used when importing new recipes from URLs.</string>
     <string name="edit_model">Edit model</string>
     <string name="edit_model_description">Used when editing or regenerating existing recipes. Editing is simpler than importing, so a cheaper model often works well.</string>
-    <string name="extended_thinking">Extended thinking</string>
-    <string name="extended_thinking_description">Allow the AI to think through complex recipes before responding. Improves accuracy but increases cost and import time.</string>
+    <string name="thinking">Thinking</string>
+    <string name="thinking_description">Allow the AI to think through complex recipes before responding. Uses adaptive thinking for newer models. Improves accuracy but increases cost and import time.</string>
     <string name="theme">Theme</string>
     <string name="theme_description">Choose the app theme. Auto follows your system setting.</string>
     <string name="theme_auto">Auto (System)</string>

@@ -87,8 +87,8 @@ class EditRecipeViewModel @Inject constructor(
     private val _model = MutableStateFlow(AnthropicService.DEFAULT_EDIT_MODEL)
     val model: StateFlow<String> = _model.asStateFlow()
 
-    private val _extendedThinking = MutableStateFlow(true)
-    val extendedThinking: StateFlow<Boolean> = _extendedThinking.asStateFlow()
+    private val _thinkingEnabled = MutableStateFlow(true)
+    val thinkingEnabled: StateFlow<Boolean> = _thinkingEnabled.asStateFlow()
 
     private val _hasOriginalHtml = MutableStateFlow(false)
     val hasOriginalHtml: StateFlow<Boolean> = _hasOriginalHtml.asStateFlow()
@@ -127,8 +127,8 @@ class EditRecipeViewModel @Inject constructor(
         _model.value = model
     }
 
-    fun setExtendedThinking(enabled: Boolean) {
-        _extendedThinking.value = enabled
+    fun setThinkingEnabled(enabled: Boolean) {
+        _thinkingEnabled.value = enabled
     }
 
     fun resetEditState() {
@@ -229,7 +229,7 @@ class EditRecipeViewModel @Inject constructor(
                     recipeId = recipeId,
                     markdownText = fullMarkdown,
                     model = _model.value,
-                    extendedThinking = _extendedThinking.value
+                    thinkingEnabled = _thinkingEnabled.value
                 )
             )
             .addTag(RecipeEditWorker.TAG_RECIPE_EDIT)
@@ -252,7 +252,7 @@ class EditRecipeViewModel @Inject constructor(
                     recipeId = recipeId,
                     markdownText = fullMarkdown,
                     model = _model.value,
-                    extendedThinking = _extendedThinking.value,
+                    thinkingEnabled = _thinkingEnabled.value,
                     saveAsCopy = true
                 )
             )
@@ -273,7 +273,7 @@ class EditRecipeViewModel @Inject constructor(
                 RecipeRegenerateWorker.createInputData(
                     recipeId = recipeId,
                     model = _model.value,
-                    extendedThinking = _extendedThinking.value
+                    thinkingEnabled = _thinkingEnabled.value
                 )
             )
             .addTag(RecipeRegenerateWorker.TAG_RECIPE_REGENERATE)
@@ -307,7 +307,7 @@ class EditRecipeViewModel @Inject constructor(
         viewModelScope.launch {
             // Load settings defaults
             _model.value = settingsDataStore.editModel.first()
-            _extendedThinking.value = settingsDataStore.extendedThinkingEnabled.first()
+            _thinkingEnabled.value = settingsDataStore.thinkingEnabled.first()
 
             // Check for original HTML
             val html = recipeRepository.getOriginalHtml(recipeId)

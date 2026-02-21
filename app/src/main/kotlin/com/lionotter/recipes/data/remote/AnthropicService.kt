@@ -4,6 +4,7 @@ import com.anthropic.client.AnthropicClient
 import com.anthropic.client.okhttp.AnthropicOkHttpClient
 import com.anthropic.models.messages.MessageCreateParams
 import com.anthropic.models.messages.TextBlockParam
+import com.anthropic.models.messages.ThinkingConfigAdaptive
 import com.anthropic.models.messages.ThinkingConfigEnabled
 import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
 import kotlinx.coroutines.Dispatchers
@@ -33,7 +34,7 @@ class AnthropicService @Inject constructor(
         html: String,
         apiKey: String,
         model: String = DEFAULT_MODEL,
-        extendedThinking: Boolean = true,
+        thinkingEnabled: Boolean = true,
         densityOverrides: Map<String, Double>? = null
     ): Result<ParseResultWithUsage> {
         return try {
@@ -53,12 +54,18 @@ class AnthropicService @Inject constructor(
                 )
                 .addUserMessage("Parse this recipe webpage and extract the structured data:\n\n$html")
 
-            if (extendedThinking) {
-                paramsBuilder.thinking(
-                    ThinkingConfigEnabled.builder()
-                        .budgetTokens(8000)
-                        .build()
-                )
+            if (thinkingEnabled) {
+                if (supportsAdaptiveThinking(model)) {
+                    paramsBuilder.thinking(
+                        ThinkingConfigAdaptive.builder().build()
+                    )
+                } else {
+                    paramsBuilder.thinking(
+                        ThinkingConfigEnabled.builder()
+                            .budgetTokens(8000)
+                            .build()
+                    )
+                }
             }
 
             val params = paramsBuilder.build()
@@ -135,6 +142,20 @@ class AnthropicService @Inject constructor(
         const val DEFAULT_MODEL = "claude-opus-4-6"
         const val DEFAULT_EDIT_MODEL = "claude-sonnet-4-6"
         private const val API_KEY_PREFIX = "sk-ant-"
+
+        /** Models that support adaptive thinking (type: "adaptive") instead of extended thinking with budget_tokens. */
+        private val ADAPTIVE_THINKING_MODELS = setOf(
+            "claude-opus-4-6",
+            "claude-sonnet-4-6"
+        )
+
+        /**
+         * Returns true if the model supports adaptive thinking.
+         * Adaptive thinking is supported on Opus 4.6+ and Sonnet 4.6+.
+         * Unknown models default to extended thinking for safety.
+         */
+        private fun supportsAdaptiveThinking(model: String): Boolean =
+            model in ADAPTIVE_THINKING_MODELS
 
         /**
          * Validates an Anthropic API key format.

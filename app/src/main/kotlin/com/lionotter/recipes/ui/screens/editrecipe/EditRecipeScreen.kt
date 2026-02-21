@@ -82,7 +82,7 @@ fun EditRecipeScreen(
     val markdownText by viewModel.markdownText.collectAsStateWithLifecycle()
     val editState by viewModel.editState.collectAsStateWithLifecycle()
     val model by viewModel.model.collectAsStateWithLifecycle()
-    val extendedThinking by viewModel.extendedThinking.collectAsStateWithLifecycle()
+    val thinkingEnabled by viewModel.thinkingEnabled.collectAsStateWithLifecycle()
     val canRegenerate by viewModel.canRegenerate.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
@@ -200,8 +200,8 @@ fun EditRecipeScreen(
                     onMarkdownChange = viewModel::setMarkdownText,
                     model = model,
                     onModelChange = viewModel::setModel,
-                    extendedThinking = extendedThinking,
-                    onExtendedThinkingChange = viewModel::setExtendedThinking,
+                    thinkingEnabled = thinkingEnabled,
+                    onThinkingChange = viewModel::setThinkingEnabled,
                     editState = editState,
                     onSave = viewModel::saveEdits,
                     onSaveAsCopy = viewModel::saveAsCopy,
@@ -289,8 +289,8 @@ private fun EditContent(
     onMarkdownChange: (String) -> Unit,
     model: String,
     onModelChange: (String) -> Unit,
-    extendedThinking: Boolean,
-    onExtendedThinkingChange: (Boolean) -> Unit,
+    thinkingEnabled: Boolean,
+    onThinkingChange: (Boolean) -> Unit,
     editState: EditUiState,
     onSave: () -> Unit,
     onSaveAsCopy: () -> Unit,
@@ -380,8 +380,8 @@ private fun EditContent(
             SingleModelSelectionSection(
                 currentModel = model,
                 onModelChange = onModelChange,
-                extendedThinkingEnabled = extendedThinking,
-                onExtendedThinkingChange = onExtendedThinkingChange
+                thinkingEnabled = thinkingEnabled,
+                onThinkingChange = onThinkingChange
             )
 
             if (editState is EditUiState.Error) {
