@@ -2,6 +2,7 @@ package com.lionotter.recipes.domain.usecase
 
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
 import kotlin.time.Clock
 import javax.inject.Inject
 
@@ -9,6 +10,9 @@ import javax.inject.Inject
  * Use case for editing a recipe by sending user-modified markdown text through the AI
  * for re-parsing. The AI cleans up formatting and regenerates structured data (including
  * ingredient densities) using the standard recipe import prompt.
+ *
+ * Passes existing ingredient densities as hints to the AI so cheaper models (like Haiku)
+ * can reuse known values instead of re-deriving them.
  *
  * Preserves the recipe's ID, createdAt, favorite status, image, and source URL.
  */
@@ -54,6 +58,10 @@ class EditRecipeUseCase @Inject constructor(
         // Preserve original HTML for future regeneration
         val originalHtml = recipeRepository.getOriginalHtml(recipeId)
 
+        // Collect existing densities to merge with defaults for the AI
+        val densityOverrides = RecipeMarkdownFormatter.collectDensities(existingRecipe)
+            .ifEmpty { null }
+
         // Parse the edited markdown text with AI (don't save yet)
         val parseResult = parseHtmlUseCase.parseText(
             text = markdownText,
@@ -63,6 +71,7 @@ class EditRecipeUseCase @Inject constructor(
             originalHtml = originalHtml,
             model = model,
             extendedThinking = extendedThinking,
+            densityOverrides = densityOverrides,
             onProgress = { progress ->
                 when (progress) {
                     is ParseHtmlUseCase.ParseProgress.ExtractingContent -> {}

@@ -25,7 +25,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 import javax.inject.Inject
 
@@ -61,10 +63,22 @@ class EditRecipeViewModel @Inject constructor(
     /** Whether the user has explicitly changed the image (pick or remove). */
     private var imageChanged = false
 
+    private val _title = MutableStateFlow("")
+    val title: StateFlow<String> = _title.asStateFlow()
+
+    private val _sourceUrl = MutableStateFlow<String?>(null)
+    val sourceUrl: StateFlow<String?> = _sourceUrl.asStateFlow()
+
     private val _markdownText = MutableStateFlow("")
     val markdownText: StateFlow<String> = _markdownText.asStateFlow()
 
-    /** The original markdown loaded from the recipe, used to detect changes. */
+    /** The original title loaded from the recipe, used to detect changes. */
+    private var originalTitle: String = ""
+
+    /** The original source URL loaded from the recipe, used to detect changes. */
+    private var originalSourceUrl: String? = null
+
+    /** The original markdown body loaded from the recipe, used to detect changes. */
     private var originalMarkdownText: String = ""
 
     private val _editState = MutableStateFlow<EditUiState>(EditUiState.Idle)
@@ -96,6 +110,14 @@ class EditRecipeViewModel @Inject constructor(
 
     private var currentEditWorkId: UUID? = null
     private var currentRegenerateWorkId: UUID? = null
+
+    fun setTitle(title: String) {
+        _title.value = title
+    }
+
+    fun setSourceUrl(url: String?) {
+        _sourceUrl.value = url
+    }
 
     fun setMarkdownText(text: String) {
         _markdownText.value = text
@@ -163,23 +185,49 @@ class EditRecipeViewModel @Inject constructor(
     }
 
     /**
-     * Save all changes. Only triggers the AI cycle if the recipe text was actually modified.
-     * Title and image changes are saved directly without AI.
+     * Save all changes. Only triggers the AI cycle if the recipe body text was actually modified.
+     * Title, URL, and image changes are saved directly without AI.
      */
     fun saveEdits() {
         val markdownChanged = _markdownText.value != originalMarkdownText
+        val titleChanged = _title.value != originalTitle
+        val urlChanged = _sourceUrl.value != originalSourceUrl
+
         if (!markdownChanged) {
-            // No recipe text changes — title and image are already saved directly,
-            // so just report success without triggering AI.
-            _editState.value = EditUiState.Success()
+            // No recipe body changes — save title/URL directly if changed.
+            if (titleChanged || urlChanged) {
+                viewModelScope.launch {
+                    try {
+                        // Use NonCancellable so the DB write completes even if
+                        // the coroutine scope is cancelled when the UI navigates
+                        // away after observing the Success state.
+                        withContext(NonCancellable) {
+                            recipeRepository.updateTitleAndUrl(
+                                recipeId,
+                                _title.value,
+                                _sourceUrl.value
+                            )
+                        }
+                        _editState.value = EditUiState.Success()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to save title/URL", e)
+                        _editState.value = EditUiState.Error("Failed to save: ${e.message}")
+                    }
+                }
+            } else {
+                _editState.value = EditUiState.Success()
+            }
             return
         }
+
+        // Markdown body changed — reconstruct full markdown with title/URL and send to AI
+        val fullMarkdown = buildFullMarkdown()
 
         val workRequest = OneTimeWorkRequestBuilder<RecipeEditWorker>()
             .setInputData(
                 RecipeEditWorker.createInputData(
                     recipeId = recipeId,
-                    markdownText = _markdownText.value,
+                    markdownText = fullMarkdown,
                     model = _model.value,
                     extendedThinking = _extendedThinking.value
                 )
@@ -196,11 +244,13 @@ class EditRecipeViewModel @Inject constructor(
      * Save the edited markdown as a new recipe (copy) instead of updating the existing one.
      */
     fun saveAsCopy() {
+        val fullMarkdown = buildFullMarkdown()
+
         val workRequest = OneTimeWorkRequestBuilder<RecipeEditWorker>()
             .setInputData(
                 RecipeEditWorker.createInputData(
                     recipeId = recipeId,
-                    markdownText = _markdownText.value,
+                    markdownText = fullMarkdown,
                     model = _model.value,
                     extendedThinking = _extendedThinking.value,
                     saveAsCopy = true
@@ -234,6 +284,25 @@ class EditRecipeViewModel @Inject constructor(
         _editState.value = EditUiState.Loading("Preparing...")
     }
 
+    /**
+     * Reconstruct the full markdown with title and URL prepended to the body.
+     * Used when sending to the AI for re-parsing.
+     */
+    private fun buildFullMarkdown(): String = buildString {
+        val title = _title.value
+        if (title.isNotBlank()) {
+            appendLine("# $title")
+            appendLine()
+        }
+        _sourceUrl.value?.let { url ->
+            if (url.isNotBlank()) {
+                appendLine("*Source: [$url]($url)*")
+                appendLine()
+            }
+        }
+        append(_markdownText.value)
+    }
+
     private fun loadInitialData() {
         viewModelScope.launch {
             // Load settings defaults
@@ -249,10 +318,21 @@ class EditRecipeViewModel @Inject constructor(
             if (!imageChanged) {
                 _imageUrl.value = currentRecipe.imageUrl
             }
+            // Populate fields from the recipe only if the user hasn't started editing.
+            // Each field is guarded independently so a slow recipe load doesn't
+            // overwrite user input.
+            if (_title.value.isBlank()) {
+                _title.value = currentRecipe.name
+            }
+            originalTitle = currentRecipe.name
+            if (_sourceUrl.value.isNullOrBlank()) {
+                _sourceUrl.value = currentRecipe.sourceUrl
+            }
+            originalSourceUrl = currentRecipe.sourceUrl
             if (_markdownText.value.isBlank()) {
-                val markdown = RecipeMarkdownFormatter.format(currentRecipe)
-                _markdownText.value = markdown
-                originalMarkdownText = markdown
+                val markdownBody = RecipeMarkdownFormatter.formatBody(currentRecipe)
+                _markdownText.value = markdownBody
+                originalMarkdownText = markdownBody
             }
         }
     }

@@ -59,7 +59,7 @@
     <!-- Edit Recipe -->
     <string name="edit_recipe">Edit Recipe</string>
     <string name="edit_recipe_action">Edit recipe</string>
-    <string name="edit_recipe_description">Edit the recipe text below. When you save, the AI will clean up the formatting and regenerate structured data like ingredient amounts and densities.</string>
+    <string name="edit_recipe_description">Edit the recipe body below. Title and URL changes are saved directly. Body changes will be processed by the AI to regenerate structured data.</string>
     <string name="edit_save_success">Recipe updated successfully</string>
     <string name="save_as_copy">Save as Copy</string>
     <string name="edit_background_notice">You can leave this screen. You\'ll be notified when the update is complete.</string>
@@ -70,6 +70,8 @@
     <string name="change_image">Change Image</string>
     <string name="remove_image">Remove Image</string>
     <string name="no_image">No image</string>
+    <string name="recipe_title">Title</string>
+    <string name="source_url_field">Source URL</string>
     <string name="recipe_text">Recipe Text</string>
 
     <!-- Regenerate Recipe -->

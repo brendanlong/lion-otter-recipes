@@ -5,6 +5,7 @@ import com.anthropic.client.okhttp.AnthropicOkHttpClient
 import com.anthropic.models.messages.MessageCreateParams
 import com.anthropic.models.messages.TextBlockParam
 import com.anthropic.models.messages.ThinkingConfigEnabled
+import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -32,10 +33,13 @@ class AnthropicService @Inject constructor(
         html: String,
         apiKey: String,
         model: String = DEFAULT_MODEL,
-        extendedThinking: Boolean = true
+        extendedThinking: Boolean = true,
+        densityOverrides: Map<String, Double>? = null
     ): Result<ParseResultWithUsage> {
         return try {
             val client = buildClient(apiKey)
+
+            val systemPrompt = buildSystemPrompt(densityOverrides)
 
             val paramsBuilder = MessageCreateParams.builder()
                 .model(model)
@@ -43,7 +47,7 @@ class AnthropicService @Inject constructor(
                 .systemOfTextBlockParams(
                     listOf(
                         TextBlockParam.builder()
-                            .text(SYSTEM_PROMPT)
+                            .text(systemPrompt)
                             .build()
                     )
                 )
@@ -241,23 +245,7 @@ SUPPORTED UNITS:
 - Other: You may use other unit strings when appropriate (e.g., "dash" for cocktail bitters, "pinch", "drop", "sprig", "slice"). These won't support weight/volume conversion but will display correctly. Omit "density" for these units.
 
 INGREDIENT DENSITIES (g/mL — use these when known):
-water 0.96, milk 0.96, buttermilk 0.96, heavy cream 0.96, yogurt 0.96, sour cream 0.96,
-vegetable oil 0.84, olive oil 0.84, coconut oil 0.96, butter 0.96,
-lard 0.96, vegetable shortening 0.78,
-honey 1.42, molasses 1.44, corn syrup 1.32, maple syrup 1.32,
-all-purpose flour 0.51, bread flour 0.51, cake flour 0.51, whole wheat flour 0.48,
-pastry flour 0.45, almond flour 0.41, coconut flour 0.54, rye flour 0.45,
-cornmeal 0.58, cornstarch 0.47, cocoa powder 0.35, tapioca starch 0.48,
-potato starch 0.64,
-granulated sugar 0.84, brown sugar (packed) 0.90, confectioners sugar 0.48,
-demerara sugar 0.93, turbinado sugar 0.76,
-table salt 1.22, kosher salt (Diamond Crystal) 0.54, kosher salt (Morton's) 1.08,
-baking powder 0.81, baking soda 1.22,
-peanut butter 1.14, cream cheese 0.96,
-oats (old-fashioned) 0.38, oats (rolled) 0.48,
-chocolate chips 0.72, walnuts (chopped) 0.48, pecans (chopped) 0.48,
-breadcrumbs (dried) 0.47, panko 0.21,
-vanilla extract 0.95, espresso powder 0.47
+%DENSITY_TABLE%
 
 OMIT NULL/EMPTY/DEFAULT FIELDS:
 - Do NOT include fields with null values, empty arrays, or default values.
@@ -297,5 +285,21 @@ ADDITIONAL GUIDELINES:
 - Keep the story brief — just the essence of any background provided.
 - Return null for fields that aren't present in the source.
 """.trimIndent()
+
+        /**
+         * Build the system prompt with the density table.
+         * When [densityOverrides] is provided, recipe-specific densities are merged
+         * on top of the defaults so the AI sees one unified reference table.
+         */
+        fun buildSystemPrompt(densityOverrides: Map<String, Double>? = null): String {
+            val densities = if (densityOverrides != null) {
+                // Merge: recipe-specific densities override defaults
+                RecipeMarkdownFormatter.DEFAULT_DENSITIES + densityOverrides
+            } else {
+                RecipeMarkdownFormatter.DEFAULT_DENSITIES
+            }
+            val densityTable = RecipeMarkdownFormatter.formatDensityHints(densities)
+            return SYSTEM_PROMPT.replace("%DENSITY_TABLE%", densityTable)
+        }
     }
 }
