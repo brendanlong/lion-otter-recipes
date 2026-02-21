@@ -79,6 +79,9 @@ class EditRecipeUseCase @Inject constructor(
 
         return when (parseResult) {
             is ParseHtmlUseCase.ParseResult.Success -> {
+                // Re-load existing recipe to pick up any image changes the user
+                // saved directly (without AI) while the worker was queued.
+                val freshRecipe = recipeRepository.getRecipeByIdOnce(recipeId) ?: existingRecipe
                 val now = Clock.System.now()
                 val editedRecipe = if (saveAsCopy) {
                     // Save as a new recipe with new ID and timestamps
@@ -87,21 +90,23 @@ class EditRecipeUseCase @Inject constructor(
                         createdAt = now,
                         updatedAt = now,
                         isFavorite = false,
-                        sourceUrl = existingRecipe.sourceUrl,
-                        imageUrl = parseResult.recipe.imageUrl ?: existingRecipe.imageUrl,
-                        sourceImageUrl = parseResult.recipe.sourceImageUrl ?: existingRecipe.sourceImageUrl
+                        sourceUrl = freshRecipe.sourceUrl,
+                        // Use the user's current image, not the AI's
+                        imageUrl = freshRecipe.imageUrl,
+                        sourceImageUrl = parseResult.recipe.sourceImageUrl ?: freshRecipe.sourceImageUrl
                     )
                 } else {
                     // Overwrite with same ID, preserve key metadata
                     parseResult.recipe.copy(
-                        id = existingRecipe.id,
-                        createdAt = existingRecipe.createdAt,
+                        id = freshRecipe.id,
+                        createdAt = freshRecipe.createdAt,
                         updatedAt = now,
-                        isFavorite = existingRecipe.isFavorite,
-                        sourceUrl = existingRecipe.sourceUrl,
-                        imageUrl = parseResult.recipe.imageUrl ?: existingRecipe.imageUrl,
-                        sourceImageUrl = parseResult.recipe.sourceImageUrl ?: existingRecipe.sourceImageUrl,
-                        userNotes = existingRecipe.userNotes
+                        isFavorite = freshRecipe.isFavorite,
+                        sourceUrl = freshRecipe.sourceUrl,
+                        // Use the user's current image, not the AI's
+                        imageUrl = freshRecipe.imageUrl,
+                        sourceImageUrl = parseResult.recipe.sourceImageUrl ?: freshRecipe.sourceImageUrl,
+                        userNotes = freshRecipe.userNotes
                     )
                 }
 

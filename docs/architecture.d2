@@ -65,7 +65,7 @@ app: {
       }
       edit: {
         label: EditRecipeScreen
-        tooltip: "Full-screen markdown editor for recipes. Shows markdown version of the recipe (same format as share-as-text). Users edit the markdown and save to have AI clean up formatting and regenerate structured data (densities, etc.). Includes model selection and extended thinking toggle. Also supports regeneration from original source via refresh icon (when original HTML or source URL is available). Save as Copy creates a new recipe from the edited markdown instead of updating the existing one."
+        tooltip: "Recipe edit screen with two sections: (1) Image section — pick from gallery or remove, saved directly without AI. (2) Recipe text markdown editor — when saved, AI cleans up formatting and regenerates structured data (densities, etc.). Title comes from the AI parsing of the markdown. Includes model selection and extended thinking toggle. Also supports regeneration from original source via refresh icon (when original HTML or source URL is available). Save as Copy creates a new recipe from the edited markdown instead of updating the existing one."
       }
       add: AddRecipeScreen
       settings: SettingsScreen
@@ -135,7 +135,7 @@ app: {
       detail_vm: RecipeDetailViewModel
       edit_vm: {
         label: EditRecipeViewModel
-        tooltip: "Manages edit recipe screen state. Loads recipe as markdown, tracks model/thinking settings, and enqueues RecipeEditWorker for save (or save as copy) or RecipeRegenerateWorker for regeneration from original source."
+        tooltip: "Manages edit recipe screen state. Supports direct image editing (saved immediately without AI). Loads recipe text as markdown, tracks model/thinking settings, and enqueues RecipeEditWorker for save (or save as copy) or RecipeRegenerateWorker for regeneration from original source. Uses ImageDownloadService to save picked images from gallery."
       }
       add_vm: AddRecipeViewModel
       settings_vm: SettingsViewModel
@@ -355,7 +355,7 @@ app: {
 
       recipe: {
         label: Recipe
-        tooltip: "@Immutable. Fields: id, name, sourceUrl, story, servings, times, ingredients, instructions, equipment, tags, imageUrl (local file:// URI), sourceImageUrl (original remote URL), timestamps, isFavorite, userNotes (free-form user notes, preserved across AI edits/regeneration, included in markdown sent to AI)"
+        tooltip: "@Immutable. Fields: id, name, sourceUrl, story, servings, times, ingredients, instructions, equipment, tags, imageUrl (local file:// URI, directly editable via gallery picker), sourceImageUrl (original remote URL), timestamps, isFavorite, userNotes (free-form user notes, preserved across AI edits/regeneration, included in markdown sent to AI)"
       }
       ingredient: {
         label: Ingredient
@@ -604,8 +604,9 @@ app: {
   ui.viewmodels.detail_vm -> domain.usecases.calc_usage: ingredient usage
   ui.viewmodels.detail_vm -> domain.usecases.export_single: export .lorecipes
   ui.viewmodels.detail_vm -> data.local.settings: keep screen on, unit prefs
-  ui.viewmodels.edit_vm -> data.repository.repo: recipe, original HTML
+  ui.viewmodels.edit_vm -> data.repository.repo: recipe, original HTML, image
   ui.viewmodels.edit_vm -> data.local.settings: model, thinking prefs
+  ui.viewmodels.edit_vm -> data.remote.image_dl: save picked images
   ui.viewmodels.edit_vm -> background.worker.edit_worker: save edits
   ui.viewmodels.edit_vm -> background.worker.regenerate_worker: regenerate from original
   ui.viewmodels.edit_vm -> background.worker.work_ext: observe edit/regenerate
@@ -710,10 +711,10 @@ legend: {
     }
   }
   edit1: "1. User taps edit (pencil icon) on recipe detail screen"
-  edit2: "2. EditRecipeScreen shows markdown of recipe (same as share-as-text)"
-  edit3: "3. User edits markdown, selects model/thinking, taps Save or Save as Copy"
-  edit4: "4. RecipeEditWorker sends markdown to AI via EditRecipeUseCase"
-  edit5: "5. AI re-parses into structured recipe (Save preserves ID/metadata; Save as Copy creates new recipe)"
+  edit2: "2. EditRecipeScreen shows image picker and recipe text (markdown) as separate sections"
+  edit3: "3. Image changes are saved directly without AI re-parsing"
+  edit4: "4. Recipe text edits trigger AI cycle: RecipeEditWorker via EditRecipeUseCase"
+  edit5: "5. AI re-parses into structured recipe, preserving user's image (Save preserves ID/metadata; Save as Copy creates new recipe)"
 
   edit1 -> edit2 -> edit3 -> edit4 -> edit5
 
