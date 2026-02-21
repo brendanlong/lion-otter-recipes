@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import kotlin.time.Instant
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -38,4 +39,7 @@ interface RecipeDao {
 
     @Query("UPDATE recipes SET isFavorite = :isFavorite WHERE id = :id")
     suspend fun setFavorite(id: String, isFavorite: Boolean)
+
+    @Query("UPDATE recipes SET userNotes = :userNotes, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun setUserNotes(id: String, userNotes: String?, updatedAt: Instant)
 }

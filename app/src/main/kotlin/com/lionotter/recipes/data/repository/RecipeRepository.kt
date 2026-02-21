@@ -81,6 +81,10 @@ class RecipeRepository @Inject constructor(
         recipeDao.setFavorite(id, isFavorite)
     }
 
+    suspend fun setUserNotes(id: String, userNotes: String?) {
+        recipeDao.setUserNotes(id, userNotes, kotlin.time.Clock.System.now())
+    }
+
     suspend fun getAllRecipeIdsAndNames(): List<RecipeIdAndName> {
         return recipeDao.getAllRecipeIdsAndNames()
     }

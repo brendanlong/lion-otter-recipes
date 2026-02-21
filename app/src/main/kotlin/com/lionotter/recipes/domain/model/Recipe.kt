@@ -33,7 +33,8 @@ data class Recipe(
     val sourceImageUrl: String? = null,
     val createdAt: Instant,
     val updatedAt: Instant,
-    val isFavorite: Boolean = false
+    val isFavorite: Boolean = false,
+    val userNotes: String? = null
 ) {
     /**
      * Aggregates all ingredients from all steps across all instruction sections.

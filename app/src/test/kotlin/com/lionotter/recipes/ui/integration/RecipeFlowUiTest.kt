@@ -192,7 +192,8 @@ class RecipeFlowUiTest {
                     ingredientUsageBySection = emptyMap(),
                     onToggleInstructionIngredient = { _, _, _ -> },
                     highlightedInstructionStep = null,
-                    onToggleHighlightedInstruction = { _, _ -> }
+                    onToggleHighlightedInstruction = { _, _ -> },
+                    onSaveNotes = {}
                 )
             }
         }
@@ -476,7 +477,8 @@ class RecipeFlowUiTest {
                         ingredientUsageBySection = emptyMap(),
                         onToggleInstructionIngredient = { _, _, _ -> },
                         highlightedInstructionStep = null,
-                        onToggleHighlightedInstruction = { _, _ -> }
+                        onToggleHighlightedInstruction = { _, _ -> },
+                        onSaveNotes = {}
                     )
                 }
             }

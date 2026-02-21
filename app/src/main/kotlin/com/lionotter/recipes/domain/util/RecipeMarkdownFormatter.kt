@@ -72,6 +72,14 @@ object RecipeMarkdownFormatter {
         appendLine("## Instructions")
         appendLine()
         formatInstructionSections(recipe.instructionSections)
+
+        // User notes section
+        recipe.userNotes?.let { notes ->
+            appendLine()
+            appendLine("## Notes")
+            appendLine()
+            appendLine(notes)
+        }
     }
 
     private fun StringBuilder.formatIngredientSections(sections: List<IngredientSection>) {

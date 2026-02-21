@@ -26,7 +26,8 @@ data class RecipeEntity(
     val originalHtml: String?,
     val createdAt: Instant,
     val updatedAt: Instant,
-    val isFavorite: Boolean = false
+    val isFavorite: Boolean = false,
+    val userNotes: String? = null
 ) {
     fun toRecipe(
         instructionSections: List<InstructionSection>,
@@ -49,7 +50,8 @@ data class RecipeEntity(
             sourceImageUrl = sourceImageUrl,
             createdAt = createdAt,
             updatedAt = updatedAt,
-            isFavorite = isFavorite
+            isFavorite = isFavorite,
+            userNotes = userNotes
         )
     }
 
@@ -79,7 +81,8 @@ data class RecipeEntity(
                 originalHtml = originalHtml,
                 createdAt = recipe.createdAt,
                 updatedAt = recipe.updatedAt,
-                isFavorite = recipe.isFavorite
+                isFavorite = recipe.isFavorite,
+                userNotes = recipe.userNotes
             )
         }
     }
