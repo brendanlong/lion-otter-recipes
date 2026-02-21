@@ -37,7 +37,7 @@ class SettingsViewModelTest {
     private val apiKeyFlow = MutableStateFlow<String?>(null)
     private val aiModelFlow = MutableStateFlow(AnthropicService.DEFAULT_MODEL)
     private val editModelFlow = MutableStateFlow(AnthropicService.DEFAULT_EDIT_MODEL)
-    private val thinkingEnabledFlow = MutableStateFlow(true)
+    private val thinkingEnabledFlow = MutableStateFlow(SettingsDataStore.DEFAULT_THINKING_ENABLED)
     private val keepScreenOnFlow = MutableStateFlow(true)
     private val themeModeFlow = MutableStateFlow(ThemeMode.AUTO)
     private val importDebuggingEnabledFlow = MutableStateFlow(false)
@@ -254,14 +254,14 @@ class SettingsViewModelTest {
     @Test
     fun `thinkingEnabled flow reflects datastore value`() = runTest {
         viewModel.thinkingEnabled.test {
-            // Initial value (default: true)
-            assertEquals(true, awaitItem())
+            // Initial value (default: false)
+            assertEquals(false, awaitItem())
 
             // Update the underlying flow
-            thinkingEnabledFlow.value = false
+            thinkingEnabledFlow.value = true
             testDispatcher.scheduler.advanceUntilIdle()
 
-            assertEquals(false, awaitItem())
+            assertEquals(true, awaitItem())
             cancelAndIgnoreRemainingEvents()
         }
     }

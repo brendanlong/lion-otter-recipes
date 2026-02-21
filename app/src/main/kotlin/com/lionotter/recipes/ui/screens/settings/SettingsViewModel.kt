@@ -48,7 +48,7 @@ class SettingsViewModel @Inject constructor(
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = true
+            initialValue = SettingsDataStore.DEFAULT_THINKING_ENABLED
         )
 
     val keepScreenOn: StateFlow<Boolean> = settingsDataStore.keepScreenOn

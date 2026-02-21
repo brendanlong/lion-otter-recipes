@@ -6,6 +6,7 @@ import com.anthropic.models.messages.MessageCreateParams
 import com.anthropic.models.messages.TextBlockParam
 import com.anthropic.models.messages.ThinkingConfigAdaptive
 import com.anthropic.models.messages.ThinkingConfigEnabled
+import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -34,7 +35,7 @@ class AnthropicService @Inject constructor(
         html: String,
         apiKey: String,
         model: String = DEFAULT_MODEL,
-        thinkingEnabled: Boolean = true,
+        thinkingEnabled: Boolean = SettingsDataStore.DEFAULT_THINKING_ENABLED,
         densityOverrides: Map<String, Double>? = null
     ): Result<ParseResultWithUsage> {
         return try {
