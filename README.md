@@ -101,25 +101,16 @@ Cloud sync is optional — the app works fully offline without it. To enable syn
    - Verify that the `oauth_client` array is **not empty** — it should contain an entry with `"client_type": 3` (web client). This is required for Google Sign-In.
 5. Enable **Cloud Firestore**:
    - Go to **Firestore Database** and create a database
-   - Set the security rules to restrict access per user with per-document size limits:
+   - Set the security rules to restrict access per user (Firestore will enforce a 1MB recipe limit):
      ```
      rules_version = '2';
      service cloud.firestore {
        match /databases/{database}/documents {
          match /users/{userId}/recipes/{recipeId} {
-           allow read: if request.auth != null && request.auth.uid == userId;
-           allow write: if request.auth != null
-             && request.auth.uid == userId
-             && request.resource.data.keys().size() > 0
-             && request.resource.size < 50 * 1024;  // 50 KB per recipe
-           allow delete: if request.auth != null && request.auth.uid == userId;
+           allow read, write: if request.auth != null && request.auth.uid == userId;
          }
          match /users/{userId}/mealPlans/{mealPlanId} {
-           allow read: if request.auth != null && request.auth.uid == userId;
-           allow write: if request.auth != null
-             && request.auth.uid == userId
-             && request.resource.size < 10 * 1024;  // 10 KB per meal plan
-           allow delete: if request.auth != null && request.auth.uid == userId;
+           allow read, write: if request.auth != null && request.auth.uid == userId;
          }
        }
      }
