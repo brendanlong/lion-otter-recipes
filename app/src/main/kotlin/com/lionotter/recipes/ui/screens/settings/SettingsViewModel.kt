@@ -15,7 +15,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 @HiltViewModel
@@ -132,7 +134,9 @@ class SettingsViewModel @Inject constructor(
 
         viewModelScope.launch {
             try {
-                settingsDataStore.setAnthropicApiKey(key)
+                withContext(NonCancellable) {
+                    settingsDataStore.setAnthropicApiKey(key)
+                }
                 _apiKeyInput.value = ""
                 _saveState.value = SaveState.Success
             } catch (e: Exception) {
@@ -143,83 +147,87 @@ class SettingsViewModel @Inject constructor(
 
     fun clearApiKey() {
         viewModelScope.launch {
-            settingsDataStore.clearAnthropicApiKey()
+            withContext(NonCancellable) {
+                settingsDataStore.clearAnthropicApiKey()
+            }
             _saveState.value = SaveState.Idle
         }
     }
 
     fun setAiModel(model: String) {
         viewModelScope.launch {
-            settingsDataStore.setAiModel(model)
+            withContext(NonCancellable) { settingsDataStore.setAiModel(model) }
         }
     }
 
     fun setEditModel(model: String) {
         viewModelScope.launch {
-            settingsDataStore.setEditModel(model)
+            withContext(NonCancellable) { settingsDataStore.setEditModel(model) }
         }
     }
 
     fun setThinkingEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            settingsDataStore.setThinkingEnabled(enabled)
+            withContext(NonCancellable) { settingsDataStore.setThinkingEnabled(enabled) }
         }
     }
 
     fun setKeepScreenOn(enabled: Boolean) {
         viewModelScope.launch {
-            settingsDataStore.setKeepScreenOn(enabled)
+            withContext(NonCancellable) { settingsDataStore.setKeepScreenOn(enabled) }
         }
     }
 
     fun setThemeMode(mode: ThemeMode) {
         viewModelScope.launch {
-            settingsDataStore.setThemeMode(mode)
+            withContext(NonCancellable) { settingsDataStore.setThemeMode(mode) }
         }
     }
 
     fun setVolumeUnitSystem(system: UnitSystem) {
         viewModelScope.launch {
-            settingsDataStore.setVolumeUnitSystem(system)
+            withContext(NonCancellable) { settingsDataStore.setVolumeUnitSystem(system) }
         }
     }
 
     fun setWeightUnitSystem(system: UnitSystem) {
         viewModelScope.launch {
-            settingsDataStore.setWeightUnitSystem(system)
+            withContext(NonCancellable) { settingsDataStore.setWeightUnitSystem(system) }
         }
     }
 
     fun setGroceryVolumeUnitSystem(system: UnitSystem) {
         viewModelScope.launch {
-            settingsDataStore.setGroceryVolumeUnitSystem(system)
+            withContext(NonCancellable) { settingsDataStore.setGroceryVolumeUnitSystem(system) }
         }
     }
 
     fun setGroceryWeightUnitSystem(system: UnitSystem) {
         viewModelScope.launch {
-            settingsDataStore.setGroceryWeightUnitSystem(system)
+            withContext(NonCancellable) { settingsDataStore.setGroceryWeightUnitSystem(system) }
         }
     }
 
     fun setStartOfWeek(startOfWeek: StartOfWeek) {
         viewModelScope.launch {
-            settingsDataStore.setStartOfWeek(startOfWeek)
+            withContext(NonCancellable) { settingsDataStore.setStartOfWeek(startOfWeek) }
         }
     }
 
     fun setImportDebuggingEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            settingsDataStore.setImportDebuggingEnabled(enabled)
-            if (!enabled) {
-                importDebugRepository.deleteAllDebugEntries()
+            withContext(NonCancellable) {
+                settingsDataStore.setImportDebuggingEnabled(enabled)
+                if (!enabled) {
+                    importDebugRepository.deleteAllDebugEntries()
+                }
             }
         }
     }
 
     fun signOut() {
         viewModelScope.launch {
-            authService.signOut()
+            withContext(NonCancellable) { authService.signOut() }
         }
     }
 

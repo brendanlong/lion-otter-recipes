@@ -30,7 +30,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
 
@@ -230,7 +232,9 @@ class RecipeDetailViewModel @Inject constructor(
     fun toggleFavorite() {
         viewModelScope.launch {
             val currentRecipe = recipe.value ?: return@launch
-            recipeRepository.setFavorite(recipeId, !currentRecipe.isFavorite)
+            withContext(NonCancellable) {
+                recipeRepository.setFavorite(recipeId, !currentRecipe.isFavorite)
+            }
         }
     }
 
@@ -247,8 +251,10 @@ class RecipeDetailViewModel @Inject constructor(
      */
     fun deleteRecipe() {
         viewModelScope.launch {
-            mealPlanRepository.deleteMealPlansByRecipeId(recipeId)
-            recipeRepository.deleteRecipe(recipeId)
+            withContext(NonCancellable) {
+                mealPlanRepository.deleteMealPlansByRecipeId(recipeId)
+                recipeRepository.deleteRecipe(recipeId)
+            }
             _recipeDeleted.emit(Unit)
         }
     }
@@ -262,7 +268,9 @@ class RecipeDetailViewModel @Inject constructor(
     fun saveUserNotes(notes: String?) {
         viewModelScope.launch {
             val normalizedNotes = notes?.takeIf { it.isNotBlank() }
-            recipeRepository.setUserNotes(recipeId, normalizedNotes)
+            withContext(NonCancellable) {
+                recipeRepository.setUserNotes(recipeId, normalizedNotes)
+            }
         }
     }
 
@@ -279,22 +287,26 @@ class RecipeDetailViewModel @Inject constructor(
         viewModelScope.launch {
             val currentRecipe = recipe.value ?: return@launch
 
-            val sharedDir = File(applicationContext.cacheDir, "shared_recipes").apply { mkdirs() }
-            val fileName = "${recipeSerializer.sanitizeFolderName(currentRecipe.name)}.lorecipes"
-            val file = File(sharedDir, fileName)
+            val uriToEmit = withContext(NonCancellable) {
+                val sharedDir = File(applicationContext.cacheDir, "shared_recipes").apply { mkdirs() }
+                val fileName = "${recipeSerializer.sanitizeFolderName(currentRecipe.name)}.lorecipes"
+                val file = File(sharedDir, fileName)
 
-            val result = file.outputStream().use { outputStream ->
-                exportSingleRecipeUseCase.exportRecipe(currentRecipe, outputStream)
-            }
+                val result = file.outputStream().use { outputStream ->
+                    exportSingleRecipeUseCase.exportRecipe(currentRecipe, outputStream)
+                }
 
-            if (result is ExportSingleRecipeUseCase.ExportResult.Success) {
-                val uri = FileProvider.getUriForFile(
-                    applicationContext,
-                    "${applicationContext.packageName}.fileprovider",
-                    file
-                )
-                _exportedFileUri.emit(uri)
+                if (result is ExportSingleRecipeUseCase.ExportResult.Success) {
+                    FileProvider.getUriForFile(
+                        applicationContext,
+                        "${applicationContext.packageName}.fileprovider",
+                        file
+                    )
+                } else {
+                    null
+                }
             }
+            uriToEmit?.let { _exportedFileUri.emit(it) }
         }
     }
 

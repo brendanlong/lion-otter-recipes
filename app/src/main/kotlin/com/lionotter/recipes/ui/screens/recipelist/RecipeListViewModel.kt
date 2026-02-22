@@ -18,7 +18,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.runningFold
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 @HiltViewModel
@@ -135,7 +137,9 @@ class RecipeListViewModel @Inject constructor(
             val item = recipes.value.find { it.id == recipeId }
             if (item is RecipeListItem.Saved) {
                 val newFavorite = !item.recipe.isFavorite
-                recipeRepository.setFavorite(recipeId, newFavorite)
+                withContext(NonCancellable) {
+                    recipeRepository.setFavorite(recipeId, newFavorite)
+                }
             }
         }
     }
@@ -152,8 +156,10 @@ class RecipeListViewModel @Inject constructor(
             // Only delete if it's a saved recipe (not in-progress)
             val item = recipes.value.find { it.id == recipeId }
             if (item is RecipeListItem.Saved) {
-                mealPlanRepository.deleteMealPlansByRecipeId(recipeId)
-                recipeRepository.deleteRecipe(recipeId)
+                withContext(NonCancellable) {
+                    mealPlanRepository.deleteMealPlansByRecipeId(recipeId)
+                    recipeRepository.deleteRecipe(recipeId)
+                }
             }
         }
     }
