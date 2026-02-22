@@ -89,6 +89,7 @@ tink-android = { group = "com.google.crypto.tink", name = "tink-android", versio
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
 firebase-auth = { group = "com.google.firebase", name = "firebase-auth" }
 firebase-firestore = { group = "com.google.firebase", name = "firebase-firestore" }
+firebase-storage = { group = "com.google.firebase", name = "firebase-storage" }
 
 # Credentials
 credentials = { group = "androidx.credentials", name = "credentials", version.ref = "credentials" }

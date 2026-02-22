@@ -123,10 +123,12 @@ class ZipImportHelper @Inject constructor(
 
             // Try to use bundled image from the ZIP first, then fall back to download
             val localImageUrl = importImageFromZipOrDownload(imageFiles, recipe.imageUrl, recipe.sourceImageUrl)
+            // Upload to Firebase Storage for cross-device sync
+            val storedImageUrl = localImageUrl?.let { imageDownloadService.storeImage(it) }
 
             val importedRecipe = recipe.copy(
                 updatedAt = Clock.System.now(),
-                imageUrl = localImageUrl
+                imageUrl = storedImageUrl
             )
             val originalHtml = files[RecipeSerializer.RECIPE_HTML_FILENAME]
             recipeRepository.saveRecipe(importedRecipe, originalHtml)

@@ -170,8 +170,11 @@ class ParseHtmlUseCase @Inject constructor(
         // Notify that recipe name is available
         onProgress(ParseProgress.RecipeNameAvailable(parsed.name))
 
-        // Download image locally if available
+        // Download image locally if available, then upload to Firebase Storage
         val downloadResult = imageUrl?.let { imageDownloadService.downloadAndStoreWithResult(it) }
+        val storedImageUrl = downloadResult?.localUri?.let { localUri ->
+            imageDownloadService.storeImage(localUri)
+        }
 
         // Create Recipe
         val now = Clock.System.now()
@@ -187,7 +190,7 @@ class ParseHtmlUseCase @Inject constructor(
             instructionSections = parsed.instructionSections,
             equipment = parsed.equipment,
             tags = parsed.tags,
-            imageUrl = downloadResult?.localUri,
+            imageUrl = storedImageUrl,
             sourceImageUrl = downloadResult?.effectiveUrl ?: imageUrl,
             createdAt = now,
             updatedAt = now
@@ -252,8 +255,11 @@ class ParseHtmlUseCase @Inject constructor(
     ): Recipe? {
         val parsed = parsedWithUsage.result
 
-        // Download image locally if available
+        // Download image locally if available, then upload to Firebase Storage
         val downloadResult = imageUrl?.let { imageDownloadService.downloadAndStoreWithResult(it) }
+        val storedImageUrl = downloadResult?.localUri?.let { localUri ->
+            imageDownloadService.storeImage(localUri)
+        }
 
         // Create Recipe
         val now = Clock.System.now()
@@ -269,7 +275,7 @@ class ParseHtmlUseCase @Inject constructor(
             instructionSections = parsed.instructionSections,
             equipment = parsed.equipment,
             tags = parsed.tags,
-            imageUrl = downloadResult?.localUri,
+            imageUrl = storedImageUrl,
             sourceImageUrl = downloadResult?.effectiveUrl ?: imageUrl,
             createdAt = now,
             updatedAt = now

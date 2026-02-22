@@ -39,7 +39,7 @@ external: {
     style: {
       fill: "#ffca28"
     }
-    tooltip: "Firebase Auth (Google Sign-In) and Cloud Firestore (recipes + meal plans). Firestore uses unlimited persistent cache with auto index creation."
+    tooltip: "Firebase Auth (Google Sign-In), Cloud Firestore (recipes + meal plans), and Cloud Storage (recipe images). Firestore uses unlimited persistent cache with auto index creation. Storage images are cached locally for offline access."
   }
 
 }
@@ -377,7 +377,7 @@ app: {
 
       recipe: {
         label: Recipe
-        tooltip: "@Immutable. Fields: id, name, sourceUrl, story, servings, times, ingredients, instructions, equipment, tags, imageUrl (local file:// URI, directly editable via gallery picker), sourceImageUrl (original remote URL), timestamps, isFavorite, userNotes (free-form user notes, preserved across AI edits/regeneration, included in markdown sent to AI)"
+        tooltip: "@Immutable. Fields: id, name, sourceUrl, story, servings, times, ingredients, instructions, equipment, tags, imageUrl (gs:// URI pointing to Firebase Storage, synced across devices via Firestore; Coil fetcher resolves to local cache), sourceImageUrl (original remote URL), timestamps, isFavorite, userNotes (free-form user notes, preserved across AI edits/regeneration, included in markdown sent to AI)"
       }
       ingredient: {
         label: Ingredient
@@ -436,8 +436,10 @@ app: {
     usecases.parse_html -> data.repository.import_debug_repo: save debug data
     usecases.export_zip -> util.serializer: serialize
     usecases.export_zip -> data.remote.image_dl: read local images
+    usecases.export_zip -> data.remote.image_sync: resolve storage images
     usecases.export_single -> util.serializer: serialize
     usecases.export_single -> data.remote.image_dl: read local images
+    usecases.export_single -> data.remote.image_sync: resolve storage images
     usecases.import_paprika -> data.remote.image_dl: save base64 images
     usecases.import_zip -> util.zip_import_helper: import
   }
@@ -508,9 +510,9 @@ app: {
         tooltip: "Room entity storing import debug data: source URL, original/cleaned HTML, AI output JSON, token counts, model, error info, linked recipe ID"
       }
       image_storage: {
-        label: Local Image Storage
+        label: Local Image Cache
         shape: cylinder
-        tooltip: "Recipe images stored as files in app internal storage (filesDir/recipe_images/). Referenced by file:// URIs in Recipe.imageUrl."
+        tooltip: "Recipe images cached locally in app internal storage (filesDir/recipe_images/). Primary storage is Firebase Storage, referenced via gs:// URIs (e.g., gs://bucket/users/{uid}/images/{file}). Coil's FirebaseStorageCoilFetcher downloads and caches images on first display."
       }
       settings: {
         label: SettingsDataStore
@@ -541,7 +543,15 @@ app: {
       }
       image_dl: {
         label: ImageDownloadService
-        tooltip: "Downloads recipe images from remote URLs and stores them locally in app internal storage. Automatically retries with HTTPS if an HTTP download fails (e.g., cleartext traffic not permitted). Also supports saving images from byte streams (ZIP import) and base64 data (Paprika photo_data). Returns file:// URIs for local access. Used during import, export, and ZIP restore to ensure images are available offline."
+        tooltip: "Downloads recipe images from remote URLs and stores them locally in app internal storage. Automatically retries with HTTPS if an HTTP download fails (e.g., cleartext traffic not permitted). Also supports saving images from byte streams (ZIP import) and base64 data (Paprika photo_data). After saving locally, uploads images to Firebase Storage via ImageSyncService. Returns gs:// URIs for Firestore sync. Used during import, export, and ZIP restore."
+      }
+      image_sync: {
+        label: ImageSyncService
+        tooltip: "Syncs recipe images between local storage and Firebase Storage. Uploads resized images (max 2048px, JPEG 85%) to users/{uid}/images/. Downloads images to local cache for offline display. Handles orphan cleanup. Returns gs:// URIs stored in Recipe.imageUrl for cross-device sync."
+      }
+      storage_fetcher: {
+        label: FirebaseStorageCoilFetcher
+        tooltip: "Custom Coil Fetcher that intercepts Firebase Storage gs:// URIs and resolves them to local cache files. Downloads from Firebase Storage on first load, then serves from disk cache. Registered via LionOtterApp's SingletonImageLoader.Factory."
       }
       firestore_svc: {
         label: FirestoreService
@@ -589,7 +599,11 @@ app: {
     repository.import_debug_repo -> local.import_debug_dao
     repository.pending_import_repo -> local.pending_import_dao
     repository.meal_plan_repo -> remote.firestore_svc: Firestore CRUD
-    remote.image_dl -> local.image_storage: stores images
+    remote.image_dl -> local.image_storage: caches images
+    remote.image_dl -> remote.image_sync: upload to storage
+    remote.image_sync -> local.image_storage: download cache
+    remote.storage_fetcher -> remote.image_sync: resolve paths
+    remote.storage_fetcher -> local.image_storage: cache read/write
   }
 
   # Performance
@@ -639,6 +653,7 @@ app: {
   ui.viewmodels.edit_vm -> data.repository.repo: recipe, original HTML, image
   ui.viewmodels.edit_vm -> data.local.settings: edit model, thinking prefs
   ui.viewmodels.edit_vm -> data.remote.image_dl: save picked images
+  ui.viewmodels.edit_vm -> data.remote.image_sync: delete remote images
   ui.viewmodels.edit_vm -> background.worker.edit_worker: save edits
   ui.viewmodels.edit_vm -> background.worker.regenerate_worker: regenerate from original
   ui.viewmodels.edit_vm -> background.worker.work_ext: observe edit/regenerate
@@ -683,6 +698,7 @@ app: {
   ui.viewmodels.settings_vm -> data.remote.auth_svc: sign out, email
   data.remote.firestore_svc -> external.firebase: Firestore
   data.remote.auth_svc -> external.firebase: Auth
+  data.remote.image_sync -> external.firebase: Storage
   data.remote.scraper -> external.web: fetch HTML
   data.remote.image_dl -> external.web: download image
   data.remote.anthropic_svc -> external.anthropic: parse recipe

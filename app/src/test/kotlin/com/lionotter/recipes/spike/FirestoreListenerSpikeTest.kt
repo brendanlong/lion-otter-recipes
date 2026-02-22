@@ -1,6 +1,10 @@
 package com.lionotter.recipes.spike
 
 import android.util.Log
+import com.lionotter.recipes.data.remote.ImageDownloadService
+import com.lionotter.recipes.data.remote.ImageSyncService
+import com.lionotter.recipes.data.repository.RecipeRepository
+import com.lionotter.recipes.testutil.TestFirestoreService
 import com.google.firebase.Firebase
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
@@ -15,6 +19,10 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLooper
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
+import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.concurrent.CountDownLatch
@@ -305,8 +313,14 @@ class FirestoreListenerSpikeTest {
     @Test
     fun `real repository getRecipeByIdOnce works with looper pumping`() {
         // Full integration: fire-and-forget write → pumpLooper → suspend read via looper pumping
-        val testFirestoreService = com.lionotter.recipes.testutil.TestFirestoreService()
-        val recipeRepo = com.lionotter.recipes.data.repository.RecipeRepository(testFirestoreService)
+        val testFirestoreService = TestFirestoreService()
+        val context = RuntimeEnvironment.getApplication()
+        val imageSyncService = ImageSyncService(context)
+        val httpClient = HttpClient(MockEngine) {
+            engine { addHandler { respond("", HttpStatusCode.NotFound) } }
+        }
+        val imageDownloadService = ImageDownloadService(context, httpClient, imageSyncService)
+        val recipeRepo = RecipeRepository(testFirestoreService, imageDownloadService)
 
         val recipe = com.lionotter.recipes.domain.model.Recipe(
             id = "looper-test",

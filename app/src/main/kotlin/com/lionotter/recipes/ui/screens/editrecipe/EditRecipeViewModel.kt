@@ -149,16 +149,22 @@ class EditRecipeViewModel @Inject constructor(
 
     /**
      * Handle image selection from the image picker.
-     * Copies the image to local storage and updates the recipe.
+     * Copies the image to local storage, uploads to Firebase Storage, and updates the recipe.
+     * Cleans up the previous image from both local cache and remote storage.
      */
     fun onImageSelected(contentUri: Uri) {
         viewModelScope.launch {
             try {
                 val localUri = imageDownloadService.saveImageFromContentUri(contentUri)
                 if (localUri != null) {
+                    val previousImageUrl = _imageUrl.value
+                    // Show local image immediately for responsiveness
                     _imageUrl.value = localUri
                     imageChanged = true
-                    recipeRepository.setImageUrl(recipeId, localUri)
+                    // Upload to Firebase Storage, cleaning up the old image
+                    val storedUrl = imageDownloadService.storeImage(localUri, previousImageUrl)
+                    _imageUrl.value = storedUrl
+                    recipeRepository.setImageUrl(recipeId, storedUrl)
                 } else {
                     Log.w(TAG, "Failed to save selected image")
                     _editState.value = EditUiState.Error("Failed to save selected image")
@@ -172,6 +178,7 @@ class EditRecipeViewModel @Inject constructor(
 
     /**
      * Remove the recipe image.
+     * Cleans up from both local cache and Firebase Storage.
      */
     fun removeImage() {
         viewModelScope.launch {
@@ -180,9 +187,8 @@ class EditRecipeViewModel @Inject constructor(
                 _imageUrl.value = null
                 imageChanged = true
                 recipeRepository.setImageUrl(recipeId, null)
-                // Clean up the old image file if it was a local file
                 if (currentImageUrl != null) {
-                    imageDownloadService.deleteLocalImage(currentImageUrl)
+                    imageDownloadService.cleanupImage(currentImageUrl)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to remove image", e)
