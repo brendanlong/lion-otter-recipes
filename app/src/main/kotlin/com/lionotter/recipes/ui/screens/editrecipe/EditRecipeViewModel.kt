@@ -11,6 +11,7 @@ import androidx.work.WorkManager
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.remote.ImageDownloadService
+import com.lionotter.recipes.data.remote.ImageSyncService
 import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
@@ -44,7 +45,8 @@ class EditRecipeViewModel @Inject constructor(
     private val recipeRepository: IRecipeRepository,
     private val settingsDataStore: SettingsDataStore,
     private val workManager: WorkManager,
-    private val imageDownloadService: ImageDownloadService
+    private val imageDownloadService: ImageDownloadService,
+    private val imageSyncService: ImageSyncService
 ) : ViewModel() {
 
     private val recipeId: String = savedStateHandle.get<String>("recipeId")
@@ -149,16 +151,20 @@ class EditRecipeViewModel @Inject constructor(
 
     /**
      * Handle image selection from the image picker.
-     * Copies the image to local storage and updates the recipe.
+     * Copies the image to local storage, uploads to Firebase Storage, and updates the recipe.
      */
     fun onImageSelected(contentUri: Uri) {
         viewModelScope.launch {
             try {
                 val localUri = imageDownloadService.saveImageFromContentUri(contentUri)
                 if (localUri != null) {
+                    // Show local image immediately for responsiveness
                     _imageUrl.value = localUri
                     imageChanged = true
-                    recipeRepository.setImageUrl(recipeId, localUri)
+                    // Upload to Firebase Storage and update recipe with storage path
+                    val storedUrl = imageDownloadService.uploadToStorage(localUri)
+                    _imageUrl.value = storedUrl
+                    recipeRepository.setImageUrl(recipeId, storedUrl)
                 } else {
                     Log.w(TAG, "Failed to save selected image")
                     _editState.value = EditUiState.Error("Failed to save selected image")
@@ -183,6 +189,8 @@ class EditRecipeViewModel @Inject constructor(
                 // Clean up the old image file if it was a local file
                 if (currentImageUrl != null) {
                     imageDownloadService.deleteLocalImage(currentImageUrl)
+                    // Also delete from Firebase Storage if it's a storage path
+                    imageSyncService.deleteRemoteImage(currentImageUrl)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to remove image", e)

@@ -20,15 +20,18 @@ import javax.inject.Singleton
 
 /**
  * Downloads recipe images and stores them locally in the app's internal storage.
- * Returns a file:// URI that can be stored in the recipe's imageUrl field.
+ * After saving locally, uploads images to Firebase Storage so they sync across devices.
+ * Returns a Firebase Storage path that can be stored in the recipe's imageUrl field.
  */
 @Singleton
 class ImageDownloadService @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    private val httpClient: HttpClient
+    private val httpClient: HttpClient,
+    private val imageSyncService: ImageSyncService
 ) {
     /**
-     * Result of downloading an image, containing both the local file URI
+     * Result of downloading an image, containing both the stored image URL
+     * (a Firebase Storage path if upload succeeded, or a local file:// URI as fallback)
      * and the URL that was actually used to download (which may differ from
      * the original if an HTTP URL was upgraded to HTTPS).
      */
@@ -66,6 +69,8 @@ class ImageDownloadService @Inject constructor(
             val path = imageUrl.removePrefix("file://")
             return if (File(path).exists()) imageUrl else null
         }
+        // Firebase Storage paths are already stored — return as-is
+        if (imageSyncService.isStoragePath(imageUrl)) return imageUrl
         return downloadAndStore(imageUrl)
     }
 
@@ -91,6 +96,11 @@ class ImageDownloadService @Inject constructor(
     suspend fun downloadAndStoreWithResult(imageUrl: String): DownloadResult? {
         // Skip if already a local file
         if (imageUrl.startsWith("file://")) {
+            return DownloadResult(localUri = imageUrl, effectiveUrl = imageUrl)
+        }
+
+        // Firebase Storage paths are already stored — return as-is
+        if (imageSyncService.isStoragePath(imageUrl)) {
             return DownloadResult(localUri = imageUrl, effectiveUrl = imageUrl)
         }
 
@@ -246,6 +256,21 @@ class ImageDownloadService @Inject constructor(
             Log.w(TAG, "Failed to save image from content URI: $contentUri", e)
             null
         }
+    }
+
+    /**
+     * Upload a local image to Firebase Storage and return the storage path.
+     * If the URL is already a Firebase Storage path, returns it as-is.
+     * If upload fails, returns the original local URI as a fallback.
+     *
+     * @param localUri A file:// URI pointing to the local image, or a storage path
+     * @return A Firebase Storage path (e.g., "users/{uid}/images/{filename}"),
+     *         or the original local URI if upload fails
+     */
+    suspend fun uploadToStorage(localUri: String): String {
+        // Already a storage path — no need to re-upload
+        if (imageSyncService.isStoragePath(localUri)) return localUri
+        return imageSyncService.uploadImage(localUri) ?: localUri
     }
 
     /**

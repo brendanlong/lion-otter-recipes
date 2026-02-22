@@ -306,7 +306,8 @@ class FirestoreListenerSpikeTest {
     fun `real repository getRecipeByIdOnce works with looper pumping`() {
         // Full integration: fire-and-forget write → pumpLooper → suspend read via looper pumping
         val testFirestoreService = com.lionotter.recipes.testutil.TestFirestoreService()
-        val recipeRepo = com.lionotter.recipes.data.repository.RecipeRepository(testFirestoreService)
+        val imageSyncService = com.lionotter.recipes.data.remote.ImageSyncService(org.robolectric.RuntimeEnvironment.getApplication())
+        val recipeRepo = com.lionotter.recipes.data.repository.RecipeRepository(testFirestoreService, imageSyncService)
 
         val recipe = com.lionotter.recipes.domain.model.Recipe(
             id = "looper-test",
