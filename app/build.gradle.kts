@@ -19,6 +19,14 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+        create("release") {
+            // Upload key for Google Play App Signing. Google re-signs with their own key
+            // before distribution, so this just needs to be consistent.
+            storeFile = file(System.getenv("RELEASE_KEYSTORE_PATH") ?: System.getenv("DEBUG_KEYSTORE_PATH") ?: "${System.getProperty("user.home")}/.android/debug.keystore")
+            storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD") ?: "android"
+            keyAlias = System.getenv("RELEASE_KEY_ALIAS") ?: "androiddebugkey"
+            keyPassword = System.getenv("RELEASE_KEY_PASSWORD") ?: "android"
+        }
     }
 
     defaultConfig {
@@ -33,7 +41,7 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -42,7 +50,7 @@ android {
         }
         create("benchmark") {
             initWith(buildTypes.getByName("release"))
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
             matchingFallbacks += listOf("release")
             isDebuggable = false
         }

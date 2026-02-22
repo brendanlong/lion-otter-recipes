@@ -50,7 +50,15 @@ The debug APK will be at `app/build/outputs/apk/debug/app-debug.apk`.
 
 ### Release Builds
 
-Release builds use the same debug keystore as an upload key for Google Play App Signing. Google re-signs the final app with their own managed key before distributing to users, so the upload key credentials don't need to be secret — they just need to be consistent.
+Release builds use a `release` signing config as an upload key for Google Play App Signing. Google re-signs the final app with their own managed key before distributing to users, so the upload key credentials don't need to be secret — they just need to be consistent.
+
+By default, the release signing config falls back to the standard Android debug keystore (same key, but properly configured as a release signing config so Google Play accepts the upload).
+
+You can override the release keystore via environment variables:
+- `RELEASE_KEYSTORE_PATH` — path to the keystore file
+- `RELEASE_KEYSTORE_PASSWORD` — keystore password (default: `android`)
+- `RELEASE_KEY_ALIAS` — key alias (default: `androiddebugkey`)
+- `RELEASE_KEY_PASSWORD` — key password (default: `android`)
 
 ```bash
 # Build a release AAB locally
@@ -59,7 +67,7 @@ Release builds use the same debug keystore as an upload key for Google Play App 
 
 The AAB will be at `app/build/outputs/bundle/release/app-release.aab`.
 
-CI automatically builds a signed release AAB on pushes to `main` (after lint, tests, and debug build pass). If you have `DEBUG_KEYSTORE_BASE64` set as a GitHub secret, CI will use it for both debug and release builds. Otherwise it falls back to the default Android debug keystore.
+CI automatically builds a signed release AAB on pushes to `main` (after lint, tests, and debug build pass). If you have `DEBUG_KEYSTORE_BASE64` set as a GitHub secret, CI will use it for both debug and release builds (setting both `DEBUG_KEYSTORE_PATH` and `RELEASE_KEYSTORE_PATH`). Otherwise it falls back to the default Android debug keystore.
 
 ### Build from Android Studio
 
