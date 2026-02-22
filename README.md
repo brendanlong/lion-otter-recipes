@@ -97,7 +97,26 @@ Cloud sync is optional — the app works fully offline without it. To enable syn
      }
      ```
 
-Data is stored at `users/{userId}/recipes/{recipeId}` and `users/{userId}/mealPlans/{mealPlanId}`, so each user's data is fully isolated.
+6. Enable **Cloud Storage for Firebase**:
+   - Go to **Storage** and click "Get started"
+   - Use the existing bucket (e.g., `gs://lion-otter-recipes.firebasestorage.app`) or create one
+   - Set the security rules to restrict access per user and validate image uploads:
+     ```
+     rules_version = '2';
+     service firebase.storage {
+       match /b/{bucket}/o {
+         match /users/{userId}/images/{fileName} {
+           allow read: if request.auth != null && request.auth.uid == userId;
+           allow write: if request.auth != null
+             && request.auth.uid == userId
+             && request.resource.contentType.matches('image/.*')
+             && request.resource.size < 5 * 1024 * 1024;
+         }
+       }
+     }
+     ```
+
+Data is stored at `users/{userId}/recipes/{recipeId}` and `users/{userId}/mealPlans/{mealPlanId}`, so each user's data is fully isolated. Recipe images are stored in Firebase Storage at `users/{userId}/images/{filename}`.
 
 ## App Setup
 

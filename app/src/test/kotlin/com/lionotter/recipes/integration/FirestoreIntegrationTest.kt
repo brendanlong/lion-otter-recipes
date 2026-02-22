@@ -6,6 +6,7 @@ import com.google.firebase.FirebaseOptions
 import com.google.firebase.firestore.MemoryCacheSettings
 import com.google.firebase.firestore.firestore
 import com.google.firebase.firestore.firestoreSettings
+import com.lionotter.recipes.data.remote.ImageSyncService
 import com.lionotter.recipes.data.repository.MealPlanRepository
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.testutil.TestFirestoreService
@@ -67,7 +68,8 @@ abstract class FirestoreIntegrationTest {
         db.disableNetwork()
 
         firestoreService = TestFirestoreService()
-        recipeRepository = RecipeRepository(firestoreService)
+        val imageSyncService = ImageSyncService(RuntimeEnvironment.getApplication())
+        recipeRepository = RecipeRepository(firestoreService, imageSyncService)
         mealPlanRepository = MealPlanRepository(firestoreService)
     }
 
