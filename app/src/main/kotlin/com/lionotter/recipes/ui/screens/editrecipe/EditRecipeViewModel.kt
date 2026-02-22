@@ -11,7 +11,7 @@ import androidx.work.WorkManager
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.remote.ImageDownloadService
-import com.lionotter.recipes.data.repository.RecipeRepository
+import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
 import com.lionotter.recipes.worker.RecipeEditWorker
@@ -41,7 +41,7 @@ sealed class EditUiState {
 @HiltViewModel
 class EditRecipeViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    private val recipeRepository: RecipeRepository,
+    private val recipeRepository: IRecipeRepository,
     private val settingsDataStore: SettingsDataStore,
     private val workManager: WorkManager,
     private val imageDownloadService: ImageDownloadService

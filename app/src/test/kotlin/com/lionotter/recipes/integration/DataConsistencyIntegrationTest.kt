@@ -5,30 +5,20 @@ import com.lionotter.recipes.domain.model.Ingredient
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.InstructionStep
 import com.lionotter.recipes.domain.model.Recipe
-import dagger.hilt.android.testing.HiltAndroidTest
-import dagger.hilt.android.testing.HiltTestApplication
-import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
 import kotlin.time.Instant
 
 /**
- * Integration tests verifying JSON serialization round-trip fidelity and
- * data consistency through the DAO → Repository pipeline.
+ * Integration tests verifying data consistency and round-trip fidelity
+ * through the real RecipeRepository backed by the real Firestore SDK.
  *
  * These tests ensure that complex data structures (multi-section instructions,
- * equipment, nested ingredients) survive being serialized to JSON in the database
- * and deserialized back into domain objects.
+ * equipment, nested ingredients) survive being stored and retrieved correctly.
  */
-@HiltAndroidTest
-@RunWith(RobolectricTestRunner::class)
-@Config(application = HiltTestApplication::class, sdk = [34])
-class DataConsistencyIntegrationTest : HiltIntegrationTest() {
+class DataConsistencyIntegrationTest : FirestoreIntegrationTest() {
 
     private val now = Instant.fromEpochMilliseconds(1700000000000)
 
@@ -37,7 +27,7 @@ class DataConsistencyIntegrationTest : HiltIntegrationTest() {
     // -----------------------------------------------------------------------
 
     @Test
-    fun `recipe with multi-section instructions survives database round-trip`() = runTest {
+    fun `recipe with multi-section instructions survives database round-trip`() {
         val recipe = Recipe(
             id = "multi-section-recipe",
             name = "Complex Meal",
@@ -88,7 +78,9 @@ class DataConsistencyIntegrationTest : HiltIntegrationTest() {
         )
 
         recipeRepository.saveRecipe(recipe)
-        val retrieved = recipeRepository.getRecipeByIdOnce("multi-section-recipe")
+        pumpLooper()
+
+        val retrieved = runSuspending { recipeRepository.getRecipeByIdOnce("multi-section-recipe") }
 
         assertNotNull(retrieved)
         assertEquals(3, retrieved!!.instructionSections.size)
@@ -121,7 +113,7 @@ class DataConsistencyIntegrationTest : HiltIntegrationTest() {
     // -----------------------------------------------------------------------
 
     @Test
-    fun `recipe with equipment list survives database round-trip`() = runTest {
+    fun `recipe with equipment list survives database round-trip`() {
         val recipe = Recipe(
             id = "equipment-recipe",
             name = "Equipment Test",
@@ -133,7 +125,9 @@ class DataConsistencyIntegrationTest : HiltIntegrationTest() {
         )
 
         recipeRepository.saveRecipe(recipe)
-        val retrieved = recipeRepository.getRecipeByIdOnce("equipment-recipe")
+        pumpLooper()
+
+        val retrieved = runSuspending { recipeRepository.getRecipeByIdOnce("equipment-recipe") }
 
         assertNotNull(retrieved)
         assertEquals(4, retrieved!!.equipment.size)
@@ -145,7 +139,7 @@ class DataConsistencyIntegrationTest : HiltIntegrationTest() {
     // -----------------------------------------------------------------------
 
     @Test
-    fun `recipe with many tags survives database round-trip`() = runTest {
+    fun `recipe with many tags survives database round-trip`() {
         val tags = listOf("breakfast", "quick", "healthy", "vegetarian", "under-30-min", "budget-friendly")
         val recipe = Recipe(
             id = "tag-recipe",
@@ -157,7 +151,9 @@ class DataConsistencyIntegrationTest : HiltIntegrationTest() {
         )
 
         recipeRepository.saveRecipe(recipe)
-        val retrieved = recipeRepository.getRecipeByIdOnce("tag-recipe")
+        pumpLooper()
+
+        val retrieved = runSuspending { recipeRepository.getRecipeByIdOnce("tag-recipe") }
 
         assertNotNull(retrieved)
         assertEquals(tags, retrieved!!.tags)
@@ -168,7 +164,7 @@ class DataConsistencyIntegrationTest : HiltIntegrationTest() {
     // -----------------------------------------------------------------------
 
     @Test
-    fun `complex ingredient fields survive database round-trip`() = runTest {
+    fun `complex ingredient fields survive database round-trip`() {
         val recipe = Recipe(
             id = "ingredient-fields-recipe",
             name = "Complex Ingredients",
@@ -216,7 +212,9 @@ class DataConsistencyIntegrationTest : HiltIntegrationTest() {
         )
 
         recipeRepository.saveRecipe(recipe)
-        val retrieved = recipeRepository.getRecipeByIdOnce("ingredient-fields-recipe")
+        pumpLooper()
+
+        val retrieved = runSuspending { recipeRepository.getRecipeByIdOnce("ingredient-fields-recipe") }
 
         assertNotNull(retrieved)
         val ingredients = retrieved!!.instructionSections[0].steps[0].ingredients
@@ -249,7 +247,7 @@ class DataConsistencyIntegrationTest : HiltIntegrationTest() {
     // -----------------------------------------------------------------------
 
     @Test
-    fun `recipe with empty instruction sections survives round-trip`() = runTest {
+    fun `recipe with empty instruction sections survives round-trip`() {
         val recipe = Recipe(
             id = "empty-instructions",
             name = "No Instructions",
@@ -259,14 +257,16 @@ class DataConsistencyIntegrationTest : HiltIntegrationTest() {
         )
 
         recipeRepository.saveRecipe(recipe)
-        val retrieved = recipeRepository.getRecipeByIdOnce("empty-instructions")
+        pumpLooper()
+
+        val retrieved = runSuspending { recipeRepository.getRecipeByIdOnce("empty-instructions") }
 
         assertNotNull(retrieved)
         assertTrue(retrieved!!.instructionSections.isEmpty())
     }
 
     @Test
-    fun `recipe with null optional fields survives round-trip`() = runTest {
+    fun `recipe with null optional fields survives round-trip`() {
         val recipe = Recipe(
             id = "minimal-recipe",
             name = "Minimal",
@@ -287,7 +287,9 @@ class DataConsistencyIntegrationTest : HiltIntegrationTest() {
         )
 
         recipeRepository.saveRecipe(recipe)
-        val retrieved = recipeRepository.getRecipeByIdOnce("minimal-recipe")
+        pumpLooper()
+
+        val retrieved = runSuspending { recipeRepository.getRecipeByIdOnce("minimal-recipe") }
 
         assertNotNull(retrieved)
         assertEquals("Minimal", retrieved!!.name)
@@ -302,49 +304,51 @@ class DataConsistencyIntegrationTest : HiltIntegrationTest() {
     }
 
     @Test
-    fun `recipe with unicode content survives round-trip`() = runTest {
+    fun `recipe with unicode content survives round-trip`() {
         val recipe = Recipe(
             id = "unicode-recipe",
-            name = "Crème Brûlée 🍮",
-            story = "A classic French dessert with a caramelized sugar top. Très magnifique! 日本語テスト",
+            name = "Cr\u00e8me Br\u00fbl\u00e9e \ud83c\udf6e",
+            story = "A classic French dessert with a caramelized sugar top. Tr\u00e8s magnifique! \u65e5\u672c\u8a9e\u30c6\u30b9\u30c8",
             instructionSections = listOf(
                 InstructionSection(
-                    name = "Crème",
+                    name = "Cr\u00e8me",
                     steps = listOf(
                         InstructionStep(
                             stepNumber = 1,
-                            instruction = "Heat cream to 180°F (82°C).",
+                            instruction = "Heat cream to 180\u00b0F (82\u00b0C).",
                             ingredients = listOf(
                                 Ingredient(
-                                    name = "crème fraîche",
+                                    name = "cr\u00e8me fra\u00eeche",
                                     amount = Amount(value = 2.0, unit = "cup"),
-                                    notes = "or heavy cream (35% matières grasses)"
+                                    notes = "or heavy cream (35% mati\u00e8res grasses)"
                                 )
                             )
                         )
                     )
                 )
             ),
-            tags = listOf("français", "dessert", "日本語"),
+            tags = listOf("fran\u00e7ais", "dessert", "\u65e5\u672c\u8a9e"),
             createdAt = now,
             updatedAt = now
         )
 
         recipeRepository.saveRecipe(recipe)
-        val retrieved = recipeRepository.getRecipeByIdOnce("unicode-recipe")
+        pumpLooper()
+
+        val retrieved = runSuspending { recipeRepository.getRecipeByIdOnce("unicode-recipe") }
 
         assertNotNull(retrieved)
-        assertEquals("Crème Brûlée 🍮", retrieved!!.name)
+        assertEquals("Cr\u00e8me Br\u00fbl\u00e9e \ud83c\udf6e", retrieved!!.name)
         val story = retrieved.story!!
-        assertTrue(story.contains("Très magnifique"))
-        assertTrue(story.contains("日本語テスト"))
-        assertEquals("crème fraîche", retrieved.instructionSections[0].steps[0].ingredients[0].name)
-        assertTrue(retrieved.tags.contains("français"))
-        assertTrue(retrieved.tags.contains("日本語"))
+        assertTrue(story.contains("Tr\u00e8s magnifique"))
+        assertTrue(story.contains("\u65e5\u672c\u8a9e\u30c6\u30b9\u30c8"))
+        assertEquals("cr\u00e8me fra\u00eeche", retrieved.instructionSections[0].steps[0].ingredients[0].name)
+        assertTrue(retrieved.tags.contains("fran\u00e7ais"))
+        assertTrue(retrieved.tags.contains("\u65e5\u672c\u8a9e"))
     }
 
     @Test
-    fun `save recipe twice overwrites cleanly`() = runTest {
+    fun `save recipe twice overwrites cleanly`() {
         val original = Recipe(
             id = "overwrite-test",
             name = "Original Name",
@@ -355,7 +359,8 @@ class DataConsistencyIntegrationTest : HiltIntegrationTest() {
         )
 
         recipeRepository.saveRecipe(original)
-        assertEquals("Original Name", recipeRepository.getRecipeByIdOnce("overwrite-test")!!.name)
+        pumpLooper()
+        assertEquals("Original Name", runSuspending { recipeRepository.getRecipeByIdOnce("overwrite-test") }!!.name)
 
         val updated = original.copy(
             name = "Updated Name",
@@ -363,15 +368,16 @@ class DataConsistencyIntegrationTest : HiltIntegrationTest() {
             updatedAt = Instant.fromEpochMilliseconds(1700000001000)
         )
         recipeRepository.saveRecipe(updated)
+        pumpLooper()
 
-        val retrieved = recipeRepository.getRecipeByIdOnce("overwrite-test")
+        val retrieved = runSuspending { recipeRepository.getRecipeByIdOnce("overwrite-test") }
         assertNotNull(retrieved)
         assertEquals("Updated Name", retrieved!!.name)
         assertEquals(listOf("updated"), retrieved.tags)
     }
 
     @Test
-    fun `instruction step yields field survives round-trip`() = runTest {
+    fun `instruction step yields field survives round-trip`() {
         val recipe = Recipe(
             id = "yields-recipe",
             name = "Yields Test",
@@ -400,7 +406,9 @@ class DataConsistencyIntegrationTest : HiltIntegrationTest() {
         )
 
         recipeRepository.saveRecipe(recipe)
-        val retrieved = recipeRepository.getRecipeByIdOnce("yields-recipe")
+        pumpLooper()
+
+        val retrieved = runSuspending { recipeRepository.getRecipeByIdOnce("yields-recipe") }
 
         assertNotNull(retrieved)
         val steps = retrieved!!.instructionSections[0].steps

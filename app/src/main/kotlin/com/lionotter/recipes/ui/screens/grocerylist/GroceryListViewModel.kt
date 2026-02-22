@@ -3,8 +3,8 @@ package com.lionotter.recipes.ui.screens.grocerylist
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lionotter.recipes.data.local.SettingsDataStore
-import com.lionotter.recipes.data.repository.MealPlanRepository
-import com.lionotter.recipes.data.repository.RecipeRepository
+import com.lionotter.recipes.data.repository.IMealPlanRepository
+import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.Amount
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.model.UnitCategory
@@ -24,6 +24,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.datetime.DateTimeUnit
@@ -65,8 +67,8 @@ enum class GroceryListStep {
 @HiltViewModel
 class GroceryListViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    private val mealPlanRepository: MealPlanRepository,
-    private val recipeRepository: RecipeRepository,
+    private val mealPlanRepository: IMealPlanRepository,
+    private val recipeRepository: IRecipeRepository,
     private val aggregateGroceryListUseCase: AggregateGroceryListUseCase,
     private val settingsDataStore: SettingsDataStore
 ) : ViewModel() {
@@ -77,7 +79,32 @@ class GroceryListViewModel @Inject constructor(
     private val _step = MutableStateFlow(GroceryListStep.SELECT_RECIPES)
     val step: StateFlow<GroceryListStep> = _step.asStateFlow()
 
-    private val _mealPlanEntries = MutableStateFlow<List<MealPlanEntry>>(emptyList())
+    /**
+     * Tracks whether the initial selection has been applied (select all on first load).
+     */
+    private var initialSelectionApplied = false
+
+    private val _mealPlanEntries: StateFlow<List<MealPlanEntry>> =
+        mealPlanRepository.getMealPlansForDateRange(weekStart, weekEnd)
+            .map { entries ->
+                entries.sortedWith(
+                    compareBy<MealPlanEntry> { it.date }
+                        .thenBy { it.mealType.displayOrder }
+                        .thenBy { it.recipeName }
+                )
+            }
+            .onEach { entries ->
+                // Select all by default on first load
+                if (!initialSelectionApplied) {
+                    _selectedEntryIds.value = entries.map { it.id }.toSet()
+                    initialSelectionApplied = true
+                }
+            }
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.Eagerly,
+                initialValue = emptyList()
+            )
 
     private val _selectedEntryIds = MutableStateFlow<Set<String>>(emptySet())
 
@@ -131,25 +158,11 @@ class GroceryListViewModel @Inject constructor(
     )
 
     init {
-        loadMealPlans()
         viewModelScope.launch {
             settingsDataStore.groceryVolumeUnitSystem.collect { _volumeSystem.value = it }
         }
         viewModelScope.launch {
             settingsDataStore.groceryWeightUnitSystem.collect { _weightSystem.value = it }
-        }
-    }
-
-    private fun loadMealPlans() {
-        viewModelScope.launch {
-            val entries = mealPlanRepository.getMealPlansForDateRangeOnce(weekStart, weekEnd)
-            _mealPlanEntries.value = entries.sortedWith(
-                compareBy<MealPlanEntry> { it.date }
-                    .thenBy { it.mealType.displayOrder }
-                    .thenBy { it.recipeName }
-            )
-            // Select all by default
-            _selectedEntryIds.value = entries.map { it.id }.toSet()
         }
     }
 

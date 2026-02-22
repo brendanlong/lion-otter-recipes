@@ -44,7 +44,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
-import com.lionotter.recipes.data.repository.RepositoryError
 import com.lionotter.recipes.ui.TestTags
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.ui.components.CancelImportConfirmationDialog
@@ -73,17 +72,6 @@ fun RecipeListScreen(
     val availableTags by viewModel.availableTags.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
-
-    // Show snackbar for repository errors (e.g., corrupted recipe data)
-    LaunchedEffect(Unit) {
-        viewModel.repositoryErrors.collect { error ->
-            val message = when (error) {
-                is RepositoryError.ParseError ->
-                    "Some data for recipe '${error.recipeName}' could not be loaded. The recipe may appear incomplete."
-            }
-            snackbarHostState.showSnackbar(message)
-        }
-    }
 
     val scope = rememberCoroutineScope()
 

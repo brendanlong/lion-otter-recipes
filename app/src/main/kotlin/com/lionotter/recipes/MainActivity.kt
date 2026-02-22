@@ -3,6 +3,7 @@ package com.lionotter.recipes
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -11,13 +12,19 @@ import androidx.core.content.IntentCompat
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.lionotter.recipes.data.local.SettingsDataStore
+import com.lionotter.recipes.data.remote.AuthService
+import com.lionotter.recipes.data.remote.FirestoreService
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.ui.navigation.NavGraph
+import com.lionotter.recipes.ui.screens.login.LoginScreen
 import com.lionotter.recipes.ui.theme.LionOtterTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
@@ -26,6 +33,12 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     private val sharedIntentViewModel: SharedIntentViewModel by viewModels()
+
+    @Inject
+    lateinit var authService: AuthService
+
+    @Inject
+    lateinit var firestoreService: FirestoreService
 
     @Inject
     lateinit var settingsDataStore: SettingsDataStore
@@ -50,20 +63,34 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
+            val context = LocalContext.current
+
+            // Observe Firestore errors and show Toasts
+            LaunchedEffect(Unit) {
+                firestoreService.errors.collect { message ->
+                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                }
+            }
+
             val themeMode by settingsDataStore.themeMode
                 .collectAsStateWithLifecycle(initialValue = ThemeMode.AUTO)
+            val isSignedIn by authService.isSignedIn.collectAsState()
 
             LionOtterTheme(themeMode = themeMode) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    NavGraph(
-                        sharedIntentViewModel = sharedIntentViewModel,
-                        initialSharedUrl = sharedUrl,
-                        initialFileUri = sharedFileUri,
-                        recipeId = recipeId
-                    )
+                if (isSignedIn) {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background
+                    ) {
+                        NavGraph(
+                            sharedIntentViewModel = sharedIntentViewModel,
+                            initialSharedUrl = sharedUrl,
+                            initialFileUri = sharedFileUri,
+                            recipeId = recipeId
+                        )
+                    }
+                } else {
+                    LoginScreen()
                 }
             }
         }

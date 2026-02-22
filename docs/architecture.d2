@@ -33,6 +33,15 @@ external: {
     shape: rectangle
   }
 
+  firebase: {
+    label: Firebase
+    shape: rectangle
+    style: {
+      fill: "#ffca28"
+    }
+    tooltip: "Firebase Auth (Google Sign-In) and Cloud Firestore (recipes + meal plans). Firestore uses unlimited persistent cache with auto index creation."
+  }
+
 }
 
 # Android App
@@ -58,6 +67,10 @@ app: {
         fill: "#ffffff"
       }
 
+      login: {
+        label: LoginScreen
+        tooltip: "Google Sign-In screen shown when user is not authenticated. Gates access to the main app."
+      }
       list: RecipeListScreen
       detail: {
         label: RecipeDetailScreen
@@ -121,6 +134,10 @@ app: {
       status_card: StatusCard
       delete_dialog: DeleteConfirmationDialog
       cancel_import_dialog: CancelImportConfirmationDialog
+      account_section: {
+        label: AccountSection
+        tooltip: "Settings component showing signed-in email and sign-out button with confirmation dialog warning about local cache deletion."
+      }
     }
 
     screens -> components: uses
@@ -131,6 +148,10 @@ app: {
         fill: "#ffffff"
       }
 
+      login_vm: {
+        label: LoginViewModel
+        tooltip: "Manages Google Sign-In loading state. Delegates to AuthService."
+      }
       list_vm: RecipeListViewModel
       detail_vm: RecipeDetailViewModel
       edit_vm: {
@@ -177,6 +198,7 @@ app: {
       }
     }
 
+    screens.login -> viewmodels.login_vm
     screens.list -> viewmodels.list_vm
     screens.detail -> viewmodels.detail_vm
     screens.edit -> viewmodels.edit_vm
@@ -436,7 +458,7 @@ app: {
 
       repo: {
         label: RecipeRepository
-        tooltip: "CRUD operations for recipes."
+        tooltip: "CRUD operations for recipes via Firestore. Uses snapshot listeners (callbackFlow) for reactive reads. Fire-and-forget writes. Original HTML stored in subcollection."
       }
       import_debug_repo: {
         label: ImportDebugRepository
@@ -448,7 +470,7 @@ app: {
       }
       meal_plan_repo: {
         label: MealPlanRepository
-        tooltip: "CRUD operations for meal plan entries. Supports date-range queries."
+        tooltip: "CRUD operations for meal plan entries via Firestore. Uses snapshot listeners for reactive date-range queries. Fire-and-forget writes. WriteBatch for cascade deletes."
       }
     }
 
@@ -461,6 +483,7 @@ app: {
       room: {
         label: Room Database
         shape: cylinder
+        tooltip: "Only used for local-only concerns: PendingImport (import queue) and ImportDebug (debugging data). Recipes and meal plans are stored in Firestore."
       }
       datastore: {
         label: DataStore
@@ -474,11 +497,6 @@ app: {
           fill: "#c8e6c9"
         }
       }
-      dao: RecipeDao
-      entity: {
-        label: RecipeEntity
-        tooltip: "Room entity for recipes: id, name, sourceUrl, story, servings, times, JSON fields, imageUrl (local file:// URI), originalHtml, createdAt, updatedAt, isFavorite, userNotes"
-      }
       import_debug_dao: ImportDebugDao
       pending_import_dao: PendingImportDao
       pending_import_entity: {
@@ -488,11 +506,6 @@ app: {
       import_debug_entity: {
         label: ImportDebugEntity
         tooltip: "Room entity storing import debug data: source URL, original/cleaned HTML, AI output JSON, token counts, model, error info, linked recipe ID"
-      }
-      meal_plan_dao: MealPlanDao
-      meal_plan_entity: {
-        label: MealPlanEntity
-        tooltip: "Room entity for meal plan entries: id, recipeId, recipeName, recipeImageUrl, date, mealType, servings, createdAt, updatedAt"
       }
       image_storage: {
         label: Local Image Storage
@@ -504,14 +517,10 @@ app: {
         tooltip: "Uses Tink AEAD encryption for API key, DataStore for non-sensitive settings (AI model, edit model, thinking enabled, keep screen on, theme mode, volume/weight unit system preferences, grocery list volume/weight unit system preferences, start of week, import debugging enabled)"
       }
 
-      dao -> room
-      entity -> room
       import_debug_dao -> room
       import_debug_entity -> room
       pending_import_dao -> room
       pending_import_entity -> room
-      meal_plan_dao -> room
-      meal_plan_entity -> room
       settings -> datastore: non-sensitive settings
       settings -> tink_encrypted: API key
     }
@@ -534,6 +543,30 @@ app: {
         label: ImageDownloadService
         tooltip: "Downloads recipe images from remote URLs and stores them locally in app internal storage. Automatically retries with HTTPS if an HTTP download fails (e.g., cleartext traffic not permitted). Also supports saving images from byte streams (ZIP import) and base64 data (Paprika photo_data). Returns file:// URIs for local access. Used during import, export, and ZIP restore to ensure images are available offline."
       }
+      firestore_svc: {
+        label: FirestoreService
+        tooltip: "Singleton managing Firestore instance with unlimited persistent cache and auto index creation. Provides user-scoped collection references (recipes, mealPlans, content subcollection). Reports errors via SharedFlow for Toast display. Handles sign-out (terminate, clear persistence)."
+      }
+      auth_svc: {
+        label: AuthService
+        tooltip: "Google Sign-In via Credential Manager API. Exposes isSignedIn StateFlow for auth gating in MainActivity. Manages sign-out flow including Firestore cache clearing."
+      }
+    }
+
+    dto: {
+      label: DTOs
+      style: {
+        fill: "#ffffff"
+      }
+
+      recipe_dto: {
+        label: RecipeDto
+        tooltip: "Firestore DTO for recipes. Uses @DocumentId, client-set timestamps, Long for integers. Includes toDomain() and Recipe.toDto() converters."
+      }
+      meal_plan_dto: {
+        label: MealPlanDto
+        tooltip: "Firestore DTO for meal plans. Date stored as ISO-8601 string, mealType as enum name. Includes toDomain() and MealPlanEntry.toDto() converters."
+      }
     }
 
     paprika: {
@@ -552,11 +585,10 @@ app: {
       }
     }
 
-    repository.repo -> local.dao
-    repository.repo -> local.settings
+    repository.repo -> remote.firestore_svc: Firestore CRUD
     repository.import_debug_repo -> local.import_debug_dao
     repository.pending_import_repo -> local.pending_import_dao
-    repository.meal_plan_repo -> local.meal_plan_dao
+    repository.meal_plan_repo -> remote.firestore_svc: Firestore CRUD
     remote.image_dl -> local.image_storage: stores images
   }
 
@@ -647,6 +679,10 @@ app: {
   domain.usecases.regenerate -> data.remote.scraper: fetch HTML if not cached
   domain.usecases.import_paprika -> data.remote.scraper: fetch source image
   domain.usecases.parse_html -> data.remote.image_dl: download image
+  ui.viewmodels.login_vm -> data.remote.auth_svc: sign in
+  ui.viewmodels.settings_vm -> data.remote.auth_svc: sign out, email
+  data.remote.firestore_svc -> external.firebase: Firestore
+  data.remote.auth_svc -> external.firebase: Auth
   data.remote.scraper -> external.web: fetch HTML
   data.remote.image_dl -> external.web: download image
   data.remote.anthropic_svc -> external.anthropic: parse recipe
@@ -671,7 +707,7 @@ legend: {
   flow2: "2. ViewModel enqueues WorkManager job"
   flow3: "3. RecipeImportWorker runs as foreground service"
   flow4: "4. Scraper fetches HTML, AI parses recipe"
-  flow5: "5. Repository saves to Room"
+  flow5: "5. Repository saves to Firestore (fire-and-forget)"
 
   flow1 -> flow2 -> flow3 -> flow4 -> flow5
 
@@ -699,7 +735,7 @@ legend: {
   pap1: "1. User picks .paprikarecipes file, selects recipes to import"
   pap2: "2. PaprikaImportWorker parses ZIP of gzip-compressed JSON (filtered to selected)"
   pap3: "3. For multiple recipes: submit all as a batch via Message Batches API (50% cheaper, parallel)"
-  pap4: "4. Poll for batch completion, then stream results and save each recipe"
+  pap4: "4. Poll for batch completion, then stream results and save each recipe to Firestore"
   pap5: "5. Images resolved from Paprika data or source page; single recipes use sequential API"
 
   pap1 -> pap2 -> pap3 -> pap4 -> pap5
@@ -734,7 +770,7 @@ legend: {
   share1 -> share2 -> share3 -> share4
 
   note: {
-    label: "All imports run in background via WorkManager (URL, Paprika, .lorecipes). Import queue is database-backed (PendingImportEntity) and persists across app restarts. Supports multiple concurrent imports with individual cancellation from the recipe list via swipe-to-dismiss. Page metadata (title, image) is fetched cheaply before AI parsing begins. Paprika import uses the Message Batches API for multiple recipes (50% cheaper), submitting all recipes as a single batch for parallel processing, with fallback to sequential for single recipes. Batch cancellation propagates to the server. Export uses .lorecipes format (ZIP with RecipeSerializer) for both single recipe share and bulk backup."
+    label: "All imports run in background via WorkManager (URL, Paprika, .lorecipes). Import queue is database-backed (PendingImportEntity in Room) and persists across app restarts. Recipes and meal plans are stored in Firestore with unlimited persistent cache and fire-and-forget writes. Google Sign-In is required before accessing any data. Sign-out clears local Firestore cache. Paprika import uses the Message Batches API for multiple recipes (50% cheaper), submitting all recipes as a single batch for parallel processing, with fallback to sequential for single recipes. Batch cancellation propagates to the server. Export uses .lorecipes format (ZIP with RecipeSerializer) for both single recipe share and bulk backup."
     style: {
       font-size: 12
       italic: true
@@ -764,7 +800,7 @@ legend: {
   mp1: "Weekly planner view with day-grouped meal entries"
   mp2: "Add meals via bottom sheet: recipe search + tag filter, date picker, meal type, servings"
   mp3: "Swipe-to-delete and long-press menu (shared pattern with recipe list)"
-  mp4: "Persistent in Room DB"
+  mp4: "Persistent in Firestore (synced across devices)"
   mp5: "Included in ZIP export/import for backup/restore"
 
   mp1 -> mp2 -> mp3 -> mp4 -> mp5

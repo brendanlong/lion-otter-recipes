@@ -1,6 +1,6 @@
 package com.lionotter.recipes.domain.usecase
 
-import com.lionotter.recipes.data.repository.RecipeRepository
+import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
 import kotlin.time.Clock
@@ -18,7 +18,7 @@ import javax.inject.Inject
  */
 class EditRecipeUseCase @Inject constructor(
     private val parseHtmlUseCase: ParseHtmlUseCase,
-    private val recipeRepository: RecipeRepository
+    private val recipeRepository: IRecipeRepository
 ) {
     sealed class EditResult {
         data class Success(val recipe: Recipe) : EditResult()
