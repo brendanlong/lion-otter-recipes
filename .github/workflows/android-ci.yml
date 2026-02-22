@@ -174,14 +174,28 @@ jobs:
           GSEOF
           fi
 
-      - name: Setup keystore
+      - name: Setup debug keystore
         env:
           DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
         run: |
           if [ -n "$DEBUG_KEYSTORE_BASE64" ]; then
             echo "$DEBUG_KEYSTORE_BASE64" | base64 -d > ${{ runner.temp }}/debug.keystore
             echo "DEBUG_KEYSTORE_PATH=${{ runner.temp }}/debug.keystore" >> $GITHUB_ENV
-            echo "RELEASE_KEYSTORE_PATH=${{ runner.temp }}/debug.keystore" >> $GITHUB_ENV
+          fi
+
+      - name: Setup release keystore
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
+            echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > ${{ runner.temp }}/release.keystore
+            echo "RELEASE_KEYSTORE_PATH=${{ runner.temp }}/release.keystore" >> $GITHUB_ENV
+            echo "RELEASE_KEYSTORE_PASSWORD=$RELEASE_KEYSTORE_PASSWORD" >> $GITHUB_ENV
+            echo "RELEASE_KEY_ALIAS=$RELEASE_KEY_ALIAS" >> $GITHUB_ENV
+            echo "RELEASE_KEY_PASSWORD=$RELEASE_KEY_PASSWORD" >> $GITHUB_ENV
           fi
 
       - name: Build release AAB

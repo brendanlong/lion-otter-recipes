@@ -25,7 +25,7 @@ android {
             storeFile = file(System.getenv("RELEASE_KEYSTORE_PATH") ?: System.getenv("DEBUG_KEYSTORE_PATH") ?: "${System.getProperty("user.home")}/.android/debug.keystore")
             storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD") ?: "android"
             keyAlias = System.getenv("RELEASE_KEY_ALIAS") ?: "androiddebugkey"
-            keyPassword = System.getenv("RELEASE_KEY_PASSWORD") ?: "android"
+            keyPassword = System.getenv("RELEASE_KEY_PASSWORD") ?: System.getenv("RELEASE_KEYSTORE_PASSWORD") ?: "android"
         }
     }
 
