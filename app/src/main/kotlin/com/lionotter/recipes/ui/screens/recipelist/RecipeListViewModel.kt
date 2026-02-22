@@ -1,5 +1,6 @@
 package com.lionotter.recipes.ui.screens.recipelist
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lionotter.recipes.data.repository.IMealPlanRepository
@@ -31,11 +32,27 @@ class RecipeListViewModel @Inject constructor(
     private val mealPlanRepository: IMealPlanRepository,
 ) : ViewModel() {
 
+    companion object {
+        private const val TAG = "RecipeListViewModel"
+    }
+
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
     private val _selectedTag = MutableStateFlow<String?>(null)
     val selectedTag: StateFlow<String?> = _selectedTag.asStateFlow()
+
+    // Multi-select state
+    private val _selectedRecipeIds = MutableStateFlow<Set<String>>(emptySet())
+    val selectedRecipeIds: StateFlow<Set<String>> = _selectedRecipeIds.asStateFlow()
+
+    val isMultiSelectActive: StateFlow<Boolean> = _selectedRecipeIds
+        .map { it.isNotEmpty() }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = false
+        )
 
     /**
      * Available tags derived reactively from the current recipes.
@@ -151,6 +168,13 @@ class RecipeListViewModel @Inject constructor(
         return mealPlanRepository.countMealPlansByRecipeId(recipeId)
     }
 
+    /**
+     * Returns the total number of meal plan entries that reference any of the given recipes.
+     */
+    suspend fun getAffectedMealPlanCountForRecipes(recipeIds: List<String>): Int {
+        return mealPlanRepository.countMealPlansByRecipeIds(recipeIds)
+    }
+
     fun deleteRecipe(recipeId: String) {
         viewModelScope.launch {
             // Only delete if it's a saved recipe (not in-progress)
@@ -162,6 +186,40 @@ class RecipeListViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    fun deleteSelectedRecipes() {
+        val ids = _selectedRecipeIds.value.toList()
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            withContext(NonCancellable) {
+                for (id in ids) {
+                    try {
+                        mealPlanRepository.deleteMealPlansByRecipeId(id)
+                        recipeRepository.deleteRecipe(id)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error deleting recipe $id", e)
+                    }
+                }
+            }
+            _selectedRecipeIds.value = emptySet()
+        }
+    }
+
+    // Multi-select operations
+
+    fun toggleRecipeSelection(recipeId: String) {
+        _selectedRecipeIds.value = _selectedRecipeIds.value.let { current ->
+            if (recipeId in current) current - recipeId else current + recipeId
+        }
+    }
+
+    fun startSelection(recipeId: String) {
+        _selectedRecipeIds.value = setOf(recipeId)
+    }
+
+    fun clearSelection() {
+        _selectedRecipeIds.value = emptySet()
     }
 
     fun cancelImport(importId: String) {

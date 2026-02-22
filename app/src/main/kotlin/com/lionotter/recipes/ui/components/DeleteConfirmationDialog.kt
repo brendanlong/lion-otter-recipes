@@ -44,3 +44,54 @@ fun DeleteConfirmationDialog(
         }
     )
 }
+
+@Composable
+fun BulkDeleteConfirmationDialog(
+    recipeCount: Int,
+    affectedMealPlanCount: Int = 0,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val message = buildString {
+        append(
+            pluralStringResource(
+                R.plurals.delete_recipes_confirmation,
+                recipeCount,
+                recipeCount
+            )
+        )
+        if (affectedMealPlanCount > 0) {
+            append("\n\n")
+            append(
+                pluralStringResource(
+                    R.plurals.delete_recipe_meal_plan_warning,
+                    affectedMealPlanCount,
+                    affectedMealPlanCount
+                )
+            )
+        }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                pluralStringResource(
+                    R.plurals.delete_recipes,
+                    recipeCount,
+                    recipeCount
+                )
+            )
+        },
+        text = { Text(message) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(stringResource(R.string.delete))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
