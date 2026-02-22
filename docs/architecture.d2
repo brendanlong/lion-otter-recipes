@@ -78,7 +78,7 @@ app: {
       }
       edit: {
         label: EditRecipeScreen
-        tooltip: "Recipe edit screen with four sections: (1) Image section — pick from gallery or remove, saved directly without AI. (2) Title and source URL fields — edited directly, saved without AI when recipe body is unchanged. (3) AI instructions — optional text field for user instructions to the AI (e.g. 'Make this recipe vegan'), included in the AI prompt when non-empty. (4) Recipe body markdown editor — when body changes or AI instructions are provided, AI cleans up formatting and regenerates structured data (densities, etc.) with existing ingredient densities passed as hints for cheaper AI models. Includes model selection and extended thinking toggle. Also supports regeneration from original source via refresh icon (when original HTML or source URL is available). Save as Copy creates a new recipe from the edited markdown instead of updating the existing one."
+        tooltip: "Recipe edit screen with four sections: (1) Image section — pick from gallery or remove, saved directly without AI. (2) Title and source URL fields — edited directly, saved without AI when recipe body is unchanged. (3) AI instructions — optional text field for user instructions to the AI (e.g. 'Make this recipe vegan'), included in the AI prompt when non-empty. (4) Recipe body markdown editor — when body changes or AI instructions are provided, AI cleans up formatting and regenerates structured data (densities, etc.) with existing ingredient densities passed as hints for cheaper AI models. Includes model selection and extended thinking toggle. Also supports regeneration from source URL via refresh icon (when source URL is available). Save as Copy creates a new recipe from the edited markdown instead of updating the existing one."
       }
       add: AddRecipeScreen
       settings: SettingsScreen
@@ -156,7 +156,7 @@ app: {
       detail_vm: RecipeDetailViewModel
       edit_vm: {
         label: EditRecipeViewModel
-        tooltip: "Manages edit recipe screen state. Supports direct image editing (saved immediately without AI). Separates title, source URL, AI instructions, and recipe body: title/URL changes are saved directly without AI, while body changes or non-empty AI instructions trigger AI re-parsing via RecipeEditWorker. AI instructions are optional free-text (e.g. 'Make this recipe vegan') passed through the worker to the AI prompt. Defaults to the separate edit model setting (default: Sonnet) rather than the import model. Tracks model/thinking settings. Supports save as copy and regeneration from original source via RecipeRegenerateWorker. Uses ImageDownloadService to save picked images from gallery."
+        tooltip: "Manages edit recipe screen state. Supports direct image editing (saved immediately without AI). Separates title, source URL, AI instructions, and recipe body: title/URL changes are saved directly without AI, while body changes or non-empty AI instructions trigger AI re-parsing via RecipeEditWorker. AI instructions are optional free-text (e.g. 'Make this recipe vegan') passed through the worker to the AI prompt. Defaults to the separate edit model setting (default: Sonnet) rather than the import model. Tracks model/thinking settings. Supports save as copy and regeneration from source URL via RecipeRegenerateWorker. Uses ImageDownloadService to save picked images from gallery."
       }
       add_vm: AddRecipeViewModel
       settings_vm: SettingsViewModel
@@ -240,11 +240,11 @@ app: {
       }
       regenerate_worker: {
         label: RecipeRegenerateWorker
-        tooltip: "CoroutineWorker that re-parses a recipe from its stored original HTML using the AI. Supports selecting a different model and thinking mode. Overwrites the existing recipe, preserving ID, favorite status, and creation timestamp."
+        tooltip: "CoroutineWorker that re-parses a recipe by fetching fresh HTML from the source URL. Supports selecting a different model and thinking mode. Overwrites the existing recipe, preserving ID, favorite status, and creation timestamp."
       }
       edit_worker: {
         label: RecipeEditWorker
-        tooltip: "CoroutineWorker that processes user-edited recipe markdown through AI re-parsing via EditRecipeUseCase. Preserves recipe metadata (ID, favorite, image, source URL, original HTML). Supports save-as-copy mode which creates a new recipe with a fresh ID."
+        tooltip: "CoroutineWorker that processes user-edited recipe markdown through AI re-parsing via EditRecipeUseCase. Preserves recipe metadata (ID, favorite, image, source URL). Supports save-as-copy mode which creates a new recipe with a fresh ID."
       }
       paprika_import_worker: {
         label: PaprikaImportWorker
@@ -252,11 +252,11 @@ app: {
       }
       zip_export_worker: {
         label: ZipExportWorker
-        tooltip: "Exports all recipes to a ZIP file using RecipeSerializer (recipe.json + original.html + recipe.md per recipe)."
+        tooltip: "Exports all recipes to a ZIP file using RecipeSerializer (recipe.json + recipe.md per recipe)."
       }
       zip_import_worker: {
         label: ZipImportWorker
-        tooltip: "Imports recipes from a ZIP file. Reads recipe.json from each folder, skips duplicates, optionally restores original HTML."
+        tooltip: "Imports recipes from a ZIP file. Reads recipe.json from each folder, skips duplicates."
       }
       import_worker -> base_worker: extends
       regenerate_worker -> base_worker: extends
@@ -323,15 +323,15 @@ app: {
       }
       import_zip: {
         label: ImportFromZipUseCase
-        tooltip: "Imports recipes from a ZIP file. Reads recipe.json from each folder, skips duplicates by ID, optionally restores original HTML."
+        tooltip: "Imports recipes from a ZIP file. Reads recipe.json from each folder, skips duplicates by ID."
       }
       regenerate: {
         label: RegenerateRecipeUseCase
-        tooltip: "Re-parses a recipe from its stored original HTML via ParseHtmlUseCase.parseHtml(). If no cached HTML exists, fetches fresh HTML from the recipe's source URL via WebScraperService. Passes model/thinking overrides as parameters, preserves recipe ID, favorite status, and creation timestamp."
+        tooltip: "Re-parses a recipe by fetching fresh HTML from the recipe's source URL via WebScraperService and parsing via ParseHtmlUseCase.parseHtml(). Requires the recipe to have a source URL. Passes model/thinking overrides as parameters, preserves recipe ID, favorite status, and creation timestamp."
       }
       edit_recipe: {
         label: EditRecipeUseCase
-        tooltip: "Edits a recipe by sending user-modified markdown text through ParseHtmlUseCase.parseText() for AI re-parsing. Supports optional AI instructions (e.g. 'Make this recipe vegan') appended to the user message. Collects existing ingredient densities and passes them as hints to the AI, enabling cheaper models (like Haiku) to reuse known values. Preserves recipe ID, createdAt, favorite status, image, source URL, and original HTML (for future regeneration). Supports saveAsCopy mode which generates a new UUID and fresh timestamps for the copied recipe."
+        tooltip: "Edits a recipe by sending user-modified markdown text through ParseHtmlUseCase.parseText() for AI re-parsing. Supports optional AI instructions (e.g. 'Make this recipe vegan') appended to the user message. Collects existing ingredient densities and passes them as hints to the AI, enabling cheaper models (like Haiku) to reuse known values. Preserves recipe ID, createdAt, favorite status, image, and source URL. Supports saveAsCopy mode which generates a new UUID and fresh timestamps for the copied recipe."
       }
       aggregate_grocery: {
         label: AggregateGroceryListUseCase
@@ -359,7 +359,7 @@ app: {
       }
       serializer: {
         label: RecipeSerializer
-        tooltip: "Shared logic for serializing/deserializing recipes in the standard folder export format (recipe.json + original.html + recipe.md + image.*). Used by ZIP export/import."
+        tooltip: "Shared logic for serializing/deserializing recipes in the standard folder export format (recipe.json + recipe.md + image.*). Used by ZIP export/import."
       }
       zip_import_helper: {
         label: ZipImportHelper
@@ -460,7 +460,7 @@ app: {
 
       repo: {
         label: RecipeRepository
-        tooltip: "CRUD operations for recipes via Firestore. Uses snapshot listeners (callbackFlow) for reactive reads. Fire-and-forget writes. Original HTML stored in subcollection."
+        tooltip: "CRUD operations for recipes via Firestore. Uses snapshot listeners (callbackFlow) for reactive reads. Fire-and-forget writes."
       }
       import_debug_repo: {
         label: ImportDebugRepository
@@ -555,7 +555,7 @@ app: {
       }
       firestore_svc: {
         label: FirestoreService
-        tooltip: "Singleton managing Firestore instance with unlimited persistent cache and auto index creation. Provides user-scoped collection references (recipes, mealPlans, content subcollection). Reports errors via SharedFlow for Toast display. Handles sign-out (terminate, clear persistence)."
+        tooltip: "Singleton managing Firestore instance with unlimited persistent cache and auto index creation. Provides user-scoped collection references (recipes, mealPlans). Reports errors via SharedFlow for Toast display. Handles sign-out (terminate, clear persistence)."
       }
       auth_svc: {
         label: AuthService
@@ -650,7 +650,7 @@ app: {
   ui.viewmodels.detail_vm -> domain.usecases.calc_usage: ingredient usage
   ui.viewmodels.detail_vm -> domain.usecases.export_single: export .lorecipes
   ui.viewmodels.detail_vm -> data.local.settings: keep screen on, unit prefs
-  ui.viewmodels.edit_vm -> data.repository.repo: recipe, original HTML, image
+  ui.viewmodels.edit_vm -> data.repository.repo: recipe, image
   ui.viewmodels.edit_vm -> data.local.settings: edit model, thinking prefs
   ui.viewmodels.edit_vm -> data.remote.image_dl: save picked images
   ui.viewmodels.edit_vm -> data.remote.image_sync: delete remote images

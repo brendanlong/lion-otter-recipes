@@ -79,8 +79,18 @@ fun MealPlanScreen(
     val weekStart by viewModel.currentWeekStart.collectAsStateWithLifecycle()
     val weekMealPlans by viewModel.weekMealPlans.collectAsStateWithLifecycle()
     val showAddDialog by viewModel.showAddDialog.collectAsStateWithLifecycle()
+    val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
 
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
+
+    // Show error in snackbar
+    androidx.compose.runtime.LaunchedEffect(errorMessage) {
+        errorMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearError()
+        }
+    }
 
     // Add meal plan dialog
     if (showAddDialog) {
@@ -91,6 +101,7 @@ fun MealPlanScreen(
     }
 
     Scaffold(
+        snackbarHost = { androidx.compose.material3.SnackbarHost(snackbarHostState) },
         topBar = {
             RecipeTopAppBar(
                 title = stringResource(R.string.meal_planner),

@@ -30,8 +30,6 @@ class RecipeRepository @Inject constructor(
 ) : IRecipeRepository {
     companion object {
         private const val TAG = "RecipeRepository"
-        private const val HTML_DOC_ID = "htmlDoc"
-        private const val HTML_FIELD = "originalHtml"
     }
 
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -90,33 +88,13 @@ class RecipeRepository @Inject constructor(
         }
     }
 
-    override suspend fun getOriginalHtml(recipeId: String): String? {
-        return try {
-            val snapshot = firestoreService.recipeContentCollection(recipeId)
-                .document(HTML_DOC_ID).get().await()
-            snapshot.getString(HTML_FIELD)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error fetching original HTML for $recipeId", e)
-            null
-        }
-    }
-
-    override fun saveRecipe(recipe: Recipe, originalHtml: String?) {
+    override fun saveRecipe(recipe: Recipe) {
         val dto = recipe.toDto()
         firestoreService.recipesCollection().document(recipe.id).set(dto)
             .addOnFailureListener { e ->
                 Log.e(TAG, "Error saving recipe ${recipe.id}", e)
                 firestoreService.reportError("Failed to save recipe: ${e.message}")
             }
-
-        if (originalHtml != null) {
-            firestoreService.recipeContentCollection(recipe.id)
-                .document(HTML_DOC_ID)
-                .set(mapOf(HTML_FIELD to originalHtml))
-                .addOnFailureListener { e ->
-                    Log.e(TAG, "Error saving original HTML for ${recipe.id}", e)
-                }
-        }
     }
 
     override fun deleteRecipe(id: String) {
@@ -141,13 +119,6 @@ class RecipeRepository @Inject constructor(
     }
 
     private fun deleteRecipeDocuments(id: String) {
-        firestoreService.recipeContentCollection(id)
-            .document(HTML_DOC_ID)
-            .delete()
-            .addOnFailureListener { e ->
-                Log.e(TAG, "Error deleting content for recipe $id", e)
-            }
-
         firestoreService.recipesCollection().document(id).delete()
             .addOnFailureListener { e ->
                 Log.e(TAG, "Error deleting recipe $id", e)
@@ -205,6 +176,16 @@ class RecipeRepository @Inject constructor(
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching recipe IDs and names", e)
             emptyList()
+        }
+    }
+
+    override suspend fun getRecipeCount(): Int {
+        return try {
+            val snapshot = firestoreService.recipesCollection().get().await()
+            snapshot.size()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching recipe count", e)
+            0
         }
     }
 }

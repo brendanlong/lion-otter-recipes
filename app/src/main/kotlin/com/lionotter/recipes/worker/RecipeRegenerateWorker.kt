@@ -35,7 +35,7 @@ class RecipeRegenerateWorker @AssistedInject constructor(
         const val RESULT_SUCCESS = "success"
         const val RESULT_ERROR = "error"
         const val RESULT_NO_API_KEY = "no_api_key"
-        const val RESULT_NO_ORIGINAL_HTML = "no_original_html"
+        const val RESULT_NO_SOURCE_URL = "no_source_url"
 
         const val PROGRESS_FETCHING = "fetching"
         const val PROGRESS_PARSING = "parsing"
@@ -141,12 +141,12 @@ class RecipeRegenerateWorker @AssistedInject constructor(
                 errorMessage = "API key not configured",
                 KEY_RECIPE_ID to recipeId
             )
-            RegenerateRecipeUseCase.RegenerateResult.NoOriginalHtml -> errorResult(
+            RegenerateRecipeUseCase.RegenerateResult.NoSourceUrl -> errorResult(
                 errorNotificationTitle = "Regeneration Failed",
                 resultTypeKey = KEY_RESULT_TYPE,
                 errorMessageKey = KEY_ERROR_MESSAGE,
-                errorType = RESULT_NO_ORIGINAL_HTML,
-                errorMessage = "Original HTML not available for this recipe",
+                errorType = RESULT_NO_SOURCE_URL,
+                errorMessage = "No source URL available for this recipe",
                 KEY_RECIPE_ID to recipeId
             )
         }

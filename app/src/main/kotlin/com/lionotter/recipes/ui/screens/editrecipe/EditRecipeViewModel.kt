@@ -22,7 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.NonCancellable
@@ -93,23 +93,17 @@ class EditRecipeViewModel @Inject constructor(
     private val _thinkingEnabled = MutableStateFlow(SettingsDataStore.DEFAULT_THINKING_ENABLED)
     val thinkingEnabled: StateFlow<Boolean> = _thinkingEnabled.asStateFlow()
 
-    private val _hasOriginalHtml = MutableStateFlow(false)
-    val hasOriginalHtml: StateFlow<Boolean> = _hasOriginalHtml.asStateFlow()
-
     /**
      * Whether regeneration from original source is available.
-     * True if the recipe has cached original HTML or a source URL to re-fetch from.
+     * True if the recipe has a source URL to re-fetch from.
      */
-    val canRegenerate: StateFlow<Boolean> = combine(
-        _hasOriginalHtml,
-        recipe
-    ) { hasHtml, recipe ->
-        hasHtml || !recipe?.sourceUrl.isNullOrBlank()
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.Eagerly,
-        initialValue = false
-    )
+    val canRegenerate: StateFlow<Boolean> = recipe
+        .map { recipe -> !recipe?.sourceUrl.isNullOrBlank() }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = false
+        )
 
     private var currentEditWorkId: UUID? = null
     private var currentRegenerateWorkId: UUID? = null
@@ -333,10 +327,6 @@ class EditRecipeViewModel @Inject constructor(
             // Load settings defaults
             _model.value = settingsDataStore.editModel.first()
             _thinkingEnabled.value = settingsDataStore.thinkingEnabled.first()
-
-            // Check for original HTML
-            val html = recipeRepository.getOriginalHtml(recipeId)
-            _hasOriginalHtml.value = !html.isNullOrBlank()
 
             // Load recipe and populate fields (only if user hasn't started editing)
             val currentRecipe = recipe.first { it != null } ?: return@launch

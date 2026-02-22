@@ -101,13 +101,23 @@ Cloud sync is optional — the app works fully offline without it. To enable syn
    - Verify that the `oauth_client` array is **not empty** — it should contain an entry with `"client_type": 3` (web client). This is required for Google Sign-In.
 5. Enable **Cloud Firestore**:
    - Go to **Firestore Database** and create a database
-   - Set the security rules to restrict access per user:
+   - Set the security rules to restrict access per user with per-document size limits:
      ```
      rules_version = '2';
      service cloud.firestore {
        match /databases/{database}/documents {
-         match /users/{userId}/{document=**} {
-           allow read, write: if request.auth != null && request.auth.uid == userId;
+         match /users/{userId}/recipes/{recipeId} {
+           allow read: if request.auth != null && request.auth.uid == userId;
+           allow write: if request.auth != null
+             && request.auth.uid == userId
+             && request.resource.data.keys().size() > 0
+             && request.resource.size < 50 * 1024;  // 50 KB per recipe
+         }
+         match /users/{userId}/mealPlans/{mealPlanId} {
+           allow read: if request.auth != null && request.auth.uid == userId;
+           allow write: if request.auth != null
+             && request.auth.uid == userId
+             && request.resource.size < 10 * 1024;  // 10 KB per meal plan
          }
        }
      }
@@ -126,13 +136,26 @@ Cloud sync is optional — the app works fully offline without it. To enable syn
            allow write: if request.auth != null
              && request.auth.uid == userId
              && request.resource.contentType.matches('image/.*')
-             && request.resource.size < 5 * 1024 * 1024;
+             && request.resource.size < 5 * 1024 * 1024;  // 5 MB per image
          }
        }
      }
      ```
 
 Data is stored at `users/{userId}/recipes/{recipeId}` and `users/{userId}/mealPlans/{mealPlanId}`, so each user's data is fully isolated. Recipe images are stored in Firebase Storage at `users/{userId}/images/{filename}`.
+
+**Per-user resource limits** are enforced both server-side (via Firebase security rules above) and client-side:
+
+| Resource | Limit | Enforced by |
+|----------|-------|-------------|
+| Recipe document size | 50 KB | Firestore rules + client |
+| Meal plan document size | 10 KB | Firestore rules + client |
+| Image file size | 5 MB | Storage rules + client |
+| Total recipes per user | 1,000 | Client |
+| Total meal plans per user | 5,000 | Client |
+| Total images per user | 1,000 | Client |
+
+Client-side limits are defined in `ResourceLimits.kt`. Exceeding a limit shows an error message in the UI.
 
 ## App Setup
 

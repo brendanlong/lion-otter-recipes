@@ -19,7 +19,6 @@ import javax.inject.Inject
  * Use case for exporting recipes to a ZIP file.
  * Uses a standard folder structure:
  * - recipe-name/recipe.json
- * - recipe-name/original.html (if available)
  * - recipe-name/recipe.md
  * - recipe-name/image.* (recipe image, if available)
  */
@@ -80,21 +79,13 @@ class ExportToZipUseCase @Inject constructor(
                     )
 
                     try {
-                        val originalHtml = recipeRepository.getOriginalHtml(recipe.id)
-                        val files = recipeSerializer.serializeRecipe(recipe, originalHtml)
+                        val files = recipeSerializer.serializeRecipe(recipe)
                         val prefix = files.folderName
 
                         // Write recipe.json
                         zipOut.putNextEntry(ZipEntry("$prefix/${RecipeSerializer.RECIPE_JSON_FILENAME}"))
                         zipOut.write(files.recipeJson.toByteArray(Charsets.UTF_8))
                         zipOut.closeEntry()
-
-                        // Write original.html (if available)
-                        if (files.originalHtml != null) {
-                            zipOut.putNextEntry(ZipEntry("$prefix/${RecipeSerializer.RECIPE_HTML_FILENAME}"))
-                            zipOut.write(files.originalHtml.toByteArray(Charsets.UTF_8))
-                            zipOut.closeEntry()
-                        }
 
                         // Write recipe.md
                         zipOut.putNextEntry(ZipEntry("$prefix/${RecipeSerializer.RECIPE_MARKDOWN_FILENAME}"))

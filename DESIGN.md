@@ -40,7 +40,6 @@ data class RecipeEntity(
     val ingredientSectionsJson: String,  // Serialized List<IngredientSection>
     val instructionSectionsJson: String, // Serialized List<InstructionSection>
     val tagsJson: String,                // Serialized List<String>
-    val originalHtml: String?,           // Preserved for re-parsing
     // ... other fields
 )
 ```
@@ -49,7 +48,6 @@ data class RecipeEntity(
 1. Recipe structure is always loaded as a unit
 2. Avoids complex JOIN queries
 3. Simplifies schema migrations
-4. Original HTML preserved for potential AI re-processing
 
 #### DataStore (`SettingsDataStore`)
 
@@ -105,7 +103,7 @@ class RecipeRepository(
 ) {
     fun getAllRecipes(): Flow<List<Recipe>>
     fun getRecipeById(id: String): Flow<Recipe?>
-    suspend fun saveRecipe(recipe: Recipe, originalHtml: String?)
+    fun saveRecipe(recipe: Recipe)
     suspend fun deleteRecipe(id: String)
 }
 ```

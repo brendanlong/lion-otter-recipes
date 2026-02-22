@@ -9,7 +9,6 @@ import javax.inject.Inject
  * Shared logic for serializing and deserializing recipes in the standard
  * folder export format. Each recipe is represented as a folder containing:
  * - recipe.json: The structured recipe data
- * - original.html: The original HTML page (if available)
  * - recipe.md: A human-readable Markdown version
  * - image.* (jpg/png/webp/gif): The recipe image (if available)
  *
@@ -20,7 +19,6 @@ class RecipeSerializer @Inject constructor(
 ) {
     companion object {
         const val RECIPE_JSON_FILENAME = "recipe.json"
-        const val RECIPE_HTML_FILENAME = "original.html"
         const val RECIPE_MARKDOWN_FILENAME = "recipe.md"
         const val IMAGE_FILENAME_PREFIX = "image"
         val IMAGE_EXTENSIONS = setOf(".jpg", ".jpeg", ".png", ".webp", ".gif")
@@ -32,18 +30,16 @@ class RecipeSerializer @Inject constructor(
     data class RecipeFiles(
         val folderName: String,
         val recipeJson: String,
-        val originalHtml: String?,
         val recipeMarkdown: String
     )
 
     /**
      * Serialize a recipe into the standard export files.
      */
-    fun serializeRecipe(recipe: Recipe, originalHtml: String?): RecipeFiles {
+    fun serializeRecipe(recipe: Recipe): RecipeFiles {
         return RecipeFiles(
             folderName = sanitizeFolderName(recipe.name),
             recipeJson = json.encodeToString(recipe),
-            originalHtml = originalHtml,
             recipeMarkdown = RecipeMarkdownFormatter.format(recipe)
         )
     }

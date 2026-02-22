@@ -239,31 +239,6 @@ class RecipeCrudIntegrationTest : FirestoreIntegrationTest() {
     }
 
     // -----------------------------------------------------------------------
-    // Original HTML
-    // -----------------------------------------------------------------------
-
-    @Test
-    fun `save recipe with original HTML and retrieve it`() {
-        val recipe = createTestRecipe()
-        val html = "<html><body><h1>Cookies</h1></body></html>"
-        recipeRepository.saveRecipe(recipe, originalHtml = html)
-        pumpLooper()
-
-        val retrieved = runSuspending { recipeRepository.getOriginalHtml(recipe.id) }
-        assertEquals(html, retrieved)
-    }
-
-    @Test
-    fun `recipe without original HTML returns null`() {
-        val recipe = createTestRecipe()
-        recipeRepository.saveRecipe(recipe)
-        pumpLooper()
-
-        val retrieved = runSuspending { recipeRepository.getOriginalHtml(recipe.id) }
-        assertNull(retrieved)
-    }
-
-    // -----------------------------------------------------------------------
     // IDs and names
     // -----------------------------------------------------------------------
 

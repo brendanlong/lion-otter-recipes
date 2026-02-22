@@ -8,12 +8,12 @@ interface IRecipeRepository {
     fun getAllRecipes(): Flow<List<Recipe>>
     fun getRecipeById(id: String): Flow<Recipe?>
     suspend fun getRecipeByIdOnce(id: String): Recipe?
-    suspend fun getOriginalHtml(recipeId: String): String?
-    fun saveRecipe(recipe: Recipe, originalHtml: String? = null)
+    fun saveRecipe(recipe: Recipe)
     fun deleteRecipe(id: String)
     fun setFavorite(id: String, isFavorite: Boolean)
     fun setUserNotes(id: String, userNotes: String?)
     fun setImageUrl(id: String, imageUrl: String?)
     fun updateTitleAndUrl(id: String, name: String, sourceUrl: String?)
     suspend fun getAllRecipeIdsAndNames(): List<RecipeIdAndName>
+    suspend fun getRecipeCount(): Int
 }

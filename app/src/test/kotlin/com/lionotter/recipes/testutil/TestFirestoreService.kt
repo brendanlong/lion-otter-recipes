@@ -23,9 +23,4 @@ class TestFirestoreService : FirestoreService() {
     override fun mealPlansCollection(): CollectionReference {
         return Firebase.firestore.collection("users").document(TEST_USER_ID).collection("mealPlans")
     }
-
-    override fun recipeContentCollection(recipeId: String): CollectionReference {
-        return Firebase.firestore.collection("users").document(TEST_USER_ID)
-            .collection("recipes").document(recipeId).collection("content")
-    }
 }

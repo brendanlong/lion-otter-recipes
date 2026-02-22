@@ -2,9 +2,11 @@ package com.lionotter.recipes.ui.screens.mealplan
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.util.Log
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.repository.IMealPlanRepository
 import com.lionotter.recipes.data.repository.IRecipeRepository
+import com.lionotter.recipes.domain.ResourceLimits
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.model.MealType
 import com.lionotter.recipes.domain.model.Recipe
@@ -90,6 +92,13 @@ class MealPlanViewModel @Inject constructor(
 
     private val _selectedTagFilter = MutableStateFlow<String?>(null)
     val selectedTagFilter: StateFlow<String?> = _selectedTagFilter.asStateFlow()
+
+    private val _errorMessage = MutableStateFlow<String?>(null)
+    val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
+    fun clearError() {
+        _errorMessage.value = null
+    }
 
     val availableTags: StateFlow<List<String>> = recipeRepository.getAllRecipes()
         .map { recipes -> getTagsUseCase.execute(recipes) }
@@ -203,8 +212,8 @@ class MealPlanViewModel @Inject constructor(
         viewModelScope.launch {
             val now = Clock.System.now()
             val existing = _editingEntry.value
-            withContext(NonCancellable) {
-                if (existing != null) {
+            if (existing != null) {
+                withContext(NonCancellable) {
                     val updated = existing.copy(
                         recipeId = recipe.id,
                         recipeName = recipe.name,
@@ -215,7 +224,16 @@ class MealPlanViewModel @Inject constructor(
                         updatedAt = now
                     )
                     mealPlanRepository.updateMealPlan(updated)
-                } else {
+                }
+            } else {
+                // Check meal plan count limit before creating
+                val count = mealPlanRepository.getMealPlanCount()
+                if (count >= ResourceLimits.MAX_MEAL_PLANS) {
+                    Log.w("MealPlanViewModel", "Meal plan limit reached ($count/${ResourceLimits.MAX_MEAL_PLANS})")
+                    _errorMessage.value = "Meal plan limit reached ($count/${ResourceLimits.MAX_MEAL_PLANS}). Delete some meal plans before adding new ones."
+                    return@launch
+                }
+                withContext(NonCancellable) {
                     val entry = MealPlanEntry(
                         id = UUID.randomUUID().toString(),
                         recipeId = recipe.id,

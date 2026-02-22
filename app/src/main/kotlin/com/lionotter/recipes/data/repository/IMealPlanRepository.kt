@@ -12,4 +12,5 @@ interface IMealPlanRepository {
     suspend fun deleteMealPlansByRecipeId(recipeId: String)
     suspend fun countMealPlansByRecipeId(recipeId: String): Int
     suspend fun getAllMealPlansOnce(): List<MealPlanEntry>
+    suspend fun getMealPlanCount(): Int
 }

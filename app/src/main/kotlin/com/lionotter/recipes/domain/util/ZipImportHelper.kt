@@ -4,6 +4,7 @@ import android.util.Log
 import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.repository.IMealPlanRepository
 import com.lionotter.recipes.data.repository.IRecipeRepository
+import com.lionotter.recipes.domain.ResourceLimits
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import kotlin.time.Clock
 import kotlinx.serialization.json.Json
@@ -39,6 +40,7 @@ class ZipImportHelper @Inject constructor(
         data class Imported(val recipeId: String) : SingleRecipeResult()
         data class Skipped(val recipeId: String) : SingleRecipeResult()
         object NoJson : SingleRecipeResult()
+        object LimitReached : SingleRecipeResult()
         data class Failed(val error: Exception) : SingleRecipeResult()
     }
 
@@ -121,6 +123,13 @@ class ZipImportHelper @Inject constructor(
                 return SingleRecipeResult.Skipped(recipe.id)
             }
 
+            // Check recipe count limit
+            val count = recipeRepository.getRecipeCount()
+            if (count >= ResourceLimits.MAX_RECIPES) {
+                Log.w(TAG, "Recipe limit reached ($count/${ResourceLimits.MAX_RECIPES})")
+                return SingleRecipeResult.LimitReached
+            }
+
             // Try to use bundled image from the ZIP first, then fall back to download
             val localImageUrl = importImageFromZipOrDownload(imageFiles, recipe.imageUrl, recipe.sourceImageUrl)
             // Upload to Firebase Storage for cross-device sync
@@ -130,8 +139,7 @@ class ZipImportHelper @Inject constructor(
                 updatedAt = Clock.System.now(),
                 imageUrl = storedImageUrl
             )
-            val originalHtml = files[RecipeSerializer.RECIPE_HTML_FILENAME]
-            recipeRepository.saveRecipe(importedRecipe, originalHtml)
+            recipeRepository.saveRecipe(importedRecipe)
             SingleRecipeResult.Imported(recipe.id)
         } catch (e: Exception) {
             SingleRecipeResult.Failed(e)
