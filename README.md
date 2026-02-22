@@ -39,9 +39,6 @@ cd lion-otter-recipes
 # Build debug APK
 ./gradlew assembleDebug
 
-# Build release APK
-./gradlew assembleRelease
-
 # Run tests
 ./gradlew testDebugUnitTest
 
@@ -49,9 +46,20 @@ cd lion-otter-recipes
 ./gradlew lintDebug
 ```
 
-The APKs will be in:
-- Debug: `app/build/outputs/apk/debug/app-debug.apk`
-- Release: `app/build/outputs/apk/release/app-release-unsigned.apk`
+The debug APK will be at `app/build/outputs/apk/debug/app-debug.apk`.
+
+### Release Builds
+
+Release builds use the same debug keystore as an upload key for Google Play App Signing. Google re-signs the final app with their own managed key before distributing to users, so the upload key credentials don't need to be secret — they just need to be consistent.
+
+```bash
+# Build a release AAB locally
+./gradlew bundleRelease
+```
+
+The AAB will be at `app/build/outputs/bundle/release/app-release.aab`.
+
+CI automatically builds a signed release AAB on pushes to `main` (after lint, tests, and debug build pass). If you have `DEBUG_KEYSTORE_BASE64` set as a GitHub secret, CI will use it for both debug and release builds. Otherwise it falls back to the default Android debug keystore.
 
 ### Build from Android Studio
 
