@@ -1,6 +1,7 @@
 - Never silently discard exceptions. Always log exceptions with `Log.w`/`Log.e` at minimum.
   In user-facing operations, propagate errors so the UI can inform the user the action failed.
   It is better to tell the user something went wrong than to silently pretend everything is fine.
+- Wrap all mutation coroutines (writes, deletes, uploads, etc.) in `withContext(NonCancellable)` so they finish even if `viewModelScope` is cancelled. Keep UI state updates outside the `NonCancellable` block.
 - Commit after finishing fixes or features
 - Prefer to amend if fixing the current commit
 - ALWAYS check the current commit before amending

@@ -19,7 +19,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.time.Clock
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.DayOfWeek
@@ -201,30 +203,32 @@ class MealPlanViewModel @Inject constructor(
         viewModelScope.launch {
             val now = Clock.System.now()
             val existing = _editingEntry.value
-            if (existing != null) {
-                val updated = existing.copy(
-                    recipeId = recipe.id,
-                    recipeName = recipe.name,
-                    recipeImageUrl = recipe.imageUrl,
-                    date = _selectedDate.value,
-                    mealType = _selectedMealType.value,
-                    servings = _selectedServings.value,
-                    updatedAt = now
-                )
-                mealPlanRepository.updateMealPlan(updated)
-            } else {
-                val entry = MealPlanEntry(
-                    id = UUID.randomUUID().toString(),
-                    recipeId = recipe.id,
-                    recipeName = recipe.name,
-                    recipeImageUrl = recipe.imageUrl,
-                    date = _selectedDate.value,
-                    mealType = _selectedMealType.value,
-                    servings = _selectedServings.value,
-                    createdAt = now,
-                    updatedAt = now
-                )
-                mealPlanRepository.saveMealPlan(entry)
+            withContext(NonCancellable) {
+                if (existing != null) {
+                    val updated = existing.copy(
+                        recipeId = recipe.id,
+                        recipeName = recipe.name,
+                        recipeImageUrl = recipe.imageUrl,
+                        date = _selectedDate.value,
+                        mealType = _selectedMealType.value,
+                        servings = _selectedServings.value,
+                        updatedAt = now
+                    )
+                    mealPlanRepository.updateMealPlan(updated)
+                } else {
+                    val entry = MealPlanEntry(
+                        id = UUID.randomUUID().toString(),
+                        recipeId = recipe.id,
+                        recipeName = recipe.name,
+                        recipeImageUrl = recipe.imageUrl,
+                        date = _selectedDate.value,
+                        mealType = _selectedMealType.value,
+                        servings = _selectedServings.value,
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                    mealPlanRepository.saveMealPlan(entry)
+                }
             }
             _showAddDialog.value = false
             _editingEntry.value = null
@@ -244,7 +248,9 @@ class MealPlanViewModel @Inject constructor(
                 servings = _selectedServings.value,
                 updatedAt = now
             )
-            mealPlanRepository.updateMealPlan(updated)
+            withContext(NonCancellable) {
+                mealPlanRepository.updateMealPlan(updated)
+            }
             _showAddDialog.value = false
             _editingEntry.value = null
         }
@@ -252,7 +258,9 @@ class MealPlanViewModel @Inject constructor(
 
     fun deleteMealPlan(entryId: String) {
         viewModelScope.launch {
-            mealPlanRepository.deleteMealPlan(entryId)
+            withContext(NonCancellable) {
+                mealPlanRepository.deleteMealPlan(entryId)
+            }
         }
     }
 

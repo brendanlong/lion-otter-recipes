@@ -161,10 +161,15 @@ class EditRecipeViewModel @Inject constructor(
                     // Show local image immediately for responsiveness
                     _imageUrl.value = localUri
                     imageChanged = true
-                    // Upload to Firebase Storage, cleaning up the old image
-                    val storedUrl = imageDownloadService.storeImage(localUri, previousImageUrl)
+                    // Upload to Firebase Storage, cleaning up the old image.
+                    // Use NonCancellable so the upload and DB write complete
+                    // even if the user navigates away.
+                    val storedUrl = withContext(NonCancellable) {
+                        val url = imageDownloadService.storeImage(localUri, previousImageUrl)
+                        recipeRepository.setImageUrl(recipeId, url)
+                        url
+                    }
                     _imageUrl.value = storedUrl
-                    recipeRepository.setImageUrl(recipeId, storedUrl)
                 } else {
                     Log.w(TAG, "Failed to save selected image")
                     _editState.value = EditUiState.Error("Failed to save selected image")
@@ -186,9 +191,11 @@ class EditRecipeViewModel @Inject constructor(
                 val currentImageUrl = _imageUrl.value
                 _imageUrl.value = null
                 imageChanged = true
-                recipeRepository.setImageUrl(recipeId, null)
-                if (currentImageUrl != null) {
-                    imageDownloadService.cleanupImage(currentImageUrl)
+                withContext(NonCancellable) {
+                    recipeRepository.setImageUrl(recipeId, null)
+                    if (currentImageUrl != null) {
+                        imageDownloadService.cleanupImage(currentImageUrl)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to remove image", e)
