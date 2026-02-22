@@ -137,6 +137,7 @@ Cloud sync is optional — the app works fully offline without it. To enable syn
              && request.auth.uid == userId
              && request.resource.contentType.matches('image/.*')
              && request.resource.size < 5 * 1024 * 1024;  // 5 MB per image
+           allow delete: if request.auth != null && request.auth.uid == userId;
          }
        }
      }
