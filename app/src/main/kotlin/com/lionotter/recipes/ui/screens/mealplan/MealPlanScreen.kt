@@ -82,32 +82,6 @@ fun MealPlanScreen(
 
     val scope = rememberCoroutineScope()
 
-    // State for delete confirmation
-    var entryToDelete by remember { mutableStateOf<MealPlanEntry?>(null) }
-    var deleteSwipeState by remember { mutableStateOf<SwipeActionBoxState?>(null) }
-
-    // Delete confirmation dialog
-    entryToDelete?.let { entry ->
-        MealPlanDeleteDialog(
-            recipeName = entry.recipeName,
-            onConfirm = {
-                val swipe = deleteSwipeState
-                entryToDelete = null
-                deleteSwipeState = null
-                scope.launch {
-                    swipe?.confirm()
-                    viewModel.deleteMealPlan(entry.id)
-                }
-            },
-            onDismiss = {
-                val swipe = deleteSwipeState
-                entryToDelete = null
-                deleteSwipeState = null
-                scope.launch { swipe?.reset() }
-            }
-        )
-    }
-
     // Add meal plan dialog
     if (showAddDialog) {
         AddMealPlanDialog(
@@ -187,8 +161,8 @@ fun MealPlanScreen(
                                     scope.launch { swipeState.reset() }
                                 },
                                 onDeleteRequest = {
-                                    entryToDelete = entry
-                                    deleteSwipeState = swipeState
+                                    viewModel.deleteMealPlan(entry.id)
+                                    scope.launch { swipeState.confirm() }
                                 },
                                 swipeState = swipeState
                             )
@@ -428,29 +402,6 @@ private fun MealPlanCard(
             )
         }
     }
-}
-
-@Composable
-private fun MealPlanDeleteDialog(
-    recipeName: String,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.delete_meal_plan)) },
-        text = { Text(stringResource(R.string.delete_meal_plan_confirmation, recipeName)) },
-        confirmButton = {
-            androidx.compose.material3.TextButton(onClick = onConfirm) {
-                Text(stringResource(R.string.remove))
-            }
-        },
-        dismissButton = {
-            androidx.compose.material3.TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.cancel))
-            }
-        }
-    )
 }
 
 private fun formatServings(servings: Double): String {
