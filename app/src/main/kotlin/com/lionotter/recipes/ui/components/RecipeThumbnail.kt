@@ -15,6 +15,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil3.compose.SubcomposeAsyncImage
+import com.lionotter.recipes.data.remote.imageModel
 
 /**
  * A recipe thumbnail that always reserves space for consistent layout alignment.
@@ -45,7 +46,7 @@ fun RecipeThumbnail(
 
     if (imageUrl != null) {
         SubcomposeAsyncImage(
-            model = imageUrl,
+            model = imageModel(imageUrl),
             contentDescription = contentDescription,
             modifier = modifier
                 .size(size.dp)

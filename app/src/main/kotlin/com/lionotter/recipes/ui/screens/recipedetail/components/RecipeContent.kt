@@ -44,6 +44,7 @@ import androidx.core.net.toUri
 import coil3.compose.SubcomposeAsyncImage
 import coil3.compose.SubcomposeAsyncImageContent
 import com.lionotter.recipes.R
+import com.lionotter.recipes.data.remote.imageModel
 import com.lionotter.recipes.domain.model.IngredientUsageStatus
 import com.lionotter.recipes.ui.TestTags
 import com.lionotter.recipes.domain.model.InstructionIngredientKey
@@ -85,7 +86,7 @@ fun RecipeContent(
             var showImage by remember(imageUrl) { mutableStateOf(true) }
             if (showImage) {
                 SubcomposeAsyncImage(
-                    model = imageUrl,
+                    model = imageModel(imageUrl),
                     contentDescription = recipe.name,
                     modifier = Modifier
                         .fillMaxWidth()

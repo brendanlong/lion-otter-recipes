@@ -3,6 +3,7 @@ package com.lionotter.recipes.data.repository
 import android.util.Log
 import com.lionotter.recipes.data.local.RecipeIdAndName
 import com.lionotter.recipes.data.remote.FirestoreService
+import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.remote.dto.RecipeDto
 import com.lionotter.recipes.data.remote.dto.toDto
 import com.lionotter.recipes.domain.model.Recipe
@@ -10,6 +11,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.callbackFlow
@@ -23,7 +25,8 @@ import javax.inject.Singleton
 
 @Singleton
 class RecipeRepository @Inject constructor(
-    private val firestoreService: FirestoreService
+    private val firestoreService: FirestoreService,
+    private val imageDownloadService: ImageDownloadService
 ) : IRecipeRepository {
     companion object {
         private const val TAG = "RecipeRepository"
@@ -117,7 +120,27 @@ class RecipeRepository @Inject constructor(
     }
 
     override fun deleteRecipe(id: String) {
-        // Delete subcollection content doc first
+        // Read the recipe's image URL first, then delete everything.
+        // Deletion happens inside the listener to avoid a race where the
+        // document is deleted before we read the image URL.
+        firestoreService.recipesCollection().document(id).get()
+            .addOnSuccessListener { snapshot ->
+                val imageUrl = snapshot.getString("imageUrl")
+                if (imageUrl != null) {
+                    repositoryScope.launch {
+                        imageDownloadService.cleanupImage(imageUrl)
+                    }
+                }
+                deleteRecipeDocuments(id)
+            }
+            .addOnFailureListener { e ->
+                Log.w(TAG, "Could not read recipe image before delete: $id", e)
+                // Still delete the recipe even if we couldn't read the image URL
+                deleteRecipeDocuments(id)
+            }
+    }
+
+    private fun deleteRecipeDocuments(id: String) {
         firestoreService.recipeContentCollection(id)
             .document(HTML_DOC_ID)
             .delete()

@@ -65,6 +65,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.SubcomposeAsyncImage
 import coil3.compose.SubcomposeAsyncImageContent
 import com.lionotter.recipes.R
+import com.lionotter.recipes.data.remote.imageModel
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.screens.settings.components.SingleModelSelectionSection
 
@@ -479,7 +480,7 @@ private fun ImageEditSection(
             var showImage by remember(imageUrl) { mutableStateOf(true) }
             if (showImage) {
                 SubcomposeAsyncImage(
-                    model = imageUrl,
+                    model = imageModel(imageUrl),
                     contentDescription = stringResource(R.string.recipe_image),
                     modifier = Modifier
                         .fillMaxWidth()

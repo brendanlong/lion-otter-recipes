@@ -20,12 +20,19 @@ import javax.inject.Singleton
 
 /**
  * Downloads recipe images and stores them locally in the app's internal storage.
- * Returns a file:// URI that can be stored in the recipe's imageUrl field.
+ * After saving locally, uploads images to Firebase Storage so they sync across devices.
+ * Returns a `gs://` URI that can be stored in the recipe's `imageUrl` field.
+ *
+ * All image processing flows should converge through [storeImage], which handles:
+ * 1. Upload to Firebase Storage (with resize)
+ * 2. Cleanup of old images (both local and remote)
+ * 3. Returning the `gs://` URI for Firestore
  */
 @Singleton
 class ImageDownloadService @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    private val httpClient: HttpClient
+    private val httpClient: HttpClient,
+    private val imageSyncService: ImageSyncService
 ) {
     /**
      * Result of downloading an image, containing both the local file URI
@@ -39,16 +46,55 @@ class ImageDownloadService @Inject constructor(
 
     companion object {
         private const val TAG = "ImageDownloadService"
-        private const val IMAGE_DIR = "recipe_images"
     }
 
-    private fun getImageDir(): File {
-        val dir = File(context.filesDir, IMAGE_DIR)
-        if (!dir.exists()) {
-            dir.mkdirs()
+    // ─── Centralized image storage ───────────────────────────────────────
+
+    /**
+     * Upload a local image to Firebase Storage, optionally cleaning up the old image.
+     *
+     * This is the single entry point that all image flows should use after obtaining
+     * a local file:// URI. It handles:
+     * - Upload to Firebase Storage (with resizing if needed)
+     * - Deletion of the previous image from both local cache and remote storage
+     * - Returning the storage path for Firestore
+     *
+     * @param localUri A file:// URI pointing to the local image
+     * @param previousImageUrl The previous imageUrl to clean up (gs:// URI or file:// URI), or null
+     * @return A gs:// URI (e.g., "gs://bucket/users/{uid}/images/{filename}"),
+     *         or the original local URI if upload fails
+     */
+    suspend fun storeImage(localUri: String, previousImageUrl: String? = null): String {
+        // Already a storage path — no need to re-upload
+        if (imageSyncService.isStoragePath(localUri)) return localUri
+
+        // Clean up the old image if it's different from the new one
+        if (previousImageUrl != null) {
+            cleanupImage(previousImageUrl)
         }
-        return dir
+
+        // Upload to Firebase Storage
+        return imageSyncService.uploadImage(localUri) ?: localUri
     }
+
+    /**
+     * Delete an image from both local cache and Firebase Storage.
+     */
+    suspend fun cleanupImage(imageUrl: String) {
+        if (imageSyncService.isStoragePath(imageUrl)) {
+            imageSyncService.deleteRemoteImage(imageUrl)
+            // Also delete local cache file
+            val filename = imageUrl.substringAfterLast("/")
+            val cacheFile = File(ImageCacheConfig.getImageCacheDir(context), filename)
+            if (cacheFile.exists()) {
+                cacheFile.delete()
+            }
+        } else if (imageUrl.startsWith("file://")) {
+            deleteLocalImage(imageUrl)
+        }
+    }
+
+    // ─── Image download ──────────────────────────────────────────────────
 
     /**
      * Downloads a remote image URL to local storage if needed.
@@ -66,6 +112,8 @@ class ImageDownloadService @Inject constructor(
             val path = imageUrl.removePrefix("file://")
             return if (File(path).exists()) imageUrl else null
         }
+        // Firebase Storage paths are already stored — return as-is
+        if (imageSyncService.isStoragePath(imageUrl)) return imageUrl
         return downloadAndStore(imageUrl)
     }
 
@@ -91,6 +139,11 @@ class ImageDownloadService @Inject constructor(
     suspend fun downloadAndStoreWithResult(imageUrl: String): DownloadResult? {
         // Skip if already a local file
         if (imageUrl.startsWith("file://")) {
+            return DownloadResult(localUri = imageUrl, effectiveUrl = imageUrl)
+        }
+
+        // Firebase Storage paths are already stored — return as-is
+        if (imageSyncService.isStoragePath(imageUrl)) {
             return DownloadResult(localUri = imageUrl, effectiveUrl = imageUrl)
         }
 
@@ -136,7 +189,7 @@ class ImageDownloadService @Inject constructor(
             }
 
             val fileName = "${UUID.randomUUID()}$extension"
-            val imageFile = File(getImageDir(), fileName)
+            val imageFile = File(ImageCacheConfig.getImageCacheDir(context), fileName)
 
             response.bodyAsChannel().toInputStream().use { input ->
                 imageFile.outputStream().use { output ->
@@ -162,6 +215,8 @@ class ImageDownloadService @Inject constructor(
         }
     }
 
+    // ─── Local image saving ──────────────────────────────────────────────
+
     /**
      * Saves image bytes from an InputStream to local storage.
      * Returns the local file:// URI, or null if saving fails.
@@ -172,7 +227,7 @@ class ImageDownloadService @Inject constructor(
     fun saveImageFromStream(inputStream: InputStream, extension: String = ".jpg"): String? {
         return try {
             val fileName = "${UUID.randomUUID()}$extension"
-            val imageFile = File(getImageDir(), fileName)
+            val imageFile = File(ImageCacheConfig.getImageCacheDir(context), fileName)
 
             inputStream.use { input ->
                 imageFile.outputStream().use { output ->
@@ -208,7 +263,7 @@ class ImageDownloadService @Inject constructor(
             }
 
             val fileName = "${UUID.randomUUID()}$extension"
-            val imageFile = File(getImageDir(), fileName)
+            val imageFile = File(ImageCacheConfig.getImageCacheDir(context), fileName)
             imageFile.writeBytes(bytes)
 
             val localUri = "file://${imageFile.absolutePath}"
@@ -248,6 +303,8 @@ class ImageDownloadService @Inject constructor(
         }
     }
 
+    // ─── Utility ─────────────────────────────────────────────────────────
+
     /**
      * Returns the local File for a file:// URI, or null if the URI is not a local file
      * or the file doesn't exist.
@@ -256,7 +313,7 @@ class ImageDownloadService @Inject constructor(
         if (!localUri.startsWith("file://")) return null
         val path = localUri.removePrefix("file://")
         val file = File(path)
-        return if (file.exists() && file.parentFile?.name == IMAGE_DIR) file else null
+        return if (file.exists() && file.parentFile?.name == ImageCacheConfig.IMAGE_CACHE_DIR) file else null
     }
 
     /**
@@ -267,7 +324,7 @@ class ImageDownloadService @Inject constructor(
         try {
             val path = localUri.removePrefix("file://")
             val file = File(path)
-            if (file.exists() && file.parentFile?.name == IMAGE_DIR) {
+            if (file.exists() && file.parentFile?.name == ImageCacheConfig.IMAGE_CACHE_DIR) {
                 file.delete()
             }
         } catch (e: Exception) {
