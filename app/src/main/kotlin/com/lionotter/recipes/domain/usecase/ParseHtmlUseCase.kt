@@ -9,6 +9,7 @@ import com.lionotter.recipes.data.remote.ParseResultWithUsage
 import com.lionotter.recipes.data.remote.RecipeParseException
 import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.data.repository.IRecipeRepository
+import com.lionotter.recipes.domain.ResourceLimits
 import com.lionotter.recipes.domain.model.Recipe
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
@@ -97,7 +98,7 @@ class ParseHtmlUseCase @Inject constructor(
      * @param sourceUrl Optional URL for the recipe source
      * @param imageUrl Optional image URL for the recipe
      * @param saveRecipe Whether to save the recipe to the database (default true)
-     * @param originalHtml Optional original HTML for debug data and storage alongside the recipe
+     * @param originalHtml Optional original HTML for debug data
      * @param model AI model override (null = use current setting)
      * @param thinkingEnabled Extended thinking override (null = use current setting)
      * @param densityOverrides Optional density overrides from existing recipe (merged with defaults for cheaper editing)
@@ -121,6 +122,17 @@ class ParseHtmlUseCase @Inject constructor(
         val apiKey = settingsDataStore.anthropicApiKey.first()
         if (apiKey.isNullOrBlank()) {
             return ParseResult.NoApiKey
+        }
+
+        // Check recipe count limit before spending AI credits
+        if (saveRecipe) {
+            val count = recipeRepository.getRecipeCount()
+            if (count >= ResourceLimits.MAX_RECIPES) {
+                return ParseResult.Error(
+                    "Recipe limit reached ($count/${ResourceLimits.MAX_RECIPES}). " +
+                        "Delete some recipes before importing new ones."
+                )
+            }
         }
 
         val model = model ?: settingsDataStore.aiModel.first()
@@ -200,7 +212,7 @@ class ParseHtmlUseCase @Inject constructor(
         if (saveRecipe) {
             coroutineContext.ensureActive()
             onProgress(ParseProgress.SavingRecipe)
-            recipeRepository.saveRecipe(recipe, originalHtml = originalHtml)
+            recipeRepository.saveRecipe(recipe)
         }
 
         // Save debug data on success if debugging is enabled
@@ -253,6 +265,13 @@ class ParseHtmlUseCase @Inject constructor(
         thinkingEnabled: Boolean,
         durationMs: Long? = null
     ): Recipe? {
+        // Check recipe count limit
+        val count = recipeRepository.getRecipeCount()
+        if (count >= ResourceLimits.MAX_RECIPES) {
+            Log.w(TAG, "Recipe limit reached ($count/${ResourceLimits.MAX_RECIPES}), skipping batch save")
+            return null
+        }
+
         val parsed = parsedWithUsage.result
 
         // Download image locally if available, then upload to Firebase Storage
@@ -283,7 +302,7 @@ class ParseHtmlUseCase @Inject constructor(
 
         // Save to database
         coroutineContext.ensureActive()
-        recipeRepository.saveRecipe(recipe, originalHtml = originalHtml)
+        recipeRepository.saveRecipe(recipe)
 
         // Save debug data if debugging is enabled
         val debuggingEnabled = settingsDataStore.importDebuggingEnabled.first()

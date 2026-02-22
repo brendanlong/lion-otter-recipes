@@ -57,9 +57,6 @@ class EditRecipeUseCase @Inject constructor(
         val existingRecipe = recipeRepository.getRecipeByIdOnce(recipeId)
             ?: return EditResult.Error("Recipe not found")
 
-        // Preserve original HTML for future regeneration
-        val originalHtml = recipeRepository.getOriginalHtml(recipeId)
-
         // Collect existing densities to merge with defaults for the AI
         val densityOverrides = RecipeMarkdownFormatter.collectDensities(existingRecipe)
             .ifEmpty { null }
@@ -70,7 +67,6 @@ class EditRecipeUseCase @Inject constructor(
             sourceUrl = existingRecipe.sourceUrl,
             imageUrl = existingRecipe.sourceImageUrl ?: existingRecipe.imageUrl,
             saveRecipe = false,
-            originalHtml = originalHtml,
             model = model,
             thinkingEnabled = thinkingEnabled,
             densityOverrides = densityOverrides,
@@ -123,7 +119,7 @@ class EditRecipeUseCase @Inject constructor(
                 }
 
                 onProgress(EditProgress.SavingRecipe)
-                recipeRepository.saveRecipe(editedRecipe, originalHtml = originalHtml)
+                recipeRepository.saveRecipe(editedRecipe)
 
                 val result = EditResult.Success(editedRecipe)
                 onProgress(EditProgress.Complete(result))

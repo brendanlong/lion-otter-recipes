@@ -118,6 +118,16 @@ class MealPlanRepository @Inject constructor(
         }
     }
 
+    override suspend fun getMealPlanCount(): Int {
+        return try {
+            val snapshot = firestoreService.mealPlansCollection().get().await()
+            snapshot.size()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching meal plan count", e)
+            0
+        }
+    }
+
     override suspend fun getAllMealPlansOnce(): List<MealPlanEntry> {
         return try {
             val snapshot = firestoreService.mealPlansCollection().get().await()

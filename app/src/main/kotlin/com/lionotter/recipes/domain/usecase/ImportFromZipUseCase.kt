@@ -12,7 +12,6 @@ import kotlin.coroutines.coroutineContext
  * Use case for importing recipes from a ZIP file.
  * Expects the same folder structure as the export:
  * - recipe-name/recipe.json
- * - recipe-name/original.html (optional)
  * - recipe-name/recipe.md (ignored on import, regenerated from data)
  * - recipe-name/image.* (recipe image, used if present)
  *
@@ -102,6 +101,7 @@ class ImportFromZipUseCase @Inject constructor(
                 is ZipImportHelper.SingleRecipeResult.Imported -> importedCount++
                 is ZipImportHelper.SingleRecipeResult.Skipped -> skippedCount++
                 is ZipImportHelper.SingleRecipeResult.NoJson -> failedCount++
+                is ZipImportHelper.SingleRecipeResult.LimitReached -> failedCount++
                 is ZipImportHelper.SingleRecipeResult.Failed -> failedCount++
             }
         }

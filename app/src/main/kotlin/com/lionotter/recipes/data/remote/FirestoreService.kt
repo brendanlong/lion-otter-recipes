@@ -58,12 +58,6 @@ open class FirestoreService @Inject constructor() {
         return Firebase.firestore.collection("users").document(uid).collection("mealPlans")
     }
 
-    open fun recipeContentCollection(recipeId: String): CollectionReference {
-        val uid = requireUid()
-        return Firebase.firestore.collection("users").document(uid)
-            .collection("recipes").document(recipeId).collection("content")
-    }
-
     fun reportError(message: String) {
         Log.e(TAG, message)
         _errors.tryEmit(message)

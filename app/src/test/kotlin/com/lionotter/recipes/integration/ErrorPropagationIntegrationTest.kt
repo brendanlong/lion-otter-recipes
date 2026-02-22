@@ -1,7 +1,6 @@
 package com.lionotter.recipes.integration
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
@@ -24,9 +23,4 @@ class ErrorPropagationIntegrationTest : FirestoreIntegrationTest() {
         assertEquals(null, result)
     }
 
-    @Test
-    fun `get original HTML for non-existent recipe returns null`() {
-        val result = runSuspending { recipeRepository.getOriginalHtml("non-existent-id") }
-        assertNull(result)
-    }
 }

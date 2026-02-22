@@ -41,7 +41,7 @@ import java.util.concurrent.CountDownLatch
  * - [runSuspending]: runs a suspend block on [Dispatchers.Default] while the main
  *   thread continuously pumps the looper. This allows Firestore's `.get().await()`
  *   (which reads from the local cache) to complete. Use for one-shot suspend reads
- *   like `getRecipeByIdOnce()`, `getOriginalHtml()`, etc.
+ *   like `getRecipeByIdOnce()`, etc.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])

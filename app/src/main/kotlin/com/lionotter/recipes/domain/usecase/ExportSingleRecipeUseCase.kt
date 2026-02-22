@@ -15,7 +15,6 @@ import javax.inject.Inject
  * Use case for exporting a single recipe to a .lorecipes file.
  * The format is a ZIP file containing the same folder structure as the bulk export:
  * - recipe-name/recipe.json
- * - recipe-name/original.html (if available)
  * - recipe-name/recipe.md
  * - recipe-name/image.* (recipe image, if available)
  *
@@ -44,8 +43,7 @@ class ExportSingleRecipeUseCase @Inject constructor(
         outputStream: OutputStream
     ): ExportResult {
         return try {
-            val originalHtml = recipeRepository.getOriginalHtml(recipe.id)
-            val files = recipeSerializer.serializeRecipe(recipe, originalHtml)
+            val files = recipeSerializer.serializeRecipe(recipe)
             val prefix = files.folderName
 
             ZipOutputStream(outputStream).use { zipOut ->
@@ -53,13 +51,6 @@ class ExportSingleRecipeUseCase @Inject constructor(
                 zipOut.putNextEntry(ZipEntry("$prefix/${RecipeSerializer.RECIPE_JSON_FILENAME}"))
                 zipOut.write(files.recipeJson.toByteArray(Charsets.UTF_8))
                 zipOut.closeEntry()
-
-                // Write original.html (if available)
-                if (files.originalHtml != null) {
-                    zipOut.putNextEntry(ZipEntry("$prefix/${RecipeSerializer.RECIPE_HTML_FILENAME}"))
-                    zipOut.write(files.originalHtml.toByteArray(Charsets.UTF_8))
-                    zipOut.closeEntry()
-                }
 
                 // Write recipe.md
                 zipOut.putNextEntry(ZipEntry("$prefix/${RecipeSerializer.RECIPE_MARKDOWN_FILENAME}"))

@@ -15,7 +15,7 @@ class RegenerateRecipeUseCase @Inject constructor(
         data class Success(val recipe: Recipe) : RegenerateResult()
         data class Error(val message: String) : RegenerateResult()
         object NoApiKey : RegenerateResult()
-        object NoOriginalHtml : RegenerateResult()
+        object NoSourceUrl : RegenerateResult()
     }
 
     sealed class RegenerateProgress {
@@ -27,8 +27,8 @@ class RegenerateRecipeUseCase @Inject constructor(
     }
 
     /**
-     * Regenerate a recipe by re-parsing its original HTML with possibly different AI settings.
-     * If no cached HTML is available but the recipe has a source URL, fetches fresh HTML from the URL.
+     * Regenerate a recipe by re-fetching its source URL and re-parsing with AI.
+     * Requires the recipe to have a source URL.
      * Preserves the recipe ID, createdAt, favorite status, and source URL.
      *
      * @param recipeId The ID of the recipe to regenerate
@@ -46,33 +46,26 @@ class RegenerateRecipeUseCase @Inject constructor(
         val existingRecipe = recipeRepository.getRecipeByIdOnce(recipeId)
             ?: return RegenerateResult.Error("Recipe not found")
 
-        // Load original HTML, or fetch from source URL if not cached
-        var originalHtml = recipeRepository.getOriginalHtml(recipeId)
-        var fetchedImageUrl: String? = null
-        if (originalHtml.isNullOrBlank()) {
-            val sourceUrl = existingRecipe.sourceUrl
-            if (sourceUrl.isNullOrBlank()) {
-                return RegenerateResult.NoOriginalHtml
-            }
-
-            // Fetch fresh HTML from the source URL
-            onProgress(RegenerateProgress.FetchingFromUrl)
-            val pageResult = webScraperService.fetchPage(sourceUrl)
-            if (pageResult.isFailure) {
-                return RegenerateResult.Error(
-                    "Failed to fetch page: ${pageResult.exceptionOrNull()?.message}"
-                )
-            }
-            val page = pageResult.getOrThrow()
-            originalHtml = page.originalHtml
-            fetchedImageUrl = page.imageUrl
+        val sourceUrl = existingRecipe.sourceUrl
+        if (sourceUrl.isNullOrBlank()) {
+            return RegenerateResult.NoSourceUrl
         }
+
+        // Fetch fresh HTML from the source URL
+        onProgress(RegenerateProgress.FetchingFromUrl)
+        val pageResult = webScraperService.fetchPage(sourceUrl)
+        if (pageResult.isFailure) {
+            return RegenerateResult.Error(
+                "Failed to fetch page: ${pageResult.exceptionOrNull()?.message}"
+            )
+        }
+        val page = pageResult.getOrThrow()
 
         // Re-parse with AI (don't save yet, we need to adjust the recipe)
         val parseResult = parseHtmlUseCase.parseHtml(
-            html = originalHtml,
+            html = page.originalHtml,
             sourceUrl = existingRecipe.sourceUrl,
-            imageUrl = fetchedImageUrl ?: existingRecipe.imageUrl,
+            imageUrl = page.imageUrl ?: existingRecipe.imageUrl,
             saveRecipe = false,
             model = model,
             thinkingEnabled = thinkingEnabled,
@@ -104,7 +97,7 @@ class RegenerateRecipeUseCase @Inject constructor(
                 )
 
                 onProgress(RegenerateProgress.SavingRecipe)
-                recipeRepository.saveRecipe(regeneratedRecipe, originalHtml = originalHtml)
+                recipeRepository.saveRecipe(regeneratedRecipe)
 
                 val result = RegenerateResult.Success(regeneratedRecipe)
                 onProgress(RegenerateProgress.Complete(result))
