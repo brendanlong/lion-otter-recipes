@@ -112,12 +112,14 @@ Cloud sync is optional — the app works fully offline without it. To enable syn
              && request.auth.uid == userId
              && request.resource.data.keys().size() > 0
              && request.resource.size < 50 * 1024;  // 50 KB per recipe
+           allow delete: if request.auth != null && request.auth.uid == userId;
          }
          match /users/{userId}/mealPlans/{mealPlanId} {
            allow read: if request.auth != null && request.auth.uid == userId;
            allow write: if request.auth != null
              && request.auth.uid == userId
              && request.resource.size < 10 * 1024;  // 10 KB per meal plan
+           allow delete: if request.auth != null && request.auth.uid == userId;
          }
        }
      }
