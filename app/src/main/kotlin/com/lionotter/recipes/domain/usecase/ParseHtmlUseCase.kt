@@ -101,6 +101,7 @@ class ParseHtmlUseCase @Inject constructor(
      * @param model AI model override (null = use current setting)
      * @param thinkingEnabled Extended thinking override (null = use current setting)
      * @param densityOverrides Optional density overrides from existing recipe (merged with defaults for cheaper editing)
+     * @param aiInstructions Optional user instructions for the AI (e.g. "Make this recipe vegan")
      * @param onProgress Callback for progress updates
      * @return The parsed recipe or error
      */
@@ -113,6 +114,7 @@ class ParseHtmlUseCase @Inject constructor(
         model: String? = null,
         thinkingEnabled: Boolean? = null,
         densityOverrides: Map<String, Double>? = null,
+        aiInstructions: String? = null,
         onProgress: suspend (ParseProgress) -> Unit = {}
     ): ParseResult {
         // Check for API key
@@ -128,7 +130,7 @@ class ParseHtmlUseCase @Inject constructor(
         // Parse with AI
         onProgress(ParseProgress.ParsingRecipe)
         val startTime = System.currentTimeMillis()
-        val parseResult = anthropicService.parseRecipe(text, apiKey, model, thinkingEnabled, densityOverrides)
+        val parseResult = anthropicService.parseRecipe(text, apiKey, model, thinkingEnabled, densityOverrides, aiInstructions)
         val durationMs = System.currentTimeMillis() - startTime
         if (parseResult.isFailure) {
             val errorMessage = "Failed to parse recipe: ${parseResult.exceptionOrNull()?.message}"

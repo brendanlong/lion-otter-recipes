@@ -72,6 +72,9 @@ class EditRecipeViewModel @Inject constructor(
     private val _markdownText = MutableStateFlow("")
     val markdownText: StateFlow<String> = _markdownText.asStateFlow()
 
+    private val _aiInstructions = MutableStateFlow("")
+    val aiInstructions: StateFlow<String> = _aiInstructions.asStateFlow()
+
     /** The original title loaded from the recipe, used to detect changes. */
     private var originalTitle: String = ""
 
@@ -121,6 +124,10 @@ class EditRecipeViewModel @Inject constructor(
 
     fun setMarkdownText(text: String) {
         _markdownText.value = text
+    }
+
+    fun setAiInstructions(instructions: String) {
+        _aiInstructions.value = instructions
     }
 
     fun setModel(model: String) {
@@ -190,10 +197,11 @@ class EditRecipeViewModel @Inject constructor(
      */
     fun saveEdits() {
         val markdownChanged = _markdownText.value != originalMarkdownText
+        val hasAiInstructions = _aiInstructions.value.isNotBlank()
         val titleChanged = _title.value != originalTitle
         val urlChanged = _sourceUrl.value != originalSourceUrl
 
-        if (!markdownChanged) {
+        if (!markdownChanged && !hasAiInstructions) {
             // No recipe body changes — save title/URL directly if changed.
             if (titleChanged || urlChanged) {
                 viewModelScope.launch {
@@ -222,6 +230,7 @@ class EditRecipeViewModel @Inject constructor(
 
         // Markdown body changed — reconstruct full markdown with title/URL and send to AI
         val fullMarkdown = buildFullMarkdown()
+        val instructions = _aiInstructions.value.takeIf { it.isNotBlank() }
 
         val workRequest = OneTimeWorkRequestBuilder<RecipeEditWorker>()
             .setInputData(
@@ -229,7 +238,8 @@ class EditRecipeViewModel @Inject constructor(
                     recipeId = recipeId,
                     markdownText = fullMarkdown,
                     model = _model.value,
-                    thinkingEnabled = _thinkingEnabled.value
+                    thinkingEnabled = _thinkingEnabled.value,
+                    aiInstructions = instructions
                 )
             )
             .addTag(RecipeEditWorker.TAG_RECIPE_EDIT)
@@ -245,6 +255,7 @@ class EditRecipeViewModel @Inject constructor(
      */
     fun saveAsCopy() {
         val fullMarkdown = buildFullMarkdown()
+        val instructions = _aiInstructions.value.takeIf { it.isNotBlank() }
 
         val workRequest = OneTimeWorkRequestBuilder<RecipeEditWorker>()
             .setInputData(
@@ -253,7 +264,8 @@ class EditRecipeViewModel @Inject constructor(
                     markdownText = fullMarkdown,
                     model = _model.value,
                     thinkingEnabled = _thinkingEnabled.value,
-                    saveAsCopy = true
+                    saveAsCopy = true,
+                    aiInstructions = instructions
                 )
             )
             .addTag(RecipeEditWorker.TAG_RECIPE_EDIT)

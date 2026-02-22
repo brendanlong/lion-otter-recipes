@@ -80,6 +80,7 @@ fun EditRecipeScreen(
     val title by viewModel.title.collectAsStateWithLifecycle()
     val sourceUrl by viewModel.sourceUrl.collectAsStateWithLifecycle()
     val markdownText by viewModel.markdownText.collectAsStateWithLifecycle()
+    val aiInstructions by viewModel.aiInstructions.collectAsStateWithLifecycle()
     val editState by viewModel.editState.collectAsStateWithLifecycle()
     val model by viewModel.model.collectAsStateWithLifecycle()
     val thinkingEnabled by viewModel.thinkingEnabled.collectAsStateWithLifecycle()
@@ -196,6 +197,8 @@ fun EditRecipeScreen(
                     onTitleChange = viewModel::setTitle,
                     sourceUrl = sourceUrl,
                     onSourceUrlChange = viewModel::setSourceUrl,
+                    aiInstructions = aiInstructions,
+                    onAiInstructionsChange = viewModel::setAiInstructions,
                     markdownText = markdownText,
                     onMarkdownChange = viewModel::setMarkdownText,
                     model = model,
@@ -285,6 +288,8 @@ private fun EditContent(
     onTitleChange: (String) -> Unit,
     sourceUrl: String?,
     onSourceUrlChange: (String?) -> Unit,
+    aiInstructions: String,
+    onAiInstructionsChange: (String) -> Unit,
     markdownText: String,
     onMarkdownChange: (String) -> Unit,
     model: String,
@@ -347,6 +352,29 @@ private fun EditContent(
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text(stringResource(R.string.source_url_field)) },
                 singleLine = true
+            )
+
+            HorizontalDivider()
+
+            // AI instructions section
+            Text(
+                text = stringResource(R.string.ai_instructions),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = stringResource(R.string.ai_instructions_description),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            OutlinedTextField(
+                value = aiInstructions,
+                onValueChange = onAiInstructionsChange,
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text(stringResource(R.string.ai_instructions_placeholder)) },
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.Sentences
+                )
             )
 
             HorizontalDivider()

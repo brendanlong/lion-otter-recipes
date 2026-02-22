@@ -41,6 +41,7 @@ class EditRecipeUseCase @Inject constructor(
      * @param saveAsCopy If true, saves as a new recipe instead of updating the existing one
      * @param model The AI model to use (null = use current setting)
      * @param thinkingEnabled Whether to use extended thinking (null = use current setting)
+     * @param aiInstructions Optional user instructions for the AI (e.g. "Make this recipe vegan")
      * @param onProgress Callback for progress updates
      */
     suspend fun execute(
@@ -49,6 +50,7 @@ class EditRecipeUseCase @Inject constructor(
         saveAsCopy: Boolean = false,
         model: String? = null,
         thinkingEnabled: Boolean? = null,
+        aiInstructions: String? = null,
         onProgress: suspend (EditProgress) -> Unit = {}
     ): EditResult {
         // Load existing recipe to preserve metadata
@@ -72,6 +74,7 @@ class EditRecipeUseCase @Inject constructor(
             model = model,
             thinkingEnabled = thinkingEnabled,
             densityOverrides = densityOverrides,
+            aiInstructions = aiInstructions,
             onProgress = { progress ->
                 when (progress) {
                     is ParseHtmlUseCase.ParseProgress.ExtractingContent -> {}

@@ -41,12 +41,22 @@ class AnthropicService @Inject constructor(
         apiKey: String,
         model: String = DEFAULT_MODEL,
         thinkingEnabled: Boolean = SettingsDataStore.DEFAULT_THINKING_ENABLED,
-        densityOverrides: Map<String, Double>? = null
+        densityOverrides: Map<String, Double>? = null,
+        aiInstructions: String? = null
     ): Result<ParseResultWithUsage> {
         return try {
             val client = buildClient(apiKey)
 
             val systemPrompt = buildSystemPrompt(densityOverrides)
+
+            val userMessage = buildString {
+                append("Parse this recipe webpage and extract the structured data:\n\n")
+                append(html)
+                if (!aiInstructions.isNullOrBlank()) {
+                    append("\n\nThe user also provided these instructions: ")
+                    append(aiInstructions)
+                }
+            }
 
             val paramsBuilder = MessageCreateParams.builder()
                 .model(model)
@@ -58,7 +68,7 @@ class AnthropicService @Inject constructor(
                             .build()
                     )
                 )
-                .addUserMessage("Parse this recipe webpage and extract the structured data:\n\n$html")
+                .addUserMessage(userMessage)
 
             if (thinkingEnabled) {
                 if (supportsAdaptiveThinking(model)) {
