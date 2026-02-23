@@ -13,6 +13,14 @@
     <!-- Delete Confirmation Dialog -->
     <string name="delete_recipe">Delete Recipe</string>
     <string name="delete_recipe_confirmation">Are you sure you want to delete \"%1$s\"? This action cannot be undone.</string>
+    <plurals name="delete_recipes">
+        <item quantity="one">Delete %1$d Recipe</item>
+        <item quantity="other">Delete %1$d Recipes</item>
+    </plurals>
+    <plurals name="delete_recipes_confirmation">
+        <item quantity="one">Are you sure you want to delete %1$d recipe? This action cannot be undone.</item>
+        <item quantity="other">Are you sure you want to delete %1$d recipes? This action cannot be undone.</item>
+    </plurals>
     <plurals name="delete_recipe_meal_plan_warning">
         <item quantity="one">This will also remove %1$d meal plan entry using this recipe.</item>
         <item quantity="other">This will also remove %1$d meal plan entries using this recipe.</item>
@@ -29,6 +37,10 @@
     <string name="import_failed">Import failed</string>
     <string name="cancel_import_confirmation">Cancel this import?</string>
     <string name="servings_count">%1$s servings</string>
+    <plurals name="selected_count">
+        <item quantity="one">%1$d selected</item>
+        <item quantity="other">%1$d selected</item>
+    </plurals>
 
     <!-- Recipe Detail Screen -->
     <string name="recipe">Recipe</string>

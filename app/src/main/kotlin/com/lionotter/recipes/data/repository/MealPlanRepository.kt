@@ -118,6 +118,23 @@ class MealPlanRepository @Inject constructor(
         }
     }
 
+    override suspend fun countMealPlansByRecipeIds(recipeIds: List<String>): Int {
+        if (recipeIds.isEmpty()) return 0
+        return try {
+            // Firestore whereIn supports max 30 values per query, so chunk if needed
+            recipeIds.chunked(30).sumOf { chunk ->
+                val snapshot = firestoreService.mealPlansCollection()
+                    .whereIn("recipeId", chunk)
+                    .get()
+                    .await()
+                snapshot.size()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error counting meal plans for ${recipeIds.size} recipes", e)
+            0
+        }
+    }
+
     override suspend fun getMealPlanCount(): Int {
         return try {
             val snapshot = firestoreService.mealPlansCollection().get().await()
