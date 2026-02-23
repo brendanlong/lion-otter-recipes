@@ -1,5 +1,6 @@
 package com.lionotter.recipes.ui.screens.login
 
+import android.annotation.SuppressLint
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -21,10 +22,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.lionotter.recipes.R
 
+@SuppressLint("LocalContextGetResourceValueCall") // context.getString needed inside LaunchedEffect
 @Composable
 fun LoginScreen(
     viewModel: LoginViewModel = hiltViewModel()
@@ -34,7 +38,11 @@ fun LoginScreen(
 
     LaunchedEffect(Unit) {
         viewModel.error.collect { error ->
-            Toast.makeText(context, "Sign-in failed: $error", Toast.LENGTH_LONG).show()
+            Toast.makeText(
+                context,
+                context.getString(R.string.sign_in_failed_with_error, error),
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
@@ -55,14 +63,14 @@ fun LoginScreen(
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "Lion+Otter Recipes",
+            text = stringResource(R.string.app_name),
             style = MaterialTheme.typography.headlineMedium
         )
 
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "Sign in to sync your recipes across devices",
+            text = stringResource(R.string.sign_in_sync_description),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -75,7 +83,7 @@ fun LoginScreen(
             Button(
                 onClick = { viewModel.signIn(context) }
             ) {
-                Text("Sign in with Google")
+                Text(stringResource(R.string.sign_in_with_google))
             }
         }
     }

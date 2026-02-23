@@ -242,7 +242,7 @@ private fun SummaryTab(
         }
 
         SummaryRow(
-            label = "Timestamp",
+            label = stringResource(R.string.timestamp_label),
             value = formatTimestamp(entry.createdAt)
         )
     }
@@ -358,6 +358,7 @@ private fun AiOutputTab(jsonString: String?) {
 
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
+    val jsonLabel = stringResource(R.string.json_label)
     val prettyJson = remember(jsonString) {
         try {
             val json = Json { prettyPrint = true }
@@ -387,7 +388,7 @@ private fun AiOutputTab(jsonString: String?) {
         }
 
         IconButton(
-            onClick = { scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("JSON", prettyJson))) } },
+            onClick = { scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(jsonLabel, prettyJson))) } },
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(8.dp)

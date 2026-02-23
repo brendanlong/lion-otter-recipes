@@ -104,7 +104,7 @@ fun AddMealPlanDialog(
                     }
                     showDatePicker = false
                 }) {
-                    Text("OK")
+                    Text(stringResource(R.string.ok))
                 }
             },
             dismissButton = {
@@ -330,10 +330,13 @@ private fun RecipeSelectionCard(
                     overflow = TextOverflow.Ellipsis
                 )
                 if (recipe.totalTime != null || recipe.servings != null) {
+                    val servingsText = recipe.servings?.let {
+                        stringResource(R.string.servings_count, it)
+                    }
                     val info = buildString {
                         recipe.totalTime?.let { append(it) }
-                        if (recipe.totalTime != null && recipe.servings != null) append(" \u2022 ")
-                        recipe.servings?.let { append("$it servings") }
+                        if (recipe.totalTime != null && servingsText != null) append(" \u2022 ")
+                        servingsText?.let { append(it) }
                     }
                     Text(
                         text = info,
