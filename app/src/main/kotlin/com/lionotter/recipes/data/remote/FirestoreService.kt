@@ -23,6 +23,9 @@ open class FirestoreService @Inject constructor() {
 
     companion object {
         private const val TAG = "FirestoreService"
+        const val USERS_COLLECTION = "users"
+        const val RECIPES_COLLECTION = "recipes"
+        const val MEAL_PLANS_COLLECTION = "mealPlans"
     }
 
     private val _errors = MutableSharedFlow<String>(extraBufferCapacity = 10)
@@ -30,6 +33,14 @@ open class FirestoreService @Inject constructor() {
 
     private val _isNetworkEnabled = MutableStateFlow(true)
     val isNetworkEnabled: StateFlow<Boolean> = _isNetworkEnabled.asStateFlow()
+
+    /**
+     * Incremented each time the Firestore instance is recycled (terminate + clearPersistence).
+     * Repositories combine this with the current user ID so that their snapshot listeners
+     * are automatically re-created after a Firestore reset — no manual re-subscription needed.
+     */
+    private val _generation = MutableStateFlow(0)
+    val generation: StateFlow<Int> = _generation.asStateFlow()
 
     init {
         try {
@@ -55,12 +66,12 @@ open class FirestoreService @Inject constructor() {
 
     open fun recipesCollection(): CollectionReference {
         val uid = requireUid()
-        return Firebase.firestore.collection("users").document(uid).collection("recipes")
+        return Firebase.firestore.collection(USERS_COLLECTION).document(uid).collection(RECIPES_COLLECTION)
     }
 
     open fun mealPlansCollection(): CollectionReference {
         val uid = requireUid()
-        return Firebase.firestore.collection("users").document(uid).collection("mealPlans")
+        return Firebase.firestore.collection(USERS_COLLECTION).document(uid).collection(MEAL_PLANS_COLLECTION)
     }
 
     fun reportError(message: String) {
@@ -95,6 +106,7 @@ open class FirestoreService @Inject constructor() {
         try {
             Firebase.firestore.terminate().await()
             Firebase.firestore.clearPersistence().await()
+            _generation.value++
         } catch (e: Exception) {
             Log.e(TAG, "Error clearing Firestore persistence", e)
         }

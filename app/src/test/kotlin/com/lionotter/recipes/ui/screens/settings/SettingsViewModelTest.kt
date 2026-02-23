@@ -3,6 +3,7 @@ package com.lionotter.recipes.ui.screens.settings
 import app.cash.turbine.test
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AnthropicService
+import com.lionotter.recipes.data.remote.AccountMigrationService
 import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.AuthState
 import com.lionotter.recipes.data.remote.ImageSyncService
@@ -38,6 +39,7 @@ class SettingsViewModelTest {
     private lateinit var authService: AuthService
     private lateinit var recipeRepository: IRecipeRepository
     private lateinit var imageSyncService: ImageSyncService
+    private lateinit var accountMigrationService: AccountMigrationService
     private lateinit var viewModel: SettingsViewModel
     private val testDispatcher = StandardTestDispatcher()
 
@@ -62,6 +64,7 @@ class SettingsViewModelTest {
         authService = mockk()
         recipeRepository = mockk()
         imageSyncService = mockk()
+        accountMigrationService = mockk()
         every { settingsDataStore.anthropicApiKey } returns apiKeyFlow
         every { settingsDataStore.aiModel } returns aiModelFlow
         every { settingsDataStore.editModel } returns editModelFlow
@@ -76,7 +79,7 @@ class SettingsViewModelTest {
         every { settingsDataStore.startOfWeek } returns startOfWeekFlow
         every { authService.currentUserEmail } returns MutableStateFlow(null)
         every { authService.authState } returns MutableStateFlow<AuthState>(AuthState.Anonymous)
-        viewModel = SettingsViewModel(settingsDataStore, importDebugRepository, authService, recipeRepository, imageSyncService)
+        viewModel = SettingsViewModel(settingsDataStore, importDebugRepository, authService, recipeRepository, imageSyncService, accountMigrationService)
     }
 
     @After

@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
@@ -45,11 +46,15 @@ class RecipeRepository @Inject constructor(
      * All recipe queries (list and by-id) derive from this shared flow,
      * avoiding multiple redundant listeners.
      *
-     * Uses flatMapLatest on the current user ID so that when the user
-     * signs out and re-signs-in (with a new anonymous UID), the snapshot
-     * listener is torn down and re-created for the new user's collection.
+     * Combines the current user ID with the Firestore generation counter
+     * so the listener is re-created when either the user changes or the
+     * Firestore instance is recycled (e.g., after clearLocalData during
+     * account migration).
      */
-    private val allRecipesShared: Flow<List<Recipe>> = authService.currentUserId
+    private val allRecipesShared: Flow<List<Recipe>> = combine(
+        authService.currentUserId,
+        firestoreService.generation
+    ) { uid, _ -> uid }
         .flatMapLatest { uid ->
             if (uid == null) {
                 flowOf(emptyList())

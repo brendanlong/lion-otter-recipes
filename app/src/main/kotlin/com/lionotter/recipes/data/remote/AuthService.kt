@@ -177,19 +177,32 @@ class AuthService @Inject constructor(
     }
 
     /**
-     * Completes the merge flow: signs in with the Google credential,
-     * enables network. The caller is responsible for migrating data before calling this.
+     * Sets auth state to [AuthState.Loading], suppressing the auth state
+     * listener during the merge transition so that intermediate states
+     * (Firestore terminate/re-init) don't trigger premature UI updates.
      */
-    suspend fun completeMergeSignIn(credential: AuthCredential): Result<Unit> {
-        return try {
-            Firebase.auth.signInWithCredential(credential).await()
-            firestoreService.enableNetwork()
-            _authState.value = AuthState.Google(Firebase.auth.currentUser?.email ?: "")
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to complete merge sign-in", e)
-            Result.failure(e)
-        }
+    fun beginMergeTransition() {
+        _authState.value = AuthState.Loading
+    }
+
+    /**
+     * Ends the merge transition by re-reading the current Firebase user.
+     * Used when migration fails and we need to restore the auth state
+     * (typically back to [AuthState.Anonymous]).
+     */
+    fun endMergeTransition() {
+        updateAuthState(Firebase.auth.currentUser)
+    }
+
+    /**
+     * Completes the merge flow after [AccountMigrationService] has finished
+     * migrating data and signing in the Google user on the default app.
+     *
+     * Repositories automatically re-subscribe because [FirestoreService.clearLocalData]
+     * increments a generation counter that they observe alongside [currentUserId].
+     */
+    fun completeMergeSignIn() {
+        updateAuthState(Firebase.auth.currentUser)
     }
 
     /**
