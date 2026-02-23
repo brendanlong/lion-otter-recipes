@@ -8,6 +8,7 @@
     <string name="delete">Delete</string>
     <string name="settings">Settings</string>
     <string name="search">Search</string>
+    <string name="ok">OK</string>
     <string name="or">or</string>
 
     <!-- Account -->
@@ -20,6 +21,7 @@
     <string name="sign_out_confirmation">Signing out will delete all locally cached data. You will continue in guest mode with an empty recipe list. Export your recipes first to keep a backup.</string>
     <string name="signed_in_with_google">Signed in with Google</string>
     <string name="sign_in_failed">Failed to sign in</string>
+    <string name="sign_in_failed_with_error">Sign-in failed: %1$s</string>
     <string name="sign_in_migration_warning">Signed in with Google, but some data may not have been migrated</string>
 
     <!-- Delete Confirmation Dialog -->
@@ -224,6 +226,7 @@
     <string name="ai_duration_label">Response Time</string>
     <string name="imported_recipe_label">Imported Recipe</string>
     <string name="error_message_label">Error</string>
+    <string name="timestamp_label">Timestamp</string>
     <string name="characters_count">%1$s characters</string>
     <string name="tokens_count">%1$s tokens</string>
     <string name="enabled">Enabled</string>
@@ -232,6 +235,7 @@
     <string name="show_rendered">Show Rendered</string>
     <string name="not_available">N/A</string>
     <string name="unknown_import">Unknown Import</string>
+    <string name="json_label">JSON</string>
     <string name="copy_json">Copy JSON</string>
 
     <!-- File Import -->
