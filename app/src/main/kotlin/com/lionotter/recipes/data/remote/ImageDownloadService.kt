@@ -12,6 +12,8 @@ import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.jvm.javaio.toInputStream
 import android.util.Base64
+import com.google.firebase.Firebase
+import com.google.firebase.auth.auth
 import java.io.File
 import java.io.InputStream
 import java.util.UUID
@@ -72,6 +74,9 @@ class ImageDownloadService @Inject constructor(
         if (previousImageUrl != null) {
             cleanupImage(previousImageUrl)
         }
+
+        // Skip upload for anonymous users — just use local file
+        if (Firebase.auth.currentUser?.isAnonymous == true) return localUri
 
         // Upload to Firebase Storage
         return imageSyncService.uploadImage(localUri) ?: localUri

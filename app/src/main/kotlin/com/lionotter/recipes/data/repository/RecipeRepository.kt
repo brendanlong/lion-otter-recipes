@@ -2,6 +2,7 @@ package com.lionotter.recipes.data.repository
 
 import android.util.Log
 import com.lionotter.recipes.data.local.RecipeIdAndName
+import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.FirestoreService
 import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.remote.dto.RecipeDto
@@ -9,6 +10,7 @@ import com.lionotter.recipes.data.remote.dto.toDto
 import com.lionotter.recipes.domain.model.Recipe
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.launch
@@ -17,16 +19,20 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @Singleton
 class RecipeRepository @Inject constructor(
     private val firestoreService: FirestoreService,
-    private val imageDownloadService: ImageDownloadService
+    private val imageDownloadService: ImageDownloadService,
+    authService: AuthService
 ) : IRecipeRepository {
     companion object {
         private const val TAG = "RecipeRepository"
@@ -38,8 +44,26 @@ class RecipeRepository @Inject constructor(
      * Single shared Firestore snapshot listener for all recipes.
      * All recipe queries (list and by-id) derive from this shared flow,
      * avoiding multiple redundant listeners.
+     *
+     * Uses flatMapLatest on the current user ID so that when the user
+     * signs out and re-signs-in (with a new anonymous UID), the snapshot
+     * listener is torn down and re-created for the new user's collection.
      */
-    private val allRecipesShared: Flow<List<Recipe>> = callbackFlow {
+    private val allRecipesShared: Flow<List<Recipe>> = authService.currentUserId
+        .flatMapLatest { uid ->
+            if (uid == null) {
+                flowOf(emptyList())
+            } else {
+                recipesFlowForCurrentUser()
+            }
+        }
+        .shareIn(
+            scope = repositoryScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            replay = 1
+        )
+
+    private fun recipesFlowForCurrentUser(): Flow<List<Recipe>> = callbackFlow {
         val collection = try {
             firestoreService.recipesCollection()
         } catch (e: Exception) {
@@ -65,11 +89,7 @@ class RecipeRepository @Inject constructor(
             trySend(recipes)
         }
         awaitClose { listener.remove() }
-    }.conflate().shareIn(
-        scope = repositoryScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        replay = 1
-    )
+    }.conflate()
 
     override fun getAllRecipes(): Flow<List<Recipe>> = allRecipesShared
 
