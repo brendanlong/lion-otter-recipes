@@ -9,22 +9,26 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.core.content.IntentCompat
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AuthService
+import com.lionotter.recipes.data.remote.AuthState
 import com.lionotter.recipes.data.remote.FirestoreService
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.ui.navigation.NavGraph
-import com.lionotter.recipes.ui.screens.login.LoginScreen
 import com.lionotter.recipes.ui.theme.LionOtterTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
@@ -46,6 +50,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Ensure user is signed in (Google or anonymous) on startup
+        lifecycleScope.launch {
+            authService.ensureSignedIn()
+        }
 
         val sharedUrl = extractSharedUrl(intent)
         val sharedFileUri = extractFileUri(intent)
@@ -74,23 +83,39 @@ class MainActivity : ComponentActivity() {
 
             val themeMode by settingsDataStore.themeMode
                 .collectAsStateWithLifecycle(initialValue = ThemeMode.AUTO)
-            val isSignedIn by authService.isSignedIn.collectAsState()
+            val authState by authService.authState.collectAsState()
 
             LionOtterTheme(themeMode = themeMode) {
-                if (isSignedIn) {
-                    Surface(
-                        modifier = Modifier.fillMaxSize(),
-                        color = MaterialTheme.colorScheme.background
-                    ) {
-                        NavGraph(
-                            sharedIntentViewModel = sharedIntentViewModel,
-                            initialSharedUrl = sharedUrl,
-                            initialFileUri = sharedFileUri,
-                            recipeId = recipeId
-                        )
+                when (authState) {
+                    is AuthState.Loading -> {
+                        // Show loading indicator while auth initializes
+                        Surface(
+                            modifier = Modifier.fillMaxSize(),
+                            color = MaterialTheme.colorScheme.background
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxSize(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                CircularProgressIndicator()
+                            }
+                        }
                     }
-                } else {
-                    LoginScreen()
+                    is AuthState.Anonymous, is AuthState.Google -> {
+                        // Show main app for both anonymous and Google users
+                        Surface(
+                            modifier = Modifier.fillMaxSize(),
+                            color = MaterialTheme.colorScheme.background
+                        ) {
+                            NavGraph(
+                                sharedIntentViewModel = sharedIntentViewModel,
+                                initialSharedUrl = sharedUrl,
+                                initialFileUri = sharedFileUri,
+                                recipeId = recipeId
+                            )
+                        }
+                    }
                 }
             }
         }

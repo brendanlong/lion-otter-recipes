@@ -6,10 +6,14 @@ import com.google.firebase.FirebaseOptions
 import com.google.firebase.firestore.MemoryCacheSettings
 import com.google.firebase.firestore.firestore
 import com.google.firebase.firestore.firestoreSettings
+import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.remote.ImageSyncService
 import com.lionotter.recipes.data.repository.MealPlanRepository
 import com.lionotter.recipes.data.repository.RecipeRepository
+import io.mockk.every
+import io.mockk.mockk
+import kotlinx.coroutines.flow.MutableStateFlow
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -78,7 +82,9 @@ abstract class FirestoreIntegrationTest {
             engine { addHandler { respond("", HttpStatusCode.NotFound) } }
         }
         val imageDownloadService = ImageDownloadService(context, httpClient, imageSyncService)
-        recipeRepository = RecipeRepository(firestoreService, imageDownloadService)
+        val authService: AuthService = mockk()
+        every { authService.currentUserId } returns MutableStateFlow("test-user")
+        recipeRepository = RecipeRepository(firestoreService, imageDownloadService, authService)
         mealPlanRepository = MealPlanRepository(firestoreService)
     }
 

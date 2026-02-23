@@ -10,6 +10,18 @@
     <string name="search">Search</string>
     <string name="or">or</string>
 
+    <!-- Account -->
+    <string name="account">Account</string>
+    <string name="guest_mode_description">Using guest mode (data stored on this device only)</string>
+    <string name="sign_in_with_google">Sign in with Google</string>
+    <string name="sign_in_sync_description">Sign in to sync recipes across devices</string>
+    <string name="signed_in_as">Signed in as %1$s</string>
+    <string name="sign_out">Sign Out</string>
+    <string name="sign_out_confirmation">Signing out will delete all locally cached data. You will continue in guest mode with an empty recipe list. Export your recipes first to keep a backup.</string>
+    <string name="signed_in_with_google">Signed in with Google</string>
+    <string name="sign_in_failed">Failed to sign in</string>
+    <string name="sign_in_migration_warning">Signed in with Google, but some data may not have been migrated</string>
+
     <!-- Delete Confirmation Dialog -->
     <string name="delete_recipe">Delete Recipe</string>
     <string name="delete_recipe_confirmation">Are you sure you want to delete \"%1$s\"? This action cannot be undone.</string>

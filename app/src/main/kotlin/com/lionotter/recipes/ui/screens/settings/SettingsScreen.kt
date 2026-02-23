@@ -1,6 +1,7 @@
 package com.lionotter.recipes.ui.screens.settings
 
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -59,10 +60,20 @@ fun SettingsScreen(
     val groceryWeightUnitSystem by viewModel.groceryWeightUnitSystem.collectAsStateWithLifecycle()
     val startOfWeek by viewModel.startOfWeek.collectAsStateWithLifecycle()
     val importDebuggingEnabled by viewModel.importDebuggingEnabled.collectAsStateWithLifecycle()
-    val currentUserEmail by viewModel.currentUserEmail.collectAsStateWithLifecycle()
+    val authState by viewModel.authState.collectAsStateWithLifecycle()
+    val isLinking by viewModel.isLinking.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // Observe toast messages from SettingsViewModel (emitted as string resource IDs)
+    // Context is used for string resolution in a side-effect, not for rendering
+    @Suppress("LocalContextGetResourceValueCall")
+    LaunchedEffect(Unit) {
+        viewModel.toastMessage.collect { messageResId ->
+            Toast.makeText(context, context.getString(messageResId), Toast.LENGTH_SHORT).show()
+        }
+    }
 
     // Export file picker (create .lorecipes document)
     val exportLauncher = rememberLauncherForActivityResult(
@@ -139,8 +150,10 @@ fun SettingsScreen(
             HorizontalDivider()
 
             AccountSection(
-                userEmail = currentUserEmail,
-                onSignOut = { viewModel.signOut() }
+                authState = authState,
+                onSignInWithGoogle = { viewModel.linkWithGoogle(context) },
+                onSignOut = { viewModel.signOut() },
+                isLinking = isLinking
             )
 
             HorizontalDivider()

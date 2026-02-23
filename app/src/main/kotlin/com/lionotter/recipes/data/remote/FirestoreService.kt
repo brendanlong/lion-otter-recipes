@@ -4,14 +4,16 @@ import android.util.Log
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.CollectionReference
-import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreSettings
 import com.google.firebase.firestore.firestore
 import com.google.firebase.firestore.firestoreSettings
 import com.google.firebase.firestore.persistentCacheSettings
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -25,6 +27,9 @@ open class FirestoreService @Inject constructor() {
 
     private val _errors = MutableSharedFlow<String>(extraBufferCapacity = 10)
     val errors: SharedFlow<String> = _errors.asSharedFlow()
+
+    private val _isNetworkEnabled = MutableStateFlow(true)
+    val isNetworkEnabled: StateFlow<Boolean> = _isNetworkEnabled.asStateFlow()
 
     init {
         try {
@@ -63,13 +68,35 @@ open class FirestoreService @Inject constructor() {
         _errors.tryEmit(message)
     }
 
-    suspend fun signOut() {
+    /** Disable Firestore network access (offline-only mode for anonymous users). */
+    suspend fun disableNetwork() {
+        try {
+            Firebase.firestore.disableNetwork().await()
+            _isNetworkEnabled.value = false
+            Log.d(TAG, "Firestore network disabled")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to disable Firestore network", e)
+        }
+    }
+
+    /** Enable Firestore network access (when user signs in with Google). */
+    suspend fun enableNetwork() {
+        try {
+            Firebase.firestore.enableNetwork().await()
+            _isNetworkEnabled.value = true
+            Log.d(TAG, "Firestore network enabled")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to enable Firestore network", e)
+        }
+    }
+
+    /** Terminates Firestore and clears the local persistence cache. */
+    suspend fun clearLocalData() {
         try {
             Firebase.firestore.terminate().await()
             Firebase.firestore.clearPersistence().await()
         } catch (e: Exception) {
             Log.e(TAG, "Error clearing Firestore persistence", e)
         }
-        Firebase.auth.signOut()
     }
 }

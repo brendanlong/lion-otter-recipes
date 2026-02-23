@@ -1,9 +1,13 @@
 package com.lionotter.recipes.spike
 
 import android.util.Log
+import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.remote.ImageSyncService
 import com.lionotter.recipes.data.repository.RecipeRepository
+import io.mockk.every
+import io.mockk.mockk
+import kotlinx.coroutines.flow.MutableStateFlow
 import com.lionotter.recipes.testutil.TestFirestoreService
 import com.google.firebase.Firebase
 import com.google.firebase.FirebaseApp
@@ -320,7 +324,9 @@ class FirestoreListenerSpikeTest {
             engine { addHandler { respond("", HttpStatusCode.NotFound) } }
         }
         val imageDownloadService = ImageDownloadService(context, httpClient, imageSyncService)
-        val recipeRepo = RecipeRepository(testFirestoreService, imageDownloadService)
+        val authService: AuthService = mockk()
+        every { authService.currentUserId } returns MutableStateFlow("test-user")
+        val recipeRepo = RecipeRepository(testFirestoreService, imageDownloadService, authService)
 
         val recipe = com.lionotter.recipes.domain.model.Recipe(
             id = "looper-test",
