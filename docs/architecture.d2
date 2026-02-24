@@ -559,7 +559,11 @@ app: {
       }
       auth_svc: {
         label: AuthService
-        tooltip: "Authentication service supporting both anonymous and Google Sign-In via Credential Manager API. Exposes AuthState sealed class (Loading, Anonymous, Google) for reactive UI. On startup, auto-signs-in anonymously with Firestore network disabled if no user exists. Supports account upgrade via linkWithGoogle() which links anonymous account to Google credential. Handles merge conflict when Google account already exists. Sign-out clears Firestore cache and transitions to anonymous mode."
+        tooltip: "Authentication service supporting both anonymous and Google Sign-In via Credential Manager API. Exposes AuthState sealed class (Loading, Anonymous, Google) for reactive UI. On startup, auto-signs-in anonymously with Firestore network disabled if no user exists. Supports account upgrade via linkWithGoogle() which links anonymous account to Google credential. Handles merge conflict when Google account already exists via AccountMigrationService (ephemeral secondary FirebaseApp migrates data before switching the default app). Sign-out clears Firestore cache and transitions to anonymous mode."
+      }
+      migration_svc: {
+        label: AccountMigrationService
+        tooltip: "Handles data migration when a guest signs into an existing Google account (NeedsMerge). Creates an ephemeral secondary FirebaseApp with the same project config, signs the Google user in on it, reads guest recipes/meal plans from the default (anonymous) Firestore cache, writes them to the Google account via the secondary Firestore (skipping existing IDs), then tears down the secondary app and switches the default app to Google."
       }
     }
 
@@ -786,7 +790,7 @@ legend: {
   share1 -> share2 -> share3 -> share4
 
   note: {
-    label: "All imports run in background via WorkManager (URL, Paprika, .lorecipes). Import queue is database-backed (PendingImportEntity in Room) and persists across app restarts. Recipes and meal plans are stored in Firestore with unlimited persistent cache and fire-and-forget writes. App starts in anonymous guest mode with Firestore network disabled (offline-only). Users can optionally sign in with Google via Settings to enable cloud sync. Anonymous users store images locally (file:// URIs); linking with Google uploads images to Firebase Storage. Sign-out clears Firestore cache and returns to anonymous mode. Paprika import uses the Message Batches API for multiple recipes (50% cheaper), submitting all recipes as a single batch for parallel processing, with fallback to sequential for single recipes. Batch cancellation propagates to the server. Export uses .lorecipes format (ZIP with RecipeSerializer) for both single recipe share and bulk backup."
+    label: "All imports run in background via WorkManager (URL, Paprika, .lorecipes). Import queue is database-backed (PendingImportEntity in Room) and persists across app restarts. Recipes and meal plans are stored in Firestore with unlimited persistent cache and fire-and-forget writes. App starts in anonymous guest mode with Firestore network disabled (offline-only). Users can optionally sign in with Google via Settings to enable cloud sync. Anonymous users store images locally (file:// URIs); linking with Google uploads images to Firebase Storage. When linking to an existing Google account (NeedsMerge), AccountMigrationService creates an ephemeral secondary FirebaseApp, signs in as Google on it, copies guest recipes/meal plans from the anonymous Firestore cache to the Google account via the secondary instance, then tears it down and switches the default app to Google. Sign-out clears Firestore cache and returns to anonymous mode. Paprika import uses the Message Batches API for multiple recipes (50% cheaper), submitting all recipes as a single batch for parallel processing, with fallback to sequential for single recipes. Batch cancellation propagates to the server. Export uses .lorecipes format (ZIP with RecipeSerializer) for both single recipe share and bulk backup."
     style: {
       font-size: 12
       italic: true

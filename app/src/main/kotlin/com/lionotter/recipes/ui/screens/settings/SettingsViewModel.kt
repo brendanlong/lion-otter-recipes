@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.lionotter.recipes.R
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AnthropicService
+import com.lionotter.recipes.data.remote.AccountMigrationService
 import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.AuthState
 import com.lionotter.recipes.data.remote.ImageSyncService
@@ -36,7 +37,8 @@ class SettingsViewModel @Inject constructor(
     private val importDebugRepository: ImportDebugRepository,
     private val authService: AuthService,
     private val recipeRepository: IRecipeRepository,
-    private val imageSyncService: ImageSyncService
+    private val imageSyncService: ImageSyncService,
+    private val accountMigrationService: AccountMigrationService
 ) : ViewModel() {
 
     companion object {
@@ -293,16 +295,25 @@ class SettingsViewModel @Inject constructor(
 
     /**
      * Performs data migration from anonymous account to existing Google account.
-     * Signs in with Google credential and uploads local images.
+     *
+     * Uses a secondary FirebaseApp to sign in as Google and write guest data
+     * to the Google account while the anonymous account remains intact on the
+     * default app. Only after the migration succeeds does it switch the default
+     * app to the Google user.
      */
     private suspend fun performMerge(mergeResult: LinkResult.NeedsMerge) {
         try {
             withContext(NonCancellable) {
-                val signInResult = authService.completeMergeSignIn(mergeResult.credential)
-                if (signInResult.isFailure) {
+                authService.beginMergeTransition()
+                val result = accountMigrationService.migrateGuestData(mergeResult.credential)
+                if (result.isFailure) {
+                    Log.e(TAG, "Migration failed", result.exceptionOrNull())
+                    // Migration failed — still anonymous, restore auth state
+                    authService.endMergeTransition()
                     _toastMessage.tryEmit(R.string.sign_in_failed)
                     return@withContext
                 }
+                authService.completeMergeSignIn()
                 _toastMessage.tryEmit(R.string.signed_in_with_google)
             }
 
@@ -310,6 +321,8 @@ class SettingsViewModel @Inject constructor(
             uploadLocalImages()
         } catch (e: Exception) {
             Log.e(TAG, "Error during account merge", e)
+            // Restore auth state based on current user in case of unexpected error
+            authService.endMergeTransition()
             _toastMessage.tryEmit(R.string.sign_in_migration_warning)
         }
     }
