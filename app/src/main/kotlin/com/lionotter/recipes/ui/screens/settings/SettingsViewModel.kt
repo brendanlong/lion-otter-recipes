@@ -142,6 +142,9 @@ class SettingsViewModel @Inject constructor(
     private val _isLinking = MutableStateFlow(false)
     val isLinking: StateFlow<Boolean> = _isLinking.asStateFlow()
 
+    private val _isDeletingAccount = MutableStateFlow(false)
+    val isDeletingAccount: StateFlow<Boolean> = _isDeletingAccount.asStateFlow()
+
     private val _toastMessage = MutableSharedFlow<Int>(extraBufferCapacity = 10)
     val toastMessage: SharedFlow<Int> = _toastMessage.asSharedFlow()
 
@@ -254,6 +257,27 @@ class SettingsViewModel @Inject constructor(
     fun signOut() {
         viewModelScope.launch {
             withContext(NonCancellable) { authService.signOut() }
+        }
+    }
+
+    /**
+     * Deletes the user's account and all associated data (recipes, meal plans,
+     * images) from Firebase, then transitions to anonymous mode.
+     */
+    fun deleteAccount() {
+        viewModelScope.launch {
+            _isDeletingAccount.value = true
+            try {
+                withContext(NonCancellable) {
+                    authService.deleteAccountAndData()
+                }
+                _toastMessage.tryEmit(R.string.delete_account_success)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to delete account", e)
+                _toastMessage.tryEmit(R.string.delete_account_failed)
+            } finally {
+                _isDeletingAccount.value = false
+            }
         }
     }
 

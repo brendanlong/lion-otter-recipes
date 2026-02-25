@@ -10,6 +10,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -28,9 +29,13 @@ fun AccountSection(
     authState: AuthState,
     onSignInWithGoogle: () -> Unit,
     onSignOut: () -> Unit,
-    isLinking: Boolean = false
+    onDeleteAccount: () -> Unit,
+    isLinking: Boolean = false,
+    isDeletingAccount: Boolean = false
 ) {
-    var showConfirmDialog by remember { mutableStateOf(false) }
+    var showSignOutDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var deleteConfirmationText by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
@@ -78,13 +83,37 @@ fun AccountSection(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                Button(
-                    onClick = { showConfirmDialog = true },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
+                if (isDeletingAccount) {
+                    CircularProgressIndicator()
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = stringResource(R.string.deleting_account),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                ) {
-                    Text(stringResource(R.string.sign_out))
+                } else {
+                    Button(
+                        onClick = { showSignOutDialog = true },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Text(stringResource(R.string.sign_out))
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Button(
+                        onClick = {
+                            deleteConfirmationText = ""
+                            showDeleteDialog = true
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Text(stringResource(R.string.delete_account))
+                    }
                 }
             }
             is AuthState.Loading -> {
@@ -93,9 +122,9 @@ fun AccountSection(
         }
     }
 
-    if (showConfirmDialog) {
+    if (showSignOutDialog) {
         AlertDialog(
-            onDismissRequest = { showConfirmDialog = false },
+            onDismissRequest = { showSignOutDialog = false },
             title = { Text(stringResource(R.string.sign_out)) },
             text = {
                 Text(stringResource(R.string.sign_out_confirmation))
@@ -103,7 +132,7 @@ fun AccountSection(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        showConfirmDialog = false
+                        showSignOutDialog = false
                         onSignOut()
                     }
                 ) {
@@ -111,7 +140,58 @@ fun AccountSection(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showConfirmDialog = false }) {
+                TextButton(onClick = { showSignOutDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    if (showDeleteDialog) {
+        val isDeleteConfirmed = deleteConfirmationText.trim().lowercase() == "delete"
+        AlertDialog(
+            onDismissRequest = {
+                showDeleteDialog = false
+                deleteConfirmationText = ""
+            },
+            title = { Text(stringResource(R.string.delete_account_title)) },
+            text = {
+                Column {
+                    Text(stringResource(R.string.delete_account_warning))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = deleteConfirmationText,
+                        onValueChange = { deleteConfirmationText = it },
+                        label = { Text(stringResource(R.string.delete_account_confirmation_hint)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteDialog = false
+                        deleteConfirmationText = ""
+                        onDeleteAccount()
+                    },
+                    enabled = isDeleteConfirmed
+                ) {
+                    Text(
+                        stringResource(R.string.delete),
+                        color = if (isDeleteConfirmed) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                        }
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showDeleteDialog = false
+                    deleteConfirmationText = ""
+                }) {
                     Text(stringResource(R.string.cancel))
                 }
             }

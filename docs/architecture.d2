@@ -136,7 +136,7 @@ app: {
       cancel_import_dialog: CancelImportConfirmationDialog
       account_section: {
         label: AccountSection
-        tooltip: "Settings component with two modes: Anonymous shows 'guest mode' message and 'Sign in with Google' button; Google shows signed-in email and sign-out button. Sign-out transitions to anonymous mode (not login screen). Linking with Google uploads local images to Firebase Storage."
+        tooltip: "Settings component with two modes: Anonymous shows 'guest mode' message and 'Sign in with Google' button; Google shows signed-in email, sign-out button, and 'Delete Account and Data' button. Sign-out transitions to anonymous mode. Delete account requires typing 'delete' to confirm, then permanently removes all user data (Firestore recipes/meal plans, Storage images, Auth account) and transitions to anonymous mode. Linking with Google uploads local images to Firebase Storage."
       }
     }
 
@@ -565,6 +565,10 @@ app: {
         label: AccountMigrationService
         tooltip: "Handles data migration when a guest signs into an existing Google account (NeedsMerge). Creates an ephemeral secondary FirebaseApp with the same project config, signs the Google user in on it, reads guest recipes/meal plans from the default (anonymous) Firestore cache, writes them to the Google account via the secondary Firestore (skipping existing IDs), then tears down the secondary app and switches the default app to Google."
       }
+      deletion_svc: {
+        label: AccountDeletionService
+        tooltip: "Handles complete deletion of a user's account and all associated data. Deletes all recipes and meal plans from Firestore (batched, max 500 per batch), all images from Firebase Storage (list + delete), clears local image cache, and deletes the Firebase Auth account. Called from SettingsViewModel via AuthService.deleteAccountAndData(). Requires user to type 'delete' to confirm in the UI."
+      }
     }
 
     dto: {
@@ -699,7 +703,10 @@ app: {
   domain.usecases.import_paprika -> data.remote.scraper: fetch source image
   domain.usecases.parse_html -> data.remote.image_dl: download image
   ui.viewmodels.login_vm -> data.remote.auth_svc: sign in
-  ui.viewmodels.settings_vm -> data.remote.auth_svc: sign out, email
+  ui.viewmodels.settings_vm -> data.remote.auth_svc: sign out, email, delete account
+  data.remote.auth_svc -> data.remote.deletion_svc: delete all user data
+  data.remote.deletion_svc -> data.remote.firestore_svc: delete collections
+  data.remote.deletion_svc -> external.firebase: Storage delete, Auth delete
   data.remote.firestore_svc -> external.firebase: Firestore
   data.remote.auth_svc -> external.firebase: Auth
   data.remote.image_sync -> external.firebase: Storage
