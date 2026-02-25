@@ -5,7 +5,6 @@ import android.util.Log
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.firestore
-import com.google.firebase.storage.storage
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
@@ -15,19 +14,23 @@ import javax.inject.Singleton
  * Handles complete deletion of a user's account and all associated data.
  *
  * Deletes (in order):
- * 1. All files from Firebase Storage (entire `users/{uid}/` tree)
- * 2. Local image cache
- * 3. All recipes from Firestore
- * 4. All meal plans from Firestore
- * 5. Firebase Auth account
+ * 1. Reads image URLs from all recipes (before deleting Firestore docs)
+ * 2. Deletes each image from Firebase Storage individually
+ * 3. Clears local image cache
+ * 4. Deletes all recipes from Firestore
+ * 5. Deletes all meal plans from Firestore
+ * 6. Deletes the user document from Firestore
+ * 7. Deletes the Firebase Auth account
  *
- * Storage files are deleted before Firestore documents to ensure security
- * rules that reference Firestore data are still satisfied during deletion.
+ * Image URLs are collected from Firestore recipes before any documents are
+ * deleted, then each image is deleted individually from Storage. This avoids
+ * needing the `list` permission on Storage (which `listAll()` requires).
  */
 @Singleton
 class AccountDeletionService @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val firestoreService: FirestoreService
+    private val firestoreService: FirestoreService,
+    private val imageSyncService: ImageSyncService
 ) {
     companion object {
         private const val TAG = "AccountDeletionService"
@@ -47,20 +50,24 @@ class AccountDeletionService @Inject constructor(
 
         Log.i(TAG, "Starting account deletion for user $uid")
 
-        // 1. Delete all files from Firebase Storage first, before removing
-        //    Firestore documents that may be referenced by Storage security rules
-        deleteStorageFiles(uid)
+        // 1. Read image URLs from all recipes BEFORE deleting any documents.
+        //    We need these URLs to delete the actual files from Firebase Storage.
+        val imageUrls = collectImageUrls()
 
-        // 2. Clear local image cache
+        // 2. Delete each image from Firebase Storage individually.
+        //    This uses direct gs:// URIs (only needs `delete` permission, not `list`).
+        deleteStorageImages(imageUrls)
+
+        // 3. Clear local image cache
         clearLocalImageCache()
 
-        // 3. Delete all recipes from Firestore
+        // 4. Delete all recipes from Firestore
         deleteCollection(firestoreService.recipesCollection())
 
-        // 4. Delete all meal plans from Firestore
+        // 5. Delete all meal plans from Firestore
         deleteCollection(firestoreService.mealPlansCollection())
 
-        // 5. Delete the user document itself (may not exist as a standalone doc,
+        // 6. Delete the user document itself (may not exist as a standalone doc,
         //    but clean up just in case)
         try {
             Firebase.firestore.collection(FirestoreService.USERS_COLLECTION)
@@ -71,7 +78,7 @@ class AccountDeletionService @Inject constructor(
             Log.w(TAG, "Failed to delete user document (may not exist)", e)
         }
 
-        // 6. Delete Firebase Auth account
+        // 7. Delete Firebase Auth account
         try {
             user.delete().await()
             Log.i(TAG, "Firebase Auth account deleted")
@@ -110,44 +117,39 @@ class AccountDeletionService @Inject constructor(
     }
 
     /**
-     * Deletes all files from Firebase Storage for the given user.
-     * Lists from `users/{uid}/` to catch everything under the user's folder,
-     * not just the known `images/` subfolder.
+     * Reads all recipe documents and collects their image URLs (gs:// paths).
+     * This must be called before deleting Firestore documents.
      */
-    private suspend fun deleteStorageFiles(uid: String) {
-        try {
-            val userRef = Firebase.storage.reference.child("users/$uid")
-            deleteStoragePrefix(userRef)
+    private suspend fun collectImageUrls(): List<String> {
+        return try {
+            val snapshot = firestoreService.recipesCollection().get().await()
+            snapshot.documents.mapNotNull { doc ->
+                doc.getString("imageUrl")?.takeIf { imageSyncService.isStoragePath(it) }
+            }.also { urls ->
+                Log.d(TAG, "Collected ${urls.size} image URLs from ${snapshot.documents.size} recipes")
+            }
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to list/delete storage files for user $uid", e)
-            // Non-fatal: storage cleanup is best-effort since the auth account
-            // will be deleted and security rules will prevent future access
+            Log.w(TAG, "Failed to collect image URLs from recipes", e)
+            emptyList()
         }
     }
 
     /**
-     * Recursively deletes all files under a Firebase Storage prefix.
-     * `listAll()` returns items (files) at the current level and prefixes
-     * (subdirectories) that need to be traversed separately.
+     * Deletes each image from Firebase Storage individually using its gs:// URI.
+     * This only requires `delete` permission, unlike `listAll()` which requires
+     * the `list` permission.
      */
-    private suspend fun deleteStoragePrefix(ref: com.google.firebase.storage.StorageReference) {
-        val listResult = ref.listAll().await()
-
-        for (item in listResult.items) {
+    private suspend fun deleteStorageImages(imageUrls: List<String>) {
+        var deletedCount = 0
+        for (url in imageUrls) {
             try {
-                item.delete().await()
+                imageSyncService.deleteRemoteImage(url)
+                deletedCount++
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to delete storage file: ${item.path}", e)
+                Log.w(TAG, "Failed to delete storage image: $url", e)
             }
         }
-
-        for (prefix in listResult.prefixes) {
-            deleteStoragePrefix(prefix)
-        }
-
-        if (listResult.items.isNotEmpty()) {
-            Log.d(TAG, "Deleted ${listResult.items.size} files from ${ref.path}")
-        }
+        Log.d(TAG, "Deleted $deletedCount/${imageUrls.size} images from Firebase Storage")
     }
 
     /**
