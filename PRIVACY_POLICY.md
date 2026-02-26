@@ -49,21 +49,20 @@ your recipes and meal plans are available across devices. When you sign in:
 - Recipe images (stored in Firebase Storage under your user ID)
 
 All cloud data is isolated to your account via Firebase security rules. No
-other user or administrator can access your data through the app.
+other user can access your data through the app.
 
 ## External Services
 
 ### Anthropic API (Claude AI)
 
 When you import a recipe, the app sends the **recipe web page content** (HTML
-or extracted text) to the Anthropic API for parsing. Your API key is sent with
-these requests for authentication. No personal data is included in these
-requests.
+or extracted text) to the Anthropic API for parsing. When you edit a recipe,
+the content of the recipe is re-sent for processing. Your API key is sent with
+these requests for authentication.
 
 ### Recipe Websites
 
-When you import a recipe by URL, the app fetches the web page directly. Only
-the page URL and its content are involved; no personal data is sent.
+When you import a recipe by URL, the app fetches the web page directly.
 
 ### Firebase (Google)
 
