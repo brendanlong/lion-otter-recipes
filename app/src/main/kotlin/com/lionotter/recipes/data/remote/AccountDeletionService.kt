@@ -62,10 +62,10 @@ class AccountDeletionService @Inject constructor(
         clearLocalImageCache()
 
         // 4. Delete all recipes from Firestore
-        deleteCollection(firestoreService.recipesCollection())
+        deleteCollection(firestoreService.recipesCollection(uid))
 
         // 5. Delete all meal plans from Firestore
-        deleteCollection(firestoreService.mealPlansCollection())
+        deleteCollection(firestoreService.mealPlansCollection(uid))
 
         // 6. Delete the user document itself (may not exist as a standalone doc,
         //    but clean up just in case)
@@ -122,7 +122,9 @@ class AccountDeletionService @Inject constructor(
      */
     private suspend fun collectImageUrls(): List<String> {
         return try {
-            val snapshot = firestoreService.recipesCollection().get().await()
+            val uid = Firebase.auth.currentUser?.uid
+                ?: throw IllegalStateException("No authenticated user for image collection")
+            val snapshot = firestoreService.recipesCollection(uid).get().await()
             snapshot.documents.mapNotNull { doc ->
                 doc.getString("imageUrl")?.takeIf { imageSyncService.isStoragePath(it) }
             }.also { urls ->

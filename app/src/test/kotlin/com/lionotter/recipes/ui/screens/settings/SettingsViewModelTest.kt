@@ -77,8 +77,7 @@ class SettingsViewModelTest {
         every { settingsDataStore.groceryVolumeUnitSystem } returns groceryVolumeUnitSystemFlow
         every { settingsDataStore.groceryWeightUnitSystem } returns groceryWeightUnitSystemFlow
         every { settingsDataStore.startOfWeek } returns startOfWeekFlow
-        every { authService.currentUserEmail } returns MutableStateFlow(null)
-        every { authService.authState } returns MutableStateFlow<AuthState>(AuthState.Anonymous)
+        every { authService.authState } returns MutableStateFlow<AuthState>(AuthState.Guest(uid = "test-guest"))
         viewModel = SettingsViewModel(settingsDataStore, importDebugRepository, authService, recipeRepository, imageSyncService, accountMigrationService)
     }
 

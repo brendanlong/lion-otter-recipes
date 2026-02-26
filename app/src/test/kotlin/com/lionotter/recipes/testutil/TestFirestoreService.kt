@@ -7,8 +7,8 @@ import com.lionotter.recipes.data.remote.FirestoreService
 
 /**
  * Test-only subclass of FirestoreService that bypasses Firebase Auth.
- * Uses a fixed user path ("users/test-user/...") so tests don't need
- * a signed-in user.
+ * Ignores the [uid] parameter and always uses "test-user" so tests
+ * don't need a signed-in user.
  */
 class TestFirestoreService : FirestoreService() {
 
@@ -16,11 +16,11 @@ class TestFirestoreService : FirestoreService() {
         private const val TEST_USER_ID = "test-user"
     }
 
-    override fun recipesCollection(): CollectionReference {
+    override fun recipesCollection(uid: String): CollectionReference {
         return Firebase.firestore.collection("users").document(TEST_USER_ID).collection("recipes")
     }
 
-    override fun mealPlansCollection(): CollectionReference {
+    override fun mealPlansCollection(uid: String): CollectionReference {
         return Firebase.firestore.collection("users").document(TEST_USER_ID).collection("mealPlans")
     }
 }
