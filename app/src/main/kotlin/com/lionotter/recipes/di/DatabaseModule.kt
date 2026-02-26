@@ -6,6 +6,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.lionotter.recipes.data.local.ImportDebugDao
 import com.lionotter.recipes.data.local.PendingImportDao
+import com.lionotter.recipes.data.local.PendingMigrationDao
 import com.lionotter.recipes.data.local.RecipeDatabase
 import dagger.Module
 import dagger.Provides
@@ -27,6 +28,19 @@ private val MIGRATION_11_12 = object : Migration(11, 12) {
     }
 }
 
+private val MIGRATION_12_13 = object : Migration(12, 13) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """CREATE TABLE IF NOT EXISTS pending_migration (
+                id TEXT NOT NULL PRIMARY KEY,
+                type TEXT NOT NULL,
+                json TEXT NOT NULL,
+                createdAt INTEGER NOT NULL
+            )"""
+        )
+    }
+}
+
 @Module
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
@@ -39,7 +53,7 @@ object DatabaseModule {
             RecipeDatabase::class.java,
             "recipes.db"
         )
-            .addMigrations(MIGRATION_10_11, MIGRATION_11_12)
+            .addMigrations(MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
             .build()
     }
 
@@ -53,5 +67,11 @@ object DatabaseModule {
     @Singleton
     fun providePendingImportDao(database: RecipeDatabase): PendingImportDao {
         return database.pendingImportDao()
+    }
+
+    @Provides
+    @Singleton
+    fun providePendingMigrationDao(database: RecipeDatabase): PendingMigrationDao {
+        return database.pendingMigrationDao()
     }
 }

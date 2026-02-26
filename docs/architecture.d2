@@ -485,7 +485,7 @@ app: {
       room: {
         label: Room Database
         shape: cylinder
-        tooltip: "Only used for local-only concerns: PendingImport (import queue) and ImportDebug (debugging data). Recipes and meal plans are stored in Firestore."
+        tooltip: "Only used for local-only concerns: PendingImport (import queue), PendingMigration (guest-to-Google migration staging queue), and ImportDebug (debugging data). Recipes and meal plans are stored in Firestore."
       }
       datastore: {
         label: DataStore
@@ -509,6 +509,11 @@ app: {
         label: ImportDebugEntity
         tooltip: "Room entity storing import debug data: source URL, original/cleaned HTML, AI output JSON, token counts, model, error info, linked recipe ID"
       }
+      pending_migration_dao: PendingMigrationDao
+      pending_migration_entity: {
+        label: PendingMigrationEntity
+        tooltip: "Room entity for the guest-to-Google migration staging queue: id, type (recipe/meal_plan), json (serialized domain object), createdAt. Entries survive app crashes and are retried on next launch."
+      }
       image_storage: {
         label: Local Image Cache
         shape: cylinder
@@ -523,6 +528,8 @@ app: {
       import_debug_entity -> room
       pending_import_dao -> room
       pending_import_entity -> room
+      pending_migration_dao -> room
+      pending_migration_entity -> room
       settings -> datastore: non-sensitive settings
       settings -> tink_encrypted: API key
     }
@@ -559,11 +566,11 @@ app: {
       }
       auth_svc: {
         label: AuthService
-        tooltip: "Authentication service supporting local guest mode and Google Sign-In via Credential Manager API. Exposes AuthState sealed class — Loading, Guest(uid), Google(uid, email) — as the single source of truth for auth state. All other auth info (current UID, email, sign-in status) is derived from this one StateFlow. Guest users get a local UUID stored in SharedPreferences — no Firebase Auth call needed. On startup, creates or restores the guest UUID with Firestore network disabled. Google sign-in uses AccountMigrationService to copy guest data, then completeMergeSignIn() atomically updates the UID, clears guest cache, and enables network in the correct order to prevent PERMISSION_DENIED races."
+        tooltip: "Authentication service supporting local guest mode and Google Sign-In via Credential Manager API. Exposes AuthState sealed class — Loading, Guest(uid), Google(uid, email) — as the single source of truth for auth state. All other auth info (current UID, email, sign-in status) is derived from this one StateFlow. Guest users get a local UUID stored in SharedPreferences — no Firebase Auth call needed. On startup, creates or restores the guest UUID with Firestore network disabled. Also retries any incomplete migration from a previous crash (checks Room queue via AccountMigrationService). Google sign-in uses AccountMigrationService to stage and apply guest data, then completeMergeSignIn() atomically updates the UID, clears guest cache, and enables network in the correct order to prevent PERMISSION_DENIED races."
       }
       migration_svc: {
         label: AccountMigrationService
-        tooltip: "Handles data migration when a guest signs into a Google account. Creates an ephemeral secondary FirebaseApp (with a unique name each time to work around a Firebase SDK DataStore bug), signs the Google user in on it, reads guest recipes/meal plans from the default Firestore cache using the local guest UID, writes them to the Google account via the secondary Firestore (skipping existing IDs), then tears down the secondary app and switches the default app to Google."
+        tooltip: "Handles data migration when a guest signs into a Google account. Uses a Room-based staging queue for crash safety: (1) reads guest recipes/meal plans from the default Firestore cache, serializes them to JSON, and inserts into the pending_migration table; (2) signs in as Google on the default app; (3) after Firestore cache is cleared and network enabled, reads staged entries from Room and writes them to the Google user's Firestore (skipping existing IDs); (4) clears the Room queue. If the app crashes mid-migration, entries survive in Room and are retried on next launch."
       }
       deletion_svc: {
         label: AccountDeletionService
@@ -607,6 +614,8 @@ app: {
     repository.import_debug_repo -> local.import_debug_dao
     repository.pending_import_repo -> local.pending_import_dao
     repository.meal_plan_repo -> remote.firestore_svc: Firestore CRUD
+    remote.migration_svc -> local.pending_migration_dao: stage/apply migration data
+    remote.migration_svc -> remote.firestore_svc: read guest cache, write Google data
     remote.image_dl -> local.image_storage: caches images
     remote.image_dl -> remote.image_sync: upload to storage
     remote.image_sync -> local.image_storage: download cache
@@ -704,6 +713,8 @@ app: {
   domain.usecases.parse_html -> data.remote.image_dl: download image
   ui.viewmodels.login_vm -> data.remote.auth_svc: sign in
   ui.viewmodels.settings_vm -> data.remote.auth_svc: sign out, email, delete account
+  ui.viewmodels.settings_vm -> data.remote.migration_svc: stage + apply migration
+  data.remote.auth_svc -> data.remote.migration_svc: retry pending migration on startup
   data.remote.auth_svc -> data.remote.deletion_svc: delete all user data
   data.remote.deletion_svc -> data.remote.firestore_svc: delete collections
   data.remote.deletion_svc -> external.firebase: Storage delete, Auth delete
@@ -797,7 +808,7 @@ legend: {
   share1 -> share2 -> share3 -> share4
 
   note: {
-    label: "All imports run in background via WorkManager (URL, Paprika, .lorecipes). Import queue is database-backed (PendingImportEntity in Room) and persists across app restarts. Recipes and meal plans are stored in Firestore with unlimited persistent cache and fire-and-forget writes. App starts in guest mode with a local UUID (stored in SharedPreferences, no Firebase Auth) and Firestore network disabled (offline-only). Users can optionally sign in with Google via Settings to enable cloud sync. Guest users store images locally (file:// URIs); signing in with Google migrates guest data via AccountMigrationService and uploads images to Firebase Storage. AccountMigrationService creates an ephemeral secondary FirebaseApp (unique name each time to work around a Firebase SDK DataStore bug), signs in as Google on it, copies guest recipes/meal plans from the Firestore cache to the Google account via the secondary instance, then tears it down and switches the default app to Google. Sign-out clears Firestore cache and returns to guest mode with a fresh UUID. Paprika import uses the Message Batches API for multiple recipes (50% cheaper), submitting all recipes as a single batch for parallel processing, with fallback to sequential for single recipes. Batch cancellation propagates to the server. Export uses .lorecipes format (ZIP with RecipeSerializer) for both single recipe share and bulk backup."
+    label: "All imports run in background via WorkManager (URL, Paprika, .lorecipes). Import queue is database-backed (PendingImportEntity in Room) and persists across app restarts. Recipes and meal plans are stored in Firestore with unlimited persistent cache and fire-and-forget writes. App starts in guest mode with a local UUID (stored in SharedPreferences, no Firebase Auth) and Firestore network disabled (offline-only). Users can optionally sign in with Google via Settings to enable cloud sync. Guest users store images locally (file:// URIs); signing in with Google migrates guest data via AccountMigrationService and uploads images to Firebase Storage. AccountMigrationService uses a Room staging queue (pending_migration table) for crash-safe migration: guest data is read from Firestore cache, serialized to JSON, and staged in Room before any destructive operations. After signing in as Google and clearing the Firestore cache, staged entries are deserialized and written to the Google user's Firestore (skipping existing IDs). If the app crashes mid-migration, Room entries survive and are retried on next launch. Sign-out clears Firestore cache and returns to guest mode with a fresh UUID. Paprika import uses the Message Batches API for multiple recipes (50% cheaper), submitting all recipes as a single batch for parallel processing, with fallback to sequential for single recipes. Batch cancellation propagates to the server. Export uses .lorecipes format (ZIP with RecipeSerializer) for both single recipe share and bulk backup."
     style: {
       font-size: 12
       italic: true
