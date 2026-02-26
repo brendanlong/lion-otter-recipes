@@ -42,6 +42,16 @@ external: {
     tooltip: "Firebase Auth (Google Sign-In only), Cloud Firestore (recipes + meal plans), and Cloud Storage (recipe images). Firestore uses unlimited persistent cache with auto index creation. Guest users use a local UUID (no Firebase Auth) and operate fully offline with Firestore network disabled. Storage images are cached locally for offline access; guest users use local file:// URIs only."
   }
 
+  sentry: {
+    label: Sentry
+    shape: rectangle
+    style: {
+      fill: "#362d59"
+      font-color: "#ffffff"
+    }
+    tooltip: "Error tracking and crash reporting. Auto-captures uncaught exceptions. User-facing errors (toasted or shown in error states) are explicitly reported via Sentry.captureException(). DSN configured via SENTRY_DSN environment variable at build time; empty DSN disables Sentry."
+  }
+
 }
 
 # Android App
@@ -713,6 +723,11 @@ app: {
   data.remote.scraper -> external.web: fetch HTML
   data.remote.image_dl -> external.web: download image
   data.remote.anthropic_svc -> external.anthropic: parse recipe
+
+  # Error reporting — Sentry captures errors from the Application class
+  # (uncaught exceptions) and from services/ViewModels that report
+  # user-facing errors.
+  data.remote.firestore_svc -> external.sentry: report errors
 }
 
 # Data Flow Legend

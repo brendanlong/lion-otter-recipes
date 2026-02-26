@@ -7,11 +7,10 @@ importing, organizing, and cooking with recipes. This privacy policy explains
 what data the app collects, how it is used, and your options for managing your
 data.
 
-## No Ads or Tracking
+## No Ads or Behavioral Tracking
 
-The app contains **no advertisements**, **no analytics**, and **no third-party
-tracking**. We do not collect behavioral data, device identifiers, or location
-information.
+The app contains **no advertisements** and **no behavioral tracking**. We do
+not collect device identifiers, location information, or usage analytics.
 
 ## Offline Use Without an Account
 
@@ -63,6 +62,14 @@ these requests for authentication.
 ### Recipe Websites
 
 When you import a recipe by URL, the app fetches the web page directly.
+
+### Sentry (Error Tracking)
+
+The app uses Sentry to collect crash reports and error diagnostics. When an
+error occurs, Sentry receives the error message, stack trace, app version, OS
+version, and device model. No personal data such as recipes, meal plans, or
+account credentials is included in error reports. Sentry's privacy policy:
+https://sentry.io/privacy/
 
 ### Firebase (Google)
 

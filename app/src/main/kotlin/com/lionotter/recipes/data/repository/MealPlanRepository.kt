@@ -40,7 +40,7 @@ class MealPlanRepository @Inject constructor(
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     Log.e(TAG, "Error listening to meal plans", error)
-                    firestoreService.reportError("Failed to load meal plans: ${error.message}")
+                    firestoreService.reportError("Failed to load meal plans: ${error.message}", error)
                     close(error)
                     return@addSnapshotListener
                 }
@@ -62,7 +62,7 @@ class MealPlanRepository @Inject constructor(
         firestoreService.mealPlansCollection(requireUid()).document(entry.id).set(dto)
             .addOnFailureListener { e ->
                 Log.e(TAG, "Error saving meal plan ${entry.id}", e)
-                firestoreService.reportError("Failed to save meal plan: ${e.message}")
+                firestoreService.reportError("Failed to save meal plan: ${e.message}", e)
             }
     }
 
@@ -71,7 +71,7 @@ class MealPlanRepository @Inject constructor(
         firestoreService.mealPlansCollection(requireUid()).document(entry.id).set(dto)
             .addOnFailureListener { e ->
                 Log.e(TAG, "Error updating meal plan ${entry.id}", e)
-                firestoreService.reportError("Failed to update meal plan: ${e.message}")
+                firestoreService.reportError("Failed to update meal plan: ${e.message}", e)
             }
     }
 
@@ -79,7 +79,7 @@ class MealPlanRepository @Inject constructor(
         firestoreService.mealPlansCollection(requireUid()).document(id).delete()
             .addOnFailureListener { e ->
                 Log.e(TAG, "Error deleting meal plan $id", e)
-                firestoreService.reportError("Failed to delete meal plan: ${e.message}")
+                firestoreService.reportError("Failed to delete meal plan: ${e.message}", e)
             }
     }
 
@@ -100,11 +100,11 @@ class MealPlanRepository @Inject constructor(
             batch.commit()
                 .addOnFailureListener { e ->
                     Log.e(TAG, "Error batch deleting meal plans for recipe $recipeId", e)
-                    firestoreService.reportError("Failed to delete meal plans: ${e.message}")
+                    firestoreService.reportError("Failed to delete meal plans: ${e.message}", e)
                 }
         } catch (e: Exception) {
             Log.e(TAG, "Error querying meal plans for recipe $recipeId", e)
-            firestoreService.reportError("Failed to delete meal plans: ${e.message}")
+            firestoreService.reportError("Failed to delete meal plans: ${e.message}", e)
         }
     }
 

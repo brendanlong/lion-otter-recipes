@@ -74,7 +74,7 @@ class RecipeRepository @Inject constructor(
         val listener = collection.addSnapshotListener { snapshot, error ->
             if (error != null) {
                 Log.e(TAG, "Error listening to recipes", error)
-                firestoreService.reportError("Failed to load recipes: ${error.message}")
+                firestoreService.reportError("Failed to load recipes: ${error.message}", error)
                 close(error)
                 return@addSnapshotListener
             }
@@ -117,7 +117,7 @@ class RecipeRepository @Inject constructor(
         firestoreService.recipesCollection(requireUid()).document(recipe.id).set(dto)
             .addOnFailureListener { e ->
                 Log.e(TAG, "Error saving recipe ${recipe.id}", e)
-                firestoreService.reportError("Failed to save recipe: ${e.message}")
+                firestoreService.reportError("Failed to save recipe: ${e.message}", e)
             }
     }
 
@@ -145,7 +145,7 @@ class RecipeRepository @Inject constructor(
         firestoreService.recipesCollection(uid).document(id).delete()
             .addOnFailureListener { e ->
                 Log.e(TAG, "Error deleting recipe $id", e)
-                firestoreService.reportError("Failed to delete recipe: ${e.message}")
+                firestoreService.reportError("Failed to delete recipe: ${e.message}", e)
             }
     }
 
@@ -154,7 +154,7 @@ class RecipeRepository @Inject constructor(
             .update("isFavorite", isFavorite)
             .addOnFailureListener { e ->
                 Log.e(TAG, "Error updating favorite for $id", e)
-                firestoreService.reportError("Failed to update favorite: ${e.message}")
+                firestoreService.reportError("Failed to update favorite: ${e.message}", e)
             }
     }
 
@@ -163,7 +163,7 @@ class RecipeRepository @Inject constructor(
             .update("userNotes", userNotes)
             .addOnFailureListener { e ->
                 Log.e(TAG, "Error updating user notes for $id", e)
-                firestoreService.reportError("Failed to update notes: ${e.message}")
+                firestoreService.reportError("Failed to update notes: ${e.message}", e)
             }
     }
 
@@ -172,7 +172,7 @@ class RecipeRepository @Inject constructor(
             .update("imageUrl", imageUrl)
             .addOnFailureListener { e ->
                 Log.e(TAG, "Error updating image URL for $id", e)
-                firestoreService.reportError("Failed to update image: ${e.message}")
+                firestoreService.reportError("Failed to update image: ${e.message}", e)
             }
     }
 
@@ -185,7 +185,7 @@ class RecipeRepository @Inject constructor(
             .update(updates)
             .addOnFailureListener { e ->
                 Log.e(TAG, "Error updating title/URL for $id", e)
-                firestoreService.reportError("Failed to update recipe: ${e.message}")
+                firestoreService.reportError("Failed to update recipe: ${e.message}", e)
             }
     }
 

@@ -6,6 +6,7 @@
 - Prefer to amend if fixing the current commit
 - ALWAYS check the current commit before amending
 - Reference @docs/architecture.d2 and keep it up to date with any changes
+- Update PRIVACY_POLICY.md whenever adding new data storage, external services, trackers, or debug/diagnostics tools
 - Before committing, always run the CI checks locally to verify nothing is broken:
   - `./ci-local.sh` (runs assembleDebug, testDebugUnitTest, and lintDebug in parallel)
   - See `.github/workflows/android-ci.yml` for the full CI pipeline
