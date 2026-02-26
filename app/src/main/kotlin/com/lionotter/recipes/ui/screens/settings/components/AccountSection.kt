@@ -30,7 +30,7 @@ fun AccountSection(
     onSignInWithGoogle: () -> Unit,
     onSignOut: () -> Unit,
     onDeleteAccount: () -> Unit,
-    isLinking: Boolean = false,
+    isSigningIn: Boolean = false,
     isDeletingAccount: Boolean = false
 ) {
     var showSignOutDialog by remember { mutableStateOf(false) }
@@ -51,7 +51,7 @@ fun AccountSection(
         Spacer(modifier = Modifier.height(8.dp))
 
         when (authState) {
-            is AuthState.Anonymous -> {
+            is AuthState.Guest -> {
                 Text(
                     text = stringResource(R.string.guest_mode_description),
                     style = MaterialTheme.typography.bodyMedium
@@ -59,7 +59,7 @@ fun AccountSection(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                if (isLinking) {
+                if (isSigningIn) {
                     CircularProgressIndicator()
                 } else {
                     Button(onClick = onSignInWithGoogle) {

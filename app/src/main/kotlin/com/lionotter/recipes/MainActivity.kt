@@ -51,7 +51,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Ensure user is signed in (Google or anonymous) on startup
+        // Ensure user has a session (Google or local guest) on startup
         lifecycleScope.launch {
             authService.ensureSignedIn()
         }
@@ -102,8 +102,8 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
-                    is AuthState.Anonymous, is AuthState.Google -> {
-                        // Show main app for both anonymous and Google users
+                    is AuthState.Guest, is AuthState.Google -> {
+                        // Show main app for both guest and Google users
                         Surface(
                             modifier = Modifier.fillMaxSize(),
                             color = MaterialTheme.colorScheme.background

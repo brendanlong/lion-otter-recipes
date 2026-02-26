@@ -2,7 +2,6 @@ package com.lionotter.recipes.data.remote
 
 import android.util.Log
 import com.google.firebase.Firebase
-import com.google.firebase.auth.auth
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.FirebaseFirestoreSettings
 import com.google.firebase.firestore.firestore
@@ -36,8 +35,8 @@ open class FirestoreService @Inject constructor() {
 
     /**
      * Incremented each time the Firestore instance is recycled (terminate + clearPersistence).
-     * Repositories combine this with the current user ID so that their snapshot listeners
-     * are automatically re-created after a Firestore reset — no manual re-subscription needed.
+     * Repositories combine this with [AuthState] so that their snapshot listeners
+     * are automatically re-created after a Firestore reset.
      */
     private val _generation = MutableStateFlow(0)
     val generation: StateFlow<Int> = _generation.asStateFlow()
@@ -59,18 +58,13 @@ open class FirestoreService @Inject constructor() {
         }
     }
 
-    private fun requireUid(): String {
-        return Firebase.auth.currentUser?.uid
-            ?: throw IllegalStateException("User not authenticated")
-    }
-
-    open fun recipesCollection(): CollectionReference {
-        val uid = requireUid()
+    /** Returns the collection for the given user's recipes. */
+    open fun recipesCollection(uid: String): CollectionReference {
         return Firebase.firestore.collection(USERS_COLLECTION).document(uid).collection(RECIPES_COLLECTION)
     }
 
-    open fun mealPlansCollection(): CollectionReference {
-        val uid = requireUid()
+    /** Returns the collection for the given user's meal plans. */
+    open fun mealPlansCollection(uid: String): CollectionReference {
         return Firebase.firestore.collection(USERS_COLLECTION).document(uid).collection(MEAL_PLANS_COLLECTION)
     }
 
@@ -79,7 +73,7 @@ open class FirestoreService @Inject constructor() {
         _errors.tryEmit(message)
     }
 
-    /** Disable Firestore network access (offline-only mode for anonymous users). */
+    /** Disable Firestore network access (offline-only mode for guest users). */
     suspend fun disableNetwork() {
         try {
             Firebase.firestore.disableNetwork().await()

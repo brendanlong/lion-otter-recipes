@@ -61,7 +61,7 @@ fun SettingsScreen(
     val startOfWeek by viewModel.startOfWeek.collectAsStateWithLifecycle()
     val importDebuggingEnabled by viewModel.importDebuggingEnabled.collectAsStateWithLifecycle()
     val authState by viewModel.authState.collectAsStateWithLifecycle()
-    val isLinking by viewModel.isLinking.collectAsStateWithLifecycle()
+    val isSigningIn by viewModel.isSigningIn.collectAsStateWithLifecycle()
     val isDeletingAccount by viewModel.isDeletingAccount.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
@@ -152,10 +152,10 @@ fun SettingsScreen(
 
             AccountSection(
                 authState = authState,
-                onSignInWithGoogle = { viewModel.linkWithGoogle(context) },
+                onSignInWithGoogle = { viewModel.signInWithGoogle(context) },
                 onSignOut = { viewModel.signOut() },
                 onDeleteAccount = { viewModel.deleteAccount() },
-                isLinking = isLinking,
+                isSigningIn = isSigningIn,
                 isDeletingAccount = isDeletingAccount
             )
 

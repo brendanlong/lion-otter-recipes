@@ -12,8 +12,6 @@ import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.jvm.javaio.toInputStream
 import android.util.Base64
-import com.google.firebase.Firebase
-import com.google.firebase.auth.auth
 import java.io.File
 import java.io.InputStream
 import java.util.UUID
@@ -34,7 +32,8 @@ import javax.inject.Singleton
 class ImageDownloadService @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val httpClient: HttpClient,
-    private val imageSyncService: ImageSyncService
+    private val imageSyncService: ImageSyncService,
+    private val authService: AuthService
 ) {
     /**
      * Result of downloading an image, containing both the local file URI
@@ -75,8 +74,8 @@ class ImageDownloadService @Inject constructor(
             cleanupImage(previousImageUrl)
         }
 
-        // Skip upload for anonymous users — just use local file
-        if (Firebase.auth.currentUser?.isAnonymous == true) return localUri
+        // Skip upload for guest users — just use local file
+        if (!authService.isGoogleUser()) return localUri
 
         // Upload to Firebase Storage
         return imageSyncService.uploadImage(localUri) ?: localUri

@@ -39,7 +39,7 @@ external: {
     style: {
       fill: "#ffca28"
     }
-    tooltip: "Firebase Auth (Anonymous + Google Sign-In), Cloud Firestore (recipes + meal plans), and Cloud Storage (recipe images). Firestore uses unlimited persistent cache with auto index creation. Anonymous users operate fully offline with Firestore network disabled. Storage images are cached locally for offline access; anonymous users use local file:// URIs only."
+    tooltip: "Firebase Auth (Google Sign-In only), Cloud Firestore (recipes + meal plans), and Cloud Storage (recipe images). Firestore uses unlimited persistent cache with auto index creation. Guest users use a local UUID (no Firebase Auth) and operate fully offline with Firestore network disabled. Storage images are cached locally for offline access; guest users use local file:// URIs only."
   }
 
 }
@@ -69,7 +69,7 @@ app: {
 
       login: {
         label: LoginScreen
-        tooltip: "Legacy screen (no longer shown). App now auto-signs-in anonymously. Google Sign-In moved to Settings AccountSection."
+        tooltip: "Legacy screen (no longer shown). App now uses a local guest UUID. Google Sign-In moved to Settings AccountSection."
       }
       list: RecipeListScreen
       detail: {
@@ -136,7 +136,7 @@ app: {
       cancel_import_dialog: CancelImportConfirmationDialog
       account_section: {
         label: AccountSection
-        tooltip: "Settings component with two modes: Anonymous shows 'guest mode' message and 'Sign in with Google' button; Google shows signed-in email, sign-out button, and 'Delete Account and Data' button. Sign-out transitions to anonymous mode. Delete account requires typing 'delete' to confirm, then permanently removes all user data (Firestore recipes/meal plans, Storage images, Auth account) and transitions to anonymous mode. Linking with Google uploads local images to Firebase Storage."
+        tooltip: "Settings component with two modes: Guest shows 'guest mode' message and 'Sign in with Google' button; Google shows signed-in email, sign-out button, and 'Delete Account and Data' button. Sign-out transitions to guest mode. Delete account requires typing 'delete' to confirm, then permanently removes all user data (Firestore recipes/meal plans, Storage images, Auth account) and transitions to guest mode. Signing in with Google migrates guest data and uploads local images to Firebase Storage."
       }
     }
 
@@ -150,7 +150,7 @@ app: {
 
       login_vm: {
         label: LoginViewModel
-        tooltip: "Legacy ViewModel (no longer used). Anonymous auth is automatic at startup."
+        tooltip: "Legacy ViewModel (no longer used). Guest mode is automatic at startup using a local UUID."
       }
       list_vm: RecipeListViewModel
       detail_vm: RecipeDetailViewModel
@@ -543,7 +543,7 @@ app: {
       }
       image_dl: {
         label: ImageDownloadService
-        tooltip: "Downloads recipe images from remote URLs and stores them locally in app internal storage. Automatically retries with HTTPS if an HTTP download fails (e.g., cleartext traffic not permitted). Also supports saving images from byte streams (ZIP import) and base64 data (Paprika photo_data). After saving locally, uploads images to Firebase Storage via ImageSyncService (skipped for anonymous users — returns local file:// URI instead). Returns gs:// URIs for Firestore sync when signed in with Google. Used during import, export, and ZIP restore."
+        tooltip: "Downloads recipe images from remote URLs and stores them locally in app internal storage. Automatically retries with HTTPS if an HTTP download fails (e.g., cleartext traffic not permitted). Also supports saving images from byte streams (ZIP import) and base64 data (Paprika photo_data). After saving locally, uploads images to Firebase Storage via ImageSyncService (skipped for guest users — returns local file:// URI instead). Returns gs:// URIs for Firestore sync when signed in with Google. Used during import, export, and ZIP restore."
       }
       image_sync: {
         label: ImageSyncService
@@ -555,15 +555,15 @@ app: {
       }
       firestore_svc: {
         label: FirestoreService
-        tooltip: "Singleton managing Firestore instance with unlimited persistent cache and auto index creation. Provides user-scoped collection references (recipes, mealPlans). Reports errors via SharedFlow for Toast display. Handles sign-out (terminate, clear persistence). Supports network toggle (disableNetwork/enableNetwork) for anonymous offline mode."
+        tooltip: "Singleton managing Firestore instance with unlimited persistent cache and auto index creation. Provides user-scoped collection references (recipes, mealPlans) that take a UID parameter. Reports errors via SharedFlow for Toast display. Handles sign-out (terminate, clear persistence). Supports network toggle (disableNetwork/enableNetwork) for guest offline mode. Generation counter signals repos to recreate listeners after Firestore resets."
       }
       auth_svc: {
         label: AuthService
-        tooltip: "Authentication service supporting both anonymous and Google Sign-In via Credential Manager API. Exposes AuthState sealed class (Loading, Anonymous, Google) for reactive UI. On startup, auto-signs-in anonymously with Firestore network disabled if no user exists. Supports account upgrade via linkWithGoogle() which links anonymous account to Google credential. Handles merge conflict when Google account already exists via AccountMigrationService (ephemeral secondary FirebaseApp migrates data before switching the default app). Sign-out clears Firestore cache and transitions to anonymous mode."
+        tooltip: "Authentication service supporting local guest mode and Google Sign-In via Credential Manager API. Exposes AuthState sealed class — Loading, Guest(uid), Google(uid, email) — as the single source of truth for auth state. All other auth info (current UID, email, sign-in status) is derived from this one StateFlow. Guest users get a local UUID stored in SharedPreferences — no Firebase Auth call needed. On startup, creates or restores the guest UUID with Firestore network disabled. Google sign-in uses AccountMigrationService to copy guest data, then completeMergeSignIn() atomically updates the UID, clears guest cache, and enables network in the correct order to prevent PERMISSION_DENIED races."
       }
       migration_svc: {
         label: AccountMigrationService
-        tooltip: "Handles data migration when a guest signs into an existing Google account (NeedsMerge). Creates an ephemeral secondary FirebaseApp with the same project config, signs the Google user in on it, reads guest recipes/meal plans from the default (anonymous) Firestore cache, writes them to the Google account via the secondary Firestore (skipping existing IDs), then tears down the secondary app and switches the default app to Google."
+        tooltip: "Handles data migration when a guest signs into a Google account. Creates an ephemeral secondary FirebaseApp (with a unique name each time to work around a Firebase SDK DataStore bug), signs the Google user in on it, reads guest recipes/meal plans from the default Firestore cache using the local guest UID, writes them to the Google account via the secondary Firestore (skipping existing IDs), then tears down the secondary app and switches the default app to Google."
       }
       deletion_svc: {
         label: AccountDeletionService
@@ -797,7 +797,7 @@ legend: {
   share1 -> share2 -> share3 -> share4
 
   note: {
-    label: "All imports run in background via WorkManager (URL, Paprika, .lorecipes). Import queue is database-backed (PendingImportEntity in Room) and persists across app restarts. Recipes and meal plans are stored in Firestore with unlimited persistent cache and fire-and-forget writes. App starts in anonymous guest mode with Firestore network disabled (offline-only). Users can optionally sign in with Google via Settings to enable cloud sync. Anonymous users store images locally (file:// URIs); linking with Google uploads images to Firebase Storage. When linking to an existing Google account (NeedsMerge), AccountMigrationService creates an ephemeral secondary FirebaseApp, signs in as Google on it, copies guest recipes/meal plans from the anonymous Firestore cache to the Google account via the secondary instance, then tears it down and switches the default app to Google. Sign-out clears Firestore cache and returns to anonymous mode. Paprika import uses the Message Batches API for multiple recipes (50% cheaper), submitting all recipes as a single batch for parallel processing, with fallback to sequential for single recipes. Batch cancellation propagates to the server. Export uses .lorecipes format (ZIP with RecipeSerializer) for both single recipe share and bulk backup."
+    label: "All imports run in background via WorkManager (URL, Paprika, .lorecipes). Import queue is database-backed (PendingImportEntity in Room) and persists across app restarts. Recipes and meal plans are stored in Firestore with unlimited persistent cache and fire-and-forget writes. App starts in guest mode with a local UUID (stored in SharedPreferences, no Firebase Auth) and Firestore network disabled (offline-only). Users can optionally sign in with Google via Settings to enable cloud sync. Guest users store images locally (file:// URIs); signing in with Google migrates guest data via AccountMigrationService and uploads images to Firebase Storage. AccountMigrationService creates an ephemeral secondary FirebaseApp (unique name each time to work around a Firebase SDK DataStore bug), signs in as Google on it, copies guest recipes/meal plans from the Firestore cache to the Google account via the secondary instance, then tears it down and switches the default app to Google. Sign-out clears Firestore cache and returns to guest mode with a fresh UUID. Paprika import uses the Message Batches API for multiple recipes (50% cheaper), submitting all recipes as a single batch for parallel processing, with fallback to sequential for single recipes. Batch cancellation propagates to the server. Export uses .lorecipes format (ZIP with RecipeSerializer) for both single recipe share and bulk backup."
     style: {
       font-size: 12
       italic: true

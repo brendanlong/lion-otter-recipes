@@ -11,7 +11,6 @@ import com.lionotter.recipes.data.remote.AccountMigrationService
 import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.AuthState
 import com.lionotter.recipes.data.remote.ImageSyncService
-import com.lionotter.recipes.data.remote.LinkResult
 import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.domain.model.StartOfWeek
@@ -46,8 +45,6 @@ class SettingsViewModel @Inject constructor(
     }
 
     val authState: StateFlow<AuthState> = authService.authState
-
-    val currentUserEmail: StateFlow<String?> = authService.currentUserEmail
 
     val apiKey: StateFlow<String?> = settingsDataStore.anthropicApiKey
         .stateIn(
@@ -139,8 +136,8 @@ class SettingsViewModel @Inject constructor(
     private val _saveState = MutableStateFlow<SaveState>(SaveState.Idle)
     val saveState: StateFlow<SaveState> = _saveState.asStateFlow()
 
-    private val _isLinking = MutableStateFlow(false)
-    val isLinking: StateFlow<Boolean> = _isLinking.asStateFlow()
+    private val _isSigningIn = MutableStateFlow(false)
+    val isSigningIn: StateFlow<Boolean> = _isSigningIn.asStateFlow()
 
     private val _isDeletingAccount = MutableStateFlow(false)
     val isDeletingAccount: StateFlow<Boolean> = _isDeletingAccount.asStateFlow()
@@ -262,7 +259,7 @@ class SettingsViewModel @Inject constructor(
 
     /**
      * Deletes the user's account and all associated data (recipes, meal plans,
-     * images) from Firebase, then transitions to anonymous mode.
+     * images) from Firebase, then transitions to guest mode.
      */
     fun deleteAccount() {
         viewModelScope.launch {
@@ -282,58 +279,47 @@ class SettingsViewModel @Inject constructor(
     }
 
     /**
-     * Links the current anonymous account with Google.
-     * Handles both the happy path (link succeeds) and the merge path
-     * (Google account already exists, data migration needed).
+     * Signs in with Google. Gets a credential, then migrates guest data
+     * to the Google account before completing the sign-in.
      */
-    fun linkWithGoogle(activityContext: Context) {
+    fun signInWithGoogle(activityContext: Context) {
         viewModelScope.launch {
-            _isLinking.value = true
+            _isSigningIn.value = true
             try {
-                val result = withContext(NonCancellable) {
-                    authService.linkWithGoogle(activityContext)
+                val credentialResult = withContext(NonCancellable) {
+                    authService.signInWithGoogle(activityContext)
                 }
-                result.fold(
-                    onSuccess = { linkResult ->
-                        when (linkResult) {
-                            is LinkResult.Linked -> {
-                                // Upload local images in the background
-                                uploadLocalImages()
-                                _toastMessage.tryEmit(R.string.signed_in_with_google)
-                            }
-                            is LinkResult.NeedsMerge -> {
-                                performMerge(linkResult)
-                            }
-                        }
+                credentialResult.fold(
+                    onSuccess = { credential ->
+                        performMigration(credential)
                     },
                     onFailure = { e ->
-                        Log.e(TAG, "Failed to link Google account", e)
+                        Log.e(TAG, "Failed to get Google credential", e)
                         _toastMessage.tryEmit(R.string.sign_in_failed)
                     }
                 )
             } finally {
-                _isLinking.value = false
+                _isSigningIn.value = false
             }
         }
     }
 
     /**
-     * Performs data migration from anonymous account to existing Google account.
-     *
-     * Uses a secondary FirebaseApp to sign in as Google and write guest data
-     * to the Google account while the anonymous account remains intact on the
-     * default app. Only after the migration succeeds does it switch the default
-     * app to the Google user.
+     * Migrates guest data to the Google account, then completes the sign-in.
      */
-    private suspend fun performMerge(mergeResult: LinkResult.NeedsMerge) {
+    private suspend fun performMigration(credential: com.google.firebase.auth.AuthCredential) {
         try {
             withContext(NonCancellable) {
-                authService.beginMergeTransition()
-                val result = accountMigrationService.migrateGuestData(mergeResult.credential)
+                val guestUid = authService.getGuestUid()
+                    ?: run {
+                        Log.e(TAG, "No guest UID found for migration")
+                        _toastMessage.tryEmit(R.string.sign_in_failed)
+                        return@withContext
+                    }
+                val result = accountMigrationService.migrateGuestData(credential, guestUid)
                 if (result.isFailure) {
                     Log.e(TAG, "Migration failed", result.exceptionOrNull())
-                    // Migration failed — still anonymous, restore auth state
-                    authService.endMergeTransition()
+                    authService.restoreAfterFailedMerge()
                     _toastMessage.tryEmit(R.string.sign_in_failed)
                     return@withContext
                 }
@@ -344,9 +330,8 @@ class SettingsViewModel @Inject constructor(
             // Upload local images in the background
             uploadLocalImages()
         } catch (e: Exception) {
-            Log.e(TAG, "Error during account merge", e)
-            // Restore auth state based on current user in case of unexpected error
-            authService.endMergeTransition()
+            Log.e(TAG, "Error during account migration", e)
+            authService.restoreAfterFailedMerge()
             _toastMessage.tryEmit(R.string.sign_in_migration_warning)
         }
     }

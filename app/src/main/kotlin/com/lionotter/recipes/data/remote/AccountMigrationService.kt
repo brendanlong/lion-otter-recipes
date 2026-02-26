@@ -11,21 +11,21 @@ import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.firestore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.tasks.await
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Handles data migration when a guest (anonymous) user signs into an
- * existing Google account (the "NeedsMerge" flow).
+ * Handles data migration when a guest user signs into a Google account.
  *
  * Strategy: create an ephemeral secondary [FirebaseApp] pointing at the
  * same project, sign the Google user in on that secondary instance, then
- * copy documents from the default (anonymous) Firestore to the secondary
+ * copy documents from the default (guest) Firestore cache to the secondary
  * (Google) Firestore. Once complete, sign the Google user in on the
  * default app and tear down the secondary app.
  *
  * This avoids the need for intermediate staging (Room) because the
- * anonymous user's data remains intact on the default app until the
+ * guest user's data remains intact on the default app until the
  * migration is fully committed on the server via the secondary app.
  */
 @Singleton
@@ -35,23 +35,31 @@ class AccountMigrationService @Inject constructor(
 ) {
     companion object {
         private const val TAG = "AccountMigrationService"
-        private const val MIGRATION_APP_NAME = "migration"
+        /**
+         * Each migration app gets a unique name to avoid a Firebase SDK bug
+         * where [FirebaseApp.delete] does not cancel the internal heartbeat
+         * DataStore's coroutine scope. Reusing the same name would trigger
+         * "multiple DataStores active for the same file".
+         */
+        private val migrationCounter = AtomicInteger(0)
     }
 
     /**
-     * Migrates guest data to an existing Google account.
+     * Migrates guest data to a Google account.
      *
      * 1. Creates a secondary FirebaseApp and signs in the Google user there
-     * 2. Reads all recipes + meal plans from the default (anonymous) Firestore cache
+     * 2. Reads all recipes + meal plans from the default Firestore cache using [guestUid]
      * 3. Writes them to the secondary (Google) Firestore, skipping existing IDs
      * 4. Tears down the secondary app
      * 5. Signs in the Google user on the default app
-     * 6. Clears the anonymous Firestore cache and enables network
+     * 6. Returns success — the caller clears the Firestore cache and enables network
      *
-     * If this method throws, the default app is still signed in as anonymous
-     * with all guest data intact — safe to retry.
+     * If this method throws, the default app still has guest data intact — safe to retry.
+     *
+     * @param credential The Google [AuthCredential] to sign in with
+     * @param guestUid The local guest UID whose data should be migrated
      */
-    suspend fun migrateGuestData(credential: AuthCredential): Result<Unit> {
+    suspend fun migrateGuestData(credential: AuthCredential, guestUid: String): Result<Unit> {
         // 1. Create secondary app and sign in as Google user
         val migrationApp = createMigrationApp()
         try {
@@ -65,22 +73,16 @@ class AccountMigrationService @Inject constructor(
 
             val migrationFirestore = com.google.firebase.firestore.FirebaseFirestore.getInstance(migrationApp)
 
-            // 2. Read guest data from default (anonymous) Firestore cache
-            val anonymousUid = Firebase.auth.currentUser?.uid
-                ?: run {
-                    cleanupMigrationApp(migrationApp)
-                    return Result.failure(IllegalStateException("No anonymous user"))
-                }
-
+            // 2. Read guest data from default Firestore cache
             val defaultFirestore = Firebase.firestore
 
             val guestRecipes = readDocuments(
                 defaultFirestore.collection(FirestoreService.USERS_COLLECTION)
-                    .document(anonymousUid).collection(FirestoreService.RECIPES_COLLECTION)
+                    .document(guestUid).collection(FirestoreService.RECIPES_COLLECTION)
             )
             val guestMealPlans = readDocuments(
                 defaultFirestore.collection(FirestoreService.USERS_COLLECTION)
-                    .document(anonymousUid).collection(FirestoreService.MEAL_PLANS_COLLECTION)
+                    .document(guestUid).collection(FirestoreService.MEAL_PLANS_COLLECTION)
             )
 
             Log.d(TAG, "Read ${guestRecipes.size} recipes and ${guestMealPlans.size} meal plans from guest account")
@@ -132,37 +134,37 @@ class AccountMigrationService @Inject constructor(
     }
 
     /**
-     * Completes the sign-in on the default app: signs in as Google,
-     * clears the anonymous Firestore cache, and enables network.
+     * Completes the sign-in on the default app: signs in as Google.
      *
-     * Sign-in happens first so that if it fails, the anonymous user's
-     * local cache is still intact and nothing has been lost.
+     * If sign-in fails, guest data is still intact on the default app.
+     *
+     * Firestore cache clearing and network enabling are NOT done here — the
+     * caller must first update the UID (via [AuthService.completeMergeSignIn])
+     * so that when `clearLocalData()` bumps the generation counter,
+     * repositories recreate listeners on the Google path (not the old guest
+     * path). This prevents PERMISSION_DENIED crashes.
      */
     private suspend fun completeSignIn(credential: AuthCredential): Result<Unit> {
-        // Sign in as Google first — if this fails, anonymous data is still intact
         Firebase.auth.signInWithCredential(credential).await()
-        // Now clear the anonymous Firestore cache to prevent orphaned documents
-        // from syncing when network is re-enabled. The auth state listener is
-        // suppressed (Loading), so the UID change won't trigger repository
-        // re-subscriptions yet.
-        firestoreService.clearLocalData()
-        firestoreService.enableNetwork()
         return Result.success(Unit)
     }
 
+    /**
+     * Creates a secondary [FirebaseApp] for migration.
+     *
+     * Uses a unique name for each invocation to work around a Firebase SDK
+     * bug: [FirebaseApp.delete] does not cancel the internal heartbeat
+     * DataStore's coroutine scope, so reusing the same name would create a
+     * second DataStore for the same file and crash with
+     * "multiple DataStores active for the same file".
+     */
     private fun createMigrationApp(): FirebaseApp {
-        // Clean up any leftover migration app from a previous crash
-        try {
-            FirebaseApp.getInstance(MIGRATION_APP_NAME).delete()
-        } catch (_: IllegalStateException) {
-            // No existing migration app — expected
-        }
-
+        val appName = "migration-${migrationCounter.getAndIncrement()}"
         val defaultApp = Firebase.app
         return FirebaseApp.initializeApp(
             context,
             defaultApp.options,
-            MIGRATION_APP_NAME
+            appName
         )
     }
 
