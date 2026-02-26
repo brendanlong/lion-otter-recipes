@@ -23,6 +23,13 @@
     <string name="sign_in_failed">Failed to sign in</string>
     <string name="sign_in_failed_with_error">Sign-in failed: %1$s</string>
     <string name="sign_in_migration_warning">Signed in with Google, but some data may not have been migrated</string>
+    <string name="delete_account">Delete Account and Data</string>
+    <string name="delete_account_title">Delete Account and Data?</string>
+    <string name="delete_account_warning">This will permanently delete your account and all associated data, including all recipes, meal plans, and images. This action cannot be undone.\n\nType \"delete\" below to confirm.</string>
+    <string name="delete_account_confirmation_hint">Type \"delete\" to confirm</string>
+    <string name="delete_account_success">Account and data deleted</string>
+    <string name="delete_account_failed">Failed to delete account data</string>
+    <string name="deleting_account">Deleting account data\u2026</string>
 
     <!-- Delete Confirmation Dialog -->
     <string name="delete_recipe">Delete Recipe</string>

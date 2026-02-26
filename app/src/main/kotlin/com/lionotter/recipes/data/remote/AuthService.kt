@@ -47,7 +47,8 @@ sealed class LinkResult {
 @Singleton
 class AuthService @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val firestoreService: FirestoreService
+    private val firestoreService: FirestoreService,
+    private val accountDeletionService: AccountDeletionService
 ) {
     companion object {
         private const val TAG = "AuthService"
@@ -217,6 +218,20 @@ class AuthService @Inject constructor(
         firestoreService.disableNetwork()
         signInAnonymously()
         // AuthState is updated inside signInAnonymously()
+    }
+
+    /**
+     * Deletes all user data and the Firebase Auth account, then transitions
+     * to anonymous mode. Data deletion is performed by [AccountDeletionService]
+     * before the auth account is removed.
+     */
+    suspend fun deleteAccountAndData() {
+        _authState.value = AuthState.Loading
+        accountDeletionService.deleteAllUserData()
+        // Clear local Firestore cache and re-sign-in anonymously
+        firestoreService.clearLocalData()
+        firestoreService.disableNetwork()
+        signInAnonymously()
     }
 
     /** Extracts a Google [AuthCredential] using Credential Manager. */

@@ -62,6 +62,7 @@ fun SettingsScreen(
     val importDebuggingEnabled by viewModel.importDebuggingEnabled.collectAsStateWithLifecycle()
     val authState by viewModel.authState.collectAsStateWithLifecycle()
     val isLinking by viewModel.isLinking.collectAsStateWithLifecycle()
+    val isDeletingAccount by viewModel.isDeletingAccount.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -153,7 +154,9 @@ fun SettingsScreen(
                 authState = authState,
                 onSignInWithGoogle = { viewModel.linkWithGoogle(context) },
                 onSignOut = { viewModel.signOut() },
-                isLinking = isLinking
+                onDeleteAccount = { viewModel.deleteAccount() },
+                isLinking = isLinking,
+                isDeletingAccount = isDeletingAccount
             )
 
             HorizontalDivider()
