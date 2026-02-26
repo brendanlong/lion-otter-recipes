@@ -18,6 +18,7 @@ import com.lionotter.recipes.worker.RecipeEditWorker
 import com.lionotter.recipes.worker.RecipeRegenerateWorker
 import com.lionotter.recipes.worker.observeWorkByTag
 import dagger.hilt.android.lifecycle.HiltViewModel
+import io.sentry.Sentry
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -170,6 +171,7 @@ class EditRecipeViewModel @Inject constructor(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to save selected image", e)
+                Sentry.captureException(e)
                 _editState.value = EditUiState.Error("Failed to save image: ${e.message}")
             }
         }
@@ -193,6 +195,7 @@ class EditRecipeViewModel @Inject constructor(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to remove image", e)
+                Sentry.captureException(e)
                 _editState.value = EditUiState.Error("Failed to remove image: ${e.message}")
             }
         }
@@ -226,6 +229,7 @@ class EditRecipeViewModel @Inject constructor(
                         _editState.value = EditUiState.Success()
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to save title/URL", e)
+                        Sentry.captureException(e)
                         _editState.value = EditUiState.Error("Failed to save: ${e.message}")
                     }
                 }

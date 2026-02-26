@@ -3,6 +3,7 @@ package com.lionotter.recipes.data.remote
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import io.sentry.Sentry
 import androidx.core.content.edit
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
@@ -98,6 +99,7 @@ class AuthService @Inject constructor(
             Result.success(credential)
         } catch (e: Exception) {
             Log.e(TAG, "Google sign-in failed", e)
+            Sentry.captureException(e)
             Result.failure(e)
         }
     }
@@ -167,6 +169,7 @@ class AuthService @Inject constructor(
             _authState.value = AuthState.Guest(uid = getOrCreateGuestUid())
         } catch (e: Exception) {
             Log.e(TAG, "Failed to delete account and data", e)
+            Sentry.captureException(e)
             restoreAfterFailedMerge()
             throw e
         }

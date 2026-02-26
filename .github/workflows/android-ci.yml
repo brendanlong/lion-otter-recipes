@@ -40,6 +40,8 @@ jobs:
           GSEOF
 
       - name: Run lint
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: ./gradlew lintDebug
 
       - name: Upload lint results
@@ -78,6 +80,8 @@ jobs:
           GSEOF
 
       - name: Run unit tests
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: ./gradlew testDebugUnitTest
 
       - name: Upload test results
@@ -131,6 +135,8 @@ jobs:
           fi
 
       - name: Build debug APK
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: ./gradlew assembleDebug
 
       - name: Upload debug APK
@@ -199,6 +205,8 @@ jobs:
           fi
 
       - name: Build release AAB
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: ./gradlew bundleRelease
 
       - name: Upload release AAB

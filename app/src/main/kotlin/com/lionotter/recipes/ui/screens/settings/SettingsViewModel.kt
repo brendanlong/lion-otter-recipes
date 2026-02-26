@@ -17,6 +17,7 @@ import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
 import dagger.hilt.android.lifecycle.HiltViewModel
+import io.sentry.Sentry
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -271,6 +272,7 @@ class SettingsViewModel @Inject constructor(
                 _toastMessage.tryEmit(R.string.delete_account_success)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to delete account", e)
+                Sentry.captureException(e)
                 _toastMessage.tryEmit(R.string.delete_account_failed)
             } finally {
                 _isDeletingAccount.value = false
@@ -295,6 +297,7 @@ class SettingsViewModel @Inject constructor(
                     },
                     onFailure = { e ->
                         Log.e(TAG, "Failed to get Google credential", e)
+                        Sentry.captureException(e)
                         _toastMessage.tryEmit(R.string.sign_in_failed)
                     }
                 )
@@ -331,6 +334,7 @@ class SettingsViewModel @Inject constructor(
             uploadLocalImages()
         } catch (e: Exception) {
             Log.e(TAG, "Error during account migration", e)
+            Sentry.captureException(e)
             authService.restoreAfterFailedMerge()
             _toastMessage.tryEmit(R.string.sign_in_migration_warning)
         }

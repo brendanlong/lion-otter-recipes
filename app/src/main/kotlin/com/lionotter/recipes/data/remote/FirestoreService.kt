@@ -2,6 +2,8 @@ package com.lionotter.recipes.data.remote
 
 import android.util.Log
 import com.google.firebase.Firebase
+import io.sentry.Sentry
+import io.sentry.SentryLevel
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.FirebaseFirestoreSettings
 import com.google.firebase.firestore.firestore
@@ -68,8 +70,16 @@ open class FirestoreService @Inject constructor() {
         return Firebase.firestore.collection(USERS_COLLECTION).document(uid).collection(MEAL_PLANS_COLLECTION)
     }
 
-    fun reportError(message: String) {
-        Log.e(TAG, message)
+    fun reportError(message: String, throwable: Throwable? = null) {
+        Log.e(TAG, message, throwable)
+        if (throwable != null) {
+            Sentry.withScope { scope ->
+                scope.setExtra("context", message)
+                Sentry.captureException(throwable)
+            }
+        } else {
+            Sentry.captureMessage(message, SentryLevel.ERROR)
+        }
         _errors.tryEmit(message)
     }
 
