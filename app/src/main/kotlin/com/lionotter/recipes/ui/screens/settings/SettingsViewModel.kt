@@ -305,29 +305,49 @@ class SettingsViewModel @Inject constructor(
     }
 
     /**
-     * Migrates guest data to the Google account, then completes the sign-in.
+     * Migrates guest data to the Google account using a Room staging queue.
+     *
+     * 1. Stage: read guest data from Firestore cache → serialize → Room
+     * 2. Sign-in: authenticate as Google on the default Firebase app
+     * 3. Switch: update auth state, clear Firestore cache, enable network
+     * 4. Apply: read from Room → write to Google user's Firestore → clear Room
+     * 5. Upload: push local file:// images to Firebase Storage
+     *
+     * If the app crashes after step 1, the data survives in Room and will
+     * be retried on next launch (see [AuthService.ensureSignedIn]).
      */
     private suspend fun performMigration(credential: com.google.firebase.auth.AuthCredential) {
         try {
             withContext(NonCancellable) {
+                // Phase 1: stage guest data into Room
                 val guestUid = authService.getGuestUid()
                     ?: run {
                         Log.e(TAG, "No guest UID found for migration")
                         _toastMessage.tryEmit(R.string.sign_in_failed)
                         return@withContext
                     }
-                val result = accountMigrationService.migrateGuestData(credential, guestUid)
-                if (result.isFailure) {
-                    Log.e(TAG, "Migration failed", result.exceptionOrNull())
-                    authService.restoreAfterFailedMerge()
-                    _toastMessage.tryEmit(R.string.sign_in_failed)
-                    return@withContext
-                }
+                accountMigrationService.stageGuestData(guestUid)
+
+                // Phase 2: sign in as Google user
+                accountMigrationService.signIn(credential)
+
+                // Phase 3: switch auth state, clear Firestore cache, enable network
                 authService.completeMergeSignIn()
+
+                // Phase 4: write staged data to the Google user's Firestore
+                val uid = authService.authState.value.let { state ->
+                    (state as? AuthState.Google)?.uid
+                }
+                if (uid != null) {
+                    accountMigrationService.applyPendingMigration(uid)
+                } else {
+                    Log.e(TAG, "No Google UID after sign-in, migration data remains in Room for retry")
+                }
+
                 _toastMessage.tryEmit(R.string.signed_in_with_google)
             }
 
-            // Upload local images in the background
+            // Phase 5: upload local images in the background
             uploadLocalImages()
         } catch (e: Exception) {
             Log.e(TAG, "Error during account migration", e)

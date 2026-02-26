@@ -7,13 +7,15 @@ import androidx.room.TypeConverters
 @Database(
     entities = [
         PendingImportEntity::class,
-        ImportDebugEntity::class
+        ImportDebugEntity::class,
+        PendingMigrationEntity::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = true
 )
 @TypeConverters(InstantConverter::class)
 abstract class RecipeDatabase : RoomDatabase() {
     abstract fun pendingImportDao(): PendingImportDao
     abstract fun importDebugDao(): ImportDebugDao
+    abstract fun pendingMigrationDao(): PendingMigrationDao
 }
