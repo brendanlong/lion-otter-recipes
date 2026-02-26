@@ -11,6 +11,7 @@ import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.firestore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.tasks.await
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -34,7 +35,13 @@ class AccountMigrationService @Inject constructor(
 ) {
     companion object {
         private const val TAG = "AccountMigrationService"
-        private const val MIGRATION_APP_NAME = "migration"
+        /**
+         * Each migration app gets a unique name to avoid a Firebase SDK bug
+         * where [FirebaseApp.delete] does not cancel the internal heartbeat
+         * DataStore's coroutine scope. Reusing the same name would trigger
+         * "multiple DataStores active for the same file".
+         */
+        private val migrationCounter = AtomicInteger(0)
     }
 
     /**
@@ -142,19 +149,22 @@ class AccountMigrationService @Inject constructor(
         return Result.success(Unit)
     }
 
+    /**
+     * Creates a secondary [FirebaseApp] for migration.
+     *
+     * Uses a unique name for each invocation to work around a Firebase SDK
+     * bug: [FirebaseApp.delete] does not cancel the internal heartbeat
+     * DataStore's coroutine scope, so reusing the same name would create a
+     * second DataStore for the same file and crash with
+     * "multiple DataStores active for the same file".
+     */
     private fun createMigrationApp(): FirebaseApp {
-        // Clean up any leftover migration app from a previous crash
-        try {
-            FirebaseApp.getInstance(MIGRATION_APP_NAME).delete()
-        } catch (_: IllegalStateException) {
-            // No existing migration app — expected
-        }
-
+        val appName = "migration-${migrationCounter.getAndIncrement()}"
         val defaultApp = Firebase.app
         return FirebaseApp.initializeApp(
             context,
             defaultApp.options,
-            MIGRATION_APP_NAME
+            appName
         )
     }
 
