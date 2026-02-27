@@ -1,0 +1,84 @@
+{
+  "project_info": {
+    "project_number": "153166564941",
+    "project_id": "lion-otter-recipes",
+    "storage_bucket": "lion-otter-recipes.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:153166564941:android:ff8b041f4b3929e23bd604",
+        "android_client_info": {
+          "package_name": "com.lionotter.recipes"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "153166564941-re3ns93i3ehsajuu5ckjq36pq8knmbdt.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.lionotter.recipes",
+            "certificate_hash": "ef3b0c852a3abe40dfce3fb8d7727d7615c45774"
+          }
+        },
+        {
+          "client_id": "153166564941-d757rg6s63jkm8hpr90uk564fioipiib.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCMXFdLZj1VHmWvKDZunw7d7uk5Vn3Pvwc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "153166564941-ael51937ud4njp2tc0cul1u3q8fe1k52.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:153166564941:android:3023d42fa0227e683bd604",
+        "android_client_info": {
+          "package_name": "com.lionotter.recipes.debug"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "153166564941-efdtti65do29ng9bd6qk5083ia40flma.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.lionotter.recipes.debug",
+            "certificate_hash": "314c27cf22123925ba0415d8f452f211eb91f404"
+          }
+        },
+        {
+          "client_id": "153166564941-d757rg6s63jkm8hpr90uk564fioipiib.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCMXFdLZj1VHmWvKDZunw7d7uk5Vn3Pvwc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "153166564941-ael51937ud4njp2tc0cul1u3q8fe1k52.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
