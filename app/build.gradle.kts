@@ -1,3 +1,5 @@
+import java.time.LocalDate
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -6,6 +8,20 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.baselineprofile)
     alias(libs.plugins.google.services)
+}
+
+val gitVersionCode: Int by lazy {
+    providers.exec {
+        commandLine("git", "rev-list", "--count", "HEAD")
+    }.standardOutput.asText.get().trim().toIntOrNull() ?: 1
+}
+
+val gitVersionName: String by lazy {
+    val date = LocalDate.now()
+    val shortSha = providers.exec {
+        commandLine("git", "rev-parse", "--short", "HEAD")
+    }.standardOutput.asText.get().trim()
+    "%d.%02d.%02d-%s".format(date.year, date.monthValue, date.dayOfMonth, shortSha)
 }
 
 android {
@@ -33,8 +49,8 @@ android {
         applicationId = "com.lionotter.recipes"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.0.0"
+        versionCode = gitVersionCode
+        versionName = gitVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
