@@ -43,6 +43,12 @@
 # jsoup (optional re2j dependency not present on Android)
 -dontwarn com.google.re2j.**
 
+# Firestore DTO classes (deserialized via reflection with toObject())
+-keep class com.lionotter.recipes.data.remote.dto.** {
+    <init>(...);
+    *;
+}
+
 # ojAlgo (ILP solver for tag selection)
 -keep class org.ojalgo.** { *; }
 -keepclassmembers class org.ojalgo.** { *; }
