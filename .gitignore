@@ -93,5 +93,8 @@ lint/tmp/
 hs_err_pid*
 replay_pid*
 
+# Firebase config (contains API keys)
+google-services.json
+
 # Other stuff
 *.hprof
