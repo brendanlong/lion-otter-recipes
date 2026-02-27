@@ -11,17 +11,6 @@ cd "$SCRIPT_DIR"
 LOG_DIR="$SCRIPT_DIR/build/ci-logs"
 mkdir -p "$LOG_DIR"
 
-# Ensure google-services.json exists
-GSERVICES="$SCRIPT_DIR/app/google-services.json"
-if [ ! -f "$GSERVICES" ]; then
-  echo "Creating dummy google-services.json..."
-  cat > "$GSERVICES" << 'GSEOF'
-{"project_info":{"project_number":"0","project_id":"dummy","storage_bucket":"dummy.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:0:android:0","android_client_info":{"package_name":"com.lionotter.recipes"}},"oauth_client":[],"api_key":[{"current_key":"dummy"}],"services":{"appinvite_service":{"other_platform_oauth_client":[]}}}],"configuration_version":"1"}
-GSEOF
-else
-  echo "google-services.json already exists, skipping creation."
-fi
-
 LOG_FILE="$LOG_DIR/ci.log"
 
 echo ""
