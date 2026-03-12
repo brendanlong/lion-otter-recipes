@@ -30,6 +30,7 @@ import com.lionotter.recipes.data.remote.FirestoreService
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.ui.navigation.NavGraph
 import com.lionotter.recipes.ui.theme.LionOtterTheme
+import com.lionotter.recipes.worker.TextFileImportWorker
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -58,6 +59,7 @@ class MainActivity : ComponentActivity() {
 
         val sharedUrl = extractSharedUrl(intent)
         val sharedFileUri = extractFileUri(intent)
+        val sharedFileType = sharedFileUri?.let { detectTextFileType(it, intent) }
         val recipeId = extractRecipeId(intent)
 
         if (sharedUrl != null) {
@@ -67,7 +69,7 @@ class MainActivity : ComponentActivity() {
         }
         if (sharedFileUri != null) {
             lifecycleScope.launch {
-                sharedIntentViewModel.onSharedFileReceived(sharedFileUri)
+                sharedIntentViewModel.onSharedFileReceived(sharedFileUri, sharedFileType)
             }
         }
 
@@ -112,6 +114,7 @@ class MainActivity : ComponentActivity() {
                                 sharedIntentViewModel = sharedIntentViewModel,
                                 initialSharedUrl = sharedUrl,
                                 initialFileUri = sharedFileUri,
+                                initialFileType = sharedFileType,
                                 recipeId = recipeId
                             )
                         }
@@ -133,7 +136,35 @@ class MainActivity : ComponentActivity() {
         val sharedFileUri = extractFileUri(intent)
         if (sharedFileUri != null) {
             lifecycleScope.launch {
-                sharedIntentViewModel.onSharedFileReceived(sharedFileUri)
+                sharedIntentViewModel.onSharedFileReceived(
+                    sharedFileUri,
+                    detectTextFileType(sharedFileUri, intent)
+                )
+            }
+        }
+    }
+
+    /**
+     * Detect if a file URI points to a text file that should be imported via AI.
+     * Checks both the URI path extension and the intent MIME type.
+     */
+    private fun detectTextFileType(uri: Uri, intent: Intent?): String? {
+        val uriString = uri.toString().lowercase()
+        return when {
+            uriString.endsWith(".html") || uriString.endsWith(".htm") ->
+                TextFileImportWorker.FILE_TYPE_HTML
+            uriString.endsWith(".md") || uriString.endsWith(".markdown") ->
+                TextFileImportWorker.FILE_TYPE_MARKDOWN
+            uriString.endsWith(".txt") ->
+                TextFileImportWorker.FILE_TYPE_TEXT
+            else -> {
+                // Fall back to MIME type from intent
+                val mimeType = intent?.type
+                when (mimeType) {
+                    "text/html" -> TextFileImportWorker.FILE_TYPE_HTML
+                    "text/markdown" -> TextFileImportWorker.FILE_TYPE_MARKDOWN
+                    else -> null
+                }
             }
         }
     }

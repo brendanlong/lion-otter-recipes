@@ -199,7 +199,7 @@
 
     <!-- File Import -->
     <string name="import_from_file">Import from file</string>
-    <string name="import_from_file_description">Import recipes from a .lorecipes or Paprika (.paprikarecipes) file</string>
+    <string name="import_from_file_description">Import from .lorecipes, Paprika (.paprikarecipes), Markdown (.md), text (.txt), or HTML (.html) files</string>
     <string name="reading_paprika_export">Reading Paprika export\u2026</string>
     <string name="importing_paprika_recipe">Importing %1$d/%2$d: %3$s</string>
     <string name="paprika_import_complete">Paprika Import Complete</string>
