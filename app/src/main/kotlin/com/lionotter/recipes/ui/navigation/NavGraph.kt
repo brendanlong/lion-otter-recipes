@@ -16,6 +16,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.lionotter.recipes.R
 import com.lionotter.recipes.SharedIntentViewModel
+import com.lionotter.recipes.ui.screens.addrecipe.AddRecipeViewModel
 import com.lionotter.recipes.ui.screens.addrecipe.AddRecipeScreen
 import com.lionotter.recipes.ui.screens.importdebug.ImportDebugDetailScreen
 import com.lionotter.recipes.ui.screens.importdebug.ImportDebugListScreen
@@ -38,10 +39,13 @@ sealed class Screen(val route: String) {
     object EditRecipe : Screen("recipes/{recipeId}/edit") {
         fun createRoute(recipeId: String) = "recipes/$recipeId/edit"
     }
-    object AddRecipe : Screen("add-recipe?url={url}") {
+    object AddRecipe : Screen("add-recipe?url={url}&fileUri={fileUri}&fileType={fileType}") {
         fun createRoute(url: String? = null) =
             if (url != null) "add-recipe?url=${url.replace("/", "%2F").replace(":", "%3A").replace("?", "%3F").replace("&", "%26").replace("=", "%3D")}"
             else "add-recipe"
+
+        fun createRouteForFile(fileUri: String, fileType: String) =
+            "add-recipe?fileUri=${Uri.encode(fileUri)}&fileType=$fileType"
     }
     object Settings : Screen("settings")
     object MealPlan : Screen("meal-plan")
@@ -63,6 +67,7 @@ fun NavGraph(
     sharedIntentViewModel: SharedIntentViewModel? = null,
     initialSharedUrl: String? = null,
     initialFileUri: Uri? = null,
+    initialFileType: String? = null,
     recipeId: String? = null
 ) {
     val navController = rememberNavController()
@@ -83,21 +88,40 @@ fun NavGraph(
         }
     }
 
-    // Handle .lorecipes file import on launch - navigate to selection screen
+    // Handle file import on launch - text files go to AddRecipe, ZIPs go to ImportSelection
     LaunchedEffect(initialFileUri) {
         if (initialFileUri != null) {
-            navController.navigate(
-                Screen.ImportSelection.createRoute("lorecipes", initialFileUri.toString())
-            )
+            if (initialFileType != null) {
+                // Text file (.md, .txt, .html) → single-recipe AI import
+                navController.navigate(
+                    Screen.AddRecipe.createRouteForFile(initialFileUri.toString(), initialFileType)
+                )
+            } else {
+                // ZIP archive (.lorecipes, .paprikarecipes) → multi-recipe selection
+                navController.navigate(
+                    Screen.ImportSelection.createRoute("lorecipes", initialFileUri.toString())
+                )
+            }
         }
     }
 
-    // Handle .lorecipes file shared/opened while app is running
+    // Handle file shared/opened while app is running
     LaunchedEffect(sharedIntentViewModel) {
-        sharedIntentViewModel?.sharedFileUri?.collectLatest { uri ->
-            navController.navigate(
-                Screen.ImportSelection.createRoute("lorecipes", uri.toString())
-            )
+        sharedIntentViewModel?.sharedFile?.collectLatest { sharedFile ->
+            if (sharedFile.textFileType != null) {
+                // Text file → single-recipe AI import
+                navController.navigate(
+                    Screen.AddRecipe.createRouteForFile(
+                        sharedFile.uri.toString(),
+                        sharedFile.textFileType
+                    )
+                )
+            } else {
+                // ZIP archive → multi-recipe selection
+                navController.navigate(
+                    Screen.ImportSelection.createRoute("lorecipes", sharedFile.uri.toString())
+                )
+            }
         }
     }
 
@@ -187,12 +211,34 @@ fun NavGraph(
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
+                },
+                navArgument("fileUri") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("fileType") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
                 }
             )
         ) { backStackEntry ->
             val urlArg = backStackEntry.arguments?.getString("url")
+            val fileUriArg = backStackEntry.arguments?.getString("fileUri")
+            val fileTypeArg = backStackEntry.arguments?.getString("fileType")
+            val viewModel: AddRecipeViewModel = hiltViewModel()
+
+            // Auto-start file import when navigated with file parameters
+            LaunchedEffect(fileUriArg, fileTypeArg) {
+                if (fileUriArg != null && fileTypeArg != null) {
+                    viewModel.importFromFile(fileUriArg, fileTypeArg)
+                }
+            }
+
             AddRecipeScreen(
                 sharedUrl = urlArg,
+                viewModel = viewModel,
                 onBackClick = navigateBack,
                 onRecipeAdded = { recipeId ->
                     // Clear back stack and set up proper navigation: RecipeList -> RecipeDetail

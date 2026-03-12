@@ -8,6 +8,7 @@ import androidx.work.WorkManager
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.ui.state.InProgressRecipeManager
 import com.lionotter.recipes.worker.RecipeImportWorker
+import com.lionotter.recipes.worker.TextFileImportWorker
 import com.lionotter.recipes.worker.observeWorkByTag
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -50,34 +51,44 @@ class AddRecipeViewModel @Inject constructor(
     }
 
     /**
-     * Observe work status for the current URL import to update this screen's UI state.
+     * Observe work status for the current URL import or text file import
+     * to update this screen's UI state.
      * In-progress recipe cleanup is handled by [InProgressRecipeManager] itself.
      */
     private fun observeWorkStatus() {
         viewModelScope.launch {
             workManager.observeWorkByTag(RecipeImportWorker.TAG_RECIPE_IMPORT) { currentWorkId }
-                .collect { handleWorkInfo(it) }
+                .collect { handleWorkInfo(it, URL_IMPORT_KEYS) }
+        }
+        viewModelScope.launch {
+            workManager.observeWorkByTag(TextFileImportWorker.TAG_TEXT_FILE_IMPORT) { currentWorkId }
+                .collect { handleWorkInfo(it, TEXT_FILE_IMPORT_KEYS) }
         }
     }
 
-    private fun handleWorkInfo(workInfo: WorkInfo) {
+    /**
+     * Maps worker-specific output keys and progress values to UI state.
+     */
+    private data class WorkerKeys(
+        val progressKey: String,
+        val recipeIdKey: String,
+        val resultTypeKey: String,
+        val errorMessageKey: String,
+        val noApiKeyValue: String,
+        val progressMapping: (String?) -> ImportProgress
+    )
+
+    private fun handleWorkInfo(workInfo: WorkInfo, keys: WorkerKeys) {
         when (workInfo.state) {
             WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> {
                 _uiState.value = AddRecipeUiState.Loading(ImportProgress.Queued)
             }
             WorkInfo.State.RUNNING -> {
-                val progress = workInfo.progress.getString(RecipeImportWorker.KEY_PROGRESS)
-
-                val importProgress = when (progress) {
-                    RecipeImportWorker.PROGRESS_FETCHING -> ImportProgress.FetchingPage
-                    RecipeImportWorker.PROGRESS_PARSING -> ImportProgress.ParsingRecipe
-                    RecipeImportWorker.PROGRESS_SAVING -> ImportProgress.SavingRecipe
-                    else -> ImportProgress.Starting
-                }
-                _uiState.value = AddRecipeUiState.Loading(importProgress)
+                val progress = workInfo.progress.getString(keys.progressKey)
+                _uiState.value = AddRecipeUiState.Loading(keys.progressMapping(progress))
             }
             WorkInfo.State.SUCCEEDED -> {
-                val recipeId = workInfo.outputData.getString(RecipeImportWorker.KEY_RECIPE_ID)
+                val recipeId = workInfo.outputData.getString(keys.recipeIdKey)
                 if (recipeId != null) {
                     _uiState.value = AddRecipeUiState.Success(recipeId)
                 }
@@ -86,12 +97,11 @@ class AddRecipeViewModel @Inject constructor(
                 workManager.pruneWork()
             }
             WorkInfo.State.FAILED -> {
-                val resultType = workInfo.outputData.getString(RecipeImportWorker.KEY_RESULT_TYPE)
-                val errorMessage = workInfo.outputData.getString(RecipeImportWorker.KEY_ERROR_MESSAGE)
+                val resultType = workInfo.outputData.getString(keys.resultTypeKey)
+                val errorMessage = workInfo.outputData.getString(keys.errorMessageKey)
                     ?: "Unknown error"
-
                 _uiState.value = when (resultType) {
-                    RecipeImportWorker.RESULT_NO_API_KEY -> AddRecipeUiState.NoApiKey
+                    keys.noApiKeyValue -> AddRecipeUiState.NoApiKey
                     else -> AddRecipeUiState.Error(errorMessage)
                 }
                 currentImportId = null
@@ -105,6 +115,67 @@ class AddRecipeViewModel @Inject constructor(
                 workManager.pruneWork()
             }
         }
+    }
+
+    companion object {
+        private val URL_IMPORT_KEYS = WorkerKeys(
+            progressKey = RecipeImportWorker.KEY_PROGRESS,
+            recipeIdKey = RecipeImportWorker.KEY_RECIPE_ID,
+            resultTypeKey = RecipeImportWorker.KEY_RESULT_TYPE,
+            errorMessageKey = RecipeImportWorker.KEY_ERROR_MESSAGE,
+            noApiKeyValue = RecipeImportWorker.RESULT_NO_API_KEY,
+            progressMapping = { progress ->
+                when (progress) {
+                    RecipeImportWorker.PROGRESS_FETCHING -> ImportProgress.FetchingPage
+                    RecipeImportWorker.PROGRESS_PARSING -> ImportProgress.ParsingRecipe
+                    RecipeImportWorker.PROGRESS_SAVING -> ImportProgress.SavingRecipe
+                    else -> ImportProgress.Starting
+                }
+            }
+        )
+
+        private val TEXT_FILE_IMPORT_KEYS = WorkerKeys(
+            progressKey = TextFileImportWorker.KEY_PROGRESS,
+            recipeIdKey = TextFileImportWorker.KEY_RECIPE_ID,
+            resultTypeKey = TextFileImportWorker.KEY_RESULT_TYPE,
+            errorMessageKey = TextFileImportWorker.KEY_ERROR_MESSAGE,
+            noApiKeyValue = TextFileImportWorker.RESULT_NO_API_KEY,
+            progressMapping = { progress ->
+                when (progress) {
+                    TextFileImportWorker.PROGRESS_READING_FILE -> ImportProgress.FetchingPage
+                    TextFileImportWorker.PROGRESS_PARSING -> ImportProgress.ParsingRecipe
+                    TextFileImportWorker.PROGRESS_SAVING -> ImportProgress.SavingRecipe
+                    else -> ImportProgress.Starting
+                }
+            }
+        )
+    }
+
+    /**
+     * Import a recipe from a text file (.md, .txt, .html).
+     * Reads the file content and sends it to the AI for parsing.
+     */
+    fun importFromFile(fileUri: String, fileType: String) {
+        // Guard against double-enqueue (e.g., from LaunchedEffect recomposition)
+        if (currentImportId != null) return
+
+        currentImportId = UUID.randomUUID().toString()
+
+        val workRequest = OneTimeWorkRequestBuilder<TextFileImportWorker>()
+            .setInputData(
+                TextFileImportWorker.createInputData(fileUri, fileType, currentImportId!!)
+            )
+            .addTag(TextFileImportWorker.TAG_TEXT_FILE_IMPORT)
+            .build()
+
+        currentWorkId = workRequest.id
+        inProgressRecipeManager.addInProgressRecipe(
+            currentImportId!!, "Importing recipe from file\u2026",
+            workManagerId = workRequest.id.toString()
+        )
+        workManager.enqueue(workRequest)
+
+        _uiState.value = AddRecipeUiState.Loading(ImportProgress.Queued)
     }
 
     fun onUrlChange(url: String) {
