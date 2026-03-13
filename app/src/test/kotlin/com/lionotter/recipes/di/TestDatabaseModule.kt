@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.lionotter.recipes.data.local.ImportDebugDao
 import com.lionotter.recipes.data.local.PendingImportDao
+import com.lionotter.recipes.data.local.PendingMigrationDao
 import com.lionotter.recipes.data.local.RecipeDatabase
 import dagger.Module
 import dagger.Provides
@@ -30,4 +31,8 @@ object TestDatabaseModule {
     @Provides
     @Singleton
     fun provideImportDebugDao(db: RecipeDatabase): ImportDebugDao = db.importDebugDao()
+
+    @Provides
+    @Singleton
+    fun providePendingMigrationDao(db: RecipeDatabase): PendingMigrationDao = db.pendingMigrationDao()
 }

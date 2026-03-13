@@ -45,7 +45,8 @@ val AuthState.uid: String?
 class AuthService @Inject constructor(
     @ApplicationContext private val context: Context,
     private val firestoreService: FirestoreService,
-    private val accountDeletionService: AccountDeletionService
+    private val accountDeletionService: AccountDeletionService,
+    private val accountMigrationService: AccountMigrationService
 ) {
     companion object {
         private const val TAG = "AuthService"
@@ -67,8 +68,8 @@ class AuthService @Inject constructor(
 
     /**
      * Ensures the user has a valid session on startup.
-     * For Google users, enables network. For guests, disables network and
-     * uses a local UUID (no Firebase Auth call).
+     * For Google users, enables network and retries any incomplete migration.
+     * For guests, disables network and uses a local UUID (no Firebase Auth call).
      */
     suspend fun ensureSignedIn() {
         val firebaseUser = Firebase.auth.currentUser
@@ -77,6 +78,15 @@ class AuthService @Inject constructor(
                 uid = firebaseUser.uid,
                 email = firebaseUser.email ?: ""
             )
+            // Retry any incomplete migration from a previous crash
+            try {
+                if (accountMigrationService.hasPendingMigration()) {
+                    Log.d(TAG, "Found pending migration data, applying...")
+                    accountMigrationService.applyPendingMigration(firebaseUser.uid)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to apply pending migration on startup", e)
+            }
             return
         }
 
