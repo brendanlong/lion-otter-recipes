@@ -1,0 +1,498 @@
+---
+title: Lion+Otter Recipes Architecture
+---
+
+graph TD
+
+%% ============================================================
+%% External Services
+%% ============================================================
+subgraph external["External Services"]
+    anthropic["Anthropic API"]
+    web["Recipe Websites"]
+    firebase["Firebase"]
+end
+
+%% ============================================================
+%% Android App
+%% ============================================================
+subgraph app["Android App"]
+
+    %% --------------------------------------------------------
+    %% UI Layer
+    %% --------------------------------------------------------
+    subgraph ui["UI Layer (Compose)"]
+
+        subgraph screens["Screens"]
+            login["LoginScreen"]
+            list["RecipeListScreen"]
+            detail["RecipeDetailScreen"]
+            edit["EditRecipeScreen"]
+            add["AddRecipeScreen"]
+            settings["SettingsScreen"]
+            import_debug_list["ImportDebugListScreen"]
+            import_debug_detail["ImportDebugDetailScreen"]
+            meal_plan["MealPlanScreen"]
+            grocery_list["GroceryListScreen"]
+            import_selection["ImportSelectionScreen"]
+
+            list -->|tap recipe| detail
+            detail -->|tap edit| edit
+            list -->|tap +| add
+            list -->|tap gear| settings
+            list -->|tap calendar| meal_plan
+            meal_plan -->|tap recipe| detail
+            meal_plan -->|tap cart icon| grocery_list
+            add -->|pick file| import_selection
+            settings -->|pick file| import_selection
+            import_selection -->|import started| list
+            add -->|no API key| settings
+            settings -->|view debug data| import_debug_list
+            import_debug_list -->|tap entry| import_debug_detail
+            import_debug_detail -->|view recipe| detail
+        end
+
+        subgraph components["Shared Components"]
+            top_bar["RecipeTopAppBar"]
+            error_card["ErrorCard"]
+            progress_card["ProgressCard"]
+            status_card["StatusCard"]
+            delete_dialog["DeleteConfirmationDialog"]
+            cancel_import_dialog["CancelImportConfirmationDialog"]
+            account_section["AccountSection"]
+        end
+
+        screens --> components
+
+        subgraph viewmodels["ViewModels"]
+            login_vm["LoginViewModel"]
+            list_vm["RecipeListViewModel"]
+            detail_vm["RecipeDetailViewModel"]
+            edit_vm["EditRecipeViewModel"]
+            add_vm["AddRecipeViewModel"]
+            settings_vm["SettingsViewModel"]
+            zip_vm["ZipExportImportViewModel"]
+            import_debug_list_vm["ImportDebugListViewModel"]
+            import_debug_detail_vm["ImportDebugDetailViewModel"]
+            meal_plan_vm["MealPlanViewModel"]
+            grocery_list_vm["GroceryListViewModel"]
+            import_selection_vm["ImportSelectionViewModel"]
+        end
+
+        subgraph state["UI State"]
+            in_progress_mgr["InProgressRecipeManager"]
+        end
+
+        login --> login_vm
+        list --> list_vm
+        detail --> detail_vm
+        edit --> edit_vm
+        add --> add_vm
+        settings --> settings_vm
+        settings -->|backup/restore| zip_vm
+        meal_plan --> meal_plan_vm
+        grocery_list --> grocery_list_vm
+        import_debug_list --> import_debug_list_vm
+        import_debug_detail --> import_debug_detail_vm
+        import_selection --> import_selection_vm
+
+        list_vm -->|observes, cancel| in_progress_mgr
+        add_vm -->|adds entries| in_progress_mgr
+        in_progress_mgr -->|observes status| worker
+        in_progress_mgr -->|CRUD| pending_import_repo
+    end
+
+    %% --------------------------------------------------------
+    %% Background Processing Layer
+    %% --------------------------------------------------------
+    subgraph background["Background Processing"]
+
+        subgraph worker["WorkManager"]
+            base_worker["BaseRecipeWorker"]
+            import_worker["RecipeImportWorker"]
+            regenerate_worker["RecipeRegenerateWorker"]
+            edit_worker["RecipeEditWorker"]
+            paprika_import_worker["PaprikaImportWorker"]
+            zip_export_worker["ZipExportWorker"]
+            zip_import_worker["ZipImportWorker"]
+            work_ext["observeWorkByTag()"]
+
+            import_worker -->|extends| base_worker
+            regenerate_worker -->|extends| base_worker
+            edit_worker -->|extends| base_worker
+            paprika_import_worker -->|extends| base_worker
+            zip_export_worker -->|extends| base_worker
+            zip_import_worker -->|extends| base_worker
+        end
+
+        subgraph notification["Notifications"]
+            helper["RecipeNotificationHelper"]
+        end
+
+        import_worker -->|notify progress| helper
+        regenerate_worker -->|notify progress| helper
+        edit_worker -->|notify progress| helper
+        paprika_import_worker -->|notify progress| helper
+        zip_export_worker -->|notify progress| helper
+        zip_import_worker -->|notify progress| helper
+    end
+
+    %% --------------------------------------------------------
+    %% Domain Layer
+    %% --------------------------------------------------------
+    subgraph domain["Domain Layer"]
+
+        subgraph usecases["Use Cases"]
+            uc_import["ImportRecipeUseCase"]
+            parse_html["ParseHtmlUseCase"]
+            import_paprika["ImportPaprikaUseCase"]
+            export_zip["ExportToZipUseCase"]
+            export_single["ExportSingleRecipeUseCase"]
+            import_zip["ImportFromZipUseCase"]
+            regenerate["RegenerateRecipeUseCase"]
+            edit_recipe["EditRecipeUseCase"]
+            aggregate_grocery["AggregateGroceryListUseCase"]
+            tags["GetTagsUseCase"]
+            calc_usage["CalculateIngredientUsageUseCase"]
+        end
+
+        subgraph util["Utilities"]
+            markdown["RecipeMarkdownFormatter"]
+            serializer["RecipeSerializer"]
+            zip_import_helper["ZipImportHelper"]
+
+            serializer -->|format| markdown
+            zip_import_helper -->|deserialize| serializer
+        end
+
+        subgraph models["Domain Models"]
+            recipe["Recipe"]
+            ingredient["Ingredient"]
+            instruction["InstructionStep"]
+            section["IngredientSection"]
+            measurement["Measurement"]
+            measurement_type["MeasurementType"]
+            measurement_pref["MeasurementPreference"]
+            unit_system["UnitSystem"]
+            usage_status["IngredientUsageStatus"]
+            meal_plan_entry["MealPlanEntry"]
+            meal_type["MealType"]
+            start_of_week["StartOfWeek"]
+            ingredient_formatter["IngredientFormatter"]
+            ingredient_aggregation["IngredientAggregation"]
+
+            meal_plan_entry -->|type| meal_type
+            recipe --> section
+            section --> ingredient
+            ingredient -->|alternates| ingredient
+            ingredient -->|amounts| measurement
+            measurement -->|type| measurement_type
+            recipe --> instruction
+            instruction -->|step ingredients| ingredient
+        end
+
+        uc_import -->|uses| parse_html
+        regenerate -->|uses| parse_html
+        edit_recipe -->|uses| parse_html
+        parse_html -->|save debug data| import_debug_repo
+        export_zip -->|serialize| serializer
+        export_zip -->|read local images| image_dl
+        export_zip -->|resolve storage images| image_sync
+        export_single -->|serialize| serializer
+        export_single -->|read local images| image_dl
+        export_single -->|resolve storage images| image_sync
+        import_paprika -->|save base64 images| image_dl
+        import_zip -->|import| zip_import_helper
+    end
+
+    %% --------------------------------------------------------
+    %% Data Layer
+    %% --------------------------------------------------------
+    subgraph data["Data Layer"]
+
+        subgraph repository["Repository"]
+            repo["RecipeRepository"]
+            import_debug_repo["ImportDebugRepository"]
+            pending_import_repo["PendingImportRepository"]
+            meal_plan_repo["MealPlanRepository"]
+        end
+
+        subgraph local["Local Storage"]
+            room[("Room Database")]
+            datastore[("DataStore")]
+            tink_encrypted[("Tink Encrypted Storage")]
+            import_debug_dao["ImportDebugDao"]
+            pending_import_dao["PendingImportDao"]
+            pending_import_entity["PendingImportEntity"]
+            import_debug_entity["ImportDebugEntity"]
+            image_storage[("Local Image Cache")]
+            settings_ds["SettingsDataStore"]
+
+            import_debug_dao --> room
+            import_debug_entity --> room
+            pending_import_dao --> room
+            pending_import_entity --> room
+            settings_ds -->|non-sensitive settings| datastore
+            settings_ds -->|API key| tink_encrypted
+        end
+
+        subgraph remote["Remote Services"]
+            anthropic_svc["AnthropicService"]
+            scraper["WebScraperService"]
+            image_dl["ImageDownloadService"]
+            image_sync["ImageSyncService"]
+            storage_fetcher["FirebaseStorageCoilFetcher"]
+            firestore_svc["FirestoreService"]
+            auth_svc["AuthService"]
+            migration_svc["AccountMigrationService"]
+            deletion_svc["AccountDeletionService"]
+        end
+
+        subgraph dto["DTOs"]
+            recipe_dto["RecipeDto"]
+            meal_plan_dto["MealPlanDto"]
+        end
+
+        subgraph paprika["Paprika"]
+            parser["PaprikaParser"]
+            recipe_model["PaprikaRecipe"]
+        end
+
+        repo -->|Firestore CRUD| firestore_svc
+        import_debug_repo --> import_debug_dao
+        pending_import_repo --> pending_import_dao
+        meal_plan_repo -->|Firestore CRUD| firestore_svc
+        image_dl -->|caches images| image_storage
+        image_dl -->|upload to storage| image_sync
+        image_sync -->|download cache| image_storage
+        storage_fetcher -->|resolve paths| image_sync
+        storage_fetcher -->|cache read/write| image_storage
+    end
+
+    %% --------------------------------------------------------
+    %% Performance
+    %% --------------------------------------------------------
+    subgraph performance["Performance"]
+        baseline_profile["Baseline Profiles"]
+        profile_installer["ProfileInstaller"]
+
+        baseline_profile -->|generates rules for| profile_installer
+    end
+
+    %% --------------------------------------------------------
+    %% Hilt DI
+    %% --------------------------------------------------------
+    subgraph di["Hilt DI"]
+        app_module["AppModule"]
+        db_module["DatabaseModule"]
+        net_module["NetworkModule"]
+        worker_module["WorkerModule"]
+    end
+
+    %% --------------------------------------------------------
+    %% Cross-layer connections within app
+    %% --------------------------------------------------------
+    list_vm -->|recipes, delete| repo
+    list_vm -->|cascade delete meal plans| meal_plan_repo
+    list_vm -->|top tags| tags
+    detail_vm -->|recipe, delete, favorite| repo
+    detail_vm -->|cascade delete meal plans| meal_plan_repo
+    detail_vm -->|ingredient usage| calc_usage
+    detail_vm -->|export .lorecipes| export_single
+    detail_vm -->|keep screen on, unit prefs| settings_ds
+    edit_vm -->|recipe, image| repo
+    edit_vm -->|edit model, thinking prefs| settings_ds
+    edit_vm -->|save picked images| image_dl
+    edit_vm -->|delete remote images| image_sync
+    edit_vm -->|save edits| edit_worker
+    edit_vm -->|regenerate from original| regenerate_worker
+    edit_vm -->|observe edit/regenerate| work_ext
+    import_selection_vm -->|check duplicates| repo
+    import_selection_vm -->|deserialize| serializer
+    import_selection_vm -->|read ZIP contents| zip_import_helper
+    import_selection_vm -->|parse export| parser
+    import_selection_vm -->|enqueue work| worker
+    import_selection_vm -->|adds entries| in_progress_mgr
+    add_vm -->|enqueue work| worker
+    add_vm -->|observe import| work_ext
+    zip_vm -->|export| zip_export_worker
+    zip_vm -->|observe export| work_ext
+    meal_plan_vm -->|CRUD| meal_plan_repo
+    meal_plan_vm -->|recipe list| repo
+    meal_plan_vm -->|start of week| settings_ds
+    meal_plan_vm -->|top tags| tags
+    grocery_list_vm -->|meal plans| meal_plan_repo
+    grocery_list_vm -->|recipes| repo
+    grocery_list_vm -->|aggregate ingredients| aggregate_grocery
+    grocery_list_vm -->|grocery unit prefs| settings_ds
+    settings_vm -->|delete debug data| import_debug_repo
+    import_debug_list_vm -->|list entries| import_debug_repo
+    import_debug_detail_vm -->|get entry| import_debug_repo
+
+    import_worker -->|execute| uc_import
+    regenerate_worker -->|execute| regenerate
+    edit_worker -->|execute| edit_recipe
+    paprika_import_worker -->|execute| import_paprika
+    zip_export_worker -->|execute| export_zip
+    zip_import_worker -->|execute| import_zip
+
+    usecases -->|access data| repository
+    zip_import_helper -->|save recipe, check duplicates| repo
+    zip_import_helper -->|import meal plans| meal_plan_repo
+    zip_import_helper -->|download image| image_dl
+    import_paprika -->|parse export| parser
+    import_paprika -->|parseText, saveBatchResult| parse_html
+    import_paprika -->|batch API| anthropic_svc
+    regenerate -->|fetch HTML if not cached| scraper
+    import_paprika -->|fetch source image| scraper
+    parse_html -->|download image| image_dl
+
+    login_vm -->|sign in| auth_svc
+    settings_vm -->|sign out, email, delete account| auth_svc
+    auth_svc -->|delete all user data| deletion_svc
+    deletion_svc -->|delete collections| firestore_svc
+end
+
+%% ============================================================
+%% External connections
+%% ============================================================
+deletion_svc -->|Storage delete, Auth delete| firebase
+firestore_svc -->|Firestore| firebase
+auth_svc -->|Auth| firebase
+image_sync -->|Storage| firebase
+scraper -->|fetch HTML| web
+image_dl -->|download image| web
+anthropic_svc -->|parse recipe| anthropic
+
+%% ============================================================
+%% Testing Layer
+%% ============================================================
+subgraph testing["Testing"]
+    unit_tests["Unit Tests"]
+    ui_integration_tests["UI Integration Tests<br/>(Robolectric + Compose)"]
+    hilt_integration_tests["Full-Stack Integration Tests<br/>(Hilt + Robolectric + Room)"]
+    test_tags["TestTags<br/>(ui.TestTags)"]
+    test_di["Test DI Modules<br/>(TestDatabaseModule, TestNetworkModule, TestWorkerModule)"]
+
+    ui_integration_tests -->|uses| test_tags
+    hilt_integration_tests -->|uses| test_di
+end
+
+%% ============================================================
+%% Data Flow Legend (as a subgraph with notes)
+%% ============================================================
+subgraph legend["Data Flow"]
+    direction TB
+
+    subgraph import_flow["URL Import Flow"]
+        f1["1. User pastes URL and taps Import"]
+        f2["2. ViewModel enqueues WorkManager job"]
+        f3["3. RecipeImportWorker runs as foreground service"]
+        f4["4. Scraper fetches HTML, AI parses recipe"]
+        f5["5. Repository saves to Firestore"]
+        f1 --> f2 --> f3 --> f4 --> f5
+    end
+
+    subgraph zip_flow[".lorecipes Export/Import Flow"]
+        z1["Export: User picks save location, ZipExportWorker writes file"]
+        z2["Import: User picks file, selects recipes via ImportSelectionScreen"]
+        z3["ZipImportWorker imports selected recipes via WorkManager"]
+        z4["Uses RecipeSerializer for consistent format, skips duplicates"]
+        z1 --> z2 --> z3 --> z4
+    end
+
+    subgraph paprika_flow["Paprika Import Flow"]
+        p1["1. User picks .paprikarecipes file, selects recipes"]
+        p2["2. PaprikaImportWorker parses ZIP of gzip JSON"]
+        p3["3. Multiple recipes: batch via Message Batches API (50% cheaper)"]
+        p4["4. Poll for batch completion, stream results, save to Firestore"]
+        p5["5. Images from Paprika data or source page; single = sequential"]
+        p1 --> p2 --> p3 --> p4 --> p5
+    end
+
+    subgraph edit_flow["Recipe Edit Flow"]
+        e1["1. User taps edit on recipe detail screen"]
+        e2["2. EditRecipeScreen shows image, title/URL, AI instructions, body"]
+        e3["3. Image, title, URL changes saved directly without AI"]
+        e4["4. Body edits or AI instructions trigger RecipeEditWorker"]
+        e5["5. AI re-parses; Save preserves metadata, Save as Copy creates new"]
+        e1 --> e2 --> e3 --> e4 --> e5
+    end
+
+    subgraph share_flow["Recipe Sharing Flow"]
+        s1["Share as text: Markdown via ACTION_SEND"]
+        s2["Share as file: .lorecipes via FileProvider"]
+        s3["Import: .lorecipes opens ImportSelectionScreen"]
+        s4["User selects recipes, WorkManager imports them"]
+        s1 --> s2 --> s3 --> s4
+    end
+
+    subgraph fav_flow["Favorites Feature"]
+        fav1["Recipes starred from list or detail view"]
+        fav2["Favorites sorted first in recipe list"]
+        fav3["Re-sort on filter/search/ID changes via runningFold"]
+        fav1 --> fav2 --> fav3
+    end
+
+    subgraph mp_flow["Meal Planner Feature"]
+        mp1["Weekly planner view with day-grouped meals"]
+        mp2["Add via bottom sheet: search, tag filter, date, type, servings"]
+        mp3["Swipe-to-delete and long-press menu"]
+        mp4["Persistent in Firestore (synced across devices)"]
+        mp5["Included in ZIP export/import for backup/restore"]
+        mp1 --> mp2 --> mp3 --> mp4 --> mp5
+    end
+
+    subgraph gl_flow["Grocery List Feature"]
+        gl1["Shows meals for currently selected week"]
+        gl1a["Select recipes from meal plan entries"]
+        gl2["Aggregate ingredients: deduplicate, sum in base units"]
+        gl3["Check-off: top-level hides all, sub-item reduces count"]
+        gl4["Share as Markdown via share sheet"]
+        gl5["Non-persistent: state resets between sessions"]
+        gl1 --> gl1a --> gl2 --> gl3 --> gl4 --> gl5
+    end
+end
+
+%% ============================================================
+%% Styles
+%% ============================================================
+classDef externalStyle fill:#f0f0f0,stroke:#999
+classDef appStyle fill:#e0f2f7,stroke:#2a7b9b,stroke-width:2px
+classDef uiStyle fill:#fff3e0,stroke:#d4a03c
+classDef bgStyle fill:#f3e5f5,stroke:#9c27b0
+classDef domainStyle fill:#e8f5e9,stroke:#4caf50
+classDef dataStyle fill:#e3f2fd,stroke:#2196f3
+classDef perfStyle fill:#fff9c4,stroke:#f9a825
+classDef diStyle fill:#fce4ec,stroke:#e91e63
+classDef testStyle fill:#f5f5dc,stroke:#999
+classDef legendStyle fill:#f5f5f5,stroke:#999
+classDef anthropicNode fill:#d4a03c,color:#000
+classDef firebaseNode fill:#ffca28,color:#000
+classDef cylinderNode fill:#fff,stroke:#333
+classDef greenCylinder fill:#c8e6c9,stroke:#333
+classDef unitTestNode fill:#e8f5e9,stroke:#333
+classDef uiTestNode fill:#e3f2fd,stroke:#333
+classDef hiltTestNode fill:#fce4ec,stroke:#333
+classDef testTagNode fill:#fff3e0,stroke:#333
+classDef whiteNode fill:#fff,stroke:#333
+
+class external externalStyle
+class app appStyle
+class ui uiStyle
+class background bgStyle
+class domain domainStyle
+class data dataStyle
+class performance perfStyle
+class di diStyle
+class testing testStyle
+class legend legendStyle
+
+class anthropic anthropicNode
+class firebase firebaseNode
+class room,datastore,image_storage cylinderNode
+class tink_encrypted greenCylinder
+class unit_tests unitTestNode
+class ui_integration_tests uiTestNode
+class hilt_integration_tests hiltTestNode
+class test_tags,test_di testTagNode
