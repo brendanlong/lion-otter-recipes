@@ -47,6 +47,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
 import com.lionotter.recipes.ui.components.ErrorCard
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
+import com.lionotter.recipes.worker.TextFileImportWorker
 
 @Composable
 fun AddRecipeScreen(
@@ -85,19 +86,25 @@ fun AddRecipeScreen(
         }
     }
 
-    // Unified file picker for .lorecipes and .paprikarecipes imports
+    // Unified file picker for recipe imports (.lorecipes, .paprikarecipes, .md, .txt, .html)
     val importFilePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
-            // Determine import type from file extension
             val uriString = uri.toString().lowercase()
-            val importType = if (uriString.endsWith(".paprikarecipes")) {
-                "paprika"
+            val textFileType = detectTextFileType(uriString)
+            if (textFileType != null) {
+                // Text files (.md, .txt, .html) → single-recipe AI import
+                viewModel.importFromFile(uri.toString(), textFileType)
             } else {
-                "lorecipes"
+                // ZIP archives (.lorecipes, .paprikarecipes) → multi-recipe selection
+                val importType = if (uriString.endsWith(".paprikarecipes")) {
+                    "paprika"
+                } else {
+                    "lorecipes"
+                }
+                onNavigateToImportSelection(importType, uri)
             }
-            onNavigateToImportSelection(importType, uri)
         }
     }
 
@@ -357,5 +364,21 @@ private fun NoApiKeyContent(onNavigateToSettings: () -> Unit) {
         Button(onClick = onNavigateToSettings) {
             Text(stringResource(R.string.go_to_settings))
         }
+    }
+}
+
+/**
+ * Detect if a file URI (lowercased) points to a text file that can be imported
+ * as a single recipe via AI. Returns the file type constant or null for non-text files.
+ */
+private fun detectTextFileType(lowercasedUri: String): String? {
+    return when {
+        lowercasedUri.endsWith(".html") || lowercasedUri.endsWith(".htm") ->
+            TextFileImportWorker.FILE_TYPE_HTML
+        lowercasedUri.endsWith(".md") || lowercasedUri.endsWith(".markdown") ->
+            TextFileImportWorker.FILE_TYPE_MARKDOWN
+        lowercasedUri.endsWith(".txt") ->
+            TextFileImportWorker.FILE_TYPE_TEXT
+        else -> null
     }
 }
