@@ -38,8 +38,9 @@ import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
 import com.lionotter.recipes.util.ErrorLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.io.IOException
@@ -110,18 +111,24 @@ class AnthropicService @Inject constructor(
             // Stream so large max_tokens values don't hit HTTP timeouts. The SDK is blocking,
             // so run on IO and close the stream if the coroutine is cancelled.
             val message = withContext(Dispatchers.IO) {
-                val job = coroutineContext.job
                 client.beta().messages().createStreaming(params).use { stream ->
-                    val handle = job.invokeOnCompletion { stream.close() }
+                    // The read below blocks, so a sibling closes the stream to unblock it on cancel
+                    val closeOnCancel = launch {
+                        try {
+                            awaitCancellation()
+                        } finally {
+                            stream.close()
+                        }
+                    }
                     try {
                         val accumulator = BetaMessageAccumulator.create()
                         stream.stream().forEach { event ->
-                            job.ensureActive()
+                            ensureActive()
                             accumulator.accumulate(event)
                         }
                         accumulator.message()
                     } finally {
-                        handle.dispose()
+                        closeOnCancel.cancel()
                     }
                 }
             }

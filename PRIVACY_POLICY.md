@@ -11,7 +11,8 @@ data.
 
 The app contains **no advertisements**, **no analytics**, and **no third-party
 tracking**. We do not collect behavioral data or location information. The only
-diagnostic data the app sends is crash and error reports (see
+diagnostic data the app sends is crash and error reports, plus an
+app-start event used to calculate how often the app crashes (see
 [Crash Reporting](#crash-reporting-firebase-crashlytics) below).
 
 ## Offline Use Without an Account
@@ -77,12 +78,16 @@ https://firebase.google.com/support/privacy
 Release builds of the app send crash and error reports to Firebase
 Crashlytics so we can find and fix bugs. A report contains:
 
-- The error type and stack trace, and the error message (which can sometimes
-  include the address of a web page being imported)
+- The error type, stack trace and error message (which can sometimes include
+  the address of a web page being imported; text from recipes is removed)
 - Device model, Android version, app version, available memory and disk space,
   and whether the app was in the foreground
 - A random installation identifier created by Firebase, used to count how many
   installs are affected by a problem
+
+Each time the app starts, it also sends a small session event (the installation
+identifier, app version and device information above) so Crashlytics can
+calculate the share of sessions that crash.
 
 Reports do **not** include your recipes, notes, Anthropic API key, email
 address, or Firebase user ID. Crashlytics retains reports for 90 days. See

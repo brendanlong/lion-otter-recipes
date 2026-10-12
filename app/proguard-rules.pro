@@ -1,5 +1,9 @@
 # Add project specific ProGuard rules here.
 
+# Keep line numbers so Crashlytics stack traces are readable
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
+
 # Keep Kotlin serialization
 -keepattributes *Annotation*, InnerClasses
 -dontnote kotlinx.serialization.AnnotationsKt

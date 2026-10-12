@@ -1,4 +1,3 @@
-import com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension
 import java.time.LocalDate
 
 plugins {
@@ -60,15 +59,9 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
-            manifestPlaceholders["crashlyticsEnabled"] = false
         }
         release {
             signingConfig = signingConfigs.getByName("release")
-            manifestPlaceholders["crashlyticsEnabled"] = true
-            configure<CrashlyticsExtension> {
-                // Only CI uploads R8 mapping files, so local release builds don't need Firebase access
-                mappingFileUploadEnabled = System.getenv("CI") != null
-            }
             isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -80,10 +73,6 @@ android {
             signingConfig = signingConfigs.getByName("release")
             matchingFallbacks += listOf("release")
             isDebuggable = false
-            manifestPlaceholders["crashlyticsEnabled"] = false
-            configure<CrashlyticsExtension> {
-                mappingFileUploadEnabled = false
-            }
         }
     }
 
@@ -119,6 +108,19 @@ android {
             pickFirsts += "mozilla/public-suffix-list.txt"
         }
     }
+}
+
+// Crash reporting is only for the shipped release variant; benchmark and baseline-profile
+// variants derived from release must not report to the production project.
+androidComponents {
+    onVariants { variant ->
+        variant.manifestPlaceholders.put("crashlyticsEnabled", (variant.name == "release").toString())
+    }
+}
+
+// Mapping files are uploaded only by CI release builds of main (CRASHLYTICS_UPLOAD=true).
+tasks.matching { it.name.startsWith("uploadCrashlyticsMappingFile") }.configureEach {
+    enabled = name == "uploadCrashlyticsMappingFileRelease" && System.getenv("CRASHLYTICS_UPLOAD") == "true"
 }
 
 ksp {

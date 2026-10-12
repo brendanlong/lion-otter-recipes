@@ -32,7 +32,7 @@ class LionOtterApp : Application(), Configuration.Provider, SingletonImageLoader
 
     override fun onCreate() {
         super.onCreate()
-        if (!BuildConfig.DEBUG) {
+        if (BuildConfig.BUILD_TYPE == "release") {
             val crashlytics = FirebaseCrashlytics.getInstance()
             ErrorLog.recorder = crashlytics::recordException
         }
