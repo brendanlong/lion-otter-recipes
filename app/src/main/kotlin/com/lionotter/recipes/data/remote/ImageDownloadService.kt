@@ -332,24 +332,20 @@ class ImageDownloadService @Inject constructor(
      */
     suspend fun saveImageFromContentUri(contentUri: android.net.Uri): String? {
         return try {
-            val (inputStream, mimeType) = withContext(Dispatchers.IO) {
-                context.contentResolver.openInputStream(contentUri) to
-                    context.contentResolver.getType(contentUri)
+            val saved = withContext(Dispatchers.IO) {
+                val extension = when (context.contentResolver.getType(contentUri)) {
+                    "image/png" -> ".png"
+                    "image/webp" -> ".webp"
+                    "image/gif" -> ".gif"
+                    "image/heic", "image/heif" -> ".heic"
+                    else -> ".jpg"
+                }
+                context.contentResolver.openInputStream(contentUri)?.use { saveImageFromStream(it, extension) }
             }
-            if (inputStream == null) {
-                Log.w(TAG, "Could not open input stream for content URI: $contentUri")
-                return null
+            if (saved == null) {
+                Log.w(TAG, "Could not save image from content URI: $contentUri")
             }
-
-            val extension = when (mimeType) {
-                "image/png" -> ".png"
-                "image/webp" -> ".webp"
-                "image/gif" -> ".gif"
-                "image/heic", "image/heif" -> ".heic"
-                else -> ".jpg"
-            }
-
-            saveImageFromStream(inputStream, extension)
+            saved
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

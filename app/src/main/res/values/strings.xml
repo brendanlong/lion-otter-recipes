@@ -21,7 +21,6 @@
     <string name="sign_out_confirmation">Signing out will delete all locally cached data. You will continue in guest mode with an empty recipe list. Export your recipes first to keep a backup.</string>
     <string name="signed_in_with_google">Signed in with Google</string>
     <string name="sign_in_failed">Failed to sign in</string>
-    <string name="sign_in_failed_with_error">Sign-in failed: %1$s</string>
     <string name="sign_in_migration_warning">Signed in with Google, but some data may not have been migrated</string>
     <string name="delete_account">Delete Account and Data</string>
     <string name="delete_account_title">Delete Account and Data?</string>
@@ -65,7 +64,6 @@
 
     <!-- Recipe Detail Screen -->
     <string name="recipe">Recipe</string>
-    <string name="share_recipe">Share recipe</string>
     <string name="share_as_text">Share as text</string>
     <string name="share_as_file">Share as file (.lorecipes)</string>
     <string name="delete_recipe_action">Delete recipe</string>
@@ -83,9 +81,6 @@
     <string name="prep_time">Prep: %1$s</string>
     <string name="cook_time">Cook: %1$s</string>
     <string name="total_time">Total: %1$s</string>
-    <string name="servings_label">Servings: %1$s</string>
-    <string name="remaining_amount_with_unit">%1$s %2$s left</string>
-    <string name="remaining_amount">%1$s left</string>
     <string name="notes">Notes</string>
     <string name="add_notes">Add notes\u2026</string>
 
@@ -178,15 +173,8 @@
     <string name="version_format">Version %1$s</string>
     <string name="about_description">Import recipes from any website using AI. Your recipes are stored locally on your device.</string>
     <!-- Model names -->
-    <string name="model_opus_4_6">Claude Opus 4.6 (Best quality)</string>
-    <string name="model_opus">Claude Opus 4.5</string>
-    <string name="model_sonnet_4_6">Claude Sonnet 4.6 (Balanced)</string>
-    <string name="model_sonnet">Claude Sonnet 4.5</string>
-    <string name="model_haiku">Claude Haiku 4.5 (Fastest)</string>
 
     <!-- Common count strings -->
-    <string name="skipped_count">%1$d skipped</string>
-    <string name="failed_count">%1$d failed</string>
 
     <!-- Backup & Restore -->
     <string name="backup_restore">Backup &amp; Restore</string>
@@ -194,20 +182,18 @@
     <string name="export_recipes">Export</string>
     <string name="import_recipes">Import</string>
     <string name="exporting_recipes">Exporting recipes\u2026</string>
-    <string name="exported_recipes">Exported %1$d recipes</string>
-    <string name="exported_recipes_with_failures">Exported %1$d recipes (%2$d failed)</string>
+    <plurals name="exported_recipes">
+        <item quantity="one">Exported %1$d recipe</item>
+        <item quantity="other">Exported %1$d recipes</item>
+    </plurals>
+    <plurals name="exported_recipes_with_failures">
+        <item quantity="one">Exported %1$d recipe (%2$d failed)</item>
+        <item quantity="other">Exported %1$d recipes (%2$d failed)</item>
+    </plurals>
 
     <!-- File Import -->
     <string name="import_from_file">Import from file</string>
     <string name="import_from_file_description">Import recipes from a .lorecipes or Paprika (.paprikarecipes) file</string>
-    <string name="reading_paprika_export">Reading Paprika export\u2026</string>
-    <string name="importing_paprika_recipe">Importing %1$d/%2$d: %3$s</string>
-    <string name="paprika_import_complete">Paprika Import Complete</string>
-    <string name="paprika_import_result">Successfully imported %1$d recipes</string>
-    <string name="paprika_import_result_with_failures">Imported %1$d recipes (%2$d failed)</string>
-    <string name="paprika_import_cancelled">Import Cancelled</string>
-    <string name="paprika_import_cancelled_result">Successfully imported %1$d recipes before cancellation</string>
-    <string name="done">Done</string>
 
     <!-- Import Debugging -->
     <string name="import_debugging">Import Debugging</string>
@@ -243,20 +229,18 @@
     <string name="not_available">N/A</string>
     <string name="unknown_import">Unknown Import</string>
     <string name="json_label">JSON</string>
-    <string name="copy_json">Copy JSON</string>
 
     <!-- File Import -->
-    <string name="file_import_success">Recipe imported successfully</string>
-    <string name="file_import_already_exists">Recipe already exists</string>
 
     <!-- Import Selection -->
     <string name="select_recipes_to_import">Select Recipes to Import</string>
     <string name="reading_recipes">Reading recipes\u2026</string>
-    <string name="import_selection_count">%1$d of %2$d selected</string>
+    <plurals name="import_selection_count">
+        <item quantity="one">%1$d of %2$d selected</item>
+        <item quantity="other">%1$d of %2$d selected</item>
+    </plurals>
     <string name="import_selected">Import (%1$d)</string>
     <string name="recipe_already_exists">Already in your recipes</string>
-    <string name="no_recipes_in_file">No recipes found in file</string>
-    <string name="file_import_success_count">Successfully imported %1$d recipes</string>
 
     <!-- Meal Planner -->
     <string name="meal_planner">Meal Planner</string>
@@ -275,7 +259,6 @@
     <string name="snack">Snack</string>
     <string name="today">Today</string>
     <string name="no_meals_planned">No meals planned</string>
-    <string name="tap_plus_to_add_meal">Tap + to add a meal</string>
     <string name="search_recipes_to_add">Search recipes to add\u2026</string>
     <string name="no_recipes_found">No recipes found</string>
     <string name="previous_week">Previous week</string>
@@ -285,7 +268,6 @@
     <string name="edit">Edit</string>
     <string name="edit_meal_plan">Edit Meal Plan</string>
     <string name="save">Save</string>
-    <string name="recipes">Recipes</string>
 
     <!-- Grocery List -->
     <string name="grocery_list">Grocery List</string>
@@ -298,7 +280,6 @@
 
     <!-- ===== BEGIN secondary screens (settings, import, edit, meal plan, grocery) ===== -->
     <string name="settings_save_failed">Couldn\'t save that setting. Please try again.</string>
-    <string name="upload_local_images_failed">Some recipe images couldn\'t be uploaded to your account</string>
     <string name="disable_import_debugging_title">Turn off import debugging?</string>
     <string name="disable_import_debugging_message">Turning this off deletes all saved import debug data.</string>
     <string name="disable_and_delete">Turn off and delete</string>

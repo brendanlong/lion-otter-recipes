@@ -2,6 +2,7 @@ package com.lionotter.recipes.data.local
 
 import android.content.Context
 import android.util.Log
+import androidx.core.content.edit
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -213,14 +214,14 @@ class SettingsDataStore @Inject constructor(
     suspend fun setAnthropicApiKey(apiKey: String) {
         withContext(Dispatchers.IO) {
             val encrypted = tinkEncryption.encrypt(apiKey)
-            apiKeyPrefs.edit().putString(API_KEY_PREF_KEY, encrypted).commit()
+            apiKeyPrefs.edit(commit = true) { putString(API_KEY_PREF_KEY, encrypted) }
             _anthropicApiKey.value = LoadedApiKey(apiKey)
         }
     }
 
     suspend fun clearAnthropicApiKey() {
         withContext(Dispatchers.IO) {
-            apiKeyPrefs.edit().remove(API_KEY_PREF_KEY).commit()
+            apiKeyPrefs.edit(commit = true) { remove(API_KEY_PREF_KEY) }
             _anthropicApiKey.value = LoadedApiKey(null)
         }
     }
