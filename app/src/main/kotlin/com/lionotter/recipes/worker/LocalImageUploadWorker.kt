@@ -19,9 +19,9 @@ import kotlinx.coroutines.CancellationException
 import java.util.concurrent.TimeUnit
 
 /**
- * Uploads recipe images that are still local `file://` URIs (added in guest mode)
- * to Firebase Storage after the user signs in with Google. Survives process death
- * and retries when offline.
+ * Uploads recipe images that are still local `file://` URIs (added in guest mode, or
+ * whose upload failed) to Firebase Storage. Survives process death and retries while
+ * any upload fails.
  */
 @HiltWorker
 class LocalImageUploadWorker @AssistedInject constructor(
@@ -33,23 +33,36 @@ class LocalImageUploadWorker @AssistedInject constructor(
     companion object {
         private const val TAG = "LocalImageUploadWorker"
         private const val UNIQUE_WORK_NAME = "local_image_upload"
-        private const val MAX_ATTEMPTS = 5
+        private const val MAX_ATTEMPTS = 10
         const val KEY_UPLOADED_COUNT = "uploaded_count"
 
-        /** Enqueues the upload; a pending or running upload is kept rather than duplicated. */
+        /**
+         * Enqueues the upload, replacing any pending run. A running upload is replaced too
+         * (it finishes its current pass first) so that images added after its scan are picked up.
+         */
         fun enqueue(workManager: WorkManager) {
             val request = OneTimeWorkRequestBuilder<LocalImageUploadWorker>()
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                 .build()
-            workManager.enqueueUniqueWork(UNIQUE_WORK_NAME, ExistingWorkPolicy.KEEP, request)
+            workManager.enqueueUniqueWork(UNIQUE_WORK_NAME, ExistingWorkPolicy.REPLACE, request)
         }
     }
 
     override suspend fun doWork(): Result {
         return try {
-            val uploaded = imageSyncService.uploadPendingLocalImages()
-            Result.success(workDataOf(KEY_UPLOADED_COUNT to uploaded))
+            val result = imageSyncService.uploadPendingLocalImages()
+            when {
+                result.failed == 0 -> Result.success(workDataOf(KEY_UPLOADED_COUNT to result.uploaded))
+                runAttemptCount + 1 < MAX_ATTEMPTS -> {
+                    Log.w(TAG, "${result.failed} image uploads failed; retrying (attempt ${runAttemptCount + 1})")
+                    Result.retry()
+                }
+                else -> {
+                    Log.e(TAG, "${result.failed} image uploads still failing after $MAX_ATTEMPTS attempts")
+                    Result.failure(workDataOf(KEY_UPLOADED_COUNT to result.uploaded))
+                }
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

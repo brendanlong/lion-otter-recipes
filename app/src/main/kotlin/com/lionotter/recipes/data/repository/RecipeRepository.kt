@@ -79,14 +79,8 @@ class RecipeRepository @Inject constructor(
             .flowOn(Dispatchers.Default)
             .conflate()
 
-    /** Current UID for fire-and-forget writes; reports an error if mid-transition. */
-    private fun uidForWrite(action: String): String? {
-        val uid = authService.authState.value.uid
-        if (uid == null) {
-            firestoreService.reportError("Failed to $action: account is changing, please try again")
-        }
-        return uid
-    }
+    private fun write(action: String, block: (uid: String) -> Unit) =
+        authService.writeForCurrentUser(repositoryScope, firestoreService, TAG, action, block)
 
     override fun getAllRecipes(): Flow<List<Recipe>> = allRecipesShared
 
@@ -114,8 +108,7 @@ class RecipeRepository @Inject constructor(
             withContext(Dispatchers.Default) { doc.toObject(RecipeDto::class.java)?.toDomain() }
         }
 
-    override fun saveRecipe(recipe: Recipe) {
-        val uid = uidForWrite("save recipe") ?: return
+    override fun saveRecipe(recipe: Recipe) = write("save recipe") { uid ->
         val dto = recipe.toDto()
         firestoreService.recipesCollection(uid).document(recipe.id).set(dto)
             .addOnFailureListener { e ->
@@ -124,15 +117,14 @@ class RecipeRepository @Inject constructor(
             }
     }
 
-    override fun deleteRecipe(id: String) {
-        val uid = uidForWrite("delete recipe") ?: return
+    override fun deleteRecipe(id: String) = write("delete recipe") { uid ->
         // Read the recipe's image URL first, then delete everything.
         firestoreService.recipesCollection(uid).document(id).get()
             .addOnSuccessListener { snapshot ->
                 val imageUrl = snapshot.getString("imageUrl")
                 if (imageUrl != null) {
                     repositoryScope.launch {
-                        withContext(NonCancellable) { imageDownloadService.cleanupImage(imageUrl) }
+                        withContext(NonCancellable) { imageDownloadService.cleanupImage(imageUrl, recipeId = id) }
                     }
                 }
                 deleteRecipeDocuments(uid, id)
@@ -152,8 +144,7 @@ class RecipeRepository @Inject constructor(
             }
     }
 
-    override fun setFavorite(id: String, isFavorite: Boolean) {
-        val uid = uidForWrite("update favorite") ?: return
+    override fun setFavorite(id: String, isFavorite: Boolean) = write("update favorite") { uid ->
         firestoreService.recipesCollection(uid).document(id)
             .update("isFavorite", isFavorite)
             .addOnFailureListener { e ->
@@ -162,8 +153,7 @@ class RecipeRepository @Inject constructor(
             }
     }
 
-    override fun setUserNotes(id: String, userNotes: String?) {
-        val uid = uidForWrite("update notes") ?: return
+    override fun setUserNotes(id: String, userNotes: String?) = write("update notes") { uid ->
         firestoreService.recipesCollection(uid).document(id)
             .update("userNotes", userNotes)
             .addOnFailureListener { e ->
@@ -172,18 +162,27 @@ class RecipeRepository @Inject constructor(
             }
     }
 
-    override fun setImageUrl(id: String, imageUrl: String?) {
-        val uid = uidForWrite("update image") ?: return
+    /** Also points the recipe's meal plans (which keep a copy of the image URL) at the new image. */
+    override fun setImageUrl(id: String, imageUrl: String?) = write("update image") { uid ->
         firestoreService.recipesCollection(uid).document(id)
             .update("imageUrl", imageUrl)
             .addOnFailureListener { e ->
                 Log.e(TAG, "Error updating image URL for $id", e)
                 firestoreService.reportError("Failed to update image: ${e.message}")
             }
+        firestoreService.mealPlansCollection(uid)
+            .whereEqualTo("recipeId", id)
+            .get()
+            .addOnSuccessListener { snapshot ->
+                for (doc in snapshot.documents) {
+                    doc.reference.update("recipeImageUrl", imageUrl)
+                        .addOnFailureListener { e -> Log.w(TAG, "Failed to update meal plan image ${doc.id}", e) }
+                }
+            }
+            .addOnFailureListener { e -> Log.w(TAG, "Failed to update meal plan images for recipe $id", e) }
     }
 
-    override fun updateTitleAndUrl(id: String, name: String, sourceUrl: String?) {
-        val uid = uidForWrite("update recipe") ?: return
+    override fun updateTitleAndUrl(id: String, name: String, sourceUrl: String?) = write("update recipe") { uid ->
         val updates = mutableMapOf<String, Any?>(
             "name" to name,
             "sourceUrl" to sourceUrl

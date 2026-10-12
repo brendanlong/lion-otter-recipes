@@ -241,6 +241,64 @@ class GroceryListViewModelTest {
     }
 
     @Test
+    fun `check-offs are kept when a selected recipe fails to load`() = runTest {
+        coEvery { recipeRepository.getRecipeByIdOnce("r1") } returns createRecipe(
+            "r1", "Recipe A", listOf(Ingredient(name = "flour", amount = Amount(value = 2.0, unit = "cup")))
+        )
+        coEvery { recipeRepository.getRecipeByIdOnce("r2") } returns null
+        val viewModel = createViewModel(
+            entries = listOf(createEntry("e1", "r1", "Recipe A"), createEntry("e2", "r2", "Recipe B")),
+            savedState = SavedGroceryListState(
+                selectedEntryIds = setOf("e1", "e2"),
+                showingList = true,
+                checkedItems = setOf("sugar"),
+                checkedSources = emptySet()
+            )
+        )
+
+        viewModel.displayGroceryItems.test {
+            advanceUntilIdle()
+            assertEquals(1, expectMostRecentItem().size)
+            cancelAndIgnoreRemainingEvents()
+        }
+        coVerify(exactly = 0) {
+            groceryListStateStore.save(testWeekStart, match { "sugar" !in it.checkedItems })
+        }
+    }
+
+    @Test
+    fun `empty first snapshot does not persist an empty default selection`() = runTest {
+        val entries = listOf(createEntry("e1", "r1", "Recipe A"), createEntry("e2", "r2", "Recipe B"))
+        every { mealPlanRepository.getMealPlansForDateRange(testWeekStart, testWeekEnd) } returns
+            flowOf(emptyList(), entries)
+        coEvery { groceryListStateStore.load(testWeekStart) } returns null
+        val viewModel = GroceryListViewModel(
+            savedStateHandle = SavedStateHandle(mapOf("weekStart" to testWeekStart.toString())),
+            mealPlanRepository = mealPlanRepository,
+            recipeRepository = recipeRepository,
+            aggregateGroceryListUseCase = AggregateGroceryListUseCase(),
+            settingsDataStore = settingsDataStore,
+            groceryListStateStore = groceryListStateStore
+        )
+
+        viewModel.selectableEntries.test {
+            advanceUntilIdle()
+            val selected = expectMostRecentItem()!!.values.flatten().filter { it.isSelected }
+            assertEquals(2, selected.size)
+            cancelAndIgnoreRemainingEvents()
+        }
+        coVerify(exactly = 0) { groceryListStateStore.save(testWeekStart, match { it.selectedEntryIds.isEmpty() }) }
+        coVerify { groceryListStateStore.save(testWeekStart, match { it.selectedEntryIds == setOf("e1", "e2") }) }
+    }
+
+    @Test
+    fun `empty snapshot alone persists nothing`() = runTest {
+        createViewModel(entries = emptyList())
+        advanceUntilIdle()
+        coVerify(exactly = 0) { groceryListStateStore.save(any(), any()) }
+    }
+
+    @Test
     fun `meal plan load failure shows error instead of crashing`() = runTest {
         mockkStatic(Log::class)
         every { Log.e(any(), any(), any()) } returns 0

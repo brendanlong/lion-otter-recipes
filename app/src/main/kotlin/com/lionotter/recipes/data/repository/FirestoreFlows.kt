@@ -5,14 +5,18 @@ import com.google.firebase.firestore.DocumentChange
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
+import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.FirestoreService
+import com.lionotter.recipes.data.remote.uid
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.launch
 
 /**
  * Emits every snapshot of this query.
@@ -82,5 +86,34 @@ internal inline fun <T> logFailure(tag: String, message: String, block: () -> T)
     } catch (e: Exception) {
         if (e !is CancellationException) Log.e(tag, message, e)
         throw e
+    }
+}
+
+/**
+ * Runs a fire-and-forget write for the current user. During an auth transition (sign-in
+ * migration, sign-out) the write waits in [scope] for it to finish and then goes to the
+ * resulting account, so e.g. a worker saving a recipe mid-transition doesn't lose it.
+ */
+internal fun AuthService.writeForCurrentUser(
+    scope: CoroutineScope,
+    firestoreService: FirestoreService,
+    tag: String,
+    action: String,
+    write: (uid: String) -> Unit
+) {
+    val uid = authState.value.uid
+    if (uid != null) {
+        write(uid)
+        return
+    }
+    scope.launch {
+        try {
+            write(awaitUid())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to $action after auth transition", e)
+            firestoreService.reportError("Failed to $action: ${e.message}")
+        }
     }
 }
