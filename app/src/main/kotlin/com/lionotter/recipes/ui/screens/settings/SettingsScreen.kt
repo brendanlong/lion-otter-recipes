@@ -10,14 +10,26 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.todayIn
+import kotlin.time.Clock
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -65,7 +77,30 @@ fun SettingsScreen(
     val isDeletingAccount by viewModel.isDeletingAccount.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    var showDisableDebuggingDialog by rememberSaveable { mutableStateOf(false) }
+
+    if (showDisableDebuggingDialog) {
+        AlertDialog(
+            onDismissRequest = { showDisableDebuggingDialog = false },
+            title = { Text(stringResource(R.string.disable_import_debugging_title)) },
+            text = { Text(stringResource(R.string.disable_import_debugging_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDisableDebuggingDialog = false
+                    viewModel.setImportDebuggingEnabled(false)
+                }) {
+                    Text(stringResource(R.string.disable_and_delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDisableDebuggingDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
 
     // Observe toast messages from SettingsViewModel (emitted as string resource IDs)
     // Context is used for string resolution in a side-effect, not for rendering
@@ -152,7 +187,18 @@ fun SettingsScreen(
 
             AccountSection(
                 authState = authState,
-                onSignInWithGoogle = { viewModel.signInWithGoogle(context) },
+                onSignInWithGoogle = {
+                    viewModel.onGoogleSignInStarted()
+                    scope.launch {
+                        val result = try {
+                            viewModel.requestGoogleCredential(context)
+                        } catch (e: CancellationException) {
+                            viewModel.onGoogleSignInAborted()
+                            throw e
+                        }
+                        viewModel.onGoogleCredentialResult(result)
+                    }
+                },
                 onSignOut = { viewModel.signOut() },
                 onDeleteAccount = { viewModel.deleteAccount() },
                 isSigningIn = isSigningIn,
@@ -215,10 +261,14 @@ fun SettingsScreen(
             BackupRestoreSection(
                 operationState = zipOperationState,
                 onExportClick = {
-                    exportLauncher.launch("lion-otter-recipes.lorecipes")
+                    val today = Clock.System.todayIn(TimeZone.currentSystemDefault())
+                    exportLauncher.launch("lion-otter-recipes-$today.lorecipes")
                 },
                 onImportClick = {
-                    importLauncher.launch(arrayOf("application/zip"))
+                    // .lorecipes/.paprikarecipes files are usually reported as
+                    // application/octet-stream, so don't filter by MIME type.
+                    // The import screen detects the actual format from the contents.
+                    importLauncher.launch(arrayOf("*/*"))
                 }
             )
 
@@ -227,7 +277,13 @@ fun SettingsScreen(
             // Import Debugging Section
             ImportDebuggingSection(
                 importDebuggingEnabled = importDebuggingEnabled,
-                onImportDebuggingChange = viewModel::setImportDebuggingEnabled,
+                onImportDebuggingChange = { enabled ->
+                    if (enabled) {
+                        viewModel.setImportDebuggingEnabled(true)
+                    } else {
+                        showDisableDebuggingDialog = true
+                    }
+                },
                 onViewDebugDataClick = onNavigateToImportDebug
             )
 
