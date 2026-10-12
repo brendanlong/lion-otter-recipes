@@ -42,6 +42,45 @@ class AccountMigrationService @Inject constructor(
          * "multiple DataStores active for the same file".
          */
         private val migrationCounter = AtomicInteger(0)
+
+        internal const val MAX_DOCS_PER_BATCH = 100
+        internal const val MAX_BATCH_BYTES = 4L * 1024 * 1024
+
+        /**
+         * Splits documents into batches of at most [MAX_DOCS_PER_BATCH] documents and
+         * roughly [MAX_BATCH_BYTES] estimated bytes. A single oversized document gets
+         * its own batch.
+         */
+        internal fun <T> chunkForBatches(documents: List<Pair<String, Map<String, T>>>): List<List<Pair<String, Map<String, T>>>> {
+            val batches = mutableListOf<List<Pair<String, Map<String, T>>>>()
+            var current = mutableListOf<Pair<String, Map<String, T>>>()
+            var currentBytes = 0L
+            for (doc in documents) {
+                val size = estimateSize(doc.first) + estimateSize(doc.second)
+                if (current.isNotEmpty() &&
+                    (current.size >= MAX_DOCS_PER_BATCH || currentBytes + size > MAX_BATCH_BYTES)
+                ) {
+                    batches += current
+                    current = mutableListOf()
+                    currentBytes = 0L
+                }
+                current += doc
+                currentBytes += size
+            }
+            if (current.isNotEmpty()) batches += current
+            return batches
+        }
+
+        /** Approximates Firestore's storage size for a value (UTF-8 strings + fixed overheads). */
+        internal fun estimateSize(value: Any?): Long = when (value) {
+            null, is Boolean -> 1
+            is String -> value.toByteArray(Charsets.UTF_8).size + 1L
+            is Number -> 8
+            is Map<*, *> -> value.entries.sumOf { estimateSize(it.key) + estimateSize(it.value) } + 32
+            is Iterable<*> -> value.sumOf { estimateSize(it) } + 32
+            is ByteArray -> value.size + 1L
+            else -> 32
+        }
     }
 
     /**
@@ -211,8 +250,8 @@ class AccountMigrationService @Inject constructor(
     }
 
     /**
-     * Writes documents to a collection using batched writes.
-     * Firestore batches support up to 500 operations.
+     * Writes documents to a collection using batched writes, keeping each batch well
+     * under Firestore's 10 MiB request limit (recipe documents can be large).
      */
     private suspend fun writeDocuments(
         collection: com.google.firebase.firestore.CollectionReference,
@@ -221,7 +260,7 @@ class AccountMigrationService @Inject constructor(
         if (documents.isEmpty()) return
 
         val firestore = collection.firestore
-        for (chunk in documents.chunked(500)) {
+        for (chunk in chunkForBatches(documents)) {
             val batch = firestore.batch()
             for ((id, data) in chunk) {
                 batch.set(collection.document(id), data)

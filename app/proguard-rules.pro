@@ -29,6 +29,17 @@
 -keep class com.anthropic.** { *; }
 -keepclassmembers class com.anthropic.** { *; }
 
+# Jackson (used by the Anthropic SDK via jackson-module-kotlin, which reads
+# Kotlin metadata and generic signatures reflectively)
+-keep class kotlin.Metadata { *; }
+-keepattributes Signature, EnclosingMethod, RuntimeVisibleAnnotations, RuntimeVisibleParameterAnnotations
+-keep class com.fasterxml.jackson.annotation.** { *; }
+-keep class com.fasterxml.jackson.databind.** { *; }
+-keep class com.fasterxml.jackson.module.kotlin.** { *; }
+-keep class com.fasterxml.jackson.datatype.jdk8.** { *; }
+-keep class com.fasterxml.jackson.datatype.jsr310.** { *; }
+-dontwarn com.fasterxml.jackson.databind.ext.**
+
 # OkHttp (used by Anthropic SDK)
 -dontwarn okhttp3.internal.platform.**
 -dontwarn org.conscrypt.**

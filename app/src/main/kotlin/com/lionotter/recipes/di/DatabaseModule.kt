@@ -40,6 +40,9 @@ object DatabaseModule {
             "recipes.db"
         )
             .addMigrations(MIGRATION_10_11, MIGRATION_11_12)
+            // Pre-10 schemas predate the Firestore move; the remaining tables only hold
+            // the import queue and debug data, so recreating them is safe.
+            .fallbackToDestructiveMigrationFrom(dropAllTables = true, 1, 2, 3, 4, 5, 6, 7, 8, 9)
             .build()
     }
 
