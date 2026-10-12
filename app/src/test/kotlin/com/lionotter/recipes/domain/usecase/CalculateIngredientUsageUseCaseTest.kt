@@ -9,6 +9,7 @@ import com.lionotter.recipes.domain.model.MeasurementPreference
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.domain.model.createInstructionIngredientKey
+import com.lionotter.recipes.domain.model.formatAmounts
 import kotlin.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -560,5 +561,90 @@ class CalculateIngredientUsageUseCaseTest {
         assertTrue("Result should contain Sauce section", result.containsKey("Sauce"))
         assertTrue("Result should contain Pasta section", result.containsKey("Pasta"))
         assertFalse("Result should not contain null section", result.containsKey(null))
+    }
+
+    // --- Mixed categories and amount-less occurrences ---
+
+    @Test
+    fun `remaining never subtracts volume from weight without density`() {
+        val recipe = recipe(listOf(section(listOf(
+            step(1, listOf(Ingredient(name = "butter", amount = Amount(1.0, "cup")))),
+            step(2, listOf(Ingredient(name = "butter", amount = Amount(50.0, "g"))))
+        ))))
+
+        val result = useCase.execute(
+            recipe = recipe,
+            usedInstructionIngredients = setOf(createInstructionIngredientKey(0, 0, 0)),
+            scale = 1.0,
+            measurementPreference = MeasurementPreference.DEFAULT,
+            volumeSystem = UnitSystem.CUSTOMARY,
+            weightSystem = UnitSystem.METRIC
+        )
+
+        val butter = result.unnamed()["butter"]!!
+        assertFalse(butter.isFullyUsed)
+        assertEquals(50.0, butter.remainingAmount!!, 0.01)
+        assertEquals("g", butter.remainingUnit)
+        assertEquals(listOf(Amount(50.0, "g")), butter.remainingAmounts)
+    }
+
+    @Test
+    fun `remainingAmounts lists every kind of amount left`() {
+        val recipe = recipe(listOf(section(listOf(
+            step(1, listOf(Ingredient(name = "butter", amount = Amount(1.0, "cup")))),
+            step(2, listOf(Ingredient(name = "butter", amount = Amount(50.0, "g")))),
+            step(3, listOf(Ingredient(name = "butter", amount = Amount(2.0, "tbsp"))))
+        ))))
+
+        val result = useCase.execute(
+            recipe = recipe,
+            usedInstructionIngredients = setOf(createInstructionIngredientKey(0, 0, 0)),
+            scale = 1.0,
+            measurementPreference = MeasurementPreference.DEFAULT,
+            volumeSystem = UnitSystem.CUSTOMARY,
+            weightSystem = UnitSystem.METRIC
+        )
+
+        val butter = result.unnamed()["butter"]!!
+        assertEquals("50 g + 2 tbsp", formatAmounts(butter.remainingAmounts))
+    }
+
+    @Test
+    fun `amount-less ingredient is fully used once its step is checked`() {
+        val recipe = recipe(listOf(section(listOf(
+            step(1, listOf(Ingredient(name = "salt", notes = "to taste")))
+        ))))
+
+        val result = useCase.execute(
+            recipe = recipe,
+            usedInstructionIngredients = setOf(createInstructionIngredientKey(0, 0, 0)),
+            scale = 1.0,
+            measurementPreference = MeasurementPreference.DEFAULT,
+            volumeSystem = UnitSystem.CUSTOMARY,
+            weightSystem = UnitSystem.METRIC
+        )
+
+        assertTrue(result.unnamed()["salt"]!!.isFullyUsed)
+    }
+
+    @Test
+    fun `amount-less first occurrence keeps the unit of later ones`() {
+        val recipe = recipe(listOf(section(listOf(
+            step(1, listOf(Ingredient(name = "salt", notes = "to taste"))),
+            step(2, listOf(Ingredient(name = "salt", amount = Amount(1.0, "tsp"))))
+        ))))
+
+        val result = useCase.execute(
+            recipe = recipe,
+            usedInstructionIngredients = emptySet(),
+            scale = 1.0,
+            measurementPreference = MeasurementPreference.DEFAULT,
+            volumeSystem = UnitSystem.CUSTOMARY,
+            weightSystem = UnitSystem.METRIC
+        )
+
+        val salt = result.unnamed()["salt"]!!
+        assertEquals(1.0, salt.totalAmount!!, 0.001)
+        assertEquals("tsp", salt.unit)
     }
 }

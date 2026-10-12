@@ -8,11 +8,19 @@ import javax.inject.Inject
 
 /**
  * A single ingredient contribution from one recipe (possibly appearing multiple times in the meal plan).
+ *
+ * [ingredient] is the recipe's total for this ingredient across all of its sections, and [scale]
+ * is the sum of the meal plan servings multipliers for that recipe.
+ * [key] uniquely identifies this source within its [GroceryItem]; use it for check-off state
+ * (recipe names are not unique, and one recipe can contribute two sources for the same
+ * ingredient when its amounts can't be combined, e.g. "1 cup" and "50 g" with no density).
  */
 data class GroceryIngredientSource(
     val recipeName: String,
     val ingredient: Ingredient,
-    val scale: Double
+    val scale: Double,
+    val recipeId: String = recipeName,
+    val key: String = "$recipeId\u0000${ingredient.name.lowercase()}\u0000${ingredient.amount?.unit.orEmpty()}"
 )
 
 /**
@@ -30,13 +38,16 @@ data class GroceryItem(
  * - Normalize ingredient names by removing size prefixes (small, medium, large),
  *   lowercasing, and singularizing
  * - Group same ingredients across recipes
- * - Within the same recipe, merge duplicate sources (e.g., same recipe on two different days)
- *   by summing their scale factors
+ * - Within one recipe, combine the same ingredient across sections by summing amounts
+ *   (e.g. butter in both the cake and the frosting)
+ * - The same recipe planned several times (matched by recipe ID) becomes one source whose
+ *   scale is the sum of the planned servings multipliers
  */
 class AggregateGroceryListUseCase @Inject constructor() {
 
     companion object {
         private val SIZE_PREFIXES = setOf("small", "medium", "large")
+        private val WHITESPACE = "\\s+".toRegex()
     }
 
     /**
@@ -46,44 +57,38 @@ class AggregateGroceryListUseCase @Inject constructor() {
      * @return A list of aggregated grocery items
      */
     fun execute(entries: List<Pair<MealPlanEntry, Recipe>>): List<GroceryItem> {
-        // Map of normalized ingredient key -> map of (recipeName, ingredientName) -> merged source
-        val aggregation = linkedMapOf<String, LinkedHashMap<String, MutableGrocerySource>>()
+        // entry.servings is a scale multiplier (1.0 = full recipe)
+        val recipesById = linkedMapOf<String, Pair<Recipe, Double>>()
+        for ((entry, recipe) in entries) {
+            val existingScale = recipesById[recipe.id]?.second ?: 0.0
+            recipesById[recipe.id] = recipe to (existingScale + entry.servings)
+        }
+
+        val aggregation = linkedMapOf<String, MutableList<GroceryIngredientSource>>()
         // Track the first display name seen for each key
         val displayNames = linkedMapOf<String, String>()
 
-        for ((entry, recipe) in entries) {
-            // entry.servings is a scale multiplier (1.0 = full recipe)
-            val scale = entry.servings
-            val sections = recipe.aggregateIngredients()
-            for (section in sections) {
-                for (ingredient in section.ingredients) {
-                    val key = normalizeKey(ingredient.name)
-                    if (key !in displayNames) {
-                        displayNames[key] = normalizeName(ingredient.name)
-                    }
-
-                    val sourceMap = aggregation.getOrPut(key) { linkedMapOf() }
-                    // Use recipe name + original ingredient name as source key
-                    // so same recipe appearing multiple times merges into one source
-                    val sourceKey = "${recipe.name}\u0000${ingredient.name}"
-                    val existing = sourceMap[sourceKey]
-                    if (existing != null) {
-                        existing.scale += scale
-                    } else {
-                        sourceMap[sourceKey] = MutableGrocerySource(
-                            recipeName = recipe.name,
-                            ingredient = ingredient,
-                            scale = scale
-                        )
-                    }
+        for ((recipe, scale) in recipesById.values) {
+            for (ingredient in recipe.aggregateAllIngredients()) {
+                val key = normalizeKey(ingredient.name)
+                if (key !in displayNames) {
+                    displayNames[key] = normalizeName(ingredient.name)
                 }
+                aggregation.getOrPut(key) { mutableListOf() }.add(
+                    GroceryIngredientSource(
+                        recipeName = recipe.name,
+                        ingredient = ingredient,
+                        scale = scale,
+                        recipeId = recipe.id
+                    )
+                )
             }
         }
 
-        return aggregation.map { (key, sourceMap) ->
+        return aggregation.map { (key, sources) ->
             GroceryItem(
                 normalizedName = displayNames[key] ?: key,
-                sources = sourceMap.values.map { it.toSource() }
+                sources = sources
             )
         }
     }
@@ -95,7 +100,7 @@ class AggregateGroceryListUseCase @Inject constructor() {
      * - Singularize
      */
     private fun normalizeKey(name: String): String {
-        val words = name.lowercase().trim().split("\\s+".toRegex())
+        val words = name.lowercase().trim().split(WHITESPACE)
         val filtered = words.filter { it !in SIZE_PREFIXES }
         val joined = if (filtered.isNotEmpty()) filtered.joinToString(" ") else words.joinToString(" ")
         return joined.singularize()
@@ -105,19 +110,7 @@ class AggregateGroceryListUseCase @Inject constructor() {
      * Normalize the display name: remove size prefixes but keep original casing.
      */
     private fun normalizeName(name: String): String {
-        val words = name.trim().split("\\s+".toRegex())
+        val words = name.trim().split(WHITESPACE)
         return words.filter { it.lowercase() !in SIZE_PREFIXES }.joinToString(" ").ifEmpty { name }
-    }
-
-    private class MutableGrocerySource(
-        val recipeName: String,
-        val ingredient: Ingredient,
-        var scale: Double
-    ) {
-        fun toSource() = GroceryIngredientSource(
-            recipeName = recipeName,
-            ingredient = ingredient,
-            scale = scale
-        )
     }
 }
