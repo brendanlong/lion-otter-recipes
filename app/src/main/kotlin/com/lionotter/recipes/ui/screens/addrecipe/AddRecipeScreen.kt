@@ -1,19 +1,23 @@
 package com.lionotter.recipes.ui.screens.addrecipe
 
-import android.Manifest
 import android.net.Uri
-import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudDownload
@@ -40,6 +44,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -47,6 +53,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
 import com.lionotter.recipes.ui.components.ErrorCard
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
+import com.lionotter.recipes.ui.components.rememberNotificationPermissionRequester
 
 @Composable
 fun AddRecipeScreen(
@@ -54,18 +61,11 @@ fun AddRecipeScreen(
     onRecipeAdded: (String) -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToImportSelection: (importType: String, uri: Uri) -> Unit = { _, _ -> },
-    sharedUrl: String? = null,
     viewModel: AddRecipeViewModel = hiltViewModel()
 ) {
     val url by viewModel.url.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val hasApiKey by viewModel.hasApiKey.collectAsStateWithLifecycle()
-
-    LaunchedEffect(sharedUrl) {
-        if (sharedUrl != null) {
-            viewModel.onUrlChange(sharedUrl)
-        }
-    }
 
     LaunchedEffect(uiState) {
         if (uiState is AddRecipeUiState.Success) {
@@ -73,17 +73,9 @@ fun AddRecipeScreen(
         }
     }
 
-    // Request notification permission on Android 13+ (API 33+)
-    // This is contextually relevant since we notify users when imports complete
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { /* Permission result handled by system */ }
-
-    LaunchedEffect(Unit) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-    }
+    // Imports finish in the background and notify on completion, so ask for notification
+    // permission when the user actually starts one.
+    val requestNotificationPermission = rememberNotificationPermissionRequester()
 
     // Unified file picker for .lorecipes and .paprikarecipes imports
     val importFilePicker = rememberLauncherForActivityResult(
@@ -97,6 +89,7 @@ fun AddRecipeScreen(
             } else {
                 "lorecipes"
             }
+            requestNotificationPermission()
             onNavigateToImportSelection(importType, uri)
         }
     }
@@ -113,14 +106,18 @@ fun AddRecipeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(16.dp)
+                .consumeWindowInsets(paddingValues)
+                .imePadding()
         ) {
             when (val state = uiState) {
                 is AddRecipeUiState.Idle, is AddRecipeUiState.Error -> {
                     IdleContent(
                         url = url,
                         onUrlChange = viewModel::onUrlChange,
-                        onImportClick = viewModel::importRecipe,
+                        onImportClick = {
+                            requestNotificationPermission()
+                            viewModel.importRecipe()
+                        },
                         onImportFromFileClick = {
                             importFilePicker.launch(arrayOf("*/*"))
                         },
@@ -156,8 +153,12 @@ private fun IdleContent(
     onNavigateToSettings: () -> Unit,
     errorMessage: String?
 ) {
+    val canImport = url.isNotBlank() && hasApiKey
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
@@ -178,7 +179,14 @@ private fun IdleContent(
             label = { Text(stringResource(R.string.recipe_url)) },
             placeholder = { Text(stringResource(R.string.recipe_url_placeholder)) },
             singleLine = true,
-            isError = errorMessage != null
+            isError = errorMessage != null,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Uri,
+                imeAction = ImeAction.Go
+            ),
+            keyboardActions = KeyboardActions(
+                onGo = { if (canImport) onImportClick() }
+            )
         )
 
         errorMessage?.let { error ->
@@ -212,12 +220,10 @@ private fun IdleContent(
             }
         }
 
-        Spacer(modifier = Modifier.weight(1f))
-
         Button(
             onClick = onImportClick,
             modifier = Modifier.fillMaxWidth(),
-            enabled = url.isNotBlank() && hasApiKey
+            enabled = canImport
         ) {
             Text(stringResource(R.string.import_recipe))
         }
@@ -251,7 +257,9 @@ private fun LoadingContent(
     onCancelClick: () -> Unit
 ) {
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -324,7 +332,9 @@ private fun LoadingContent(
 @Composable
 private fun NoApiKeyContent(onNavigateToSettings: () -> Unit) {
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {

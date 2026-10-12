@@ -1,11 +1,13 @@
 package com.lionotter.recipes.ui.screens.addrecipe
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.lionotter.recipes.data.local.SettingsDataStore
+import com.lionotter.recipes.extractFirstUrl
 import com.lionotter.recipes.ui.state.InProgressRecipeManager
 import com.lionotter.recipes.worker.RecipeImportWorker
 import com.lionotter.recipes.worker.observeWorkByTag
@@ -22,6 +24,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class AddRecipeViewModel @Inject constructor(
+    private val savedStateHandle: SavedStateHandle,
     private val workManager: WorkManager,
     private val inProgressRecipeManager: InProgressRecipeManager,
     settingsDataStore: SettingsDataStore
@@ -31,8 +34,17 @@ class AddRecipeViewModel @Inject constructor(
     private var currentImportId: String? = null
     private var currentWorkId: UUID? = null
 
-    private val _url = MutableStateFlow("")
-    val url: StateFlow<String> = _url.asStateFlow()
+    companion object {
+        // "url" is the nav argument pre-filled from a share; edits are saved separately so they
+        // survive rotation and process death without being overwritten by the argument.
+        private const val KEY_URL_ARG = "url"
+        private const val KEY_URL_INPUT = "url_input"
+    }
+
+    val url: StateFlow<String> = savedStateHandle.getStateFlow(
+        KEY_URL_INPUT,
+        savedStateHandle.get<String>(KEY_URL_ARG) ?: ""
+    )
 
     private val _uiState = MutableStateFlow<AddRecipeUiState>(AddRecipeUiState.Idle)
     val uiState: StateFlow<AddRecipeUiState> = _uiState.asStateFlow()
@@ -108,17 +120,19 @@ class AddRecipeViewModel @Inject constructor(
     }
 
     fun onUrlChange(url: String) {
-        _url.value = url
+        savedStateHandle[KEY_URL_INPUT] = url
     }
 
     fun importRecipe() {
-        val currentUrl = _url.value.trim()
-        if (currentUrl.isBlank()) {
+        val input = url.value.trim()
+        if (input.isBlank()) {
             _uiState.value = AddRecipeUiState.Error("Please enter a URL")
             return
         }
 
-        if (!currentUrl.startsWith("http://") && !currentUrl.startsWith("https://")) {
+        // Accept pasted text like "Recipe title https://example.com/recipe"
+        val currentUrl = extractFirstUrl(input) ?: input
+        if (!currentUrl.startsWith("http://", ignoreCase = true) && !currentUrl.startsWith("https://", ignoreCase = true)) {
             _uiState.value = AddRecipeUiState.Error("URL must start with http:// or https://")
             return
         }

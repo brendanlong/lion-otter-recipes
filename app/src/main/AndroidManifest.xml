@@ -21,35 +21,37 @@
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.LionOtterRecipes">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Handle shared text (URLs), HTML, and Markdown -->
+            <!-- Handle shared text containing a recipe URL -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
             </intent-filter>
+
+            <!-- Handle .lorecipes / .paprikarecipes files shared from other apps.
+                 The import type is detected from the ZIP contents. -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/html" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.SEND" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/markdown" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/octet-stream" />
             </intent-filter>
 
-            <!-- Handle .lorecipes files opened from file manager or shared from other apps -->
-            <intent-filter tools:ignore="AppLinkUrlError">
+            <!-- Handle .lorecipes / .paprikarecipes files opened from a file manager.
+                 Content URIs are usually opaque (no file extension in the path), so match on
+                 MIME type rather than pathPattern. -->
+            <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="content" />
                 <data android:mimeType="application/zip" />
-                <data android:pathPattern=".*\\.lorecipes" />
+                <data android:mimeType="application/octet-stream" />
             </intent-filter>
             <intent-filter tools:ignore="AppLinkUrlError">
                 <action android:name="android.intent.action.VIEW" />
@@ -57,15 +59,6 @@
                 <data android:scheme="file" />
                 <data android:mimeType="*/*" />
                 <data android:pathPattern=".*\\.lorecipes" />
-            </intent-filter>
-
-            <!-- Handle .paprikarecipes files opened from file manager -->
-            <intent-filter tools:ignore="AppLinkUrlError">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:scheme="content" />
-                <data android:mimeType="application/zip" />
-                <data android:pathPattern=".*\\.paprikarecipes" />
             </intent-filter>
             <intent-filter tools:ignore="AppLinkUrlError">
                 <action android:name="android.intent.action.VIEW" />
