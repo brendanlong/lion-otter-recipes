@@ -8,8 +8,8 @@ A modern Android app for importing, organizing, and cooking with recipes from an
 - **Smart Organization**: Recipes are automatically tagged (breakfast, dessert, gluten-free, etc.)
 - **Grouped Sections**: Supports complex recipes with multiple sections (e.g., cake + frosting)
 - **Ingredient Scaling**: Adjust serving sizes with automatic quantity recalculation
-- **Cloud Sync**: Bidirectional sync across devices via Firebase Firestore with Google Sign-In
-- **Offline First**: All recipes stored locally; works without internet after import
+- **Cloud Sync**: Recipes and meal plans live in Firebase Firestore and sync across devices after signing in with Google (until then you use a local-only guest account)
+- **Offline First**: Firestore's offline cache keeps recipes available without internet after import
 - **Clean UI**: Material 3 design with a warm Lion+Otter color theme
 
 ## Screenshots
@@ -157,10 +157,11 @@ Client-side limits are defined in `ResourceLimits.kt`. Exceeding a limit shows a
 2. Go to **Settings** (gear icon in top right)
 3. Enter your Anthropic API key
 4. Optionally select your preferred Claude model:
-   - **Claude Opus 4.5**: Best quality (default)
-   - **Claude Sonnet 4**: Balanced speed/quality
-   - **Claude 3.5 Haiku**: Fastest, lowest cost
-5. Optionally enable **Cloud Sync** to sync recipes across devices via Google Sign-In
+   - **Claude Opus 5.5**: Best quality (default for imports)
+   - **Claude Sonnet 5.5**: Balanced speed/quality (default for edits)
+   - **Claude Haiku 4.5**: Fastest, lowest cost
+   - **Claude Fable 5.1**
+5. Optionally sign in with Google (Settings > Account) to sync recipes across devices
 
 ## Usage
 
@@ -191,7 +192,7 @@ Client-side limits are defined in `ResourceLimits.kt`. Exceeding a limit shows a
 - **UI**: Jetpack Compose with Material 3
 - **Architecture**: MVVM with Clean Architecture
 - **DI**: Hilt
-- **Database**: Room
+- **Database**: Room (import queue and debug data; recipes live in Firestore)
 - **Networking**: Ktor
 - **Cloud Sync**: Firebase Firestore + Firebase Auth
 - **Preferences**: DataStore
