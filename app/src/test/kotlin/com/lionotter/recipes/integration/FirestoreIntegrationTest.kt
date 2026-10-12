@@ -133,7 +133,7 @@ abstract class FirestoreIntegrationTest {
         var error: Throwable? = null
         val doneLatch = CountDownLatch(1)
 
-        kotlinx.coroutines.GlobalScope.launch(Dispatchers.Default) {
+        kotlinx.coroutines.CoroutineScope(Dispatchers.Default).launch {
             try {
                 result = block()
             } catch (e: Throwable) {

@@ -8,6 +8,7 @@ import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.NoCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
@@ -79,7 +80,7 @@ class ReauthenticationRequiredException(cause: Throwable? = null) :
  */
 @Singleton
 class AuthService @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val firestoreService: FirestoreService,
     private val accountDeletionService: AccountDeletionService,
     private val imageSyncService: ImageSyncService
@@ -302,7 +303,11 @@ class AuthService @Inject constructor(
     }
 
     private suspend fun getGoogleCredential(activityContext: Context, request: GetCredentialRequest): AuthCredential {
-        val result = CredentialManager.create(activityContext).getCredential(activityContext, request)
+        val result = try {
+            CredentialManager.create(activityContext).getCredential(activityContext, request)
+        } catch (e: NoCredentialException) {
+            throw IllegalStateException("No matching Google credential is available", e)
+        }
         val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(result.credential.data)
         return GoogleAuthProvider.getCredential(googleIdTokenCredential.idToken, null)
     }

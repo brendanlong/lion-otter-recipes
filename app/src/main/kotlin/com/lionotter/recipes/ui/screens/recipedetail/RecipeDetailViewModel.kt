@@ -479,7 +479,6 @@ class RecipeDetailViewModel @Inject constructor(
     override fun onCleared() {
         // Don't lose the last few keystrokes if the user leaves before the debounce fires.
         flushNotes()
-        super.onCleared()
     }
 
     // --- Recipe Export ---

@@ -27,7 +27,7 @@ val gitVersionName: String by lazy {
 
 android {
     namespace = "com.lionotter.recipes"
-    compileSdk = 36
+    compileSdk = 37
 
     signingConfigs {
         getByName("debug") {
@@ -49,11 +49,13 @@ android {
     defaultConfig {
         applicationId = "com.lionotter.recipes"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 37
         versionCode = gitVersionCode
         versionName = gitVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Overridden to true for the release variant in androidComponents below
+        manifestPlaceholders["crashlyticsEnabled"] = false
     }
 
     buildTypes {

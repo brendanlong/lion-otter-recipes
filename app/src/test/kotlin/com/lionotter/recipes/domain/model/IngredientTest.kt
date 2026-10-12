@@ -500,7 +500,7 @@ class IngredientTest {
         assertNotNull(result)
         // 2 cups = 2 * 236.588 mL * 0.51 density = 241.32 g
         assertEquals("g", result!!.unit)
-        assertTrue(result.value!! > 200 && result.value!! < 300)
+        assertTrue(result.value!! > 200 && result.value < 300)
     }
 
     @Test

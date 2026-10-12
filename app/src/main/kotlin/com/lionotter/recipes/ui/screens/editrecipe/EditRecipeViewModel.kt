@@ -569,7 +569,6 @@ class EditRecipeViewModel @Inject constructor(
         if (pendingImageChanged.value && !pendingImageOwnedBySave) {
             discardPendingImageFile()
         }
-        super.onCleared()
     }
 
     companion object {

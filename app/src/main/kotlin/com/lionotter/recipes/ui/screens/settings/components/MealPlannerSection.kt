@@ -17,6 +17,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
@@ -24,7 +25,6 @@ import com.lionotter.recipes.domain.model.StartOfWeek
 import kotlinx.datetime.toJavaDayOfWeek
 import java.time.DayOfWeek
 import java.time.format.TextStyle
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,19 +33,20 @@ fun MealPlannerSection(
     onStartOfWeekChange: (StartOfWeek) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val locale = LocalConfiguration.current.locales[0]
 
     val localeDefaultDay = StartOfWeek.LOCALE_DEFAULT.resolve().toJavaDayOfWeek()
-        .getDisplayName(TextStyle.FULL, Locale.getDefault())
+        .getDisplayName(TextStyle.FULL, locale)
 
     val options = listOf(
         StartOfWeek.LOCALE_DEFAULT to stringResource(R.string.start_of_week_locale_default, localeDefaultDay),
-        StartOfWeek.MONDAY to DayOfWeek.MONDAY.getDisplayName(TextStyle.FULL, Locale.getDefault()),
-        StartOfWeek.TUESDAY to DayOfWeek.TUESDAY.getDisplayName(TextStyle.FULL, Locale.getDefault()),
-        StartOfWeek.WEDNESDAY to DayOfWeek.WEDNESDAY.getDisplayName(TextStyle.FULL, Locale.getDefault()),
-        StartOfWeek.THURSDAY to DayOfWeek.THURSDAY.getDisplayName(TextStyle.FULL, Locale.getDefault()),
-        StartOfWeek.FRIDAY to DayOfWeek.FRIDAY.getDisplayName(TextStyle.FULL, Locale.getDefault()),
-        StartOfWeek.SATURDAY to DayOfWeek.SATURDAY.getDisplayName(TextStyle.FULL, Locale.getDefault()),
-        StartOfWeek.SUNDAY to DayOfWeek.SUNDAY.getDisplayName(TextStyle.FULL, Locale.getDefault())
+        StartOfWeek.MONDAY to DayOfWeek.MONDAY.getDisplayName(TextStyle.FULL, locale),
+        StartOfWeek.TUESDAY to DayOfWeek.TUESDAY.getDisplayName(TextStyle.FULL, locale),
+        StartOfWeek.WEDNESDAY to DayOfWeek.WEDNESDAY.getDisplayName(TextStyle.FULL, locale),
+        StartOfWeek.THURSDAY to DayOfWeek.THURSDAY.getDisplayName(TextStyle.FULL, locale),
+        StartOfWeek.FRIDAY to DayOfWeek.FRIDAY.getDisplayName(TextStyle.FULL, locale),
+        StartOfWeek.SATURDAY to DayOfWeek.SATURDAY.getDisplayName(TextStyle.FULL, locale),
+        StartOfWeek.SUNDAY to DayOfWeek.SUNDAY.getDisplayName(TextStyle.FULL, locale)
     )
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

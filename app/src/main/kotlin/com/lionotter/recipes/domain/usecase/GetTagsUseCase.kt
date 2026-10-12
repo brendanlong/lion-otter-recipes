@@ -165,9 +165,7 @@ class GetTagsUseCase @Inject constructor() {
 
         val result = model.maximise()
 
-        if (result.state != Optimisation.State.OPTIMAL &&
-            result.state != Optimisation.State.FEASIBLE
-        ) {
+        if (!result.state.isFeasible) {
             throw IllegalStateException("ILP solver returned state: ${result.state}")
         }
 

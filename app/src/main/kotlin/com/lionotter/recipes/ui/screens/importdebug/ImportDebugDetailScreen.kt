@@ -61,6 +61,7 @@ import com.lionotter.recipes.ui.components.ErrorCard
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.util.ErrorLog
 import kotlin.time.Instant
+import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.datetime.TimeZone
@@ -649,11 +650,11 @@ private fun JsonTreeView(
 }
 
 private fun formatNumber(value: Long): String {
-    return String.format("%,d", value)
+    return String.format(Locale.getDefault(), "%,d", value)
 }
 
 private fun formatNumber(value: Int): String {
-    return String.format("%,d", value)
+    return String.format(Locale.getDefault(), "%,d", value)
 }
 
 private fun formatTimestamp(epochMillis: Long): String {
@@ -683,7 +684,7 @@ private fun estimateCost(model: String, inputTokens: Long, outputTokens: Long, t
     val outputCost = (outputTokens / 1_000_000.0) * baseOutput * multiplier
     val totalCost = inputCost + outputCost
     val suffix = if (batchMode) " (batch)" else ""
-    return "$${String.format("%.4f", totalCost)}$suffix"
+    return "$${String.format(Locale.getDefault(), "%.4f", totalCost)}$suffix"
 }
 
 private fun formatDuration(durationMs: Long): String {
@@ -691,8 +692,8 @@ private fun formatDuration(durationMs: Long): String {
     return if (seconds >= 60) {
         val minutes = (seconds / 60).toInt()
         val remainingSeconds = seconds % 60
-        "${minutes}m ${String.format("%.1f", remainingSeconds)}s"
+        "${minutes}m ${String.format(Locale.getDefault(), "%.1f", remainingSeconds)}s"
     } else {
-        "${String.format("%.1f", seconds)}s"
+        "${String.format(Locale.getDefault(), "%.1f", seconds)}s"
     }
 }

@@ -159,9 +159,9 @@ fun SettingsScreen(
         when (val state = zipOperationState) {
             is ZipOperationState.ExportComplete -> {
                 val message = if (state.failedCount > 0) {
-                    context.getString(R.string.exported_recipes_with_failures, state.exportedCount, state.failedCount)
+                    context.resources.getQuantityString(R.plurals.exported_recipes_with_failures, state.exportedCount, state.exportedCount, state.failedCount)
                 } else {
-                    context.getString(R.string.exported_recipes, state.exportedCount)
+                    context.resources.getQuantityString(R.plurals.exported_recipes, state.exportedCount, state.exportedCount)
                 }
                 snackbarHostState.showSnackbar(message)
                 zipViewModel.resetOperationState()

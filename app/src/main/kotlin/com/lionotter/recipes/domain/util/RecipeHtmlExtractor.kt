@@ -163,7 +163,7 @@ object RecipeHtmlExtractor {
         if (readable != null && readable.length >= MIN_ARTICLE_CHARS) return readable
 
         // Readability sometimes drops recipe cards; fall back to the whole body minus chrome.
-        val body = doc.body() ?: return readable.orEmpty()
+        val body = doc.body()
         val clone = body.clone()
         clone.select("script, style, noscript, nav, footer, header, iframe, svg, form").remove()
         val fullText = htmlToText(clone)

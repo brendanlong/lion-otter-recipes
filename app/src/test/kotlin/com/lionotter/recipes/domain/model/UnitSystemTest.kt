@@ -13,12 +13,12 @@ class UnitSystemTest {
 
     @Test
     fun `localeDefault returns CUSTOMARY for Liberia locale`() {
-        assertEquals(UnitSystem.CUSTOMARY, UnitSystem.localeDefault(Locale("en", "LR")))
+        assertEquals(UnitSystem.CUSTOMARY, UnitSystem.localeDefault(Locale.Builder().setLanguage("en").setRegion("LR").build()))
     }
 
     @Test
     fun `localeDefault returns CUSTOMARY for Myanmar locale`() {
-        assertEquals(UnitSystem.CUSTOMARY, UnitSystem.localeDefault(Locale("my", "MM")))
+        assertEquals(UnitSystem.CUSTOMARY, UnitSystem.localeDefault(Locale.Builder().setLanguage("my").setRegion("MM").build()))
     }
 
     @Test
