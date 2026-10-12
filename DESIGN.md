@@ -71,7 +71,7 @@ Calls the Claude API (official SDK) to parse recipe text into structured data:
 - **Structured output**: requests use a JSON schema (non-recursive, derived from `RecipeParseResponse`) so the response is valid JSON; `extractJson` remains as a fallback.
 - **Streaming**: single-recipe parses use `createStreaming` so large `max_tokens` values do not hit HTTP timeouts; the stream is closed on coroutine cancellation.
 - **Effort/thinking per model**: Haiku 4.5 uses `budget_tokens` thinking when enabled. Opus 5.5, Sonnet 5.5 and Fable 5.1 cannot disable thinking, so the "thinking" setting maps to effort (medium when on, low when off).
-- **Server-side fallback**: supported models send the server-side fallback beta so overloaded requests fall back server-side.
+- **Server-side fallback**: single-recipe parses go through the beta Messages API with `fallbacks: "default"` (Opus 5.5, Sonnet 5.5, Fable 5.1), so a safety-classifier decline is retried on a fallback model in the same stream. `fallback` content blocks mark the switch; text before a mid-stream boundary is continuation context, so the joined text is parsed first, then the text after the last boundary.
 - **Batches**: `createRecipeBatch`, `retrieveBatch`, `cancelBatch`, `forEachBatchResult` (streams results) back the Paprika import.
 
 **Prompt Engineering**: The system prompt instructs Claude to:
@@ -221,7 +221,10 @@ RecipeWorkScheduler.enqueueImport(...)  ──> worker
        └── observes WorkInfo, updates status; retryImport / cancelImport / removeInProgressRecipe
 ```
 
-- Input files are copied into `ImportInputStore` so workers do not depend on a content URI staying readable.
+- `ImportSelectionViewModel` copies the picked/shared file into `ImportInputStore` when the screen opens (the import ID is kept in `SavedStateHandle`), so the screen and the workers never depend on a content URI grant surviving process death. The queue row is inserted only after all inputs are written.
+- On startup `InProgressRecipeManager` reconciles each row against WorkManager by request ID; rows whose work is missing (pruned, or never enqueued) are marked failed so they can be retried. URL dedupe only reuses an import whose work is still queued/running, and starts are serialized by a mutex.
+- Cancelling an import cancels its unique work, then waits (up to 30 s) for the worker to release the import's in-process lock before cancelling any Paprika batch and deleting files.
+- Paprika batch submission and `batch.json` are written in one `NonCancellable` block; batch results are saved under IDs derived from import ID + custom_id so a resumed run overwrites rather than duplicates.
 - `PaprikaImportWorker` runs as a chain of short, self-rescheduling steps (`ImportPaprikaUseCase.runStep`). Batch state (custom_id to recipe mapping, batch ID) is saved in `batch.json` so a restarted worker resumes.
 - Failed imports stay visible in the recipe list with Retry and Dismiss actions.
 - `RecipeNotificationHelper` owns two channels: `recipe_import` (low-importance progress) and `recipe_import_results` (completed/failed imports). Tapping a notification delivers a `recipe_id` to `MainActivity.onNewIntent`.
@@ -271,7 +274,7 @@ External intents are turned into `AppIntentEvent`s (`ImportUrl`, `ImportFile`, `
 
 #### ImportSelectionScreen
 
-- `ImportSelectionViewModel` parses the picked file from navigation args in `init`, lists recipes (marking duplicates), and starts the import through `InProgressRecipeManager`
+- `ImportSelectionViewModel` copies the file from navigation args into app storage, detects Paprika vs .lorecipes from the ZIP contents (anything else shows "This file isn't a Lion+Otter or Paprika recipe export."), lists recipes (marking duplicates), and starts the import through `InProgressRecipeManager`. Results are delivered as one-shot events collected by the screen, not callbacks.
 
 #### MealPlanScreen / GroceryListScreen
 
