@@ -28,6 +28,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
@@ -42,17 +46,35 @@ internal fun RecipeCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onFavoriteClick: () -> Unit,
+    onDeleteRequest: () -> Unit = {},
     isSelected: Boolean = false,
     isMultiSelectActive: Boolean = false
 ) {
+    val favoriteLabel = stringResource(
+        if (recipe.isFavorite) R.string.remove_from_favorites else R.string.add_to_favorites
+    )
+    val deleteLabel = stringResource(R.string.delete)
+    val selectLabel = stringResource(R.string.select)
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .testTag(TestTags.recipeCard(recipe.id))
             .combinedClickable(
                 onClick = onClick,
-                onLongClick = onLongClick
-            ),
+                onLongClick = onLongClick,
+                onLongClickLabel = selectLabel
+            )
+            .semantics {
+                // Swipe-to-delete isn't discoverable with a screen reader
+                if (isMultiSelectActive) {
+                    selected = isSelected
+                } else {
+                    customActions = listOf(
+                        CustomAccessibilityAction(favoriteLabel) { onFavoriteClick(); true },
+                        CustomAccessibilityAction(deleteLabel) { onDeleteRequest(); true }
+                    )
+                }
+            },
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         colors = if (isSelected) {
             CardDefaults.cardColors(
@@ -70,7 +92,7 @@ internal fun RecipeCard(
             // Recipe image (always reserve space for consistent alignment)
             RecipeThumbnail(
                 imageUrl = recipe.imageUrl,
-                contentDescription = recipe.name,
+                contentDescription = null,
                 size = 80
             )
             Spacer(modifier = Modifier.width(12.dp))

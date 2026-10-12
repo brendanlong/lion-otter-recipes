@@ -26,6 +26,8 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.filter
 import kotlin.math.roundToInt
 
@@ -58,6 +60,7 @@ enum class SwipeActionDirection {
 }
 
 private const val PEEK_FRACTION = 0.25f
+private const val DISMISSED_RESET_DELAY_MS = 3000L
 
 /**
  * State for a [SwipeActionBox]. Callers use this to respond to swipe actions
@@ -165,16 +168,19 @@ fun SwipeActionBox(
             }
     }
 
-    // After a dismissed animation completes, reset back to settled so the item
-    // is ready for reuse (e.g. in a LazyColumn that hasn't removed it yet).
+    // Normally a dismissed item is removed from its list shortly after confirm(), which
+    // disposes this effect. If it's still here after a grace period (e.g. the action
+    // failed), slide it back so it doesn't stay invisible. Resetting immediately would
+    // make the card slide back in before the list removes it.
     LaunchedEffect(anchoredState) {
         snapshotFlow { anchoredState.settledValue }
-            .filter {
-                it == SwipeActionAnchor.DismissedStartToEnd ||
-                    it == SwipeActionAnchor.DismissedEndToStart
-            }
-            .collect {
-                anchoredState.animateTo(SwipeActionAnchor.Settled)
+            .collectLatest { settled ->
+                if (settled == SwipeActionAnchor.DismissedStartToEnd ||
+                    settled == SwipeActionAnchor.DismissedEndToStart
+                ) {
+                    delay(DISMISSED_RESET_DELAY_MS)
+                    anchoredState.animateTo(SwipeActionAnchor.Settled)
+                }
             }
     }
 
