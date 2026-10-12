@@ -108,4 +108,67 @@ class RecipeHtmlExtractorTest {
         assertTrue(text, text.contains("- Preheat oven to 350°F."))
         assertFalse(text, text.contains("Copyright"))
     }
+
+    @Test
+    fun `keeps recipes wrapped in a form or header`() {
+        val html = """
+            <html><body><form id="aspnetForm">
+              <header><h1>Grandma's Pancakes</h1></header>
+              <p>${"These pancakes are fluffy and quick. ".repeat(20)}</p>
+              <ul><li>1 cup flour</li><li>1 egg</li></ul>
+            </form></body></html>
+        """.trimIndent()
+
+        val text = RecipeHtmlExtractor.extract(html, "https://example.com/pancakes").text
+
+        assertTrue(text, text.contains("Grandma's Pancakes"))
+        assertTrue(text, text.contains("- 1 cup flour"))
+    }
+
+    @Test
+    fun `table cells with block content stay on one row`() {
+        val html = """
+            <html><body><p>${"Intro text. ".repeat(60)}</p><table>
+              <tr><td><p>Flour</p></td><td><div>2 cups</div></td></tr>
+              <tr><td></td><td>1 tsp</td></tr>
+            </table></body></html>
+        """.trimIndent()
+
+        val text = RecipeHtmlExtractor.extract(html, null).text
+
+        assertTrue(text, text.contains("Flour | 2 cups"))
+        assertTrue(text, text.contains("\n| 1 tsp"))
+    }
+
+    @Test
+    fun `drops comments and sidebars`() {
+        val html = """
+            <html><body><article><p>${"Recipe intro. ".repeat(60)}</p><ul><li>2 eggs</li></ul></article>
+            <aside>Popular posts: Lasagna</aside>
+            <div id="comments">I used 3 eggs instead and it was great</div>
+            </body></html>
+        """.trimIndent()
+
+        val text = RecipeHtmlExtractor.extract(html, null).text
+
+        assertTrue(text, text.contains("- 2 eggs"))
+        assertFalse(text, text.contains("Lasagna"))
+        assertFalse(text, text.contains("3 eggs instead"))
+    }
+
+    @Test
+    fun `uses the recipe card when the page is over budget`() {
+        val filler = "Long story about my summer. ".repeat(RecipeHtmlExtractor.MAX_CONTENT_CHARS / 20)
+        val html = """
+            <html><body><p>$filler</p>
+            <div class="wprm-recipe-container"><h2>Lemon Bars</h2><p>${"Bright and tangy. ".repeat(30)}</p>
+              <ul><li>1 cup lemon juice</li></ul></div>
+            </body></html>
+        """.trimIndent()
+
+        val text = RecipeHtmlExtractor.extract(html, null).text
+
+        assertTrue(text, text.contains("- 1 cup lemon juice"))
+        assertFalse(text, text.contains("[content truncated]"))
+    }
 }

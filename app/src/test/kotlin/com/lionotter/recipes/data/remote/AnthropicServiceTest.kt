@@ -140,7 +140,7 @@ class AnthropicServiceTest {
     private val fallbackBlock =
         """{"type":"fallback","from":{"model":"claude-opus-5-5"},"to":{"model":"claude-opus-4-8"}}"""
 
-    private val recipeJson = """{"success":true,"recipe":{"name":"Toast","instructionSections":[],"equipment":[],"tags":[]}}"""
+    private val recipeJson = """{"success":true,"recipe":{"name":"Toast","instructionSections":[{"steps":[{"stepNumber":1,"instruction":"Toast the bread."}]}],"equipment":[],"tags":[]}}"""
 
     @Test
     fun `beta message with pre-output fallback block parses`() = withMockedLog {
@@ -197,5 +197,13 @@ class AnthropicServiceTest {
     fun `friendly exception marks network errors transient`() {
         val e = AnthropicService.toFriendlyException(java.io.IOException("boom"))
         assertTrue(e is AnthropicRequestException && e.isTransient)
+    }
+
+    @Test
+    fun `success with only the placeholder recipe is rejected`() {
+        val placeholder = """{"success":true,"error":"","recipe":{"name":"","story":null,"servings":null,""" +
+            """"prepTime":null,"cookTime":null,"totalTime":null,"instructionSections":[],"equipment":[],"tags":[]}}"""
+        val result = service.parseBetaMessageResult(betaMessage("end_turn", textBlock(placeholder)))
+        assertTrue(result.isFailure)
     }
 }

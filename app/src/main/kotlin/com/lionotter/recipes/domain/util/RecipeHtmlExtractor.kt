@@ -14,8 +14,8 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import org.jsoup.nodes.Node
 import org.jsoup.nodes.TextNode
+import org.jsoup.select.NodeFilter
 import org.jsoup.select.NodeTraversor
-import org.jsoup.select.NodeVisitor
 
 /**
  * Turns a recipe web page into compact text for the AI: schema.org Recipe JSON-LD (when the page
@@ -151,16 +151,30 @@ object RecipeHtmlExtractor {
         return fromElement(recipe["image"])
     }
 
+    /** Removed before measuring page text: chrome and long non-recipe blocks such as comments. */
+    private const val NOISE_SELECTOR = "script, style, noscript, nav, footer, iframe, svg, aside, " +
+        "[role=complementary], [role=navigation], [aria-hidden=true], #comments, .comments, " +
+        ".comment-list, .related-posts, .jp-relatedposts"
+
+    /** Common recipe-card plugins, used when the whole page is over budget. */
+    private const val RECIPE_CARD_SELECTOR = ".wprm-recipe-container, .tasty-recipes, .mv-create-card, " +
+        ".recipe-card, [itemtype*=schema.org/Recipe]"
+
     /**
-     * The whole page text (minus scripts, navigation and similar chrome) when it fits in [budget].
-     * Readability is only used to shrink pages that don't fit, because it drops content it treats
-     * as clutter, including ingredient tables and recipe cards.
+     * The whole page text (minus chrome) when it fits in [budget]. Readability drops content it
+     * treats as clutter, including ingredient tables and recipe cards, so it's only used when the
+     * page is too big and has no recognizable recipe card, or when the stripped page is nearly empty.
      */
     private fun extractArticleText(html: String, sourceUrl: String?, doc: Document, budget: Int): String {
         val body = doc.body().clone()
-        body.select("script, style, noscript, nav, footer, header, iframe, svg, form").remove()
+        body.select(NOISE_SELECTOR).remove()
         val fullText = htmlToText(body)
-        if (fullText.length <= budget) return fullText
+        if (fullText.length in MIN_ARTICLE_CHARS..budget) return fullText
+
+        if (fullText.length > budget) {
+            val card = body.select(RECIPE_CARD_SELECTOR).firstOrNull()?.let(::htmlToText)
+            if (card != null && card.length >= MIN_ARTICLE_CHARS) return card
+        }
 
         val readable = try {
             val article = Readability4J(sourceUrl ?: "https://example.com", html).parse()
@@ -169,42 +183,42 @@ object RecipeHtmlExtractor {
             Log.w(TAG, "Readability extraction failed, using full page text", e)
             null
         }
-        return if (readable != null && readable.length >= MIN_ARTICLE_CHARS) readable else fullText
+        return when {
+            readable == null || readable.length < MIN_ARTICLE_CHARS -> fullText
+            fullText.length < MIN_ARTICLE_CHARS -> if (readable.length > fullText.length) readable else fullText
+            else -> readable
+        }
     }
 
     /**
-     * Convert HTML to plain text, keeping paragraph, list-item and table-row boundaries, with
-     * table cells separated by " | " (jsoup's text() collapses everything onto one line, which
-     * merges ingredients together).
+     * Convert HTML to plain text, keeping paragraph, list-item and table-row boundaries (jsoup's
+     * text() collapses everything onto one line, which merges ingredients together). Each table row
+     * becomes one line with its cells joined by " | ".
      */
     fun htmlToText(root: Element): String {
         val sb = StringBuilder()
-        NodeTraversor.traverse(object : NodeVisitor {
-            override fun head(node: Node, depth: Int) {
+        NodeTraversor.filter(object : NodeFilter {
+            override fun head(node: Node, depth: Int): NodeFilter.FilterResult {
                 when (node) {
-                    is TextNode -> {
-                        val text = node.text()
-                        if (text.isNotBlank()) {
-                            if (text.first().isWhitespace() && sb.isNotEmpty() && !sb.last().isWhitespace()) {
-                                sb.append(' ')
-                            }
-                            sb.append(text.trim())
-                            if (text.last().isWhitespace()) sb.append(' ')
-                        } else if (text.isNotEmpty() && sb.isNotEmpty() && !sb.last().isWhitespace()) {
-                            sb.append(' ')
-                        }
-                    }
+                    is TextNode -> appendText(sb, node.text())
                     is Element -> {
                         val tag = node.normalName()
+                        if (tag == "tr") {
+                            newLine(sb)
+                            sb.append(tableRowText(node))
+                            newLine(sb)
+                            return NodeFilter.FilterResult.SKIP_CHILDREN
+                        }
                         if (tag in BLOCK_TAGS) newLine(sb)
                         if (tag == "li") sb.append("- ")
-                        if ((tag == "td" || tag == "th") && sb.isNotEmpty() && sb.last() != '\n') sb.append(" | ")
                     }
                 }
+                return NodeFilter.FilterResult.CONTINUE
             }
 
-            override fun tail(node: Node, depth: Int) {
+            override fun tail(node: Node, depth: Int): NodeFilter.FilterResult {
                 if (node is Element && node.normalName() in BLOCK_TAGS) newLine(sb)
+                return NodeFilter.FilterResult.CONTINUE
             }
         }, root)
         return sb.toString()
@@ -212,6 +226,23 @@ object RecipeHtmlExtractor {
             .map { it.trim() }
             .filter { it.isNotEmpty() && it != "-" }
             .joinToString("\n")
+    }
+
+    private fun tableRowText(row: Element): String =
+        row.children()
+            .filter { it.normalName() == "td" || it.normalName() == "th" }
+            .joinToString(" | ") { cell -> htmlToText(cell).replace('\n', ' ') }
+
+    private fun appendText(sb: StringBuilder, text: String) {
+        if (text.isNotBlank()) {
+            if (text.first().isWhitespace() && sb.isNotEmpty() && !sb.last().isWhitespace()) {
+                sb.append(' ')
+            }
+            sb.append(text.trim())
+            if (text.last().isWhitespace()) sb.append(' ')
+        } else if (text.isNotEmpty() && sb.isNotEmpty() && !sb.last().isWhitespace()) {
+            sb.append(' ')
+        }
     }
 
     private fun newLine(sb: StringBuilder) {

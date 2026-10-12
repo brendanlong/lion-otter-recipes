@@ -361,6 +361,7 @@ class AnthropicService @Inject constructor(
             }
 
             val recipeResult = parseResponse.recipe
+                ?.takeIf { it.name.isNotBlank() && it.instructionSections.any { section -> section.steps.isNotEmpty() } }
                 ?: return Result.failure(RecipeParseException("No recipe data in response"))
 
             Result.success(ParseResultWithUsage(
@@ -565,15 +566,21 @@ class AnthropicService @Inject constructor(
          * properties nested inside arrays grow that grammar fastest (with alternates as optional
          * ingredient objects, every request failed with "Schema is too complex"). So every property
          * is required, with absent values expressed as null. Nullable properties count toward the
-         * API's limit of 16 union-typed parameters (inline copies count separately), which this
-         * stays well under. Alternates are a non-recursive ingredient subset without notes.
+         * API's limit of 16 union-typed parameters (inline copies such as amount count once per
+         * use); this schema uses 14, so adding another nullable field needs care.
+         * Alternates are a non-recursive ingredient subset.
          * On failure the model still returns a placeholder recipe, which is ignored.
          */
         internal val RECIPE_RESPONSE_SCHEMA: Map<String, Any> by lazy {
             val amount = obj(mapOf("value" to NUMBER, "unit" to nullable(STRING)), listOf("value", "unit"))
             val alternate = obj(
-                mapOf("name" to STRING, "amount" to nullableObject(amount), "density" to nullable(NUMBER)),
-                listOf("name", "amount", "density")
+                mapOf(
+                    "name" to STRING,
+                    "amount" to nullableObject(amount),
+                    "density" to nullable(NUMBER),
+                    "notes" to nullable(STRING)
+                ),
+                listOf("name", "amount", "density", "notes")
             )
             val ingredient = obj(
                 mapOf(
@@ -693,7 +700,7 @@ For successful parsing, return (every field is always present; use null where a 
                 "notes": null,
                 "optional": false,
                 "alternates": [
-                  { "name": "table salt", "amount": { "value": 0.5, "unit": "tsp" }, "density": 1.22 }
+                  { "name": "table salt", "amount": { "value": 0.5, "unit": "tsp" }, "density": 1.22, "notes": null }
                 ]
               }
             ],
