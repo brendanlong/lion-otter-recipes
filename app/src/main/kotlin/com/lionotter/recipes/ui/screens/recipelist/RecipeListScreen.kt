@@ -395,7 +395,9 @@ fun RecipeListScreen(
                                         InProgressRecipeCard(
                                             inProgressRecipe = item.inProgressRecipe,
                                             onCancelRequest = { importToCancelId = item.id },
-                                            swipeState = swipeState
+                                            swipeState = swipeState,
+                                            onRetry = { viewModel.retryImport(item.id) },
+                                            onDismiss = { viewModel.cancelImport(item.id) }
                                         )
                                     }
                                 }

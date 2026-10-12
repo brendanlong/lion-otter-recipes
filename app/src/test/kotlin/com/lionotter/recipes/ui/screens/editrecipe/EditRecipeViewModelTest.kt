@@ -73,7 +73,7 @@ class EditRecipeViewModelTest {
     }
 
     private fun createViewModel(handle: SavedStateHandle = SavedStateHandle(mapOf("recipeId" to "r1"))) =
-        EditRecipeViewModel(handle, recipeRepository, settingsDataStore, workManager, imageDownloadService)
+        EditRecipeViewModel(handle, recipeRepository, settingsDataStore, workManager, imageDownloadService, mockk(relaxed = true))
 
     @Test
     fun `fields are populated from the recipe and start clean`() = runTest {

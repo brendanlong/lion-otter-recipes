@@ -1,10 +1,11 @@
 package com.lionotter.recipes.domain.usecase
 
 import android.util.Log
+import com.lionotter.recipes.data.remote.PageFetchException
 import com.lionotter.recipes.data.remote.WebScraperService
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.util.RecipeHtmlExtractor
 import kotlinx.coroutines.ensureActive
-import org.jsoup.Jsoup
 import javax.inject.Inject
 import kotlin.coroutines.coroutineContext
 
@@ -14,7 +15,7 @@ class ImportRecipeUseCase @Inject constructor(
 ) {
     sealed class ImportResult {
         data class Success(val recipe: Recipe) : ImportResult()
-        data class Error(val message: String) : ImportResult()
+        data class Error(val message: String, val retryable: Boolean = false) : ImportResult()
         object NoApiKey : ImportResult()
     }
 
@@ -47,7 +48,12 @@ class ImportRecipeUseCase @Inject constructor(
         }
 
         if (pageResult.isFailure) {
-            return ImportResult.Error("Failed to fetch page: ${pageResult.exceptionOrNull()?.message}")
+            val error = pageResult.exceptionOrNull()
+            Log.w(TAG, "Failed to fetch $url", error)
+            return ImportResult.Error(
+                message = error?.message ?: "Failed to fetch page",
+                retryable = (error as? PageFetchException)?.isTransient == true
+            )
         }
         val page = pageResult.getOrThrow()
 
@@ -56,7 +62,7 @@ class ImportRecipeUseCase @Inject constructor(
 
         // Report page metadata (title + image) before expensive AI parsing
         onProgress(ImportProgress.PageMetadataAvailable(
-            title = extractPageTitle(page.originalHtml),
+            title = RecipeHtmlExtractor.extractTitle(page.originalHtml),
             imageUrl = page.imageUrl
         ))
 
@@ -93,24 +99,11 @@ class ImportRecipeUseCase @Inject constructor(
                 ImportResult.Success(parseResult.recipe)
             }
             is ParseHtmlUseCase.ParseResult.Error -> {
-                ImportResult.Error(parseResult.message)
+                ImportResult.Error(parseResult.message, parseResult.retryable)
             }
             ParseHtmlUseCase.ParseResult.NoApiKey -> {
                 ImportResult.NoApiKey
             }
-        }
-    }
-
-    private fun extractPageTitle(html: String): String? {
-        return try {
-            val doc = Jsoup.parse(html)
-            // Try og:title first, then regular title tag
-            doc.selectFirst("meta[property=og:title]")?.attr("content")
-                ?.takeIf { it.isNotBlank() }
-                ?: doc.title().takeIf { it.isNotBlank() }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to extract page title from HTML", e)
-            null
         }
     }
 

@@ -17,193 +17,158 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Notifications for background recipe work.
+ *
+ * Every operation gets its own notification IDs (derived from a per-operation key such as the
+ * WorkManager request ID or import ID), so concurrent imports don't overwrite each other's
+ * progress or results. Progress uses a low-importance channel; results and errors use a
+ * default-importance channel so failures are actually noticed.
+ *
+ * Note: on Android 13+ these only appear if POST_NOTIFICATIONS has been granted.
+ */
 @Singleton
 class RecipeNotificationHelper @Inject constructor(
     @param:ApplicationContext private val context: Context
 ) {
     companion object {
         const val CHANNEL_ID = "recipe_import"
-        const val CHANNEL_NAME = "Recipe Import"
-        const val CHANNEL_DESCRIPTION = "Notifications for recipe import progress"
+        const val CHANNEL_NAME = "Recipe Import Progress"
+        const val CHANNEL_DESCRIPTION = "Progress of recipe imports and other background work"
 
-        const val NOTIFICATION_ID_PROGRESS = 1001
-        const val NOTIFICATION_ID_COMPLETE = 1002
-        const val NOTIFICATION_ID_ERROR = 1003
+        const val RESULT_CHANNEL_ID = "recipe_import_results"
+        const val RESULT_CHANNEL_NAME = "Recipe Import Results"
+        const val RESULT_CHANNEL_DESCRIPTION = "Completed and failed recipe imports"
 
         const val EXTRA_RECIPE_ID = "recipe_id"
+
+        fun progressNotificationId(key: String): Int = 0x10000000 or (key.hashCode() and 0x0FFFFFFF)
+        fun resultNotificationId(key: String): Int = 0x20000000 or (key.hashCode() and 0x0FFFFFFF)
     }
 
     private val notificationManager = NotificationManagerCompat.from(context)
 
     fun createNotificationChannel() {
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            CHANNEL_NAME,
-            NotificationManager.IMPORTANCE_LOW
-        ).apply {
-            description = CHANNEL_DESCRIPTION
-        }
         val systemNotificationManager = context.getSystemService(NotificationManager::class.java)
-        systemNotificationManager.createNotificationChannel(channel)
+        systemNotificationManager.createNotificationChannel(
+            NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_LOW).apply {
+                description = CHANNEL_DESCRIPTION
+            }
+        )
+        systemNotificationManager.createNotificationChannel(
+            NotificationChannel(RESULT_CHANNEL_ID, RESULT_CHANNEL_NAME, NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = RESULT_CHANNEL_DESCRIPTION
+            }
+        )
     }
 
-    private fun baseNotification(): NotificationCompat.Builder =
-        NotificationCompat.Builder(context, CHANNEL_ID)
+    private fun resultNotification(): NotificationCompat.Builder =
+        NotificationCompat.Builder(context, RESULT_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
+            .setContentIntent(openAppIntent(null, 0))
 
-    fun createForegroundInfo(title: String, progress: String): ForegroundInfo {
-        val notification = baseNotification()
+    private fun progressNotification(title: String, progress: String) =
+        NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(progress)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setAutoCancel(false)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .setProgress(0, 0, true)
             .build()
 
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ForegroundInfo(
-                NOTIFICATION_ID_PROGRESS,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            )
-        } else {
-            ForegroundInfo(
-                NOTIFICATION_ID_PROGRESS,
-                notification
-            )
-        }
-    }
-
-    @SuppressLint("MissingPermission")
-    fun showSuccessNotification(recipeName: String, recipeId: String) {
-        if (!notificationManager.areNotificationsEnabled()) return
-
-        notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
-
+    private fun openAppIntent(recipeId: String?, requestCode: Int): PendingIntent {
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra(EXTRA_RECIPE_ID, recipeId)
+            if (recipeId != null) putExtra(EXTRA_RECIPE_ID, recipeId)
         }
-        val pendingIntent = PendingIntent.getActivity(
+        return PendingIntent.getActivity(
             context,
-            0,
+            requestCode,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+    }
 
-        val notification = baseNotification()
-            .setContentTitle("Recipe Imported")
-            .setContentText(recipeName)
-            .setContentIntent(pendingIntent)
-            .build()
+    fun createForegroundInfo(notificationId: Int, title: String, progress: String): ForegroundInfo {
+        val notification = progressNotification(title, progress)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ForegroundInfo(notificationId, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            ForegroundInfo(notificationId, notification)
+        }
+    }
 
-        notificationManager.notify(NOTIFICATION_ID_COMPLETE, notification)
+    /**
+     * Post the progress notification directly, for when the worker isn't allowed to become a
+     * foreground service (e.g. started while the app is in the background on Android 12+).
+     */
+    @SuppressLint("MissingPermission")
+    fun showProgressNotification(notificationId: Int, title: String, progress: String) {
+        if (!notificationManager.areNotificationsEnabled()) return
+        notificationManager.notify(notificationId, progressNotification(title, progress))
+    }
+
+    fun cancelNotification(notificationId: Int) {
+        notificationManager.cancel(notificationId)
     }
 
     @SuppressLint("MissingPermission")
-    fun showErrorNotification(title: String, errorMessage: String) {
+    fun showSuccessNotification(key: String, recipeName: String, recipeId: String, title: String = "Recipe Imported") {
         if (!notificationManager.areNotificationsEnabled()) return
+        val notificationId = resultNotificationId(key)
+        val notification = resultNotification()
+            .setContentTitle(title)
+            .setContentText(recipeName)
+            .setContentIntent(openAppIntent(recipeId, notificationId))
+            .build()
+        notificationManager.notify(notificationId, notification)
+    }
 
-        notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
-
-        val notification = baseNotification()
+    @SuppressLint("MissingPermission")
+    fun showErrorNotification(key: String, title: String, errorMessage: String) {
+        if (!notificationManager.areNotificationsEnabled()) return
+        val notification = resultNotification()
             .setContentTitle(title)
             .setContentText(errorMessage)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(errorMessage))
             .build()
-
-        notificationManager.notify(NOTIFICATION_ID_ERROR, notification)
-    }
-
-    fun cancelProgressNotification() {
-        notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
+        notificationManager.notify(resultNotificationId(key), notification)
     }
 
     @SuppressLint("MissingPermission")
-    fun showExportSuccessNotification(exportedCount: Int, failedCount: Int) {
+    fun showSummaryNotification(key: String, title: String, message: String) {
         if (!notificationManager.areNotificationsEnabled()) return
-
-        notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
-
-        val message = if (failedCount > 0) {
-            "Exported $exportedCount recipes ($failedCount failed)"
-        } else {
-            "Exported $exportedCount recipes"
-        }
-
-        val notification = baseNotification()
-            .setContentTitle("Export Complete")
+        val notification = resultNotification()
+            .setContentTitle(title)
             .setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
             .build()
-
-        notificationManager.notify(NOTIFICATION_ID_COMPLETE, notification)
+        notificationManager.notify(resultNotificationId(key), notification)
     }
 
-    @SuppressLint("MissingPermission")
-    fun showZipExportSuccessNotification(exportedCount: Int, failedCount: Int) {
-        if (!notificationManager.areNotificationsEnabled()) return
-
-        notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
-
-        val message = if (failedCount > 0) {
-            "Exported $exportedCount recipes ($failedCount failed)"
-        } else {
-            "Exported $exportedCount recipes to ZIP file"
-        }
-
-        val notification = baseNotification()
-            .setContentTitle("Export Complete")
-            .setContentText(message)
-            .build()
-
-        notificationManager.notify(NOTIFICATION_ID_COMPLETE, notification)
+    fun zipExportMessage(exportedCount: Int, failedCount: Int): String = if (failedCount > 0) {
+        "Exported $exportedCount recipes ($failedCount failed)"
+    } else {
+        "Exported $exportedCount recipes to ZIP file"
     }
 
-    @SuppressLint("MissingPermission")
-    fun showZipImportSuccessNotification(importedCount: Int, failedCount: Int, skippedCount: Int = 0) {
-        if (!notificationManager.areNotificationsEnabled()) return
-
-        notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
-
-        val message = buildString {
+    fun zipImportMessage(importedCount: Int, failedCount: Int, skippedCount: Int, mealPlansImported: Int): String =
+        buildString {
             append("Imported $importedCount recipes")
-            if (skippedCount > 0 || failedCount > 0) {
-                append(" (")
-                val parts = mutableListOf<String>()
-                if (skippedCount > 0) parts.add("$skippedCount skipped")
-                if (failedCount > 0) parts.add("$failedCount failed")
-                append(parts.joinToString(", "))
-                append(")")
-            }
+            val parts = mutableListOf<String>()
+            if (skippedCount > 0) parts.add("$skippedCount already existed")
+            if (failedCount > 0) parts.add("$failedCount failed")
+            if (parts.isNotEmpty()) append(" (${parts.joinToString(", ")})")
+            if (mealPlansImported > 0) append(" and $mealPlansImported meal plan entries")
         }
 
-        val notification = baseNotification()
-            .setContentTitle("Import Complete")
-            .setContentText(message)
-            .build()
-
-        notificationManager.notify(NOTIFICATION_ID_COMPLETE, notification)
-    }
-
-    @SuppressLint("MissingPermission")
-    fun showPaprikaImportSuccessNotification(importedCount: Int, failedCount: Int) {
-        if (!notificationManager.areNotificationsEnabled()) return
-
-        notificationManager.cancel(NOTIFICATION_ID_PROGRESS)
-
-        val message = if (failedCount > 0) {
-            "Imported $importedCount recipes ($failedCount failed)"
-        } else {
-            "Imported $importedCount recipes from Paprika"
-        }
-
-        val notification = baseNotification()
-            .setContentTitle("Paprika Import Complete")
-            .setContentText(message)
-            .build()
-
-        notificationManager.notify(NOTIFICATION_ID_COMPLETE, notification)
+    fun paprikaImportMessage(importedCount: Int, failedCount: Int): String = if (failedCount > 0) {
+        "Imported $importedCount recipes ($failedCount failed)"
+    } else {
+        "Imported $importedCount recipes from Paprika"
     }
 }

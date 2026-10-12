@@ -293,4 +293,8 @@ class RecipeListViewModel @Inject constructor(
     fun cancelImport(importId: String) {
         inProgressRecipeManager.cancelImport(importId)
     }
+
+    fun retryImport(importId: String) {
+        inProgressRecipeManager.retryImport(importId)
+    }
 }

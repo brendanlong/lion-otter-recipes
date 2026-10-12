@@ -3,27 +3,56 @@ package com.lionotter.recipes.data.remote
 import android.util.Log
 import com.anthropic.client.AnthropicClient
 import com.anthropic.client.okhttp.AnthropicOkHttpClient
+import com.anthropic.core.JsonValue
+import com.anthropic.errors.AnthropicIoException
+import com.anthropic.errors.AnthropicServiceException
+import com.anthropic.errors.BadRequestException
+import com.anthropic.errors.InternalServerException
+import com.anthropic.errors.NotFoundException
+import com.anthropic.errors.PermissionDeniedException
+import com.anthropic.errors.RateLimitException
+import com.anthropic.errors.UnauthorizedException
+import com.anthropic.helpers.MessageAccumulator
+import com.anthropic.models.messages.CacheControlEphemeral
+import com.anthropic.models.messages.JsonOutputFormat
 import com.anthropic.models.messages.Message
 import com.anthropic.models.messages.MessageCreateParams
+import com.anthropic.models.messages.OutputConfig
+import com.anthropic.models.messages.StopReason
 import com.anthropic.models.messages.TextBlockParam
 import com.anthropic.models.messages.ThinkingConfigAdaptive
 import com.anthropic.models.messages.ThinkingConfigEnabled
+import com.anthropic.models.messages.ThinkingConfigParam
 import com.anthropic.models.messages.batches.BatchCreateParams
 import com.anthropic.models.messages.batches.MessageBatch
 import com.anthropic.models.messages.batches.MessageBatchIndividualResponse
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.job
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.coroutines.coroutineContext
 
 /**
  * Exception thrown when the AI cannot parse the recipe content.
  * Contains a human-readable error message from the AI.
  */
 class RecipeParseException(message: String) : Exception(message)
+
+/**
+ * A failed Anthropic API call, with a user-facing [message] and whether retrying later might help.
+ */
+class AnthropicRequestException(
+    message: String,
+    val isTransient: Boolean,
+    cause: Throwable? = null
+) : Exception(message, cause)
 
 data class ParseResultWithUsage(
     val result: RecipeParseResult,
@@ -36,6 +65,10 @@ data class ParseResultWithUsage(
 class AnthropicService @Inject constructor(
     private val json: Json
 ) {
+    private val clientLock = Any()
+    private var cachedClient: AnthropicClient? = null
+    private var cachedApiKey: String? = null
+
     suspend fun parseRecipe(
         html: String,
         apiKey: String,
@@ -44,88 +77,50 @@ class AnthropicService @Inject constructor(
         densityOverrides: Map<String, Double>? = null,
         aiInstructions: String? = null
     ): Result<ParseResultWithUsage> {
+        val resolvedModel = normalizeModel(model, DEFAULT_MODEL)
         return try {
-            val client = buildClient(apiKey)
-
-            val systemPrompt = buildSystemPrompt(densityOverrides)
-
-            val userMessage = buildString {
-                append("Parse this recipe webpage and extract the structured data:\n\n")
-                append(html)
-                if (!aiInstructions.isNullOrBlank()) {
-                    append("\n\nThe user also provided these instructions: ")
-                    append(aiInstructions)
-                }
-            }
+            val client = clientFor(apiKey)
+            val requestConfig = requestConfigFor(resolvedModel, thinkingEnabled)
 
             val paramsBuilder = MessageCreateParams.builder()
-                .model(model)
-                .maxTokens(16000)
-                .systemOfTextBlockParams(
-                    listOf(
-                        TextBlockParam.builder()
-                            .text(systemPrompt)
-                            .build()
-                    )
-                )
-                .addUserMessage(userMessage)
+                .model(resolvedModel)
+                .maxTokens(MAX_OUTPUT_TOKENS)
+                .systemOfTextBlockParams(systemBlocks())
+                .addUserMessage(buildUserMessage(html, densityOverrides, aiInstructions))
+                .outputConfig(requestConfig.outputConfig)
+            requestConfig.thinking?.let { paramsBuilder.thinking(it) }
+            if (supportsServerSideFallback(resolvedModel)) {
+                paramsBuilder
+                    .putAdditionalHeader("anthropic-beta", SERVER_SIDE_FALLBACK_BETA)
+                    .putAdditionalBodyProperty("fallbacks", JsonValue.from("default"))
+            }
+            val params = paramsBuilder.build()
 
-            if (thinkingEnabled) {
-                if (supportsAdaptiveThinking(model)) {
-                    paramsBuilder.thinking(
-                        ThinkingConfigAdaptive.builder().build()
-                    )
-                } else {
-                    paramsBuilder.thinking(
-                        ThinkingConfigEnabled.builder()
-                            .budgetTokens(8000)
-                            .build()
-                    )
+            // Stream so large max_tokens values don't hit HTTP timeouts. The SDK is blocking,
+            // so run on IO and close the stream if the coroutine is cancelled.
+            val message = withContext(Dispatchers.IO) {
+                val job = coroutineContext.job
+                client.messages().createStreaming(params).use { stream ->
+                    val handle = job.invokeOnCompletion { stream.close() }
+                    try {
+                        val accumulator = MessageAccumulator.create()
+                        stream.stream().forEach { event ->
+                            job.ensureActive()
+                            accumulator.accumulate(event)
+                        }
+                        accumulator.message()
+                    } finally {
+                        handle.dispose()
+                    }
                 }
             }
 
-            val params = paramsBuilder.build()
-
-            // The SDK uses OkHttp synchronously, so run on IO dispatcher
-            val message = withContext(Dispatchers.IO) {
-                client.messages().create(params)
-            }
-
-            // Extract token usage
-            val usage = message.usage()
-            val inputTokens = usage.inputTokens()
-            val outputTokens = usage.outputTokens()
-
-            // Find the text content block (skip thinking blocks)
-            val textContent = message.content()
-                .firstOrNull { it.isText() }
-                ?.asText()
-                ?.text()
-                ?: return Result.failure(Exception("No text content in response"))
-
-            // Extract JSON from the response (it might be wrapped in markdown code blocks)
-            val jsonContent = extractJson(textContent)
-
-            val parseResponse = json.decodeFromString(RecipeParseResponse.serializer(), jsonContent)
-
-            if (!parseResponse.success) {
-                val errorMessage = parseResponse.error ?: "Failed to parse recipe"
-                return Result.failure(RecipeParseException(errorMessage))
-            }
-
-            val recipeResult = parseResponse.recipe
-                ?: return Result.failure(RecipeParseException("No recipe data in response"))
-
-            Result.success(ParseResultWithUsage(
-                result = recipeResult,
-                inputTokens = inputTokens,
-                outputTokens = outputTokens,
-                aiOutputJson = jsonContent
-            ))
-        } catch (e: kotlinx.coroutines.CancellationException) {
+            parseMessageResult(message)
+        } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Result.failure(e)
+            Log.e(TAG, "Recipe parse request failed (model=$resolvedModel)", e)
+            Result.failure(toFriendlyException(e))
         }
     }
 
@@ -150,37 +145,20 @@ class AnthropicService @Inject constructor(
         model: String = DEFAULT_MODEL,
         thinkingEnabled: Boolean = SettingsDataStore.DEFAULT_THINKING_ENABLED
     ): Result<String> {
+        val resolvedModel = normalizeModel(model, DEFAULT_MODEL)
         return try {
-            val client = buildClient(apiKey)
+            val client = clientFor(apiKey)
+            val requestConfig = requestConfigFor(resolvedModel, thinkingEnabled)
+            val system = systemBlocks()
 
             val batchRequests = requests.map { request ->
-                val systemPrompt = buildSystemPrompt(request.densityOverrides)
-
                 val paramsBuilder = BatchCreateParams.Request.Params.builder()
-                    .model(model)
-                    .maxTokens(16000)
-                    .systemOfTextBlockParams(
-                        listOf(
-                            TextBlockParam.builder()
-                                .text(systemPrompt)
-                                .build()
-                        )
-                    )
-                    .addUserMessage("Parse this recipe webpage and extract the structured data:\n\n${request.text}")
-
-                if (thinkingEnabled) {
-                    if (supportsAdaptiveThinking(model)) {
-                        paramsBuilder.thinking(
-                            ThinkingConfigAdaptive.builder().build()
-                        )
-                    } else {
-                        paramsBuilder.thinking(
-                            ThinkingConfigEnabled.builder()
-                                .budgetTokens(8000)
-                                .build()
-                        )
-                    }
-                }
+                    .model(resolvedModel)
+                    .maxTokens(MAX_OUTPUT_TOKENS)
+                    .systemOfTextBlockParams(system)
+                    .addUserMessage(buildUserMessage(request.text, request.densityOverrides, null))
+                    .outputConfig(requestConfig.outputConfig)
+                requestConfig.thinking?.let { paramsBuilder.thinking(it) }
 
                 BatchCreateParams.Request.builder()
                     .customId(request.customId)
@@ -197,10 +175,11 @@ class AnthropicService @Inject constructor(
             }
 
             Result.success(batch.id())
-        } catch (e: kotlinx.coroutines.CancellationException) {
+        } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Result.failure(e)
+            Log.e(TAG, "Failed to create batch of ${requests.size} requests", e)
+            Result.failure(toFriendlyException(e))
         }
     }
 
@@ -212,15 +191,16 @@ class AnthropicService @Inject constructor(
         apiKey: String
     ): Result<MessageBatch> {
         return try {
-            val client = buildClient(apiKey)
+            val client = clientFor(apiKey)
             val batch = withContext(Dispatchers.IO) {
                 client.messages().batches().retrieve(batchId)
             }
             Result.success(batch)
-        } catch (e: kotlinx.coroutines.CancellationException) {
+        } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Result.failure(e)
+            Log.w(TAG, "Failed to retrieve batch $batchId", e)
+            Result.failure(toFriendlyException(e))
         }
     }
 
@@ -232,55 +212,74 @@ class AnthropicService @Inject constructor(
         apiKey: String
     ): Result<Unit> {
         return try {
-            val client = buildClient(apiKey)
+            val client = clientFor(apiKey)
             withContext(Dispatchers.IO) {
                 client.messages().batches().cancel(batchId)
             }
             Result.success(Unit)
-        } catch (e: kotlinx.coroutines.CancellationException) {
+        } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "Failed to cancel batch $batchId", e)
-            Result.failure(e)
+            Result.failure(toFriendlyException(e))
         }
     }
 
     /**
-     * Stream results from a completed batch. Returns a list of individual responses.
+     * Stream results from a completed batch, handing each result to [onResult] as it arrives
+     * so the full responses never have to be held in memory at once. [onResult] runs while the
+     * HTTP stream is open, so it should be quick (no network or disk work).
      */
-    suspend fun getBatchResults(
+    suspend fun forEachBatchResult(
         batchId: String,
-        apiKey: String
-    ): Result<List<MessageBatchIndividualResponse>> {
+        apiKey: String,
+        onResult: (MessageBatchIndividualResponse) -> Unit
+    ): Result<Unit> {
         return try {
-            val client = buildClient(apiKey)
-            val results = withContext(Dispatchers.IO) {
+            val client = clientFor(apiKey)
+            withContext(Dispatchers.IO) {
                 client.messages().batches().resultsStreaming(batchId).use { stream ->
-                    stream.stream().collect(java.util.stream.Collectors.toList())
+                    val iterator = stream.stream().iterator()
+                    while (iterator.hasNext()) {
+                        coroutineContext.ensureActive()
+                        onResult(iterator.next())
+                    }
                 }
             }
-            Result.success(results)
-        } catch (e: kotlinx.coroutines.CancellationException) {
+            Result.success(Unit)
+        } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Result.failure(e)
+            Log.e(TAG, "Failed to read results for batch $batchId", e)
+            Result.failure(toFriendlyException(e))
         }
     }
 
     /**
-     * Parse a [Message] from a batch result into a [ParseResultWithUsage].
+     * Parse a [Message] (from a direct call or a batch result) into a [ParseResultWithUsage].
      */
     fun parseMessageResult(message: Message): Result<ParseResultWithUsage> {
         return try {
             val usage = message.usage()
-            val inputTokens = usage.inputTokens()
-            val outputTokens = usage.outputTokens()
+
+            when (message.stopReason().orElse(null)) {
+                StopReason.REFUSAL -> return Result.failure(
+                    RecipeParseException("The AI declined to process this content.")
+                )
+                StopReason.MAX_TOKENS -> return Result.failure(
+                    RecipeParseException(
+                        "The AI ran out of room before finishing this recipe. " +
+                            "Try again with thinking turned off or a shorter recipe."
+                    )
+                )
+                else -> {}
+            }
 
             val textContent = message.content()
-                .firstOrNull { it.isText() }
-                ?.asText()
-                ?.text()
-                ?: return Result.failure(Exception("No text content in response"))
+                .filter { it.isText() }
+                .joinToString("") { it.asText().text() }
+                .takeIf { it.isNotBlank() }
+                ?: return Result.failure(RecipeParseException("The AI returned an empty response."))
 
             val jsonContent = extractJson(textContent)
 
@@ -296,22 +295,42 @@ class AnthropicService @Inject constructor(
 
             Result.success(ParseResultWithUsage(
                 result = recipeResult,
-                inputTokens = inputTokens,
-                outputTokens = outputTokens,
+                inputTokens = usage.inputTokens(),
+                outputTokens = usage.outputTokens(),
                 aiOutputJson = jsonContent
             ))
         } catch (e: Exception) {
-            Result.failure(e)
+            Log.e(TAG, "Failed to parse AI response", e)
+            Result.failure(RecipeParseException("The AI returned a response that couldn't be read."))
         }
     }
 
-    private fun buildClient(apiKey: String): AnthropicClient {
-        return AnthropicOkHttpClient.builder()
+    /**
+     * Reuse one client per API key: each client owns an OkHttp connection pool and threads.
+     */
+    private fun clientFor(apiKey: String): AnthropicClient = synchronized(clientLock) {
+        val existing = cachedClient
+        if (existing != null && cachedApiKey == apiKey) return existing
+        existing?.let {
+            try {
+                it.close()
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to close previous Anthropic client", e)
+            }
+        }
+        AnthropicOkHttpClient.builder()
             .apiKey(apiKey)
             .build()
+            .also {
+                cachedClient = it
+                cachedApiKey = apiKey
+            }
     }
 
     private fun extractJson(content: String): String {
+        val trimmed = content.trim()
+        if (trimmed.startsWith("{")) return trimmed
+
         // Try to extract JSON from markdown code blocks
         val jsonBlockRegex = Regex("```(?:json)?\\s*\\n?([\\s\\S]*?)\\n?```")
         val match = jsonBlockRegex.find(content)
@@ -319,36 +338,120 @@ class AnthropicService @Inject constructor(
             return match.groupValues[1].trim()
         }
 
-        // If no code block, try to find JSON object directly
         val jsonStart = content.indexOf('{')
         val jsonEnd = content.lastIndexOf('}')
         if (jsonStart >= 0 && jsonEnd > jsonStart) {
             return content.substring(jsonStart, jsonEnd + 1)
         }
 
-        // Return as-is and let JSON parser handle it
         return content
     }
 
+    internal data class RequestConfig(
+        val thinking: ThinkingConfigParam?,
+        val outputConfig: OutputConfig
+    )
+
     companion object {
         private const val TAG = "AnthropicService"
-        const val DEFAULT_MODEL = "claude-opus-4-6"
-        const val DEFAULT_EDIT_MODEL = "claude-sonnet-4-6"
-        private const val API_KEY_PREFIX = "sk-ant-"
 
-        /** Models that support adaptive thinking (type: "adaptive") instead of extended thinking with budget_tokens. */
-        private val ADAPTIVE_THINKING_MODELS = setOf(
-            "claude-opus-4-6",
-            "claude-sonnet-4-6"
-        )
+        const val MODEL_OPUS = "claude-opus-5-5"
+        const val MODEL_SONNET = "claude-sonnet-5-5"
+        const val MODEL_HAIKU = "claude-haiku-4-5"
+        const val MODEL_FABLE = "claude-fable-5-1"
+
+        const val DEFAULT_MODEL = MODEL_OPUS
+        const val DEFAULT_EDIT_MODEL = MODEL_SONNET
+
+        val SUPPORTED_MODELS = listOf(MODEL_OPUS, MODEL_SONNET, MODEL_HAIKU, MODEL_FABLE)
+
+        private const val API_KEY_PREFIX = "sk-ant-"
+        private const val MAX_OUTPUT_TOKENS = 32_000L
+        private const val HAIKU_THINKING_BUDGET = 8_000L
+        private const val SERVER_SIDE_FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
         /**
-         * Returns true if the model supports adaptive thinking.
-         * Adaptive thinking is supported on Opus 4.6+ and Sonnet 4.6+.
-         * Unknown models default to extended thinking for safety.
+         * Map a stored model ID (possibly from an older app version) to a model this app
+         * supports. Retired or unknown IDs fall back to the current model of the same family,
+         * or [default] if the family is unknown.
          */
-        private fun supportsAdaptiveThinking(model: String): Boolean =
-            model in ADAPTIVE_THINKING_MODELS
+        fun normalizeModel(model: String?, default: String = DEFAULT_MODEL): String {
+            if (model.isNullOrBlank()) return default
+            if (model in SUPPORTED_MODELS) return model
+            return when {
+                model.startsWith("claude-haiku") -> MODEL_HAIKU
+                model.startsWith("claude-sonnet") -> MODEL_SONNET
+                model.startsWith("claude-opus") -> MODEL_OPUS
+                model.startsWith("claude-fable") -> MODEL_FABLE
+                else -> default
+            }
+        }
+
+        /** Haiku 4.5 still uses extended thinking with budget_tokens and has no effort control. */
+        private fun usesBudgetThinking(model: String): Boolean = model.startsWith("claude-haiku-4")
+
+        private fun supportsServerSideFallback(model: String): Boolean =
+            model == MODEL_OPUS || model == MODEL_SONNET || model == MODEL_FABLE
+
+        /**
+         * Thinking/effort settings per model:
+         * - Haiku 4.5: thinking via budget_tokens when enabled, omitted otherwise.
+         * - Opus 5.5 / Sonnet 5.5 / Fable 5.1: thinking can't be explicitly disabled, so the
+         *   "thinking" toggle maps to effort (medium when on, low when off).
+         */
+        internal fun requestConfigFor(model: String, thinkingEnabled: Boolean): RequestConfig {
+            val outputConfig = OutputConfig.builder().format(RECIPE_OUTPUT_FORMAT)
+            if (usesBudgetThinking(model)) {
+                val thinking = if (thinkingEnabled) {
+                    ThinkingConfigParam.ofEnabled(
+                        ThinkingConfigEnabled.builder().budgetTokens(HAIKU_THINKING_BUDGET).build()
+                    )
+                } else {
+                    null
+                }
+                return RequestConfig(thinking, outputConfig.build())
+            }
+            val thinking = if (thinkingEnabled && model != MODEL_FABLE) {
+                ThinkingConfigParam.ofAdaptive(ThinkingConfigAdaptive.builder().build())
+            } else {
+                null
+            }
+            outputConfig.effort(if (thinkingEnabled) OutputConfig.Effort.MEDIUM else OutputConfig.Effort.LOW)
+            return RequestConfig(thinking, outputConfig.build())
+        }
+
+        /**
+         * Map an exception from the SDK to a user-facing [AnthropicRequestException].
+         */
+        fun toFriendlyException(e: Throwable): Exception {
+            if (e is RecipeParseException || e is AnthropicRequestException) return e as Exception
+            val (message, transient) = when (e) {
+                is UnauthorizedException ->
+                    "Your Anthropic API key was rejected. Check it in Settings." to false
+                is PermissionDeniedException ->
+                    "Your Anthropic API key isn't allowed to use this model." to false
+                is NotFoundException ->
+                    "The selected AI model isn't available. Choose a different model in Settings." to false
+                is RateLimitException ->
+                    "Anthropic rate limit reached. Please wait a minute and try again." to true
+                is BadRequestException -> if (e.body().toString().contains("credit balance", ignoreCase = true)) {
+                    "Your Anthropic account is out of credits. Add credits at console.anthropic.com." to false
+                } else {
+                    "The AI request was rejected: ${e.message}" to false
+                }
+                is InternalServerException ->
+                    "Anthropic's servers are overloaded or unavailable. Please try again shortly." to true
+                is AnthropicServiceException -> if (e.statusCode() == 529 || e.statusCode() >= 500) {
+                    "Anthropic's servers are overloaded or unavailable. Please try again shortly." to true
+                } else {
+                    "The AI request failed (HTTP ${e.statusCode()})." to false
+                }
+                is AnthropicIoException, is IOException ->
+                    "Couldn't reach Anthropic. Check your internet connection." to true
+                else -> "The AI request failed: ${e.message ?: e.javaClass.simpleName}" to false
+            }
+            return AnthropicRequestException(message, transient, e)
+        }
 
         /**
          * Validates an Anthropic API key format.
@@ -368,10 +471,86 @@ class AnthropicService @Inject constructor(
          */
         fun isValidApiKey(apiKey: String): Boolean = validateApiKey(apiKey) == null
 
-        private val SYSTEM_PROMPT = """
-You are a recipe parser. Extract structured recipe data from HTML content and return it as JSON.
+        private fun obj(properties: Map<String, Any>, required: List<String>): Map<String, Any> = mapOf(
+            "type" to "object",
+            "properties" to properties,
+            "required" to required,
+            "additionalProperties" to false
+        )
 
-Return ONLY valid JSON (no markdown, no explanations). Your response must always be wrapped in a success/error structure.
+        private val STRING = mapOf("type" to "string")
+        private val NUMBER = mapOf("type" to "number")
+        private val INTEGER = mapOf("type" to "integer")
+        private val BOOLEAN = mapOf("type" to "boolean")
+        private fun arrayOf(items: Map<String, Any>) = mapOf("type" to "array", "items" to items)
+
+        /**
+         * JSON schema for [RecipeParseResponse]. Structured outputs don't allow recursive schemas
+         * and cap optional properties at 24, so alternates are a non-recursive ingredient shape and
+         * fields with natural defaults (optional, yields, lists) are required.
+         */
+        internal val RECIPE_RESPONSE_SCHEMA: Map<String, Any> by lazy {
+            val amount = obj(mapOf("value" to NUMBER, "unit" to STRING), listOf("value"))
+            val alternate = obj(
+                mapOf("name" to STRING, "amount" to amount, "density" to NUMBER, "notes" to STRING),
+                listOf("name")
+            )
+            val ingredient = obj(
+                mapOf(
+                    "name" to STRING,
+                    "amount" to amount,
+                    "density" to NUMBER,
+                    "notes" to STRING,
+                    "optional" to BOOLEAN,
+                    "alternates" to arrayOf(alternate)
+                ),
+                listOf("name", "optional", "alternates")
+            )
+            val step = obj(
+                mapOf(
+                    "stepNumber" to INTEGER,
+                    "instruction" to STRING,
+                    "ingredients" to arrayOf(ingredient),
+                    "yields" to INTEGER,
+                    "optional" to BOOLEAN
+                ),
+                listOf("stepNumber", "instruction", "ingredients", "yields", "optional")
+            )
+            val section = obj(mapOf("name" to STRING, "steps" to arrayOf(step)), listOf("steps"))
+            val recipe = obj(
+                mapOf(
+                    "name" to STRING,
+                    "story" to STRING,
+                    "servings" to INTEGER,
+                    "prepTime" to STRING,
+                    "cookTime" to STRING,
+                    "totalTime" to STRING,
+                    "instructionSections" to arrayOf(section),
+                    "equipment" to arrayOf(STRING),
+                    "tags" to arrayOf(STRING)
+                ),
+                listOf("name", "instructionSections", "equipment", "tags")
+            )
+            obj(
+                mapOf("success" to BOOLEAN, "error" to STRING, "recipe" to recipe),
+                listOf("success")
+            )
+        }
+
+        private val RECIPE_OUTPUT_FORMAT: JsonOutputFormat by lazy {
+            JsonOutputFormat.builder()
+                .schema(
+                    JsonOutputFormat.Schema.builder()
+                        .putAllAdditionalProperties(RECIPE_RESPONSE_SCHEMA.mapValues { JsonValue.from(it.value) })
+                        .build()
+                )
+                .build()
+        }
+
+        private val SYSTEM_PROMPT = """
+You are a recipe parser. Extract structured recipe data from web page content and return it as JSON.
+
+Your response must always be wrapped in a success/error structure.
 
 For successful parsing, return:
 {
@@ -389,41 +568,48 @@ For successful parsing, return:
         "steps": [
           {
             "stepNumber": 1,
-            "instruction": "Preheat oven to 350°F."
+            "instruction": "Preheat oven to 350°F.",
+            "ingredients": [],
+            "yields": 1,
+            "optional": false
           },
           {
             "stepNumber": 2,
             "instruction": "Mix dry ingredients together.",
             "ingredients": [
-              { "name": "all-purpose flour", "amount": { "value": 2, "unit": "cup" }, "density": 0.51 },
-              { "name": "granulated sugar", "amount": { "value": 1, "unit": "cup" }, "density": 0.84 },
-              { "name": "baking powder", "amount": { "value": 1, "unit": "tsp" }, "density": 0.81 }
-            ]
+              { "name": "all-purpose flour", "amount": { "value": 2, "unit": "cup" }, "density": 0.51, "optional": false, "alternates": [] },
+              { "name": "granulated sugar", "amount": { "value": 1, "unit": "cup" }, "density": 0.84, "optional": false, "alternates": [] }
+            ],
+            "yields": 1,
+            "optional": false
           },
           {
             "stepNumber": 3,
             "instruction": "Add wet ingredients and mix until combined.",
             "ingredients": [
-              { "name": "butter", "amount": { "value": 8, "unit": "oz" }, "density": 0.96, "notes": "melted" },
-              { "name": "eggs", "amount": { "value": 3 }, "notes": "room temperature" },
-              { "name": "milk", "amount": { "value": 1, "unit": "cup" }, "density": 0.96 },
+              { "name": "butter", "amount": { "value": 8, "unit": "oz" }, "density": 0.96, "notes": "melted", "optional": false, "alternates": [] },
+              { "name": "eggs", "amount": { "value": 3 }, "notes": "room temperature", "optional": false, "alternates": [] },
               {
                 "name": "kosher salt",
                 "amount": { "value": 1, "unit": "tsp" },
                 "density": 0.54,
+                "optional": false,
                 "alternates": [
                   { "name": "table salt", "amount": { "value": 0.5, "unit": "tsp" }, "density": 1.22 }
                 ]
               }
-            ]
+            ],
+            "yields": 1,
+            "optional": false
           },
           {
-            "stepNumber": 5,
+            "stepNumber": 4,
             "instruction": "Form into a ball, coat with olive oil, and place in a covered bowl.",
-            "yields": 2,
             "ingredients": [
-              { "name": "olive oil", "amount": { "value": 1, "unit": "tsp" }, "density": 0.84 }
-            ]
+              { "name": "olive oil", "amount": { "value": 1, "unit": "tsp" }, "density": 0.84, "optional": false, "alternates": [] }
+            ],
+            "yields": 2,
+            "optional": false
           }
         ]
       }
@@ -442,8 +628,10 @@ If you cannot parse the content as a recipe, return an error response:
 Return an error response when:
 - The page does not contain a recipe (e.g., it's a blog post, article, or other non-recipe content)
 - The content is too incomplete to extract a meaningful recipe (missing ingredients or instructions)
-- The content is garbled, corrupted, or not in a readable format
+- The content is garbled, corrupted, or not in a readable format (e.g., a bot-check or "access denied" page)
 - You cannot confidently identify the recipe name, ingredients, or instructions
+
+The content may include structured recipe data (schema.org JSON-LD) extracted from the page alongside the page text. Prefer the structured data for ingredient quantities and step text when it is present, and use the page text for anything it lacks (notes, section names, equipment).
 
 INGREDIENT FORMAT:
 - Each ingredient has a single "amount" object with "value" (number, integer or decimal) and "unit" (string).
@@ -462,18 +650,20 @@ SUPPORTED UNITS:
 INGREDIENT DENSITIES (g/mL — use these when known):
 %DENSITY_TABLE%
 
-OMIT NULL/EMPTY/DEFAULT FIELDS:
-- Do NOT include fields with null values, empty arrays, or default values.
-- "optional" defaults to false — omit when false.
-- "yields" defaults to 1 — omit when 1.
-- "alternates" defaults to empty — omit when empty.
-- "notes" defaults to null — omit when null.
-- Section "name" defaults to null — omit for single-section recipes.
+OPTIONAL FIELDS:
+- Omit optional fields that have no value rather than inventing one ("notes", "density", "amount", section "name", "story", times, "servings").
+- "optional" is false unless the ingredient or step is optional.
+- "yields" is 1 unless the step is performed multiple times.
+- "alternates" is an empty array unless the recipe lists substitutes.
+- Omit section "name" for single-section recipes.
 
 YIELDS FIELD:
 - If a step is performed multiple times (e.g., "form 2 dough balls"), set "yields" to the count (e.g., 2).
 - Ingredient amounts are per-iteration; the app multiplies by yields for totals.
-- Default is 1 — omit if the step is done once.
+
+EDITING AN EXISTING RECIPE:
+- When the input is the app's own Markdown for a recipe, ingredient lines indented under a numbered step belong to that step.
+- A step note like "(repeat N times; ingredient amounts below are for each time)" means "yields": N, and the listed amounts are per repetition (do not multiply them).
 
 INGREDIENTS LIVE ON STEPS ONLY:
 - There is NO global ingredient list. All ingredients belong to the step that uses them.
@@ -486,7 +676,7 @@ EQUIPMENT:
 - Include sizes/specifications when mentioned (e.g., "12-inch skillet", "8x8-inch baking dish").
 - Only include equipment explicitly mentioned or clearly required by the recipe.
 - Omit basic items everyone has (e.g., bowls, spoons, measuring cups) unless a specific type is called for.
-- Omit the "equipment" field entirely if no notable equipment is mentioned.
+- Use an empty array if no notable equipment is mentioned.
 
 ADDITIONAL GUIDELINES:
 - If the recipe has distinct sections (e.g., cake and frosting), create separate instructionSections.
@@ -498,23 +688,46 @@ ADDITIONAL GUIDELINES:
 - Mark optional ingredients and steps with "optional": true (for garnish, decorative, "if desired" items).
 - Generate relevant tags based on recipe type, cuisine, dietary restrictions, etc.
 - Keep the story brief — just the essence of any background provided.
-- Return null for fields that aren't present in the source.
 """.trimIndent()
 
         /**
-         * Build the system prompt with the density table.
-         * When [densityOverrides] is provided, recipe-specific densities are merged
-         * on top of the defaults so the AI sees one unified reference table.
+         * The system prompt with the default density table. It is identical for every request
+         * so it can be served from the prompt cache; recipe-specific densities go in the user
+         * message (see [buildUserMessage]).
          */
-        fun buildSystemPrompt(densityOverrides: Map<String, Double>? = null): String {
-            val densities = if (densityOverrides != null) {
-                // Merge: recipe-specific densities override defaults
-                RecipeMarkdownFormatter.DEFAULT_DENSITIES + densityOverrides
-            } else {
-                RecipeMarkdownFormatter.DEFAULT_DENSITIES
+        fun buildSystemPrompt(): String =
+            SYSTEM_PROMPT.replace(
+                "%DENSITY_TABLE%",
+                RecipeMarkdownFormatter.formatDensityHints(RecipeMarkdownFormatter.DEFAULT_DENSITIES)
+            )
+
+        private val SYSTEM_BLOCKS: List<TextBlockParam> by lazy {
+            listOf(
+                TextBlockParam.builder()
+                    .text(buildSystemPrompt())
+                    .cacheControl(CacheControlEphemeral.builder().build())
+                    .build()
+            )
+        }
+
+        private fun systemBlocks(): List<TextBlockParam> = SYSTEM_BLOCKS
+
+        fun buildUserMessage(
+            content: String,
+            densityOverrides: Map<String, Double>? = null,
+            aiInstructions: String? = null
+        ): String = buildString {
+            if (!densityOverrides.isNullOrEmpty()) {
+                append("Ingredient densities already known for this recipe (g/mL — prefer these over the reference table):\n")
+                append(RecipeMarkdownFormatter.formatDensityHints(densityOverrides))
+                append("\n\n")
             }
-            val densityTable = RecipeMarkdownFormatter.formatDensityHints(densities)
-            return SYSTEM_PROMPT.replace("%DENSITY_TABLE%", densityTable)
+            append("Parse this recipe and extract the structured data:\n\n")
+            append(content)
+            if (!aiInstructions.isNullOrBlank()) {
+                append("\n\nThe user also provided these instructions: ")
+                append(aiInstructions)
+            }
         }
     }
 }

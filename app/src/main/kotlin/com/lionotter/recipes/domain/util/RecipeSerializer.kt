@@ -38,7 +38,7 @@ class RecipeSerializer @Inject constructor(
      */
     fun serializeRecipe(recipe: Recipe): RecipeFiles {
         return RecipeFiles(
-            folderName = sanitizeFolderName(recipe.name),
+            folderName = exportFolderName(recipe),
             recipeJson = json.encodeToString(recipe),
             recipeMarkdown = RecipeMarkdownFormatter.format(recipe)
         )
@@ -49,6 +49,15 @@ class RecipeSerializer @Inject constructor(
      */
     fun deserializeRecipe(jsonContent: String): Recipe {
         return json.decodeFromString<Recipe>(jsonContent)
+    }
+
+    /**
+     * Folder name for a recipe inside an export. Includes a short ID suffix so recipes with the
+     * same name (e.g. a "save as copy") don't collide; importers ignore folder names.
+     */
+    fun exportFolderName(recipe: Recipe): String {
+        val shortId = recipe.id.filter { it.isLetterOrDigit() }.take(8).ifEmpty { "recipe" }
+        return "${sanitizeFolderName(recipe.name).take(90)} ($shortId)"
     }
 
     /**

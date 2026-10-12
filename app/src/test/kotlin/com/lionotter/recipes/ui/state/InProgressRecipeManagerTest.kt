@@ -6,6 +6,9 @@ import androidx.work.WorkManager
 import app.cash.turbine.test
 import com.lionotter.recipes.data.local.PendingImportEntity
 import com.lionotter.recipes.data.repository.PendingImportRepository
+import com.lionotter.recipes.worker.BaseRecipeWorker
+import com.lionotter.recipes.worker.RecipeImportWorker
+import androidx.work.workDataOf
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -33,6 +36,7 @@ class InProgressRecipeManagerTest {
     // In-memory backing store to simulate the database
     private val pendingImportsFlow = MutableStateFlow<List<PendingImportEntity>>(emptyList())
     private val pendingImportsStore = mutableMapOf<String, PendingImportEntity>()
+    private val importWorkInfos = MutableStateFlow<List<WorkInfo>>(emptyList())
 
     @Before
     fun setup() {
@@ -41,6 +45,7 @@ class InProgressRecipeManagerTest {
 
         workManager = mockk {
             every { getWorkInfosByTagFlow(any()) } returns MutableStateFlow(emptyList<WorkInfo>())
+            every { getWorkInfosByTagFlow(RecipeImportWorker.TAG_RECIPE_IMPORT) } returns importWorkInfos
         }
 
         pendingImportRepository = mockk {
@@ -76,6 +81,18 @@ class InProgressRecipeManagerTest {
                 }
             }
 
+            coEvery { getPendingImportByWorkManagerId(any()) } coAnswers {
+                pendingImportsStore.values.firstOrNull { it.workManagerId == firstArg<String>() }
+            }
+
+            coEvery { updateStatusWithError(any(), any(), any()) } coAnswers {
+                val id = arg<String>(0)
+                pendingImportsStore[id]?.let {
+                    pendingImportsStore[id] = it.copy(status = arg(1), errorMessage = arg(2))
+                    pendingImportsFlow.value = pendingImportsStore.values.toList()
+                }
+            }
+
             coEvery { deletePendingImport(any()) } coAnswers {
                 val id = firstArg<String>()
                 pendingImportsStore.remove(id)
@@ -84,7 +101,14 @@ class InProgressRecipeManagerTest {
         }
 
         testScope = TestScope()
-        manager = InProgressRecipeManager(workManager, pendingImportRepository, testScope)
+        manager = InProgressRecipeManager(
+            workManager,
+            pendingImportRepository,
+            testScope,
+            scheduler = mockk(relaxed = true),
+            inputStore = mockk(relaxed = true),
+            importPaprikaUseCase = mockk(relaxed = true)
+        )
     }
 
     @After
@@ -289,5 +313,56 @@ class InProgressRecipeManagerTest {
         assertEquals(PendingImportEntity.STATUS_PENDING, recipe.status)
         assertEquals("", recipe.url)
         assertEquals(null, recipe.errorMessage)
+    }
+
+    @Test
+    fun `failed work marks the matching import failed with its error message`() = runTest {
+        val workId = java.util.UUID.randomUUID()
+        manager.addInProgressRecipe("import-1", "Recipe", url = "https://example.com", workManagerId = workId.toString())
+        testScope.advanceUntilIdle()
+
+        importWorkInfos.value = listOf(
+            WorkInfo(
+                id = workId,
+                state = WorkInfo.State.FAILED,
+                tags = setOf(RecipeImportWorker.TAG_RECIPE_IMPORT),
+                outputData = workDataOf(BaseRecipeWorker.KEY_ERROR_MESSAGE to "The site blocked the request (403).")
+            )
+        )
+        testScope.advanceUntilIdle()
+
+        val entity = pendingImportsStore["import-1"]!!
+        assertEquals(PendingImportEntity.STATUS_FAILED, entity.status)
+        assertEquals("The site blocked the request (403).", entity.errorMessage)
+    }
+
+    @Test
+    fun `failed work without output still marks the import failed`() = runTest {
+        val workId = java.util.UUID.randomUUID()
+        manager.addInProgressRecipe("import-1", "Recipe", url = "https://example.com", workManagerId = workId.toString())
+        testScope.advanceUntilIdle()
+
+        importWorkInfos.value = listOf(
+            WorkInfo(id = workId, state = WorkInfo.State.FAILED, tags = setOf(RecipeImportWorker.TAG_RECIPE_IMPORT))
+        )
+        testScope.advanceUntilIdle()
+
+        assertEquals(PendingImportEntity.STATUS_FAILED, pendingImportsStore["import-1"]!!.status)
+    }
+
+    @Test
+    fun `succeeded work removes the import and unrelated work is ignored`() = runTest {
+        val workId = java.util.UUID.randomUUID()
+        manager.addInProgressRecipe("import-1", "Recipe", url = "https://example.com", workManagerId = workId.toString())
+        manager.addInProgressRecipe("import-2", "Other", url = "https://example.org", workManagerId = java.util.UUID.randomUUID().toString())
+        testScope.advanceUntilIdle()
+
+        importWorkInfos.value = listOf(
+            WorkInfo(id = workId, state = WorkInfo.State.SUCCEEDED, tags = setOf(RecipeImportWorker.TAG_RECIPE_IMPORT)),
+            WorkInfo(id = java.util.UUID.randomUUID(), state = WorkInfo.State.SUCCEEDED, tags = setOf(RecipeImportWorker.TAG_RECIPE_IMPORT))
+        )
+        testScope.advanceUntilIdle()
+
+        assertEquals(setOf("import-2"), pendingImportsStore.keys)
     }
 }

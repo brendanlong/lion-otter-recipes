@@ -1,35 +1,35 @@
 package com.lionotter.recipes.domain.usecase
 
 import android.util.Log
-import com.lionotter.recipes.domain.util.RecipeSerializer
+import com.lionotter.recipes.domain.util.ArchiveTooLargeException
 import com.lionotter.recipes.domain.util.ZipImportHelper
-import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.CancellationException
 import java.io.InputStream
 import javax.inject.Inject
-import kotlin.coroutines.coroutineContext
 
 /**
- * Use case for importing recipes from a ZIP file.
+ * Use case for importing recipes from a ZIP / .lorecipes file.
  * Expects the same folder structure as the export:
- * - recipe-name/recipe.json
- * - recipe-name/recipe.md (ignored on import, regenerated from data)
- * - recipe-name/image.* (recipe image, used if present)
+ * - <folder>/recipe.json
+ * - <folder>/recipe.md (ignored on import, regenerated from data)
+ * - <folder>/image.* (recipe image, used if present)
+ * - meal-plans/<date>.json (imported only for recipes that were imported or already exist)
  *
- * Import strategy: JSON-first.
  * Skips recipes that already exist locally (by ID).
  */
 class ImportFromZipUseCase @Inject constructor(
-    private val zipImportHelper: ZipImportHelper,
-    private val recipeSerializer: RecipeSerializer
+    private val zipImportHelper: ZipImportHelper
 ) {
     companion object {
         private const val TAG = "ImportFromZipUseCase"
     }
+
     sealed class ImportResult {
         data class Success(
             val importedCount: Int,
             val failedCount: Int,
-            val skippedCount: Int
+            val skippedCount: Int,
+            val mealPlansImported: Int = 0
         ) : ImportResult()
         data class Error(val message: String) : ImportResult()
     }
@@ -40,6 +40,7 @@ class ImportFromZipUseCase @Inject constructor(
         data class ImportingRecipe(
             val recipeName: String,
             val current: Int,
+            /** Total recipes to import, or 0 if unknown (importing everything). */
             val total: Int
         ) : ImportProgress()
         data class Complete(val result: ImportResult) : ImportProgress()
@@ -57,67 +58,29 @@ class ImportFromZipUseCase @Inject constructor(
         onProgress(ImportProgress.Starting)
         onProgress(ImportProgress.ReadingZip)
 
-        val zipContents = zipImportHelper.readZipContents(inputStream)
-            ?: return ImportResult.Error("Failed to read ZIP file or no data found")
-
-        var importedCount = 0
-        var failedCount = 0
-        var skippedCount = 0
-
-        val recipeFolders = zipContents.textFiles.entries
-            .filter { it.key != ZipImportHelper.MEAL_PLANS_FOLDER }
-            .let { entries ->
-                if (selectedRecipeIds != null) {
-                    // Pre-filter to only selected recipes by deserializing to check ID
-                    entries.filter { (_, files) ->
-                        val jsonContent = files[RecipeSerializer.RECIPE_JSON_FILENAME] ?: return@filter false
-                        try {
-                            val recipe = recipeSerializer.deserializeRecipe(jsonContent)
-                            recipe.id in selectedRecipeIds
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Failed to deserialize recipe during pre-filter, including for error reporting", e)
-                            true // include failures so they're counted as failed
-                        }
-                    }
-                } else {
-                    entries
-                }
+        val summary = try {
+            zipImportHelper.importFromZip(inputStream, selectedRecipeIds) { name, index ->
+                onProgress(ImportProgress.ImportingRecipe(name, index, selectedRecipeIds?.size ?: 0))
             }
-            .toList()
-
-        recipeFolders.forEachIndexed { index, (folderName, files) ->
-            coroutineContext.ensureActive()
-
-            onProgress(
-                ImportProgress.ImportingRecipe(
-                    recipeName = folderName,
-                    current = index + 1,
-                    total = recipeFolders.size
-                )
-            )
-
-            val imageFiles = zipContents.imageFiles[folderName] ?: emptyMap()
-            when (zipImportHelper.importRecipe(files, imageFiles)) {
-                is ZipImportHelper.SingleRecipeResult.Imported -> importedCount++
-                is ZipImportHelper.SingleRecipeResult.Skipped -> skippedCount++
-                is ZipImportHelper.SingleRecipeResult.NoJson -> failedCount++
-                is ZipImportHelper.SingleRecipeResult.LimitReached -> failedCount++
-                is ZipImportHelper.SingleRecipeResult.Failed -> failedCount++
-            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: ArchiveTooLargeException) {
+            Log.e(TAG, "ZIP import rejected: archive too large", e)
+            return ImportResult.Error("This file is too large to import (${e.message}).")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read ZIP file", e)
+            return ImportResult.Error("Couldn't read the file. Is it a Lion+Otter export? (${e.message})")
         }
 
-        // Import meal plans from the meal-plans folder (always, not filtered by selection)
-        val mealPlanFiles = zipContents.textFiles[ZipImportHelper.MEAL_PLANS_FOLDER]
-        if (mealPlanFiles != null) {
-            val (mealImported, mealSkipped) = zipImportHelper.importMealPlans(mealPlanFiles)
-            importedCount += mealImported
-            skippedCount += mealSkipped
+        if (summary.importedCount + summary.skippedCount + summary.failedCount == 0) {
+            return ImportResult.Error("No recipes found in file")
         }
 
         val result = ImportResult.Success(
-            importedCount = importedCount,
-            failedCount = failedCount,
-            skippedCount = skippedCount
+            importedCount = summary.importedCount,
+            failedCount = summary.failedCount,
+            skippedCount = summary.skippedCount,
+            mealPlansImported = summary.mealPlansImported
         )
         onProgress(ImportProgress.Complete(result))
         return result

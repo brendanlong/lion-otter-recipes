@@ -5,7 +5,6 @@ import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.lionotter.recipes.data.local.SettingsDataStore
@@ -16,6 +15,7 @@ import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
 import com.lionotter.recipes.worker.RecipeEditWorker
 import com.lionotter.recipes.worker.RecipeRegenerateWorker
+import com.lionotter.recipes.worker.RecipeWorkScheduler
 import com.lionotter.recipes.worker.observeWorkByTag
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -49,7 +49,8 @@ class EditRecipeViewModel @Inject constructor(
     private val recipeRepository: IRecipeRepository,
     private val settingsDataStore: SettingsDataStore,
     private val workManager: WorkManager,
-    private val imageDownloadService: ImageDownloadService
+    private val imageDownloadService: ImageDownloadService,
+    private val recipeWorkScheduler: RecipeWorkScheduler
 ) : ViewModel() {
 
     private val recipeId: String = savedStateHandle.get<String>("recipeId")
@@ -307,22 +308,14 @@ class EditRecipeViewModel @Inject constructor(
     }
 
     private fun enqueueEdit(saveAsCopy: Boolean) {
-        val workRequest = OneTimeWorkRequestBuilder<RecipeEditWorker>()
-            .setInputData(
-                RecipeEditWorker.createInputData(
-                    recipeId = recipeId,
-                    markdownText = buildFullMarkdown(),
-                    model = _model.value,
-                    thinkingEnabled = _thinkingEnabled.value,
-                    saveAsCopy = saveAsCopy,
-                    aiInstructions = aiInstructions.value.takeIf { it.isNotBlank() }
-                )
-            )
-            .addTag(RecipeEditWorker.TAG_RECIPE_EDIT)
-            .build()
-
-        currentEditWorkId = workRequest.id
-        workManager.enqueue(workRequest)
+        currentEditWorkId = recipeWorkScheduler.enqueueEdit(
+            recipeId = recipeId,
+            markdownText = buildFullMarkdown(),
+            model = _model.value,
+            thinkingEnabled = _thinkingEnabled.value,
+            saveAsCopy = saveAsCopy,
+            aiInstructions = aiInstructions.value.takeIf { it.isNotBlank() }
+        )
         _editState.value = EditUiState.Loading("Preparing...")
     }
 
@@ -330,19 +323,11 @@ class EditRecipeViewModel @Inject constructor(
      * Regenerate the recipe from the original source HTML/URL.
      */
     fun regenerateFromOriginal() {
-        val workRequest = OneTimeWorkRequestBuilder<RecipeRegenerateWorker>()
-            .setInputData(
-                RecipeRegenerateWorker.createInputData(
-                    recipeId = recipeId,
-                    model = _model.value,
-                    thinkingEnabled = _thinkingEnabled.value
-                )
-            )
-            .addTag(RecipeRegenerateWorker.TAG_RECIPE_REGENERATE)
-            .build()
-
-        currentRegenerateWorkId = workRequest.id
-        workManager.enqueue(workRequest)
+        currentRegenerateWorkId = recipeWorkScheduler.enqueueRegenerate(
+            recipeId = recipeId,
+            model = _model.value,
+            thinkingEnabled = _thinkingEnabled.value
+        )
         _editState.value = EditUiState.Loading("Preparing...")
     }
 

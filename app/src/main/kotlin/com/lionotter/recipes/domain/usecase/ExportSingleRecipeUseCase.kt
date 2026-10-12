@@ -73,6 +73,8 @@ class ExportSingleRecipeUseCase @Inject constructor(
 
             val fileName = "${recipeSerializer.sanitizeFolderName(recipe.name)}.lorecipes"
             ExportResult.Success(fileName)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Failed to export recipe: ${recipe.name}", e)
             ExportResult.Error("Failed to export recipe: ${e.message}")
