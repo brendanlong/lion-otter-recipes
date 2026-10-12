@@ -86,9 +86,6 @@ subgraph app["Android App"]
         nav_graph -->|collects events| shared_intent_vm
         nav_graph -->|navigates| screens
 
-        subgraph state["UI State"]
-            in_progress_mgr["InProgressRecipeManager<br/>(start / retry / cancel / dismiss)"]
-        end
 
         list --> list_vm
         detail --> detail_vm
@@ -102,13 +99,27 @@ subgraph app["Android App"]
         import_debug_detail --> import_debug_detail_vm
         import_selection --> import_selection_vm
 
-        list_vm -->|observes, retry, dismiss, cancel| in_progress_mgr
-        add_vm -->|start URL import| in_progress_mgr
-        in_progress_mgr -->|enqueue, cancel| work_scheduler
-        in_progress_mgr -->|observes status| worker
-        in_progress_mgr -->|stage input files| import_input_store
-        in_progress_mgr -->|CRUD, failed imports stay visible| pending_import_repo
+        list_vm -->|retry, dismiss, cancel| import_queue
+        list_vm -->|in-progress / failed imports| import_monitor
+        add_vm -->|start URL import| import_queue
+        add_vm -->|"importState(importId)"| import_monitor
     end
+
+    %% --------------------------------------------------------
+    %% Import queue (imports package)
+    %% --------------------------------------------------------
+    subgraph imports["Import Queue (imports)"]
+        import_queue["ImportQueue<br/>(start / retry / cancel / dismiss,<br/>startMutex, startup reconciliation)"]
+        import_monitor["ImportMonitor<br/>(ImportState from rows + WorkInfo,<br/>persists only durable metadata / failures)"]
+        import_decoder["ImportWorkDecoder"]
+        import_queue -->|reconcile| import_monitor
+        import_monitor --> import_decoder
+    end
+    import_queue -->|enqueue, cancel| work_scheduler
+    import_queue -->|stage input files| import_input_store
+    import_queue -->|insert / retry / delete rows| pending_import_repo
+    import_monitor -->|observes import work| worker
+    import_monitor -->|name/image, failures, remove finished| pending_import_repo
 
     %% --------------------------------------------------------
     %% Background Processing Layer
@@ -126,12 +137,17 @@ subgraph app["Android App"]
             local_image_upload_worker["LocalImageUploadWorker"]
             work_scheduler["RecipeWorkScheduler"]
             import_input_store["ImportInputStore<br/>(files/imports/&lt;importId&gt;/)"]
-            work_ext["observeWorkByTag()"]
+            work_contracts["Work contracts<br/>(sealed Progress / Outcome + codecs per worker)"]
+            work_tracker["WorkTracker<br/>(work ID in SavedStateHandle, getWorkInfoByIdFlow)"]
+            image_upload_scheduler["WorkManagerImageUploadScheduler"]
+            image_upload_scheduler -->|enqueue| local_image_upload_worker
+            work_scheduler -->|"observeEdit / observeRegenerate / observeExport"| work_contracts
 
             work_scheduler -->|builds requests| import_worker
             work_scheduler -->|builds requests| paprika_import_worker
             work_scheduler -->|builds requests| zip_import_worker
             work_scheduler -->|edit / regenerate| edit_worker
+            work_scheduler -->|export| zip_export_worker
             paprika_import_worker -->|reschedules next step| work_scheduler
             import_worker -->|reads staged input| import_input_store
             paprika_import_worker -->|reads staged input| import_input_store
@@ -327,6 +343,7 @@ subgraph app["Android App"]
         db_module["DatabaseModule"]
         net_module["NetworkModule"]
         worker_module["WorkerModule"]
+        scheduler_module["SchedulerModule<br/>(ImageUploadScheduler binding)"]
     end
 
     %% --------------------------------------------------------
@@ -344,18 +361,17 @@ subgraph app["Android App"]
     edit_vm -->|edit model, thinking prefs| settings_ds
     edit_vm -->|save picked images| image_dl
     edit_vm -->|delete remote images| image_sync
-    edit_vm -->|enqueue edit / regenerate| work_scheduler
+    edit_vm -->|prepare edit / regenerate| work_scheduler
     edit_vm -.->|image change applied on save| repo
-    edit_vm -->|observe edit/regenerate| work_ext
+    edit_vm -->|track edit / regenerate| work_tracker
     import_selection_vm -->|check duplicates| repo
     import_selection_vm -->|deserialize| serializer
     import_selection_vm -->|read ZIP contents| zip_import_helper
     import_selection_vm -->|parse export| parser
-    import_selection_vm -->|start Paprika / ZIP import| in_progress_mgr
+    import_selection_vm -->|start Paprika / ZIP import| import_queue
     import_selection_vm -->|parse from nav args in init| zip_import_helper
-    add_vm -->|observe import| work_ext
-    zip_vm -->|export| zip_export_worker
-    zip_vm -->|observe export| work_ext
+    zip_vm -->|prepare export| work_scheduler
+    zip_vm -->|track export| work_tracker
     meal_plan_vm -->|CRUD| meal_plan_repo
     meal_plan_vm -->|recipe list| repo
     meal_plan_vm -->|start of week| settings_ds
@@ -366,7 +382,8 @@ subgraph app["Android App"]
     grocery_list_vm -->|grocery unit prefs| settings_ds
     grocery_list_vm -->|checked state per week| grocery_state_store
     settings_vm -->|delete debug data| import_debug_repo
-    settings_vm -->|enqueue after Google sign-in| local_image_upload_worker
+    settings_vm -->|"ImageUploadScheduler, after Google sign-in"| image_upload_scheduler
+    image_dl -->|"ImageUploadScheduler, upload failed"| image_upload_scheduler
     local_image_upload_worker -->|uploadPendingLocalImages| image_sync
     import_debug_list_vm -->|list entries| import_debug_repo
     import_debug_detail_vm -->|get entry| import_debug_repo
@@ -422,7 +439,7 @@ subgraph testing["Testing"]
     hilt_integration_tests["Full-Stack Integration Tests<br/>(Hilt + Robolectric + Room)"]
     test_tags["TestTags<br/>(ui.TestTags)"]
     test_di["Test DI Modules<br/>(TestDatabaseModule, TestNetworkModule, TestWorkerModule)"]
-    guardrails["Guardrail Tests<br/>(LayerDependencyTest, DtoFieldDriftTest, DomainFixturesTest,<br/>RecipeResponseSchemaTest, RecipeRegeneratedContentTest,<br/>RecipeDatabaseMigrationTest)"]
+    guardrails["Guardrail Tests<br/>(LayerDependencyTest, DtoFieldDriftTest, DomainFixturesTest,<br/>RecipeResponseSchemaTest, RecipeRegeneratedContentTest,<br/>RecipeDatabaseMigrationTest, WorkContractTest)"]
     static_checks["Static Checks<br/>(warnings as errors, compose-lint-checks, detekt)"]
 
     ui_integration_tests -->|uses| test_tags
@@ -437,7 +454,7 @@ subgraph legend["Data Flow"]
 
     subgraph import_flow["URL Import Flow"]
         f1["1. User pastes URL and taps Import"]
-        f2["2. InProgressRecipeManager.startUrlImport enqueues job via RecipeWorkScheduler"]
+        f2["2. ImportQueue.startUrlImport enqueues job via RecipeWorkScheduler"]
         f3["3. RecipeImportWorker runs as foreground service"]
         f4["4. Scraper fetches HTML, AI parses recipe"]
         f4a["RecipeHtmlExtractor pulls JSON-LD + structured text before the AI call"]

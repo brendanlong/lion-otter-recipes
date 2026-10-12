@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
+import com.lionotter.recipes.imports.ImportStage
 import com.lionotter.recipes.ui.components.ErrorCard
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.components.rememberNotificationPermissionRequester
@@ -58,7 +59,7 @@ import com.lionotter.recipes.ui.components.rememberNotificationPermissionRequest
 @Composable
 fun AddRecipeScreen(
     onBackClick: () -> Unit,
-    onRecipeAdded: (String) -> Unit,
+    onRecipeAdded: (recipeId: String?) -> Unit,
     onNavigateToSettings: () -> Unit,
     modifier: Modifier = Modifier,
     onNavigateToImportSelection: (importType: String, uri: Uri) -> Unit = { _, _ -> },
@@ -130,7 +131,7 @@ fun AddRecipeScreen(
                 }
                 is AddRecipeUiState.Loading -> {
                     LoadingContent(
-                        progress = state.progress,
+                        stage = state.stage,
                         onCancelClick = viewModel::cancelImport
                     )
                 }
@@ -255,7 +256,7 @@ private fun IdleContent(
 
 @Composable
 private fun LoadingContent(
-    progress: ImportProgress,
+    stage: ImportStage,
     onCancelClick: () -> Unit
 ) {
     Column(
@@ -265,16 +266,20 @@ private fun LoadingContent(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        val (icon, message) = when (progress) {
-            is ImportProgress.Queued ->
+        val (icon, message) = when (stage) {
+            ImportStage.QUEUED ->
                 Icons.Default.HourglassEmpty to stringResource(R.string.preparing_import)
-            is ImportProgress.Starting ->
+            ImportStage.STARTING ->
                 Icons.Default.Cloud to stringResource(R.string.starting)
-            is ImportProgress.FetchingPage ->
+            ImportStage.FETCHING_PAGE ->
                 Icons.Default.CloudDownload to stringResource(R.string.fetching_recipe_page)
-            is ImportProgress.ParsingRecipe ->
+            ImportStage.ANALYZING ->
                 Icons.Default.Psychology to stringResource(R.string.analyzing_recipe)
-            is ImportProgress.SavingRecipe ->
+            ImportStage.SUBMITTING_BATCH ->
+                Icons.Default.Psychology to stringResource(R.string.submitting_batch)
+            ImportStage.WAITING_FOR_BATCH ->
+                Icons.Default.Psychology to stringResource(R.string.waiting_for_batch)
+            ImportStage.SAVING ->
                 Icons.Default.Save to stringResource(R.string.saving_recipe)
         }
 
@@ -297,7 +302,7 @@ private fun LoadingContent(
             textAlign = TextAlign.Center
         )
 
-        if (progress is ImportProgress.ParsingRecipe) {
+        if (stage == ImportStage.ANALYZING) {
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = stringResource(R.string.may_take_a_moment),

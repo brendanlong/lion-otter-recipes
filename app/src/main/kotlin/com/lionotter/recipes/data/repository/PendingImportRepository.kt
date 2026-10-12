@@ -2,6 +2,7 @@ package com.lionotter.recipes.data.repository
 
 import com.lionotter.recipes.data.local.PendingImportDao
 import com.lionotter.recipes.data.local.PendingImportEntity
+import com.lionotter.recipes.data.local.PendingImportStatus
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -22,15 +23,15 @@ class PendingImportRepository @Inject constructor(
         pendingImportDao.insertPendingImport(entity)
     }
 
-    suspend fun updateMetadata(id: String, name: String?, imageUrl: String?, status: String) {
+    suspend fun updateMetadata(id: String, name: String?, imageUrl: String?, status: PendingImportStatus) {
         pendingImportDao.updateMetadata(id, name, imageUrl, status)
     }
 
-    suspend fun updateStatus(id: String, status: String) {
+    suspend fun updateStatus(id: String, status: PendingImportStatus) {
         pendingImportDao.updateStatus(id, status)
     }
 
-    suspend fun updateStatusWithError(id: String, status: String, errorMessage: String?) {
+    suspend fun updateStatusWithError(id: String, status: PendingImportStatus, errorMessage: String?) {
         pendingImportDao.updateStatusWithError(id, status, errorMessage)
     }
 

@@ -5,7 +5,6 @@ import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
-import androidx.work.workDataOf
 import com.lionotter.recipes.notification.RecipeNotificationHelper
 import com.lionotter.recipes.util.ErrorLog
 import kotlinx.coroutines.CancellationException
@@ -28,10 +27,7 @@ abstract class BaseRecipeWorker(
 
     companion object {
         private const val TAG = "BaseRecipeWorker"
-        const val KEY_IMPORT_ID = "import_id"
-        const val KEY_RESULT_TYPE = "result_type"
-        const val KEY_ERROR_MESSAGE = "error_message"
-        const val RESULT_ERROR = "error"
+        const val KEY_IMPORT_ID = WorkResult.KEY_IMPORT_ID
         const val MAX_ATTEMPTS = 3
     }
 
@@ -57,10 +53,7 @@ abstract class BaseRecipeWorker(
             throw e
         } catch (e: Exception) {
             ErrorLog.e(TAG, "${javaClass.simpleName} failed unexpectedly", e)
-            errorResult(
-                errorMessage = "Something went wrong: ${e.message ?: e.javaClass.simpleName}",
-                retryable = false
-            )
+            errorResult("Something went wrong: ${e.message ?: e.javaClass.simpleName}")
         }
     }
 
@@ -90,32 +83,27 @@ abstract class BaseRecipeWorker(
         notificationHelper.cancelNotification(progressNotificationId)
     }
 
+    /** Fail with a generic error (invalid input or an unexpected crash). */
+    protected fun errorResult(errorMessage: String): Result =
+        errorResult(GenericFailure(errorMessage, inputData.getString(KEY_IMPORT_ID)))
+
     /**
-     * Fail (or retry, for transient errors with attempts remaining). The failure output always
-     * includes the import ID (when present) and the error message.
+     * Fail (or retry, for transient errors with attempts remaining) with [failure] as the output.
      */
-    protected fun errorResult(
-        errorMessage: String,
-        retryable: Boolean = false,
-        errorType: String = RESULT_ERROR,
-        notify: Boolean = true,
-        extraData: Map<String, Any?> = emptyMap()
-    ): Result {
+    protected fun errorResult(failure: FailureOutcome, retryable: Boolean = false, notify: Boolean = true): Result {
         cancelProgressNotification()
         if (willRetry(retryable)) {
-            Log.w(TAG, "${javaClass.simpleName} attempt ${runAttemptCount + 1} failed, will retry: $errorMessage")
+            Log.w(TAG, "${javaClass.simpleName} attempt ${runAttemptCount + 1} failed, will retry: ${failure.message}")
             return Result.retry()
         }
         if (notify) {
-            notificationHelper.showErrorNotification(operationKey, errorTitle, errorMessage)
+            notificationHelper.showErrorNotification(operationKey, errorTitle, failure.message.orEmpty())
         }
-        return Result.failure(
-            workDataOf(
-                KEY_RESULT_TYPE to errorType,
-                KEY_ERROR_MESSAGE to errorMessage,
-                KEY_IMPORT_ID to inputData.getString(KEY_IMPORT_ID),
-                *extraData.toList().toTypedArray()
-            )
-        )
+        return Result.failure(failure.toData())
+    }
+
+    protected fun successResult(outcome: SuccessOutcome): Result {
+        cancelProgressNotification()
+        return Result.success(outcome.toData())
     }
 }

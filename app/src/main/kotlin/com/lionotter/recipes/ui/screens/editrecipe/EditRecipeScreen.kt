@@ -470,9 +470,14 @@ private fun EditContent(
                 onThinkingChange = onThinkingChange
             )
 
-            if (editState is EditUiState.Error) {
+            val errorText = when (editState) {
+                is EditUiState.Error -> editState.message
+                EditUiState.NoApiKey -> stringResource(R.string.api_key_required_for_editing)
+                else -> null
+            }
+            if (errorText != null) {
                 Text(
-                    text = editState.message,
+                    text = errorText,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error
                 )

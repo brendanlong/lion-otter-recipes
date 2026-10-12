@@ -29,12 +29,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
-import com.lionotter.recipes.data.local.PendingImportEntity
+import com.lionotter.recipes.imports.ImportStage
+import com.lionotter.recipes.imports.InProgressRecipe
 import com.lionotter.recipes.ui.components.RecipeThumbnail
 import com.lionotter.recipes.ui.components.SwipeActionBox
 import com.lionotter.recipes.ui.components.SwipeActionBoxState
 import com.lionotter.recipes.ui.components.rememberSwipeActionBoxState
-import com.lionotter.recipes.ui.state.InProgressRecipe
 
 @Composable
 fun InProgressRecipeCard(
@@ -125,7 +125,7 @@ fun InProgressRecipeCard(
                             text = if (isFailed) {
                                 inProgressRecipe.errorMessage ?: stringResource(R.string.import_failed)
                             } else {
-                                statusText(inProgressRecipe.status)
+                                statusText(inProgressRecipe.stage)
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = if (isFailed) {
@@ -170,16 +170,11 @@ fun InProgressRecipeCard(
 }
 
 @Composable
-private fun statusText(status: String): String {
-    return when (status) {
-        PendingImportEntity.STATUS_PENDING -> stringResource(R.string.preparing_import)
-        PendingImportEntity.STATUS_FETCHING_METADATA -> stringResource(R.string.fetching_recipe_page)
-        PendingImportEntity.STATUS_METADATA_READY -> stringResource(R.string.analyzing_recipe)
-        PendingImportEntity.STATUS_PARSING -> stringResource(R.string.analyzing_recipe)
-        PendingImportEntity.STATUS_SUBMITTING_BATCH -> stringResource(R.string.submitting_batch)
-        PendingImportEntity.STATUS_WAITING_FOR_BATCH -> stringResource(R.string.waiting_for_batch)
-        PendingImportEntity.STATUS_SAVING -> stringResource(R.string.saving_recipe)
-        PendingImportEntity.STATUS_FAILED -> stringResource(R.string.import_failed)
-        else -> stringResource(R.string.importing)
-    }
+private fun statusText(stage: ImportStage): String = when (stage) {
+    ImportStage.QUEUED, ImportStage.STARTING -> stringResource(R.string.preparing_import)
+    ImportStage.FETCHING_PAGE -> stringResource(R.string.fetching_recipe_page)
+    ImportStage.ANALYZING -> stringResource(R.string.analyzing_recipe)
+    ImportStage.SUBMITTING_BATCH -> stringResource(R.string.submitting_batch)
+    ImportStage.WAITING_FOR_BATCH -> stringResource(R.string.waiting_for_batch)
+    ImportStage.SAVING -> stringResource(R.string.saving_recipe)
 }

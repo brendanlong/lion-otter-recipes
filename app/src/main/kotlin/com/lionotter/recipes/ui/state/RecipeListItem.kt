@@ -2,6 +2,7 @@ package com.lionotter.recipes.ui.state
 
 import androidx.compose.runtime.Immutable
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.imports.InProgressRecipe
 
 @Immutable
 sealed class RecipeListItem {

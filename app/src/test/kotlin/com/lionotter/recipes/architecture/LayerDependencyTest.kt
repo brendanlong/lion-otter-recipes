@@ -39,7 +39,15 @@ class LayerDependencyTest {
         ),
         Rule(
             layer = "data",
+            forbidden = listOf("com.lionotter.recipes.ui.", "com.lionotter.recipes.worker.", "com.lionotter.recipes.imports."),
+        ),
+        Rule(
+            layer = "imports",
             forbidden = listOf("com.lionotter.recipes.ui."),
+        ),
+        Rule(
+            layer = "worker",
+            forbidden = listOf("com.lionotter.recipes.ui.", "com.lionotter.recipes.imports."),
         ),
     )
 
@@ -165,17 +173,6 @@ class LayerDependencyTest {
             "domain/util/ZipImportHelper.kt" to "com.lionotter.recipes.data.remote.ImageDownloadService",
             "domain/util/ZipImportHelper.kt" to "com.lionotter.recipes.data.repository.IMealPlanRepository",
             "domain/util/ZipImportHelper.kt" to "com.lionotter.recipes.data.repository.IRecipeRepository",
-            // ui -> WorkManager
-            "ui/screens/addrecipe/AddRecipeViewModel.kt" to "androidx.work.WorkInfo",
-            "ui/screens/addrecipe/AddRecipeViewModel.kt" to "androidx.work.WorkManager",
-            "ui/screens/editrecipe/EditRecipeViewModel.kt" to "androidx.work.WorkInfo",
-            "ui/screens/editrecipe/EditRecipeViewModel.kt" to "androidx.work.WorkManager",
-            "ui/screens/settings/SettingsViewModel.kt" to "androidx.work.WorkManager",
-            "ui/screens/settings/ZipExportImportViewModel.kt" to "androidx.work.OneTimeWorkRequestBuilder",
-            "ui/screens/settings/ZipExportImportViewModel.kt" to "androidx.work.WorkInfo",
-            "ui/screens/settings/ZipExportImportViewModel.kt" to "androidx.work.WorkManager",
-            "ui/state/InProgressRecipeManager.kt" to "androidx.work.WorkInfo",
-            "ui/state/InProgressRecipeManager.kt" to "androidx.work.WorkManager",
             // ui -> data.local
             "ui/screens/addrecipe/AddRecipeViewModel.kt" to "com.lionotter.recipes.data.local.SettingsDataStore",
             "ui/screens/editrecipe/EditRecipeViewModel.kt" to "com.lionotter.recipes.data.local.SettingsDataStore",
@@ -190,9 +187,7 @@ class LayerDependencyTest {
             "ui/screens/importdebug/ImportDebugListViewModel.kt" to "com.lionotter.recipes.data.local.ImportDebugSummary",
             "ui/screens/mealplan/MealPlanViewModel.kt" to "com.lionotter.recipes.data.local.SettingsDataStore",
             "ui/screens/recipedetail/RecipeDetailViewModel.kt" to "com.lionotter.recipes.data.local.SettingsDataStore",
-            "ui/screens/recipelist/components/InProgressRecipeCard.kt" to "com.lionotter.recipes.data.local.PendingImportEntity",
             "ui/screens/settings/SettingsViewModel.kt" to "com.lionotter.recipes.data.local.SettingsDataStore",
-            "ui/state/InProgressRecipeManager.kt" to "com.lionotter.recipes.data.local.PendingImportEntity",
         )
     }
 }

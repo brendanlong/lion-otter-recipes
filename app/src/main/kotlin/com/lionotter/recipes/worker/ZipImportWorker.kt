@@ -27,25 +27,6 @@ class ZipImportWorker @AssistedInject constructor(
         private const val TAG = "ZipImportWorker"
         const val TAG_ZIP_IMPORT = "zip_import"
 
-        const val KEY_IMPORT_ID = BaseRecipeWorker.KEY_IMPORT_ID
-        const val KEY_RESULT_TYPE = BaseRecipeWorker.KEY_RESULT_TYPE
-        const val KEY_IMPORTED_COUNT = "imported_count"
-        const val KEY_FAILED_COUNT = "failed_count"
-        const val KEY_SKIPPED_COUNT = "skipped_count"
-        const val KEY_MEAL_PLANS_IMPORTED = "meal_plans_imported"
-        const val KEY_ERROR_MESSAGE = BaseRecipeWorker.KEY_ERROR_MESSAGE
-        const val KEY_PROGRESS = "progress"
-        const val KEY_CURRENT = "current"
-        const val KEY_TOTAL = "total"
-        const val KEY_RECIPE_NAME = "recipe_name"
-
-        const val RESULT_SUCCESS = "success"
-        const val RESULT_ERROR = BaseRecipeWorker.RESULT_ERROR
-
-        const val PROGRESS_STARTING = "starting"
-        const val PROGRESS_READING = "reading"
-        const val PROGRESS_IMPORTING = "importing"
-
         /** The file and selection live in [ImportInputStore] under [importId]. */
         fun createInputData(importId: String): Data = workDataOf(KEY_IMPORT_ID to importId)
     }
@@ -65,38 +46,22 @@ class ZipImportWorker @AssistedInject constructor(
                 inputStream = stream,
                 selectedRecipeIds = selectedRecipeIds,
                 onProgress = { progress ->
-                    val progressMessage = when (progress) {
-                        is ImportFromZipUseCase.ImportProgress.Starting -> {
-                            setProgress(workDataOf(
-                                KEY_PROGRESS to PROGRESS_STARTING,
-                                KEY_IMPORT_ID to importId
-                            ))
-                            "Starting import..."
-                        }
-                        is ImportFromZipUseCase.ImportProgress.ReadingZip -> {
-                            setProgress(workDataOf(
-                                KEY_PROGRESS to PROGRESS_READING,
-                                KEY_IMPORT_ID to importId
-                            ))
-                            "Reading file..."
-                        }
-                        is ImportFromZipUseCase.ImportProgress.ImportingRecipe -> {
-                            setProgress(workDataOf(
-                                KEY_PROGRESS to PROGRESS_IMPORTING,
-                                KEY_IMPORT_ID to importId,
-                                KEY_RECIPE_NAME to progress.recipeName,
-                                KEY_CURRENT to progress.current,
-                                KEY_TOTAL to progress.total
-                            ))
-                            if (progress.total > 0) {
-                                "Importing ${progress.current}/${progress.total}: ${progress.recipeName}"
-                            } else {
-                                "Importing ${progress.current}: ${progress.recipeName}"
-                            }
-                        }
-                        is ImportFromZipUseCase.ImportProgress.Complete -> "Complete!"
+                    val (workProgress, message) = when (progress) {
+                        is ImportFromZipUseCase.ImportProgress.Starting ->
+                            ZipImportWork.Progress.Starting to "Starting import..."
+                        is ImportFromZipUseCase.ImportProgress.ReadingZip ->
+                            ZipImportWork.Progress.Reading to "Reading file..."
+                        is ImportFromZipUseCase.ImportProgress.ImportingRecipe ->
+                            ZipImportWork.Progress.ImportingRecipe(progress.recipeName, progress.current, progress.total) to
+                                if (progress.total > 0) {
+                                    "Importing ${progress.current}/${progress.total}: ${progress.recipeName}"
+                                } else {
+                                    "Importing ${progress.current}: ${progress.recipeName}"
+                                }
+                        is ImportFromZipUseCase.ImportProgress.Complete -> null to "Complete!"
                     }
-                    setForegroundProgress(progressMessage)
+                    workProgress?.let { setProgress(it.toData()) }
+                    setForegroundProgress(message)
                 }
             )
         }
@@ -104,7 +69,6 @@ class ZipImportWorker @AssistedInject constructor(
         return when (result) {
             is ImportFromZipUseCase.ImportResult.Success -> {
                 inputStore.deleteImport(importId)
-                cancelProgressNotification()
                 notificationHelper.showSummaryNotification(
                     key = importId,
                     title = "Import Complete",
@@ -115,21 +79,105 @@ class ZipImportWorker @AssistedInject constructor(
                         mealPlansImported = result.mealPlansImported
                     )
                 )
-                Result.success(
-                    workDataOf(
-                        KEY_RESULT_TYPE to RESULT_SUCCESS,
-                        KEY_IMPORT_ID to importId,
-                        KEY_IMPORTED_COUNT to result.importedCount,
-                        KEY_FAILED_COUNT to result.failedCount,
-                        KEY_SKIPPED_COUNT to result.skippedCount,
-                        KEY_MEAL_PLANS_IMPORTED to result.mealPlansImported
+                successResult(
+                    ZipImportWork.Outcome.Success(
+                        importId = importId,
+                        importedCount = result.importedCount,
+                        failedCount = result.failedCount,
+                        skippedCount = result.skippedCount,
+                        mealPlansImported = result.mealPlansImported
                     )
                 )
             }
             is ImportFromZipUseCase.ImportResult.Error -> {
                 Log.w(TAG, "ZIP import $importId failed: ${result.message}")
-                errorResult(result.message)
+                errorResult(ZipImportWork.Outcome.Failed(result.message, importId))
             }
+        }
+    }
+}
+
+object ZipImportWork : WorkContract<ZipImportWork.Progress, ZipImportWork.Outcome> {
+    private const val KEY_IMPORTED_COUNT = "imported_count"
+    private const val KEY_FAILED_COUNT = "failed_count"
+    private const val KEY_SKIPPED_COUNT = "skipped_count"
+    private const val KEY_MEAL_PLANS_IMPORTED = "meal_plans_imported"
+    private const val KEY_CURRENT = "current"
+    private const val KEY_TOTAL = "total"
+
+    private const val PROGRESS_STARTING = "starting"
+    private const val PROGRESS_READING = "reading"
+    private const val PROGRESS_IMPORTING = "importing"
+
+    sealed interface Progress {
+        fun toData(): Data
+
+        data object Starting : Progress {
+            override fun toData() = workDataOf(WorkResult.KEY_PROGRESS to PROGRESS_STARTING)
+        }
+
+        data object Reading : Progress {
+            override fun toData() = workDataOf(WorkResult.KEY_PROGRESS to PROGRESS_READING)
+        }
+
+        /** [total] is 0 when the number of recipes isn't known yet. */
+        data class ImportingRecipe(val recipeName: String?, val current: Int, val total: Int) : Progress {
+            override fun toData() = workDataOf(
+                WorkResult.KEY_PROGRESS to PROGRESS_IMPORTING,
+                WorkResult.KEY_RECIPE_NAME to recipeName,
+                KEY_CURRENT to current,
+                KEY_TOTAL to total
+            )
+        }
+    }
+
+    sealed interface Outcome {
+        data class Success(
+            val importId: String?,
+            val importedCount: Int,
+            val failedCount: Int,
+            val skippedCount: Int,
+            val mealPlansImported: Int
+        ) : Outcome, SuccessOutcome {
+            override fun toData() = workDataOf(
+                WorkResult.KEY_RESULT_TYPE to WorkResult.SUCCESS,
+                WorkResult.KEY_IMPORT_ID to importId,
+                KEY_IMPORTED_COUNT to importedCount,
+                KEY_FAILED_COUNT to failedCount,
+                KEY_SKIPPED_COUNT to skippedCount,
+                KEY_MEAL_PLANS_IMPORTED to mealPlansImported
+            )
+        }
+
+        data class Failed(override val message: String?, val importId: String?) : Outcome, FailureOutcome {
+            override fun toData() =
+                WorkResult.failure(WorkResult.ERROR, message, WorkResult.KEY_IMPORT_ID to importId)
+        }
+    }
+
+    override fun decodeProgress(data: Data): Progress? = when (WorkResult.progress(data)) {
+        PROGRESS_STARTING -> Progress.Starting
+        PROGRESS_READING -> Progress.Reading
+        PROGRESS_IMPORTING -> Progress.ImportingRecipe(
+            recipeName = data.getString(WorkResult.KEY_RECIPE_NAME),
+            current = data.getInt(KEY_CURRENT, 0),
+            total = data.getInt(KEY_TOTAL, 0)
+        )
+        else -> null
+    }
+
+    override fun decodeOutcome(succeeded: Boolean, data: Data): Outcome {
+        val importId = data.getString(WorkResult.KEY_IMPORT_ID)
+        return if (succeeded) {
+            Outcome.Success(
+                importId = importId,
+                importedCount = data.getInt(KEY_IMPORTED_COUNT, 0),
+                failedCount = data.getInt(KEY_FAILED_COUNT, 0),
+                skippedCount = data.getInt(KEY_SKIPPED_COUNT, 0),
+                mealPlansImported = data.getInt(KEY_MEAL_PLANS_IMPORTED, 0)
+            )
+        } else {
+            Outcome.Failed(WorkResult.message(data), importId)
         }
     }
 }

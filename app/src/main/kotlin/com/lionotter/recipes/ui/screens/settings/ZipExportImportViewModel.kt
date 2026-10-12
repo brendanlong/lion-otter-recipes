@@ -1,81 +1,80 @@
 package com.lionotter.recipes.ui.screens.settings
 
 import android.net.Uri
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkInfo
-import androidx.work.WorkManager
-import com.lionotter.recipes.worker.ZipExportWorker
-import com.lionotter.recipes.worker.observeWorkByTag
+import com.lionotter.recipes.util.ErrorLog
+import com.lionotter.recipes.worker.RecipeWorkScheduler
+import com.lionotter.recipes.worker.WorkStatus
+import com.lionotter.recipes.worker.WorkTracker
+import com.lionotter.recipes.worker.ZipExportWork
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.util.UUID
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 @HiltViewModel
 class ZipExportImportViewModel @Inject constructor(
-    private val workManager: WorkManager
+    savedStateHandle: SavedStateHandle,
+    private val recipeWorkScheduler: RecipeWorkScheduler
 ) : ViewModel() {
 
-    private val _operationState = MutableStateFlow<ZipOperationState>(ZipOperationState.Idle)
-    val operationState: StateFlow<ZipOperationState> = _operationState.asStateFlow()
-
-    private var currentWorkId: UUID? = null
-
-    init {
-        observeWorkStatus()
+    companion object {
+        private const val TAG = "ZipExportImportViewModel"
+        private const val KEY_EXPORT_WORK_ID = "export_work_id"
     }
 
-    fun exportToZip(fileUri: Uri) {
-        val workRequest = OneTimeWorkRequestBuilder<ZipExportWorker>()
-            .setInputData(ZipExportWorker.createInputData(fileUri))
-            .addTag(ZipExportWorker.TAG_ZIP_EXPORT)
-            .build()
+    private val exportWork =
+        WorkTracker(savedStateHandle, KEY_EXPORT_WORK_ID, viewModelScope, recipeWorkScheduler::observeExport)
 
-        currentWorkId = workRequest.id
-        workManager.enqueue(workRequest)
-        _operationState.value = ZipOperationState.Exporting
+    /** Failure to start the export; the export's own state is shown once it is tracked. */
+    private val startError = MutableStateFlow<ZipOperationState?>(null)
+
+    val operationState: StateFlow<ZipOperationState> =
+        combine(startError, exportWork.status) { error, status ->
+            error ?: status?.let(::exportState) ?: ZipOperationState.Idle
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = ZipOperationState.Idle
+        )
+
+    fun exportToZip(fileUri: Uri) {
+        startError.value = null
+        viewModelScope.launch {
+            try {
+                withContext(NonCancellable) { exportWork.start(recipeWorkScheduler.prepareExport(fileUri)) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                ErrorLog.e(TAG, "Failed to start export", e)
+                startError.value = ZipOperationState.Error("Export failed: ${e.message}")
+            }
+        }
     }
 
     fun resetOperationState() {
-        _operationState.value = ZipOperationState.Idle
+        startError.value = null
+        exportWork.clear()
     }
 
-    private fun observeWorkStatus() {
-        viewModelScope.launch {
-            workManager.observeWorkByTag(ZipExportWorker.TAG_ZIP_EXPORT) { currentWorkId }
-                .collect { handleExportWorkInfo(it) }
+    private fun exportState(status: WorkStatus<ZipExportWork.Progress, ZipExportWork.Outcome>): ZipOperationState =
+        when (status) {
+            WorkStatus.Missing, WorkStatus.Queued, is WorkStatus.Running -> ZipOperationState.Exporting
+            is WorkStatus.Finished -> when (val outcome = status.outcome) {
+                is ZipExportWork.Outcome.Success -> ZipOperationState.ExportComplete(outcome.exportedCount, outcome.failedCount)
+                is ZipExportWork.Outcome.Failed -> ZipOperationState.Error(outcome.message ?: "Export failed")
+            }
+            WorkStatus.Cancelled -> ZipOperationState.Error("Export was cancelled")
         }
-    }
-
-    private fun handleExportWorkInfo(workInfo: WorkInfo) {
-        when (workInfo.state) {
-            WorkInfo.State.RUNNING -> {
-                _operationState.value = ZipOperationState.Exporting
-            }
-            WorkInfo.State.SUCCEEDED -> {
-                val exported = workInfo.outputData.getInt(ZipExportWorker.KEY_EXPORTED_COUNT, 0)
-                val failed = workInfo.outputData.getInt(ZipExportWorker.KEY_FAILED_COUNT, 0)
-                _operationState.value = ZipOperationState.ExportComplete(exported, failed)
-                currentWorkId = null
-            }
-            WorkInfo.State.FAILED -> {
-                val error = workInfo.outputData.getString(ZipExportWorker.KEY_ERROR_MESSAGE)
-                    ?: "Export failed"
-                _operationState.value = ZipOperationState.Error(error)
-                currentWorkId = null
-            }
-            WorkInfo.State.CANCELLED -> {
-                _operationState.value = ZipOperationState.Error("Export was cancelled")
-                currentWorkId = null
-            }
-            WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> {}
-        }
-    }
 }
 
 sealed class ZipOperationState {

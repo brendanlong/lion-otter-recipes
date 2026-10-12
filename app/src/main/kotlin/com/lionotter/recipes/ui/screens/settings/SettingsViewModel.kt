@@ -13,14 +13,13 @@ import com.lionotter.recipes.data.remote.AuthState
 import com.lionotter.recipes.data.remote.ReauthenticationRequiredException
 import com.lionotter.recipes.data.remote.SignOutResult
 import com.lionotter.recipes.data.remote.AccountDeletionService
+import com.lionotter.recipes.data.remote.ImageUploadScheduler
 import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.util.ErrorLog
-import com.lionotter.recipes.worker.LocalImageUploadWorker
 import androidx.credentials.exceptions.GetCredentialCancellationException
-import androidx.work.WorkManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -42,7 +41,7 @@ class SettingsViewModel @Inject constructor(
     private val importDebugRepository: ImportDebugRepository,
     private val authService: AuthService,
     private val accountMigrationService: AccountMigrationService,
-    private val workManager: WorkManager
+    private val imageUploadScheduler: ImageUploadScheduler
 ) : ViewModel() {
 
     companion object {
@@ -406,7 +405,7 @@ class SettingsViewModel @Inject constructor(
 
     /** Uploads images picked as a guest (still file://) to the newly linked account. */
     private fun uploadLocalImages() {
-        LocalImageUploadWorker.enqueue(workManager)
+        imageUploadScheduler.scheduleLocalImageUpload()
     }
 
     fun resetSaveState() {

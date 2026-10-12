@@ -4,9 +4,7 @@ import android.content.Context
 import android.graphics.BitmapFactory
 import android.util.Base64
 import android.util.Log
-import androidx.work.WorkManager
 import com.lionotter.recipes.util.ErrorLog
-import com.lionotter.recipes.worker.LocalImageUploadWorker
 import com.lionotter.recipes.data.remote.dto.RecipeFields
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.ktor.client.HttpClient
@@ -28,7 +26,6 @@ import java.io.IOException
 import java.io.InputStream
 import java.util.UUID
 import javax.inject.Inject
-import javax.inject.Provider
 import javax.inject.Singleton
 
 /**
@@ -50,7 +47,7 @@ class ImageDownloadService @Inject constructor(
     private val imageSyncService: ImageSyncService,
     private val authService: AuthService,
     private val firestoreService: FirestoreService,
-    private val workManager: Provider<WorkManager>
+    private val imageUploadScheduler: ImageUploadScheduler
 ) {
     /**
      * Result of downloading an image, containing both the local file URI
@@ -82,7 +79,7 @@ class ImageDownloadService @Inject constructor(
      * - Returning the storage path for Firestore
      *
      * If a Google user's upload fails, the local URI is returned, the previous image is
-     * kept, and [LocalImageUploadWorker] is scheduled to retry the upload.
+     * kept, and a [ImageUploadScheduler] pass is scheduled to retry the upload.
      *
      * @param localUri A file:// URI pointing to the local image
      * @param previousImageUrl The previous imageUrl to clean up (gs:// URI or file:// URI), or null
@@ -120,7 +117,7 @@ class ImageDownloadService @Inject constructor(
 
     private fun scheduleLocalImageUpload() {
         try {
-            LocalImageUploadWorker.enqueue(workManager.get())
+            imageUploadScheduler.scheduleLocalImageUpload()
         } catch (e: Exception) {
             ErrorLog.e(TAG, "Failed to schedule local image upload", e)
         }

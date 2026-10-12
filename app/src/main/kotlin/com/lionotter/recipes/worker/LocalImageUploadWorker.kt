@@ -13,11 +13,14 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.lionotter.recipes.data.remote.ImageSyncService
+import com.lionotter.recipes.data.remote.ImageUploadScheduler
 import com.lionotter.recipes.util.ErrorLog
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.CancellationException
 import java.util.concurrent.TimeUnit
+import javax.inject.Inject
+import javax.inject.Provider
 
 /**
  * Uploads recipe images that are still local `file://` URIs (added in guest mode, or
@@ -41,7 +44,7 @@ class LocalImageUploadWorker @AssistedInject constructor(
          * Enqueues an upload pass after any running one, so images added after its scan are
          * picked up without stacking concurrent passes.
          */
-        fun enqueue(workManager: WorkManager) {
+        internal fun enqueue(workManager: WorkManager) {
             val request = OneTimeWorkRequestBuilder<LocalImageUploadWorker>()
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
@@ -70,5 +73,15 @@ class LocalImageUploadWorker @AssistedInject constructor(
             ErrorLog.e(TAG, "Local image upload failed (attempt ${runAttemptCount + 1})", e)
             if (runAttemptCount + 1 < MAX_ATTEMPTS) Result.retry() else Result.failure()
         }
+    }
+}
+
+/** [ImageUploadScheduler] backed by [LocalImageUploadWorker]. */
+class WorkManagerImageUploadScheduler @Inject constructor(
+    // Lazy: WorkManager initialization needs the Hilt worker factory, which (indirectly) depends on this.
+    private val workManager: Provider<WorkManager>
+) : ImageUploadScheduler {
+    override fun scheduleLocalImageUpload() {
+        LocalImageUploadWorker.enqueue(workManager.get())
     }
 }

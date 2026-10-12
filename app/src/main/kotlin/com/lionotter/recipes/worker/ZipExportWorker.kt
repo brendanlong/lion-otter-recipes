@@ -28,25 +28,9 @@ class ZipExportWorker @AssistedInject constructor(
         private const val TAG = "ZipExportWorker"
         const val TAG_ZIP_EXPORT = "zip_export"
 
-        const val KEY_FILE_URI = "file_uri"
-        const val KEY_RESULT_TYPE = BaseRecipeWorker.KEY_RESULT_TYPE
-        const val KEY_EXPORTED_COUNT = "exported_count"
-        const val KEY_FAILED_COUNT = "failed_count"
-        const val KEY_ERROR_MESSAGE = BaseRecipeWorker.KEY_ERROR_MESSAGE
-        const val KEY_PROGRESS = "progress"
-        const val KEY_CURRENT = "current"
-        const val KEY_TOTAL = "total"
-        const val KEY_RECIPE_NAME = "recipe_name"
+        private const val KEY_FILE_URI = "file_uri"
 
-        const val RESULT_SUCCESS = "success"
-        const val RESULT_ERROR = BaseRecipeWorker.RESULT_ERROR
-
-        const val PROGRESS_STARTING = "starting"
-        const val PROGRESS_EXPORTING = "exporting"
-
-        fun createInputData(fileUri: Uri): Data {
-            return workDataOf(KEY_FILE_URI to fileUri.toString())
-        }
+        fun createInputData(fileUri: Uri): Data = workDataOf(KEY_FILE_URI to fileUri.toString())
     }
 
     override suspend fun doRecipeWork(): Result {
@@ -68,44 +52,87 @@ class ZipExportWorker @AssistedInject constructor(
             exportToZipUseCase.exportAllRecipes(
                 outputStream = stream,
                 onProgress = { progress ->
-                    val progressMessage = when (progress) {
-                        is ExportToZipUseCase.ExportProgress.Starting -> {
-                            setProgress(workDataOf(KEY_PROGRESS to PROGRESS_STARTING))
-                            "Starting export..."
-                        }
-                        is ExportToZipUseCase.ExportProgress.ExportingRecipe -> {
-                            setProgress(workDataOf(
-                                KEY_PROGRESS to PROGRESS_EXPORTING,
-                                KEY_RECIPE_NAME to progress.recipeName,
-                                KEY_CURRENT to progress.current,
-                                KEY_TOTAL to progress.total
-                            ))
-                            "Exporting ${progress.current}/${progress.total}: ${progress.recipeName}"
-                        }
-                        is ExportToZipUseCase.ExportProgress.Complete -> "Complete!"
+                    val (workProgress, message) = when (progress) {
+                        is ExportToZipUseCase.ExportProgress.Starting ->
+                            ZipExportWork.Progress.Starting to "Starting export..."
+                        is ExportToZipUseCase.ExportProgress.ExportingRecipe ->
+                            ZipExportWork.Progress.Exporting(progress.recipeName, progress.current, progress.total) to
+                                "Exporting ${progress.current}/${progress.total}: ${progress.recipeName}"
+                        is ExportToZipUseCase.ExportProgress.Complete -> null to "Complete!"
                     }
-                    setForegroundProgress(progressMessage)
+                    workProgress?.let { setProgress(it.toData()) }
+                    setForegroundProgress(message)
                 }
             )
         }
 
         return when (result) {
             is ExportToZipUseCase.ExportResult.Success -> {
-                cancelProgressNotification()
                 notificationHelper.showSummaryNotification(
                     key = operationKey,
                     title = "Export Complete",
                     message = notificationHelper.zipExportMessage(result.exportedCount, result.failedCount)
                 )
-                Result.success(
-                    workDataOf(
-                        KEY_RESULT_TYPE to RESULT_SUCCESS,
-                        KEY_EXPORTED_COUNT to result.exportedCount,
-                        KEY_FAILED_COUNT to result.failedCount
-                    )
-                )
+                successResult(ZipExportWork.Outcome.Success(result.exportedCount, result.failedCount))
             }
-            is ExportToZipUseCase.ExportResult.Error -> errorResult(result.message)
+            is ExportToZipUseCase.ExportResult.Error -> errorResult(ZipExportWork.Outcome.Failed(result.message))
         }
+    }
+}
+
+object ZipExportWork : WorkContract<ZipExportWork.Progress, ZipExportWork.Outcome> {
+    private const val KEY_EXPORTED_COUNT = "exported_count"
+    private const val KEY_FAILED_COUNT = "failed_count"
+    private const val KEY_CURRENT = "current"
+    private const val KEY_TOTAL = "total"
+
+    private const val PROGRESS_STARTING = "starting"
+    private const val PROGRESS_EXPORTING = "exporting"
+
+    sealed interface Progress {
+        fun toData(): Data
+
+        data object Starting : Progress {
+            override fun toData() = workDataOf(WorkResult.KEY_PROGRESS to PROGRESS_STARTING)
+        }
+
+        data class Exporting(val recipeName: String?, val current: Int, val total: Int) : Progress {
+            override fun toData() = workDataOf(
+                WorkResult.KEY_PROGRESS to PROGRESS_EXPORTING,
+                WorkResult.KEY_RECIPE_NAME to recipeName,
+                KEY_CURRENT to current,
+                KEY_TOTAL to total
+            )
+        }
+    }
+
+    sealed interface Outcome {
+        data class Success(val exportedCount: Int, val failedCount: Int) : Outcome, SuccessOutcome {
+            override fun toData() = workDataOf(
+                WorkResult.KEY_RESULT_TYPE to WorkResult.SUCCESS,
+                KEY_EXPORTED_COUNT to exportedCount,
+                KEY_FAILED_COUNT to failedCount
+            )
+        }
+
+        data class Failed(override val message: String?) : Outcome, FailureOutcome {
+            override fun toData() = WorkResult.failure(WorkResult.ERROR, message)
+        }
+    }
+
+    override fun decodeProgress(data: Data): Progress? = when (WorkResult.progress(data)) {
+        PROGRESS_STARTING -> Progress.Starting
+        PROGRESS_EXPORTING -> Progress.Exporting(
+            recipeName = data.getString(WorkResult.KEY_RECIPE_NAME),
+            current = data.getInt(KEY_CURRENT, 0),
+            total = data.getInt(KEY_TOTAL, 0)
+        )
+        else -> null
+    }
+
+    override fun decodeOutcome(succeeded: Boolean, data: Data): Outcome = if (succeeded) {
+        Outcome.Success(data.getInt(KEY_EXPORTED_COUNT, 0), data.getInt(KEY_FAILED_COUNT, 0))
+    } else {
+        Outcome.Failed(WorkResult.message(data))
     }
 }

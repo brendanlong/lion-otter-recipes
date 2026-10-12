@@ -90,7 +90,7 @@ abstract class FirestoreIntegrationTest {
         every { authService.authState } returns authState
         every { authService.isGoogleUser() } returns false
         coEvery { authService.awaitUid() } coAnswers { authState.first { it !is AuthState.Loading }.uid!! }
-        val imageDownloadService = ImageDownloadService(context, httpClient, imageSyncService, authService, firestoreService, { mockk(relaxed = true) })
+        val imageDownloadService = ImageDownloadService(context, httpClient, imageSyncService, authService, firestoreService, {})
         recipeRepository = RecipeRepository(firestoreService, imageDownloadService, authService)
         mealPlanRepository = MealPlanRepository(firestoreService, authService)
     }

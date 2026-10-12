@@ -329,7 +329,7 @@ class FirestoreListenerSpikeTest {
         every { authService.authState } returns MutableStateFlow<AuthState>(AuthState.Guest(uid = "test-user"))
         every { authService.isGoogleUser() } returns false
         coEvery { authService.awaitUid() } returns "test-user"
-        val imageDownloadService = ImageDownloadService(context, httpClient, imageSyncService, authService, testFirestoreService, { mockk(relaxed = true) })
+        val imageDownloadService = ImageDownloadService(context, httpClient, imageSyncService, authService, testFirestoreService, {})
         val recipeRepo = RecipeRepository(testFirestoreService, imageDownloadService, authService)
 
         val recipe = com.lionotter.recipes.domain.model.Recipe(
