@@ -3,22 +3,34 @@ package com.lionotter.recipes.data.remote
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import androidx.core.graphics.scale
+import android.graphics.Matrix
 import android.util.Log
+import androidx.exifinterface.media.ExifInterface
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import com.google.firebase.storage.StorageException
 import com.google.firebase.storage.storage
+import com.google.firebase.storage.storageMetadata
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /** Shared constants and helpers for local image caching. */
 object ImageCacheConfig {
     const val IMAGE_CACHE_DIR = "recipe_images"
+
+    /** Maximum size of an image uploaded to Firebase Storage. */
     const val MAX_IMAGE_BYTES = 5 * 1024 * 1024L // 5 MB
     private const val TAG = "ImageCacheConfig"
 
@@ -32,21 +44,25 @@ object ImageCacheConfig {
 
     /**
      * Resolve a `gs://` URI to a local cache [File], downloading from Firebase Storage
-     * if not already cached. Returns `null` on failure.
+     * if not already cached. The download is written to a temporary file and atomically
+     * renamed, so a partially downloaded file is never served from the cache.
+     * Returns `null` on failure.
      */
-    suspend fun resolveToFile(gsUri: String, context: Context): File? {
-        val filename = gsUri.substringAfterLast("/")
-        val cacheFile = File(getImageCacheDir(context), filename)
+    suspend fun resolveToFile(gsUri: String, context: Context): File? = withContext(Dispatchers.IO) {
+        val dir = getImageCacheDir(context)
+        val cacheFile = File(dir, gsUri.substringAfterLast("/"))
 
         if (cacheFile.exists() && cacheFile.length() > 0) {
-            return cacheFile
+            return@withContext cacheFile
         }
 
-        return try {
-            val ref = Firebase.storage.getReferenceFromUrl(gsUri)
-            val bytes = ref.getBytes(MAX_IMAGE_BYTES).await()
-            cacheFile.writeBytes(bytes)
-            Log.d(TAG, "Downloaded $gsUri to cache (${bytes.size} bytes)")
+        val tempFile = File(dir, ".${UUID.randomUUID()}.tmp")
+        try {
+            Firebase.storage.getReferenceFromUrl(gsUri).getFile(tempFile).await()
+            if (tempFile.length() == 0L || !tempFile.renameTo(cacheFile)) {
+                throw IOException("Failed to store downloaded image in cache")
+            }
+            Log.d(TAG, "Downloaded $gsUri to cache (${cacheFile.length()} bytes)")
             cacheFile
         } catch (e: StorageException) {
             if (e.errorCode == StorageException.ERROR_OBJECT_NOT_FOUND) {
@@ -55,9 +71,24 @@ object ImageCacheConfig {
                 Log.w(TAG, "Failed to download image: $gsUri", e)
             }
             null
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "Failed to download image: $gsUri", e)
             null
+        } finally {
+            if (tempFile.exists()) tempFile.delete()
+        }
+    }
+
+    /** Deletes every file in the local image cache. */
+    suspend fun clearCache(context: Context) = withContext(Dispatchers.IO) {
+        try {
+            val files = getImageCacheDir(context).listFiles() ?: return@withContext
+            val deletedCount = files.count { it.delete() }
+            Log.d(TAG, "Cleared $deletedCount files from local image cache")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to clear local image cache", e)
         }
     }
 }
@@ -74,22 +105,39 @@ object ImageCacheConfig {
  *   that gets stored in the recipe's `imageUrl` field in Firestore
  * - On display: if imageUrl is a `gs://` URI, check local cache first;
  *   if not cached, download from Firebase Storage to local cache
- * - Images are resized before upload to keep retina quality but avoid
- *   excessively large files (max 2048px on longest side)
+ * - Images are EXIF-rotated and resized before upload to keep retina quality but
+ *   avoid excessively large files (max 2048px on longest side, max 5 MB)
  * - Orphaned images in Storage are cleaned up when recipes are deleted
  *
+ * All public functions are main-safe.
  */
 @Singleton
 class ImageSyncService @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val firestoreService: FirestoreService
 ) {
     companion object {
         private const val TAG = "ImageSyncService"
-        private const val MAX_IMAGE_DIMENSION = 2048
-        private const val JPEG_QUALITY = 85
+        internal const val MAX_IMAGE_DIMENSION = 2048
+        private val JPEG_QUALITIES = listOf(85, 75, 60, 45)
+        private val PASSTHROUGH_MIME_TYPES = setOf("image/jpeg", "image/png", "image/webp")
+
+        /**
+         * Largest power-of-2 sample size that keeps the longest side at or above
+         * [targetSize], so the decoded bitmap only needs a final downscale.
+         */
+        internal fun calculateInSampleSize(width: Int, height: Int, targetSize: Int): Int {
+            val longest = maxOf(width, height)
+            var inSampleSize = 1
+            while (longest / (inSampleSize * 2) >= targetSize) {
+                inSampleSize *= 2
+            }
+            return inSampleSize
+        }
     }
 
-    private val storage = Firebase.storage
+    private val storage by lazy { Firebase.storage }
+    private val pendingUploadMutex = Mutex()
 
     private fun requireUid(): String {
         return Firebase.auth.currentUser?.uid
@@ -97,39 +145,93 @@ class ImageSyncService @Inject constructor(
     }
 
     /**
-     * Upload a local image file to Firebase Storage.
-     * Resizes the image if it exceeds [MAX_IMAGE_DIMENSION] on its longest side.
+     * Upload a local image file to Firebase Storage, normalizing orientation and
+     * size first.
      *
      * @param localUri A file:// URI pointing to the local image
      * @return A gs:// URI (e.g., "gs://bucket/users/{uid}/images/{filename}")
      *         or null if upload fails
      */
-    suspend fun uploadImage(localUri: String): String? {
+    suspend fun uploadImage(localUri: String): String? = withContext(Dispatchers.IO) {
         if (!localUri.startsWith("file://")) {
             Log.w(TAG, "Not a local file URI: $localUri")
-            return null
+            return@withContext null
         }
 
-        val path = localUri.removePrefix("file://")
-        val file = File(path)
+        val file = File(localUri.removePrefix("file://"))
         if (!file.exists()) {
-            Log.w(TAG, "Local file does not exist: $path")
-            return null
+            Log.w(TAG, "Local file does not exist: ${file.path}")
+            return@withContext null
         }
 
-        return try {
+        try {
             val uid = requireUid()
-            val imageBytes = resizeImageIfNeeded(file)
+            val upload = prepareForUpload(file)
             val storagePath = "users/$uid/images/${file.name}"
             val ref = storage.reference.child(storagePath)
 
-            ref.putBytes(imageBytes).await()
+            ref.putBytes(upload.bytes, storageMetadata { contentType = upload.mimeType }).await()
             val gsUri = "gs://${storage.reference.bucket}/$storagePath"
-            Log.d(TAG, "Uploaded image to $gsUri (${imageBytes.size} bytes)")
+            Log.d(TAG, "Uploaded image to $gsUri (${upload.bytes.size} bytes)")
             gsUri
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Failed to upload image: $localUri", e)
             null
+        }
+    }
+
+    /**
+     * Uploads every recipe image that is still a local `file://` URI (e.g. images
+     * added while in guest mode) and points the recipe and its meal plans at the
+     * uploaded `gs://` URI. Idempotent and safe to call repeatedly; runs to
+     * completion even if the caller is cancelled.
+     *
+     * @return the number of images uploaded
+     */
+    suspend fun uploadPendingLocalImages(): Int = withContext(NonCancellable + Dispatchers.IO) {
+        pendingUploadMutex.withLock {
+            val uid = Firebase.auth.currentUser?.takeUnless { it.isAnonymous }?.uid
+            if (uid == null) {
+                Log.d(TAG, "Not signed in with Google; skipping local image upload")
+                return@withLock 0
+            }
+
+            val recipes = firestoreService.recipesCollection(uid).get().await().documents
+            var uploaded = 0
+            for (doc in recipes) {
+                val localUri = doc.getString("imageUrl")?.takeIf { it.startsWith("file://") } ?: continue
+                val gsUri = uploadImage(localUri)
+                if (gsUri == null) {
+                    Log.w(TAG, "Could not upload local image for recipe ${doc.id}")
+                    continue
+                }
+                doc.reference.update("imageUrl", gsUri)
+                    .addOnFailureListener { e ->
+                        firestoreService.reportError("Failed to update recipe image: ${e.message}")
+                    }
+                updateMealPlanImages(uid, localUri, gsUri)
+                uploaded++
+            }
+            Log.i(TAG, "Uploaded $uploaded local images")
+            uploaded
+        }
+    }
+
+    private suspend fun updateMealPlanImages(uid: String, localUri: String, gsUri: String) {
+        try {
+            val mealPlans = firestoreService.mealPlansCollection(uid)
+                .whereEqualTo("recipeImageUrl", localUri)
+                .get()
+                .await()
+            for (mealPlan in mealPlans.documents) {
+                mealPlan.reference.update("recipeImageUrl", gsUri)
+                    .addOnFailureListener { e -> Log.w(TAG, "Failed to update meal plan image ${mealPlan.id}", e) }
+            }
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Log.w(TAG, "Failed to update meal plan images for $localUri", e)
         }
     }
 
@@ -144,31 +246,18 @@ class ImageSyncService @Inject constructor(
     suspend fun ensureLocalImage(imageUrl: String?): String? {
         if (imageUrl == null) return null
 
-        // Already a local file — check it exists
         if (imageUrl.startsWith("file://")) {
             val path = imageUrl.removePrefix("file://")
-            return if (File(path).exists()) imageUrl else null
+            return if (withContext(Dispatchers.IO) { File(path).exists() }) imageUrl else null
         }
 
-        // Firebase Storage URI
         if (isStoragePath(imageUrl)) {
-            return downloadToCache(imageUrl)
+            val cacheFile = ImageCacheConfig.resolveToFile(imageUrl, context) ?: return null
+            return "file://${cacheFile.absolutePath}"
         }
 
         // Remote URL — not handled here (ImageDownloadService handles these)
         return null
-    }
-
-    /**
-     * Download an image from Firebase Storage to the local cache directory.
-     * Returns the local file:// URI, or null if download fails.
-     * If the file is already cached, returns the existing cache path.
-     *
-     * @param imageUrl A gs:// URI (e.g., "gs://bucket/users/{uid}/images/{file}")
-     */
-    private suspend fun downloadToCache(imageUrl: String): String? {
-        val cacheFile = ImageCacheConfig.resolveToFile(imageUrl, context) ?: return null
-        return "file://${cacheFile.absolutePath}"
     }
 
     /**
@@ -188,77 +277,102 @@ class ImageSyncService @Inject constructor(
             } else {
                 Log.w(TAG, "Failed to delete remote image: $imageUrl", e)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "Failed to delete remote image: $imageUrl", e)
         }
     }
 
+    internal class PreparedImage(val bytes: ByteArray, val mimeType: String)
+
     /**
-     * Resize an image file if it exceeds [MAX_IMAGE_DIMENSION] on its longest side.
-     * Returns the (potentially resized) image bytes as JPEG.
+     * Returns upload-ready bytes: the original file when it is already a small,
+     * upright JPEG/PNG/WebP, otherwise a re-encoded JPEG that is EXIF-rotated, scaled to
+     * at most [MAX_IMAGE_DIMENSION] on its longest side and no larger than
+     * [ImageCacheConfig.MAX_IMAGE_BYTES].
+     *
+     * @throws IOException if the image can't be decoded or compressed small enough
      */
-    private fun resizeImageIfNeeded(file: File): ByteArray {
-        // First, decode just the bounds to check dimensions
-        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(file.absolutePath, options)
-
-        val originalWidth = options.outWidth
-        val originalHeight = options.outHeight
-
-        if (originalWidth <= 0 || originalHeight <= 0) {
-            // Can't decode as bitmap — return raw bytes
-            return file.readBytes()
+    internal suspend fun prepareForUpload(file: File): PreparedImage = withContext(Dispatchers.Default) {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        val width = bounds.outWidth
+        val height = bounds.outHeight
+        if (width <= 0 || height <= 0) {
+            throw IOException("Unsupported image format: ${bounds.outMimeType ?: "unknown"}")
         }
 
-        val longestSide = maxOf(originalWidth, originalHeight)
-        if (longestSide <= MAX_IMAGE_DIMENSION && file.length() <= ImageCacheConfig.MAX_IMAGE_BYTES) {
-            // No resize needed — return original bytes
-            return file.readBytes()
+        val orientation = readExifOrientation(file)
+        val isUpright = orientation == ExifInterface.ORIENTATION_NORMAL ||
+            orientation == ExifInterface.ORIENTATION_UNDEFINED
+        val mimeType: String? = bounds.outMimeType
+        if (isUpright && maxOf(width, height) <= MAX_IMAGE_DIMENSION &&
+            file.length() <= ImageCacheConfig.MAX_IMAGE_BYTES &&
+            mimeType != null && mimeType in PASSTHROUGH_MIME_TYPES
+        ) {
+            return@withContext PreparedImage(file.readBytes(), mimeType)
         }
 
-        // Calculate sample size for efficient decoding
-        val sampleSize = calculateInSampleSize(originalWidth, originalHeight, MAX_IMAGE_DIMENSION)
-        val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-        val sampledBitmap = BitmapFactory.decodeFile(file.absolutePath, decodeOptions)
-            ?: return file.readBytes()
+        val decodeOptions = BitmapFactory.Options().apply {
+            inSampleSize = calculateInSampleSize(width, height, MAX_IMAGE_DIMENSION)
+        }
+        val sampled = BitmapFactory.decodeFile(file.absolutePath, decodeOptions)
+            ?: throw IOException("Failed to decode image")
 
-        // Scale to exact target dimensions if still too large
-        val bitmap = if (maxOf(sampledBitmap.width, sampledBitmap.height) > MAX_IMAGE_DIMENSION) {
-            val scale = MAX_IMAGE_DIMENSION.toFloat() / maxOf(sampledBitmap.width, sampledBitmap.height)
-            val targetWidth = (sampledBitmap.width * scale).toInt()
-            val targetHeight = (sampledBitmap.height * scale).toInt()
-            val scaled = sampledBitmap.scale(targetWidth, targetHeight)
-            if (scaled !== sampledBitmap) sampledBitmap.recycle()
-            scaled
+        val scale = minOf(1f, MAX_IMAGE_DIMENSION.toFloat() / maxOf(sampled.width, sampled.height))
+        val matrix = Matrix().apply {
+            setScale(scale, scale)
+            applyExifOrientation(orientation)
+        }
+        val bitmap = if (matrix.isIdentity) {
+            sampled
         } else {
-            sampledBitmap
+            Bitmap.createBitmap(sampled, 0, 0, sampled.width, sampled.height, matrix, true)
+                .also { if (it !== sampled) sampled.recycle() }
         }
 
-        val baos = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, baos)
-        bitmap.recycle()
-
-        Log.d(
-            TAG, "Resized image: ${originalWidth}x${originalHeight} -> " +
-                "${bitmap.width}x${bitmap.height}, ${file.length()} -> ${baos.size()} bytes"
-        )
-        return baos.toByteArray()
+        try {
+            for (quality in JPEG_QUALITIES) {
+                val out = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out)
+                if (out.size() <= ImageCacheConfig.MAX_IMAGE_BYTES) {
+                    Log.d(
+                        TAG, "Prepared image: ${width}x$height (orientation $orientation) -> " +
+                            "${bitmap.width}x${bitmap.height} q$quality, ${file.length()} -> ${out.size()} bytes"
+                    )
+                    return@withContext PreparedImage(out.toByteArray(), "image/jpeg")
+                }
+            }
+            throw IOException("Image is too large to upload even after compression")
+        } finally {
+            bitmap.recycle()
+        }
     }
 
-    /**
-     * Calculate the largest inSampleSize value that is a power of 2 and keeps both
-     * the width and height larger than [targetSize].
-     */
-    private fun calculateInSampleSize(width: Int, height: Int, targetSize: Int): Int {
-        var inSampleSize = 1
-        if (width > targetSize || height > targetSize) {
-            val halfWidth = width / 2
-            val halfHeight = height / 2
-            while ((halfWidth / inSampleSize) >= targetSize && (halfHeight / inSampleSize) >= targetSize) {
-                inSampleSize *= 2
+    private fun readExifOrientation(file: File): Int = try {
+        ExifInterface(file).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+    } catch (e: Exception) {
+        Log.w(TAG, "Could not read EXIF orientation for ${file.name}", e)
+        ExifInterface.ORIENTATION_NORMAL
+    }
+
+    private fun Matrix.applyExifOrientation(orientation: Int) {
+        when (orientation) {
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> postScale(-1f, 1f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> postRotate(180f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> postScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> {
+                postRotate(90f)
+                postScale(-1f, 1f)
             }
+            ExifInterface.ORIENTATION_ROTATE_90 -> postRotate(90f)
+            ExifInterface.ORIENTATION_TRANSVERSE -> {
+                postRotate(-90f)
+                postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_ROTATE_270 -> postRotate(270f)
         }
-        return inSampleSize
     }
 
     /**

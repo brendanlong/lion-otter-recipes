@@ -8,6 +8,7 @@ import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.model.MealType
 import com.lionotter.recipes.domain.model.Recipe
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
@@ -65,7 +66,7 @@ class ZipImportHelperTest {
         imageDownloadService = mockk(relaxed = true) {
             coEvery { downloadAndStore(any()) } returns null
             coEvery { downloadImageIfNeeded(any()) } returns null
-            every { saveImageFromStream(any(), any()) } answers {
+            coEvery { saveImageFromStream(any(), any()) } answers {
                 firstArg<java.io.InputStream>().readBytes()
                 "file:///cache/image.jpg"
             }
@@ -151,7 +152,7 @@ class ZipImportHelperTest {
         assertEquals(listOf("id-b"), savedRecipes.map { it.id })
         assertEquals(listOf("m2"), savedMealPlans.map { it.id })
         // The unselected recipe's image follows its recipe.json, so it is never written to disk.
-        verify(exactly = 0) { imageDownloadService.saveImageFromStream(any(), any()) }
+        coVerify(exactly = 0) { imageDownloadService.saveImageFromStream(any(), any()) }
     }
 
     @Test

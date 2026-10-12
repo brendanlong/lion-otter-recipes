@@ -61,11 +61,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Ensure user has a session (Google or local guest) on startup
-        lifecycleScope.launch {
-            authService.ensureSignedIn()
-        }
-
         // Only handle the launch intent on a fresh start. On recreation (rotation, process
         // death restore) it was already handled, and a launch from Recents redelivers the
         // original share intent, which would otherwise import the same thing again.

@@ -12,6 +12,7 @@ import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.di.ApplicationScope
 import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
 import com.lionotter.recipes.worker.RecipeEditWorker
 import com.lionotter.recipes.worker.RecipeRegenerateWorker
@@ -19,6 +20,7 @@ import com.lionotter.recipes.worker.RecipeWorkScheduler
 import com.lionotter.recipes.worker.observeWorkByTag
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -50,7 +52,8 @@ class EditRecipeViewModel @Inject constructor(
     private val settingsDataStore: SettingsDataStore,
     private val workManager: WorkManager,
     private val imageDownloadService: ImageDownloadService,
-    private val recipeWorkScheduler: RecipeWorkScheduler
+    private val recipeWorkScheduler: RecipeWorkScheduler,
+    @param:ApplicationScope private val appScope: CoroutineScope
 ) : ViewModel() {
 
     private val recipeId: String = savedStateHandle.get<String>("recipeId")
@@ -220,7 +223,8 @@ class EditRecipeViewModel @Inject constructor(
 
     /** Deletes a picked-but-unsaved local image copy, if any. */
     private fun discardPendingImageFile() {
-        pendingImageUri.value?.let { imageDownloadService.deleteLocalImage(it) }
+        val uri = pendingImageUri.value ?: return
+        appScope.launch { imageDownloadService.deleteLocalImage(uri) }
     }
 
     /**

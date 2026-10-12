@@ -2,6 +2,7 @@ package com.lionotter.recipes.data.repository
 
 import android.util.Log
 import com.google.firebase.Firebase
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.firestore
 import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.FirestoreService
@@ -9,15 +10,22 @@ import com.lionotter.recipes.data.remote.dto.MealPlanDto
 import com.lionotter.recipes.data.remote.dto.toDto
 import com.lionotter.recipes.data.remote.uid
 import com.lionotter.recipes.domain.model.MealPlanEntry
-import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import kotlinx.datetime.LocalDate
 import javax.inject.Inject
 import javax.inject.Singleton
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @Singleton
 class MealPlanRepository @Inject constructor(
     private val firestoreService: FirestoreService,
@@ -27,39 +35,43 @@ class MealPlanRepository @Inject constructor(
         private const val TAG = "MealPlanRepository"
     }
 
-    private fun requireUid(): String =
-        authService.authState.value.uid
-            ?: throw IllegalStateException("User not authenticated")
+    /** Current UID for fire-and-forget writes; reports an error if mid-transition. */
+    private fun uidForWrite(action: String): String? {
+        val uid = authService.authState.value.uid
+        if (uid == null) {
+            firestoreService.reportError("Failed to $action: account is changing, please try again")
+        }
+        return uid
+    }
 
-    override fun getMealPlansForDateRange(startDate: LocalDate, endDate: LocalDate): Flow<List<MealPlanEntry>> = callbackFlow {
-        val uid = requireUid()
-        val collection = firestoreService.mealPlansCollection(uid)
-        val listener = collection
-            .whereGreaterThanOrEqualTo("date", startDate.toString())
-            .whereLessThanOrEqualTo("date", endDate.toString())
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    Log.e(TAG, "Error listening to meal plans", error)
-                    firestoreService.reportError("Failed to load meal plans: ${error.message}")
-                    close(error)
-                    return@addSnapshotListener
+    private fun decodeMealPlan(doc: DocumentSnapshot): MealPlanEntry? =
+        doc.toObject(MealPlanDto::class.java)?.toDomain()
+
+    /**
+     * Listens to meal plans in the date range for the current user. Like
+     * [RecipeRepository], the listener is re-created when the user or the
+     * Firestore instance ([FirestoreService.generation]) changes.
+     */
+    override fun getMealPlansForDateRange(startDate: LocalDate, endDate: LocalDate): Flow<List<MealPlanEntry>> =
+        combine(authService.authState, firestoreService.generation) { state, _ -> state.uid }
+            .flatMapLatest { uid ->
+                if (uid == null) {
+                    flowOf(emptyList())
+                } else {
+                    firestoreService.mealPlansCollection(uid)
+                        .whereGreaterThanOrEqualTo("date", startDate.toString())
+                        .whereLessThanOrEqualTo("date", endDate.toString())
+                        .snapshots(firestoreService, TAG, "meal plans")
+                        .decodeIncrementally(TAG, ::decodeMealPlan)
+                        .flowOn(Dispatchers.Default)
                 }
-                val entries = snapshot?.documents?.mapNotNull { doc ->
-                    try {
-                        doc.toObject(MealPlanDto::class.java)?.toDomain()
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error deserializing meal plan ${doc.id}", e)
-                        null
-                    }
-                } ?: emptyList()
-                trySend(entries)
             }
-        awaitClose { listener.remove() }
-    }.conflate()
+            .conflate()
 
     override fun saveMealPlan(entry: MealPlanEntry) {
+        val uid = uidForWrite("save meal plan") ?: return
         val dto = entry.toDto()
-        firestoreService.mealPlansCollection(requireUid()).document(entry.id).set(dto)
+        firestoreService.mealPlansCollection(uid).document(entry.id).set(dto)
             .addOnFailureListener { e ->
                 Log.e(TAG, "Error saving meal plan ${entry.id}", e)
                 firestoreService.reportError("Failed to save meal plan: ${e.message}")
@@ -67,8 +79,9 @@ class MealPlanRepository @Inject constructor(
     }
 
     override fun updateMealPlan(entry: MealPlanEntry) {
+        val uid = uidForWrite("update meal plan") ?: return
         val dto = entry.toDto()
-        firestoreService.mealPlansCollection(requireUid()).document(entry.id).set(dto)
+        firestoreService.mealPlansCollection(uid).document(entry.id).set(dto)
             .addOnFailureListener { e ->
                 Log.e(TAG, "Error updating meal plan ${entry.id}", e)
                 firestoreService.reportError("Failed to update meal plan: ${e.message}")
@@ -76,22 +89,29 @@ class MealPlanRepository @Inject constructor(
     }
 
     override fun deleteMealPlan(id: String) {
-        firestoreService.mealPlansCollection(requireUid()).document(id).delete()
+        val uid = uidForWrite("delete meal plan") ?: return
+        firestoreService.mealPlansCollection(uid).document(id).delete()
             .addOnFailureListener { e ->
                 Log.e(TAG, "Error deleting meal plan $id", e)
                 firestoreService.reportError("Failed to delete meal plan: ${e.message}")
             }
     }
 
-    override suspend fun deleteMealPlansByRecipeId(recipeId: String) {
-        try {
-            val uid = requireUid()
-            val snapshot = firestoreService.mealPlansCollection(uid)
+    /**
+     * Deletes all meal plans referencing [recipeId]. Runs to completion even if the
+     * caller is cancelled. The batch is applied to the local cache immediately and
+     * synced in the background (it is not awaited, since that never completes offline).
+     *
+     * @throws Exception if the meal plans could not be queried
+     */
+    override suspend fun deleteMealPlansByRecipeId(recipeId: String) = withContext(NonCancellable) {
+        logFailure(TAG, "Error querying meal plans for recipe $recipeId") {
+            val snapshot = firestoreService.mealPlansCollection(authService.awaitUid())
                 .whereEqualTo("recipeId", recipeId)
                 .get()
                 .await()
 
-            if (snapshot.documents.isEmpty()) return
+            if (snapshot.documents.isEmpty()) return@logFailure
 
             val batch = Firebase.firestore.batch()
             for (doc in snapshot.documents) {
@@ -102,67 +122,58 @@ class MealPlanRepository @Inject constructor(
                     Log.e(TAG, "Error batch deleting meal plans for recipe $recipeId", e)
                     firestoreService.reportError("Failed to delete meal plans: ${e.message}")
                 }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error querying meal plans for recipe $recipeId", e)
-            firestoreService.reportError("Failed to delete meal plans: ${e.message}")
+            Unit
         }
     }
 
-    override suspend fun countMealPlansByRecipeId(recipeId: String): Int {
-        return try {
-            val snapshot = firestoreService.mealPlansCollection(requireUid())
+    /** @throws Exception if meal plans could not be read */
+    override suspend fun countMealPlansByRecipeId(recipeId: String): Int =
+        logFailure(TAG, "Error counting meal plans for recipe $recipeId") {
+            firestoreService.mealPlansCollection(authService.awaitUid())
                 .whereEqualTo("recipeId", recipeId)
                 .get()
                 .await()
-            snapshot.size()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error counting meal plans for recipe $recipeId", e)
-            0
+                .size()
         }
-    }
 
+    /** @throws Exception if meal plans could not be read */
     override suspend fun countMealPlansByRecipeIds(recipeIds: List<String>): Int {
         if (recipeIds.isEmpty()) return 0
-        return try {
-            val uid = requireUid()
+        return logFailure(TAG, "Error counting meal plans for ${recipeIds.size} recipes") {
+            val uid = authService.awaitUid()
             // Firestore whereIn supports max 30 values per query, so chunk if needed
             recipeIds.chunked(30).sumOf { chunk ->
-                val snapshot = firestoreService.mealPlansCollection(uid)
+                firestoreService.mealPlansCollection(uid)
                     .whereIn("recipeId", chunk)
                     .get()
                     .await()
-                snapshot.size()
+                    .size()
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error counting meal plans for ${recipeIds.size} recipes", e)
-            0
         }
     }
 
-    override suspend fun getMealPlanCount(): Int {
-        return try {
-            val snapshot = firestoreService.mealPlansCollection(requireUid()).get().await()
-            snapshot.size()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error fetching meal plan count", e)
-            0
+    /** @throws Exception if meal plans could not be read */
+    override suspend fun getMealPlanCount(): Int =
+        logFailure(TAG, "Error fetching meal plan count") {
+            firestoreService.mealPlansCollection(authService.awaitUid()).get().await().size()
         }
-    }
 
-    override suspend fun getAllMealPlansOnce(): List<MealPlanEntry> {
-        return try {
-            val snapshot = firestoreService.mealPlansCollection(requireUid()).get().await()
-            snapshot.documents.mapNotNull { doc ->
-                try {
-                    doc.toObject(MealPlanDto::class.java)?.toDomain()
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error deserializing meal plan ${doc.id}", e)
-                    null
+    /**
+     * Individual documents that fail to decode are logged and skipped.
+     * @throws Exception if meal plans could not be read
+     */
+    override suspend fun getAllMealPlansOnce(): List<MealPlanEntry> =
+        logFailure(TAG, "Error fetching all meal plans") {
+            val snapshot = firestoreService.mealPlansCollection(authService.awaitUid()).get().await()
+            withContext(Dispatchers.Default) {
+                snapshot.documents.mapNotNull { doc ->
+                    try {
+                        decodeMealPlan(doc)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error deserializing meal plan ${doc.id}", e)
+                        null
+                    }
                 }
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error fetching all meal plans", e)
-            emptyList()
         }
-    }
 }

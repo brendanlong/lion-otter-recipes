@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -64,7 +66,7 @@ class EditRecipeViewModelTest {
         every { settingsDataStore.editModel } returns flowOf("model")
         every { settingsDataStore.thinkingEnabled } returns flowOf(false)
         every { workManager.getWorkInfosByTagFlow(any()) } returns flowOf(emptyList())
-        every { imageDownloadService.deleteLocalImage(any()) } just runs
+        coEvery { imageDownloadService.deleteLocalImage(any()) } just runs
     }
 
     @After
@@ -73,7 +75,7 @@ class EditRecipeViewModelTest {
     }
 
     private fun createViewModel(handle: SavedStateHandle = SavedStateHandle(mapOf("recipeId" to "r1"))) =
-        EditRecipeViewModel(handle, recipeRepository, settingsDataStore, workManager, imageDownloadService, mockk(relaxed = true))
+        EditRecipeViewModel(handle, recipeRepository, settingsDataStore, workManager, imageDownloadService, mockk(relaxed = true), TestScope(UnconfinedTestDispatcher()))
 
     @Test
     fun `fields are populated from the recipe and start clean`() = runTest {
@@ -105,7 +107,7 @@ class EditRecipeViewModelTest {
     @Test
     fun `picked image is pending until save`() = runTest {
         val contentUri = mockk<Uri>()
-        every { imageDownloadService.saveImageFromContentUri(contentUri) } returns "file:///new.jpg"
+        coEvery { imageDownloadService.saveImageFromContentUri(contentUri) } returns "file:///new.jpg"
         coEvery { imageDownloadService.storeImage("file:///new.jpg", "file:///old.jpg") } returns "gs://new"
         val viewModel = createViewModel()
         advanceUntilIdle()

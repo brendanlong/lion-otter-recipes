@@ -2,11 +2,13 @@ package com.lionotter.recipes.data.remote
 
 import android.util.Log
 import com.google.firebase.Firebase
+import com.google.firebase.auth.auth
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.FirebaseFirestoreSettings
 import com.google.firebase.firestore.firestore
 import com.google.firebase.firestore.firestoreSettings
 import com.google.firebase.firestore.persistentCacheSettings
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -14,6 +16,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -42,19 +45,13 @@ open class FirestoreService @Inject constructor() {
     val generation: StateFlow<Int> = _generation.asStateFlow()
 
     init {
-        try {
-            val settings = firestoreSettings {
-                setLocalCacheSettings(persistentCacheSettings {
-                    setSizeBytes(FirebaseFirestoreSettings.CACHE_SIZE_UNLIMITED)
-                })
-            }
-            Firebase.firestore.firestoreSettings = settings
-        } catch (e: IllegalStateException) {
-            Log.w(TAG, "Firestore settings already configured: ${e.message}")
-        }
-
-        Firebase.firestore.persistentCacheIndexManager?.let { indexManager ->
-            indexManager.enableIndexAutoCreation()
+        configureInstance()
+        // Guest data lives only as never-synced local writes. The network must be
+        // disabled before anything else touches Firestore, otherwise a cold start
+        // (e.g. a relaunched WorkManager job) could push guest writes to the server,
+        // where they are rejected and rolled back locally.
+        if (!hasSignedInGoogleUser()) {
+            startDisablingNetwork()
         }
     }
 
@@ -80,6 +77,7 @@ open class FirestoreService @Inject constructor() {
             _isNetworkEnabled.value = false
             Log.d(TAG, "Firestore network disabled")
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.w(TAG, "Failed to disable Firestore network", e)
         }
     }
@@ -91,18 +89,89 @@ open class FirestoreService @Inject constructor() {
             _isNetworkEnabled.value = true
             Log.d(TAG, "Firestore network enabled")
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.w(TAG, "Failed to enable Firestore network", e)
         }
     }
 
-    /** Terminates Firestore and clears the local persistence cache. */
-    suspend fun clearLocalData() {
+    /**
+     * Terminates Firestore and clears the local persistence cache, then configures the
+     * fresh instance. The [generation] is bumped even on failure so listeners always
+     * re-attach to the live instance.
+     *
+     * @param enableNetwork whether the fresh instance should be online (Google user)
+     *        or offline (guest).
+     */
+    suspend fun clearLocalData(enableNetwork: Boolean) {
         try {
-            Firebase.firestore.terminate().await()
-            Firebase.firestore.clearPersistence().await()
-            _generation.value++
+            val old = Firebase.firestore
+            old.terminate().await()
+            old.clearPersistence().await()
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "Error clearing Firestore persistence", e)
+        } finally {
+            configureInstance()
+            if (!enableNetwork) startDisablingNetwork()
+            _generation.value++
+        }
+        if (enableNetwork) enableNetwork()
+    }
+
+    /**
+     * Waits for all pending local writes to be acknowledged by the server.
+     * @return true if all writes were acknowledged within [timeoutMs].
+     */
+    suspend fun awaitPendingWrites(timeoutMs: Long): Boolean {
+        return try {
+            withTimeoutOrNull(timeoutMs) {
+                Firebase.firestore.waitForPendingWrites().await()
+                true
+            } ?: false
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Log.w(TAG, "waitForPendingWrites failed", e)
+            false
+        }
+    }
+
+    private fun hasSignedInGoogleUser(): Boolean = try {
+        val user = Firebase.auth.currentUser
+        user != null && !user.isAnonymous
+    } catch (e: Exception) {
+        Log.w(TAG, "Could not read Firebase Auth user; assuming guest", e)
+        false
+    }
+
+    /** Applies cache settings to the current Firestore instance. Must run before its first use. */
+    private fun configureInstance() {
+        try {
+            val settings = firestoreSettings {
+                setLocalCacheSettings(persistentCacheSettings {
+                    setSizeBytes(FirebaseFirestoreSettings.CACHE_SIZE_UNLIMITED)
+                })
+            }
+            Firebase.firestore.firestoreSettings = settings
+        } catch (e: IllegalStateException) {
+            Log.w(TAG, "Firestore settings already configured: ${e.message}")
+        }
+
+        try {
+            Firebase.firestore.persistentCacheIndexManager?.enableIndexAutoCreation()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to enable index auto-creation", e)
+        }
+    }
+
+    /** Enqueues disableNetwork synchronously so it is ordered before any later Firestore call. */
+    private fun startDisablingNetwork() {
+        _isNetworkEnabled.value = false
+        try {
+            Firebase.firestore.disableNetwork()
+                .addOnSuccessListener { Log.d(TAG, "Firestore network disabled") }
+                .addOnFailureListener { e -> Log.e(TAG, "Failed to disable Firestore network", e) }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to disable Firestore network", e)
         }
     }
 }
