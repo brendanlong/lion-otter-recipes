@@ -1,18 +1,25 @@
 package com.lionotter.recipes.data.remote
 
 import android.content.Context
+import android.graphics.BitmapFactory
+import android.util.Base64
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.ktor.client.HttpClient
-import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.prepareGet
 import io.ktor.client.statement.bodyAsChannel
+import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
+import io.ktor.http.contentLength
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.jvm.javaio.toInputStream
-import android.util.Base64
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 import java.io.InputStream
 import java.util.UUID
 import javax.inject.Inject
@@ -27,6 +34,8 @@ import javax.inject.Singleton
  * 1. Upload to Firebase Storage (with resize)
  * 2. Cleanup of old images (both local and remote)
  * 3. Returning the `gs://` URI for Firestore
+ *
+ * All public functions are main-safe.
  */
 @Singleton
 class ImageDownloadService @Inject constructor(
@@ -47,38 +56,44 @@ class ImageDownloadService @Inject constructor(
 
     companion object {
         private const val TAG = "ImageDownloadService"
+
+        /** Maximum size of an image downloaded or saved locally (before resizing for upload). */
+        const val MAX_LOCAL_IMAGE_BYTES = 25 * 1024 * 1024L
     }
 
     // ─── Centralized image storage ───────────────────────────────────────
 
     /**
-     * Upload a local image to Firebase Storage, optionally cleaning up the old image.
+     * Upload a local image to Firebase Storage, then clean up the old image.
      *
      * This is the single entry point that all image flows should use after obtaining
      * a local file:// URI. It handles:
      * - Upload to Firebase Storage (with resizing if needed)
-     * - Deletion of the previous image from both local cache and remote storage
+     * - Deletion of the previous image from both local cache and remote storage,
+     *   only after the new image has been stored
      * - Returning the storage path for Firestore
      *
      * @param localUri A file:// URI pointing to the local image
      * @param previousImageUrl The previous imageUrl to clean up (gs:// URI or file:// URI), or null
      * @return A gs:// URI (e.g., "gs://bucket/users/{uid}/images/{filename}"),
-     *         or the original local URI if upload fails
+     *         or the original local URI if the user is a guest or upload fails
      */
     suspend fun storeImage(localUri: String, previousImageUrl: String? = null): String {
         // Already a storage path — no need to re-upload
         if (imageSyncService.isStoragePath(localUri)) return localUri
 
-        // Clean up the old image if it's different from the new one
-        if (previousImageUrl != null) {
-            cleanupImage(previousImageUrl)
+        // Guests keep the local file; it is uploaded after sign-in
+        // (see ImageSyncService.uploadPendingLocalImages).
+        val stored = if (authService.isGoogleUser()) {
+            imageSyncService.uploadImage(localUri) ?: localUri
+        } else {
+            localUri
         }
 
-        // Skip upload for guest users — just use local file
-        if (!authService.isGoogleUser()) return localUri
-
-        // Upload to Firebase Storage
-        return imageSyncService.uploadImage(localUri) ?: localUri
+        if (previousImageUrl != null && previousImageUrl != stored && previousImageUrl != localUri) {
+            cleanupImage(previousImageUrl)
+        }
+        return stored
     }
 
     /**
@@ -87,11 +102,12 @@ class ImageDownloadService @Inject constructor(
     suspend fun cleanupImage(imageUrl: String) {
         if (imageSyncService.isStoragePath(imageUrl)) {
             imageSyncService.deleteRemoteImage(imageUrl)
-            // Also delete local cache file
             val filename = imageUrl.substringAfterLast("/")
-            val cacheFile = File(ImageCacheConfig.getImageCacheDir(context), filename)
-            if (cacheFile.exists()) {
-                cacheFile.delete()
+            withContext(Dispatchers.IO) {
+                val cacheFile = File(ImageCacheConfig.getImageCacheDir(context), filename)
+                if (cacheFile.exists() && !cacheFile.delete()) {
+                    Log.w(TAG, "Failed to delete cached image: ${cacheFile.path}")
+                }
             }
         } else if (imageUrl.startsWith("file://")) {
             deleteLocalImage(imageUrl)
@@ -114,7 +130,7 @@ class ImageDownloadService @Inject constructor(
         if (imageUrl == null) return null
         if (imageUrl.startsWith("file://")) {
             val path = imageUrl.removePrefix("file://")
-            return if (File(path).exists()) imageUrl else null
+            return if (withContext(Dispatchers.IO) { File(path).exists() }) imageUrl else null
         }
         // Firebase Storage paths are already stored — return as-is
         if (imageSyncService.isStoragePath(imageUrl)) return imageUrl
@@ -169,49 +185,44 @@ class ImageDownloadService @Inject constructor(
 
     /**
      * Attempts to download an image from the given URL and store it locally.
-     * Returns a [DownloadResult] on success, or null on failure.
+     * Rejects non-image responses (e.g. HTML error pages) and bodies larger than
+     * [MAX_LOCAL_IMAGE_BYTES]. Returns a [DownloadResult] on success, or null on failure.
      */
     private suspend fun attemptDownload(imageUrl: String): DownloadResult? {
         return try {
-            val response = httpClient.get(imageUrl) {
+            httpClient.prepareGet(imageUrl) {
                 header(HttpHeaders.UserAgent, "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
                 header(HttpHeaders.Accept, "image/*,*/*;q=0.8")
-            }
+            }.execute { response ->
+                if (!response.status.isSuccess()) {
+                    Log.w(TAG, "Failed to download image from $imageUrl: HTTP ${response.status}")
+                    return@execute null
+                }
 
-            if (!response.status.isSuccess()) {
-                Log.w(TAG, "Failed to download image from $imageUrl: HTTP ${response.status}")
-                return null
-            }
+                val contentType = response.contentType()
+                if (contentType != null && !isAcceptableImageContentType(contentType)) {
+                    Log.w(TAG, "Not an image ($contentType): $imageUrl")
+                    return@execute null
+                }
+                val declaredLength = response.contentLength()
+                if (declaredLength != null && declaredLength > MAX_LOCAL_IMAGE_BYTES) {
+                    Log.w(TAG, "Image too large ($declaredLength bytes): $imageUrl")
+                    return@execute null
+                }
 
-            // Determine file extension from content type
-            val extension = when (response.contentType()?.contentSubtype) {
-                "jpeg", "jpg" -> ".jpg"
-                "png" -> ".png"
-                "webp" -> ".webp"
-                "gif" -> ".gif"
-                else -> ".jpg" // Default to jpg
-            }
-
-            val fileName = "${UUID.randomUUID()}$extension"
-            val imageFile = File(ImageCacheConfig.getImageCacheDir(context), fileName)
-
-            response.bodyAsChannel().toInputStream().use { input ->
-                imageFile.outputStream().use { output ->
-                    input.copyTo(output)
+                val extension = when (contentType?.contentSubtype) {
+                    "png" -> ".png"
+                    "webp" -> ".webp"
+                    "gif" -> ".gif"
+                    else -> ".jpg"
+                }
+                val input = response.bodyAsChannel().toInputStream()
+                writeValidatedImage(input, extension)?.let { localUri ->
+                    Log.d(TAG, "Downloaded image: $imageUrl -> $localUri")
+                    DownloadResult(localUri = localUri, effectiveUrl = imageUrl)
                 }
             }
-
-            // Verify the file was written and has content
-            if (!imageFile.exists() || imageFile.length() == 0L) {
-                Log.w(TAG, "Image file is empty after download: $imageUrl")
-                imageFile.delete()
-                return null
-            }
-
-            val localUri = "file://${imageFile.absolutePath}"
-            Log.d(TAG, "Downloaded image: $imageUrl -> $localUri (${imageFile.length()} bytes)")
-            DownloadResult(localUri = localUri, effectiveUrl = imageUrl)
-        } catch (e: kotlinx.coroutines.CancellationException) {
+        } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "Failed to download image from $imageUrl", e)
@@ -219,35 +230,24 @@ class ImageDownloadService @Inject constructor(
         }
     }
 
+    private fun isAcceptableImageContentType(contentType: ContentType): Boolean =
+        contentType.contentType == "image" ||
+            contentType.match(ContentType.Application.OctetStream)
+
     // ─── Local image saving ──────────────────────────────────────────────
 
     /**
      * Saves image bytes from an InputStream to local storage.
-     * Returns the local file:// URI, or null if saving fails.
+     * Returns the local file:// URI, or null if saving fails or the data is not an image.
      *
-     * @param inputStream Source of image bytes
+     * @param inputStream Source of image bytes (closed by this function)
      * @param extension File extension including the dot (e.g., ".jpg")
      */
-    fun saveImageFromStream(inputStream: InputStream, extension: String = ".jpg"): String? {
+    suspend fun saveImageFromStream(inputStream: InputStream, extension: String = ".jpg"): String? {
         return try {
-            val fileName = "${UUID.randomUUID()}$extension"
-            val imageFile = File(ImageCacheConfig.getImageCacheDir(context), fileName)
-
-            inputStream.use { input ->
-                imageFile.outputStream().use { output ->
-                    input.copyTo(output)
-                }
-            }
-
-            if (!imageFile.exists() || imageFile.length() == 0L) {
-                Log.w(TAG, "Image file is empty after saving from stream")
-                imageFile.delete()
-                return null
-            }
-
-            val localUri = "file://${imageFile.absolutePath}"
-            Log.d(TAG, "Saved image from stream: $localUri (${imageFile.length()} bytes)")
-            localUri
+            inputStream.use { writeValidatedImage(it, extension) }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "Failed to save image from stream", e)
             null
@@ -258,21 +258,16 @@ class ImageDownloadService @Inject constructor(
      * Saves base64-encoded image data to local storage.
      * Returns the local file:// URI, or null if saving fails.
      */
-    fun saveImageFromBase64(base64Data: String, extension: String = ".jpg"): String? {
+    suspend fun saveImageFromBase64(base64Data: String, extension: String = ".jpg"): String? {
         return try {
-            val bytes = Base64.decode(base64Data, Base64.DEFAULT)
+            val bytes = withContext(Dispatchers.Default) { Base64.decode(base64Data, Base64.DEFAULT) }
             if (bytes.isEmpty()) {
                 Log.w(TAG, "Base64 image data decoded to empty bytes")
                 return null
             }
-
-            val fileName = "${UUID.randomUUID()}$extension"
-            val imageFile = File(ImageCacheConfig.getImageCacheDir(context), fileName)
-            imageFile.writeBytes(bytes)
-
-            val localUri = "file://${imageFile.absolutePath}"
-            Log.d(TAG, "Saved image from base64: $localUri (${imageFile.length()} bytes)")
-            localUri
+            writeValidatedImage(bytes.inputStream(), extension)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "Failed to save image from base64", e)
             null
@@ -283,29 +278,76 @@ class ImageDownloadService @Inject constructor(
      * Saves an image from a content:// URI (e.g., from the image picker) to local storage.
      * Returns the local file:// URI, or null if saving fails.
      */
-    fun saveImageFromContentUri(contentUri: android.net.Uri): String? {
+    suspend fun saveImageFromContentUri(contentUri: android.net.Uri): String? {
         return try {
-            val inputStream = context.contentResolver.openInputStream(contentUri) ?: run {
+            val (inputStream, mimeType) = withContext(Dispatchers.IO) {
+                context.contentResolver.openInputStream(contentUri) to
+                    context.contentResolver.getType(contentUri)
+            }
+            if (inputStream == null) {
                 Log.w(TAG, "Could not open input stream for content URI: $contentUri")
                 return null
             }
 
-            // Determine extension from content type
-            val mimeType = context.contentResolver.getType(contentUri)
             val extension = when (mimeType) {
                 "image/png" -> ".png"
                 "image/webp" -> ".webp"
                 "image/gif" -> ".gif"
-                "image/jpeg" -> ".jpg"
+                "image/heic", "image/heif" -> ".heic"
                 else -> ".jpg"
             }
 
             saveImageFromStream(inputStream, extension)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "Failed to save image from content URI: $contentUri", e)
             null
         }
     }
+
+    /**
+     * Copies [input] into a new file in the image cache, enforcing [MAX_LOCAL_IMAGE_BYTES]
+     * and checking the result decodes as an image. Returns the file:// URI, or null.
+     */
+    private suspend fun writeValidatedImage(input: InputStream, extension: String): String? =
+        withContext(Dispatchers.IO) {
+            val imageFile = File(ImageCacheConfig.getImageCacheDir(context), "${UUID.randomUUID()}$extension")
+            try {
+                imageFile.outputStream().use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var total = 0L
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        total += read
+                        if (total > MAX_LOCAL_IMAGE_BYTES) {
+                            throw IOException("Image exceeds $MAX_LOCAL_IMAGE_BYTES bytes")
+                        }
+                        output.write(buffer, 0, read)
+                    }
+                }
+
+                if (imageFile.length() == 0L) {
+                    Log.w(TAG, "Image file is empty after saving")
+                    imageFile.delete()
+                    return@withContext null
+                }
+
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(imageFile.absolutePath, bounds)
+                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+                    Log.w(TAG, "Saved data is not a decodable image")
+                    imageFile.delete()
+                    return@withContext null
+                }
+
+                "file://${imageFile.absolutePath}"
+            } catch (e: Exception) {
+                imageFile.delete()
+                throw e
+            }
+        }
 
     // ─── Utility ─────────────────────────────────────────────────────────
 
@@ -323,16 +365,17 @@ class ImageDownloadService @Inject constructor(
     /**
      * Deletes a locally stored image file.
      */
-    fun deleteLocalImage(localUri: String) {
+    suspend fun deleteLocalImage(localUri: String) {
         if (!localUri.startsWith("file://")) return
-        try {
-            val path = localUri.removePrefix("file://")
-            val file = File(path)
-            if (file.exists() && file.parentFile?.name == ImageCacheConfig.IMAGE_CACHE_DIR) {
-                file.delete()
+        withContext(Dispatchers.IO) {
+            try {
+                val file = File(localUri.removePrefix("file://"))
+                if (file.exists() && file.parentFile?.name == ImageCacheConfig.IMAGE_CACHE_DIR) {
+                    file.delete()
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to delete image: $localUri", e)
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to delete image: $localUri", e)
         }
     }
 }

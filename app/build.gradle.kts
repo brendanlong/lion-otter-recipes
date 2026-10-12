@@ -179,6 +179,7 @@ dependencies {
 
     // Coil
     implementation(libs.coil.compose)
+    implementation(libs.exifinterface)
 
     // Readability (content extraction)
     implementation(libs.readability4j)
