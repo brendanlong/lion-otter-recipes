@@ -1,0 +1,30 @@
+# Targeted detekt configuration: only the rules listed here run (the default rule set is
+# not used; see detekt { buildUponDefaultConfig = false } in app/build.gradle.kts).
+# Existing findings are recorded in baseline-debug.xml (regenerate with
+# ./gradlew :app:detektBaselineDebug); see DESIGN.md "Guardrails".
+
+coroutines:
+  active: true
+  SuspendFunSwallowedCancellation:
+    active: true
+  InjectDispatcher:
+    active: true
+    dispatcherNames:
+      - 'IO'
+      - 'Default'
+      - 'Unconfined'
+
+exceptions:
+  active: true
+  SwallowedException:
+    active: true
+    # Catch blocks that reference the exception (e.g. log it) pass. `_` is NOT allowed:
+    # every caught exception must at least be logged (CLAUDE.md).
+    allowedExceptionNameRegex: '^(expected|ignored)$'
+  TooGenericExceptionThrown:
+    active: true
+
+potential-bugs:
+  active: true
+  UnsafeCallOnNullableType:
+    active: true

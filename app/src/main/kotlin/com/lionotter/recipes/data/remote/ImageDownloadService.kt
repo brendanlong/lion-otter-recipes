@@ -7,6 +7,7 @@ import android.util.Log
 import androidx.work.WorkManager
 import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.worker.LocalImageUploadWorker
+import com.lionotter.recipes.data.remote.dto.RecipeFields
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
@@ -153,7 +154,7 @@ class ImageDownloadService @Inject constructor(
         val uid = authService.authState.value.uid ?: return true
         return try {
             firestoreService.recipesCollection(uid)
-                .whereEqualTo("imageUrl", imageUrl)
+                .whereEqualTo(RecipeFields.IMAGE_URL, imageUrl)
                 .get()
                 .await()
                 .documents

@@ -2,11 +2,10 @@ package com.lionotter.recipes.di
 
 import android.content.Context
 import androidx.room.Room
-import androidx.room.migration.Migration
-import androidx.sqlite.db.SupportSQLiteDatabase
 import com.lionotter.recipes.data.local.ImportDebugDao
 import com.lionotter.recipes.data.local.PendingImportDao
 import com.lionotter.recipes.data.local.RecipeDatabase
+import com.lionotter.recipes.data.local.RecipeDatabaseMigrations
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -14,35 +13,24 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
-private val MIGRATION_10_11 = object : Migration(10, 11) {
-    override fun migrate(db: SupportSQLiteDatabase) {
-        db.execSQL("DROP TABLE IF EXISTS recipes")
-        db.execSQL("DROP TABLE IF EXISTS meal_plans")
-    }
-}
-
-private val MIGRATION_11_12 = object : Migration(11, 12) {
-    override fun migrate(db: SupportSQLiteDatabase) {
-        db.execSQL("ALTER TABLE import_debug ADD COLUMN batchMode INTEGER NOT NULL DEFAULT 0")
-    }
-}
-
 @Module
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
+    private const val DATABASE_NAME = "recipes.db"
 
     @Provides
     @Singleton
-    fun provideDatabase(@ApplicationContext context: Context): RecipeDatabase {
+    fun provideDatabase(@ApplicationContext context: Context): RecipeDatabase =
+        provideDatabase(context, DATABASE_NAME)
+
+    internal fun provideDatabase(context: Context, name: String): RecipeDatabase {
         return Room.databaseBuilder(
             context,
             RecipeDatabase::class.java,
-            "recipes.db"
+            name
         )
-            .addMigrations(MIGRATION_10_11, MIGRATION_11_12)
-            // Pre-10 schemas predate the Firestore move; the remaining tables only hold
-            // the import queue and debug data, so recreating them is safe.
-            .fallbackToDestructiveMigrationFrom(dropAllTables = true, 1, 2, 3, 4, 5, 6, 7, 8, 9)
+            .addMigrations(*RecipeDatabaseMigrations.ALL)
+            .fallbackToDestructiveMigrationFrom(dropAllTables = true, *RecipeDatabaseMigrations.DESTRUCTIVE_FROM)
             .build()
     }
 

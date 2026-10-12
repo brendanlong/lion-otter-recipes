@@ -80,8 +80,9 @@ open class FirestoreService @Inject constructor() {
             Firebase.firestore.disableNetwork().await()
             _isNetworkEnabled.value = false
             Log.d(TAG, "Firestore network disabled")
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            if (e is CancellationException) throw e
             Log.w(TAG, "Failed to disable Firestore network", e)
         }
     }
@@ -92,8 +93,9 @@ open class FirestoreService @Inject constructor() {
             Firebase.firestore.enableNetwork().await()
             _isNetworkEnabled.value = true
             Log.d(TAG, "Firestore network enabled")
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            if (e is CancellationException) throw e
             Log.w(TAG, "Failed to enable Firestore network", e)
         }
     }
@@ -120,8 +122,9 @@ open class FirestoreService @Inject constructor() {
                     old.clearPersistence().await()
                     cleared = true
                     break
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
-                    if (e is CancellationException) throw e
                     ErrorLog.e(TAG, "Error clearing Firestore persistence (attempt $attempt)", e)
                     if (attempt < CLEAR_PERSISTENCE_ATTEMPTS) delay(CLEAR_PERSISTENCE_RETRY_DELAY_MS)
                 }
@@ -145,8 +148,9 @@ open class FirestoreService @Inject constructor() {
                 Firebase.firestore.waitForPendingWrites().await()
                 true
             } ?: false
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            if (e is CancellationException) throw e
             Log.w(TAG, "waitForPendingWrites failed", e)
             false
         }

@@ -22,10 +22,12 @@ import com.lionotter.recipes.ui.TestTags
 @Composable
 fun RecipeTopAppBar(
     title: String,
+    modifier: Modifier = Modifier,
     onBackClick: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {}
 ) {
     TopAppBar(
+        modifier = modifier,
         title = {
             Text(
                 text = title,

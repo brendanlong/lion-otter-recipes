@@ -47,12 +47,13 @@ fun ApiKeySection(
     onSaveClick: () -> Unit,
     onClearClick: () -> Unit,
     saveState: SettingsViewModel.SaveState,
-    onResetSaveState: () -> Unit
+    onResetSaveState: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     var passwordVisible by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
             text = stringResource(R.string.anthropic_api_key),
             style = MaterialTheme.typography.titleMedium

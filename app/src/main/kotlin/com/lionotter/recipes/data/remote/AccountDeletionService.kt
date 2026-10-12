@@ -13,6 +13,7 @@ import com.google.firebase.firestore.firestore
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.util.ErrorLog
+import com.lionotter.recipes.data.remote.dto.RecipeFields
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
@@ -89,7 +90,7 @@ class AccountDeletionService @Inject constructor(
         val mealPlans = readFromServer(firestoreService.mealPlansCollection(uid))
 
         val imageUrls = recipes.mapNotNull { doc ->
-            doc.getString("imageUrl")?.takeIf { imageSyncService.isStoragePath(it) }
+            doc.getString(RecipeFields.IMAGE_URL)?.takeIf { imageSyncService.isStoragePath(it) }
         }.distinct()
 
         // Documents first: if a batch fails, the remaining recipes still have their images.
@@ -103,8 +104,9 @@ class AccountDeletionService @Inject constructor(
                     .delete()
                     .await()
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            if (e is CancellationException) throw e
             Log.w(TAG, "Failed to delete user document (may not exist)", e)
         }
 
@@ -113,8 +115,9 @@ class AccountDeletionService @Inject constructor(
         try {
             serverCall { user.delete().await() }
             Log.i(TAG, "Firebase Auth account deleted")
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            if (e is CancellationException) throw e
             throw AuthAccountDeletionException(e)
         }
 
@@ -128,8 +131,9 @@ class AccountDeletionService @Inject constructor(
                 return
             } catch (e: OfflineException) {
                 throw e
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                if (e is CancellationException) throw e
                 throw ReauthenticationRequiredException(e)
             }
         }
@@ -144,8 +148,9 @@ class AccountDeletionService @Inject constructor(
             serverCall { collection.get(Source.SERVER).await().documents }
         } catch (e: OfflineException) {
             throw e
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            if (e is CancellationException) throw e
             ErrorLog.e(TAG, "Failed to read ${collection.path} from server", e)
             throw OfflineException(e)
         }
@@ -184,8 +189,9 @@ class AccountDeletionService @Inject constructor(
             try {
                 imageSyncService.deleteRemoteImage(url)
                 deletedCount++
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                if (e is CancellationException) throw e
                 Log.w(TAG, "Failed to delete storage image: $url", e)
             }
         }
@@ -196,14 +202,16 @@ class AccountDeletionService @Inject constructor(
         ImageCacheConfig.clearCache(context)
         try {
             importDebugRepository.deleteAllDebugEntries()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            if (e is CancellationException) throw e
             Log.w(TAG, "Failed to clear import debug data", e)
         }
         try {
             settingsDataStore.clearAnthropicApiKey()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            if (e is CancellationException) throw e
             Log.w(TAG, "Failed to clear API key", e)
         }
     }

@@ -76,6 +76,7 @@ fun RecipeDetailScreen(
     onBackClick: () -> Unit,
     onEditClick: () -> Unit,
     onNavigateToSettings: () -> Unit,
+    modifier: Modifier = Modifier,
     onTagClick: (String) -> Unit = {},
     editSuccess: Boolean = false,
     onEditSuccessConsumed: () -> Unit = {},
@@ -215,6 +216,7 @@ fun RecipeDetailScreen(
     }
 
     Scaffold(
+        modifier = modifier,
         topBar = {
             RecipeTopAppBar(
                 title = recipe?.name ?: stringResource(R.string.recipe),

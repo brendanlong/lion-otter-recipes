@@ -43,11 +43,12 @@ fun ModelSelectionSection(
     currentEditModel: String,
     onEditModelChange: (String) -> Unit,
     thinkingEnabled: Boolean,
-    onThinkingChange: (Boolean) -> Unit
+    onThinkingChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val models = MODELS
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
             text = stringResource(R.string.ai_models),
             style = MaterialTheme.typography.titleMedium
@@ -90,11 +91,12 @@ fun SingleModelSelectionSection(
     currentModel: String,
     onModelChange: (String) -> Unit,
     thinkingEnabled: Boolean,
-    onThinkingChange: (Boolean) -> Unit
+    onThinkingChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val models = MODELS
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
             text = stringResource(R.string.ai_model),
             style = MaterialTheme.typography.titleMedium

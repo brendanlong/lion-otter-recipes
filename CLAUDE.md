@@ -7,5 +7,7 @@
 - ALWAYS check the current commit before amending
 - Reference @docs/architecture.mmd and keep it up to date with any changes
 - Before committing, always run the CI checks locally to verify nothing is broken:
-  - `./ci-local.sh` (runs assembleDebug, testDebugUnitTest, and lintDebug in parallel)
+  - `./ci-local.sh` (runs assembleDebug, testDebugUnitTest, lintDebug, and detektDebug in parallel)
   - See `.github/workflows/android-ci.yml` for the full CI pipeline
+- Compiler and lint warnings fail the build. Don't add entries to the detekt baseline or the
+  `LayerDependencyTest` allowlist; fix the code instead (see DESIGN.md "Guardrails").

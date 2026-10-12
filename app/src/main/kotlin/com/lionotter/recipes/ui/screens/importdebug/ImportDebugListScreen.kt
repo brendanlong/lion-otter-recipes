@@ -38,12 +38,14 @@ import kotlinx.datetime.toLocalDateTime
 fun ImportDebugListScreen(
     onBackClick: () -> Unit,
     onEntryClick: (String) -> Unit,
+    modifier: Modifier = Modifier,
     viewModel: ImportDebugListViewModel = hiltViewModel()
 ) {
     val loadedEntries by viewModel.debugEntries.collectAsStateWithLifecycle()
     val loadFailed by viewModel.loadFailed.collectAsStateWithLifecycle()
 
     Scaffold(
+        modifier = modifier,
         topBar = {
             RecipeTopAppBar(
                 title = stringResource(R.string.import_debug_data),

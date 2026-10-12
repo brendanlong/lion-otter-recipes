@@ -34,8 +34,8 @@ class RegenerateRecipeUseCase @Inject constructor(
     /**
      * Regenerate a recipe by re-fetching its source URL and re-parsing with AI.
      * Requires the recipe to have a source URL.
-     * Preserves the recipe ID, createdAt, favorite status, source URL, and image (a new image is
-     * only downloaded if the recipe doesn't have one).
+     * Only the AI-generated content changes (see [Recipe.withRegeneratedContent]); the image is
+     * kept (a new one is only downloaded if the recipe doesn't have one).
      *
      * @param recipeId The ID of the recipe to regenerate
      * @param model The AI model to use (null = use current setting)
@@ -105,15 +105,9 @@ class RegenerateRecipeUseCase @Inject constructor(
                 onProgress(RegenerateProgress.SavingRecipe)
                 val regeneratedRecipe = withContext(NonCancellable) {
                     val newImageUrl = downloadedImage?.localUri?.let { imageDownloadService.storeImage(it) }
-                    parseResult.recipe.copy(
-                        id = freshRecipe.id,
-                        createdAt = freshRecipe.createdAt,
-                        updatedAt = Clock.System.now(),
-                        isFavorite = freshRecipe.isFavorite,
-                        sourceUrl = freshRecipe.sourceUrl,
+                    freshRecipe.withRegeneratedContent(parseResult.recipe, Clock.System.now()).copy(
                         imageUrl = freshRecipe.imageUrl ?: newImageUrl,
-                        sourceImageUrl = downloadedImage?.effectiveUrl ?: pageImageUrl ?: freshRecipe.sourceImageUrl,
-                        userNotes = freshRecipe.userNotes
+                        sourceImageUrl = downloadedImage?.effectiveUrl ?: pageImageUrl ?: freshRecipe.sourceImageUrl
                     ).also { recipeRepository.saveRecipe(it) }
                 }
 

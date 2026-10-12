@@ -13,6 +13,8 @@ import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.model.MealType
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.StartOfWeek
+import com.lionotter.recipes.domain.model.hasTag
+import com.lionotter.recipes.domain.model.matchesSearch
 import com.lionotter.recipes.domain.usecase.GetTagsUseCase
 import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -156,12 +158,7 @@ class MealPlanViewModel @Inject constructor(
         _selectedTagFilter
     ) { recipes, query, tag ->
         recipes.filter { recipe ->
-            val matchesSearch = query.isBlank() ||
-                recipe.name.contains(query, ignoreCase = true) ||
-                recipe.tags.any { it.contains(query, ignoreCase = true) }
-            val matchesTag = tag == null ||
-                recipe.tags.any { it.equals(tag, ignoreCase = true) }
-            matchesSearch && matchesTag
+            recipe.matchesSearch(query) && (tag == null || recipe.hasTag(tag))
         }.sortedBy { it.name }
     }.stateIn(
         scope = viewModelScope,

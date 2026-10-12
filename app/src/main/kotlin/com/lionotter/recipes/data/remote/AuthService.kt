@@ -249,8 +249,9 @@ class AuthService @Inject constructor(
     private suspend fun clearCredentialState() {
         try {
             CredentialManager.create(context).clearCredentialState(ClearCredentialStateRequest())
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            if (e is CancellationException) throw e
             Log.w(TAG, "Failed to clear credential state", e)
         }
     }

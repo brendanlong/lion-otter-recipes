@@ -1,5 +1,12 @@
 package com.lionotter.recipes.ui.screens.importselection
 
+import android.widget.Toast
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.platform.LocalContext
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.selection.triStateToggleable
@@ -37,6 +44,52 @@ import com.lionotter.recipes.ui.components.ErrorCard
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 
 /**
+ * Import selection destination. [ImportSelectionViewModel] reads the "importType" and "uri"
+ * arguments from its SavedStateHandle and parses the file once, so selections survive rotation.
+ */
+@Composable
+fun ImportSelectionRoute(
+    onImportStarted: () -> Unit,
+    onCancel: () -> Unit,
+    modifier: Modifier = Modifier,
+    viewModel: ImportSelectionViewModel = hiltViewModel()
+) {
+    val context = LocalContext.current
+    val selectionState by viewModel.uiState.collectAsStateWithLifecycle()
+    val currentOnImportStarted by rememberUpdatedState(onImportStarted)
+
+    // Results are collected here (not captured in a callback) so an import that finishes
+    // starting after rotation navigates with the current NavController.
+    LaunchedEffect(viewModel) {
+        viewModel.results.collect { result ->
+            when (result) {
+                is ImportSelectionViewModel.ImportResult.ImportStarted -> currentOnImportStarted()
+                is ImportSelectionViewModel.ImportResult.Error ->
+                    Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    // Auto-import single new .lorecipes recipes without showing selection screen
+    LaunchedEffect(selectionState) {
+        if (viewModel.shouldAutoImport()) {
+            viewModel.importSelected()
+        }
+    }
+
+    ImportSelectionScreen(
+        title = stringResource(R.string.select_recipes_to_import),
+        state = selectionState,
+        onToggleItem = viewModel::toggleItem,
+        onSelectAll = viewModel::selectAll,
+        onDeselectAll = viewModel::deselectAll,
+        onImportClick = viewModel::importSelected,
+        onCancelClick = onCancel,
+        modifier = modifier
+    )
+}
+
+/**
  * Shared import selection screen that displays a checklist of recipes
  * found in an import file. Used by Paprika import, .lorecipes file import,
  * and ZIP backup import.
@@ -57,9 +110,11 @@ fun ImportSelectionScreen(
     onSelectAll: () -> Unit,
     onDeselectAll: () -> Unit,
     onImportClick: () -> Unit,
-    onCancelClick: () -> Unit
+    onCancelClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Scaffold(
+        modifier = modifier,
         topBar = {
             RecipeTopAppBar(
                 title = title,

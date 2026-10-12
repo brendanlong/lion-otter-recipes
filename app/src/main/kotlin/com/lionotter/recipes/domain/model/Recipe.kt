@@ -37,6 +37,25 @@ data class Recipe(
     val userNotes: String? = null
 ) {
     /**
+     * This recipe with the AI-generated content of [parsed] (name, story, servings, times,
+     * instructions, equipment, tags) and [updatedAt] = [now]. Everything else (identity, image,
+     * source, favorite, notes, creation time) is kept, so adding a field to [Recipe] keeps it
+     * by default when a recipe is edited or regenerated.
+     */
+    fun withRegeneratedContent(parsed: Recipe, now: Instant): Recipe = copy(
+        name = parsed.name,
+        story = parsed.story,
+        servings = parsed.servings,
+        prepTime = parsed.prepTime,
+        cookTime = parsed.cookTime,
+        totalTime = parsed.totalTime,
+        instructionSections = parsed.instructionSections,
+        equipment = parsed.equipment,
+        tags = parsed.tags,
+        updatedAt = now
+    )
+
+    /**
      * Aggregates all ingredients from all steps across all instruction sections.
      * Combines amounts for the same ingredient name (case-insensitive) within each section,
      * respecting the yields multiplier on each step.

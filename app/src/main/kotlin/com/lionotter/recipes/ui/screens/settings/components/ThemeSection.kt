@@ -26,7 +26,8 @@ import com.lionotter.recipes.domain.model.ThemeMode
 @Composable
 fun ThemeSection(
     currentThemeMode: ThemeMode,
-    onThemeModeChange: (ThemeMode) -> Unit
+    onThemeModeChange: (ThemeMode) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -36,7 +37,7 @@ fun ThemeSection(
         ThemeMode.DARK to stringResource(R.string.theme_dark)
     )
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
             text = stringResource(R.string.theme),
             style = MaterialTheme.typography.titleMedium

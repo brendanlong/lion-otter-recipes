@@ -53,11 +53,15 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
+import com.lionotter.recipes.ui.format.formatScaleMultiplier
 import com.lionotter.recipes.domain.model.MealType
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.screens.mealplan.MealPlanDateFormat
 import kotlinx.datetime.LocalDate
 
+// The two steps still read the ViewModel directly; they get hoisted state when the grocery
+// list state is reworked into a single derived UI state.
+@Suppress("ComposeViewModelForwarding")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GroceryListScreen(
@@ -276,7 +280,7 @@ private fun MealPlanCheckboxRow(
             )
             Text(
                 text = mealTypeLabel + if (entry.entry.servings != 1.0) {
-                    " • ${formatServings(entry.entry.servings)}x"
+                    " • ${formatScaleMultiplier(entry.entry.servings)}"
                 } else "",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -473,13 +477,5 @@ private fun CheckRow(
             color = if (isChecked) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f)
         )
-    }
-}
-
-private fun formatServings(servings: Double): String {
-    return if (servings == servings.toLong().toDouble()) {
-        servings.toLong().toString()
-    } else {
-        servings.toString()
     }
 }

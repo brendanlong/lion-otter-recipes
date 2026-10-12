@@ -10,6 +10,7 @@ import com.lionotter.recipes.data.remote.dto.toDto
 import com.lionotter.recipes.data.remote.uid
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.util.ErrorLog
+import com.lionotter.recipes.data.remote.dto.MealPlanFields
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -102,7 +103,7 @@ class MealPlanRepository @Inject constructor(
     override suspend fun deleteMealPlansByRecipeId(recipeId: String) = withContext(NonCancellable) {
         logFailure(TAG, "Error querying meal plans for recipe $recipeId") {
             val snapshot = firestoreService.mealPlansCollection(authService.awaitUid())
-                .whereEqualTo("recipeId", recipeId)
+                .whereEqualTo(MealPlanFields.RECIPE_ID, recipeId)
                 .get()
                 .await()
 
@@ -125,7 +126,7 @@ class MealPlanRepository @Inject constructor(
     override suspend fun countMealPlansByRecipeId(recipeId: String): Int =
         logFailure(TAG, "Error counting meal plans for recipe $recipeId") {
             firestoreService.mealPlansCollection(authService.awaitUid())
-                .whereEqualTo("recipeId", recipeId)
+                .whereEqualTo(MealPlanFields.RECIPE_ID, recipeId)
                 .get()
                 .await()
                 .size()
@@ -139,7 +140,7 @@ class MealPlanRepository @Inject constructor(
             // Firestore whereIn supports max 30 values per query, so chunk if needed
             recipeIds.chunked(30).sumOf { chunk ->
                 firestoreService.mealPlansCollection(uid)
-                    .whereIn("recipeId", chunk)
+                    .whereIn(MealPlanFields.RECIPE_ID, chunk)
                     .get()
                     .await()
                     .size()

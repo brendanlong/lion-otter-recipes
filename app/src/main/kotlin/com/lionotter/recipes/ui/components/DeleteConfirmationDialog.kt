@@ -11,9 +11,9 @@ import com.lionotter.recipes.R
 @Composable
 fun DeleteConfirmationDialog(
     recipeName: String,
-    affectedMealPlanCount: Int = 0,
     onConfirm: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    affectedMealPlanCount: Int = 0
 ) {
     val message = buildString {
         append(stringResource(R.string.delete_recipe_confirmation, recipeName))
@@ -48,9 +48,9 @@ fun DeleteConfirmationDialog(
 @Composable
 fun BulkDeleteConfirmationDialog(
     recipeCount: Int,
-    affectedMealPlanCount: Int = 0,
     onConfirm: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    affectedMealPlanCount: Int = 0
 ) {
     val message = buildString {
         append(

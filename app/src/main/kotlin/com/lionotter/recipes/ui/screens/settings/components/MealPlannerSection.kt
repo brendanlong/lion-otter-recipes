@@ -30,7 +30,8 @@ import java.time.format.TextStyle
 @Composable
 fun MealPlannerSection(
     startOfWeek: StartOfWeek,
-    onStartOfWeekChange: (StartOfWeek) -> Unit
+    onStartOfWeekChange: (StartOfWeek) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
     val locale = LocalConfiguration.current.locales[0]
@@ -49,7 +50,7 @@ fun MealPlannerSection(
         StartOfWeek.SUNDAY to DayOfWeek.SUNDAY.getDisplayName(TextStyle.FULL, locale)
     )
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
             text = stringResource(R.string.meal_planner_settings),
             style = MaterialTheme.typography.titleMedium

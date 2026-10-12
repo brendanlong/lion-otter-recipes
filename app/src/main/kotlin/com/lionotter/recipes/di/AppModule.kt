@@ -1,5 +1,6 @@
 package com.lionotter.recipes.di
 
+import com.lionotter.recipes.util.AppJson
 import com.lionotter.recipes.util.ErrorLog
 import dagger.Module
 import dagger.Provides
@@ -23,14 +24,7 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideJson(): Json {
-        return Json {
-            ignoreUnknownKeys = true
-            isLenient = true
-            encodeDefaults = true
-            prettyPrint = false
-        }
-    }
+    fun provideJson(): Json = AppJson
 
     @Provides
     @Singleton

@@ -85,7 +85,7 @@ class AmountAccumulator {
      */
     fun toRecipeAmounts(): List<Amount> {
         val measured = categoryTotals(preferWeight = false).map { total ->
-            val units = unitsSeen[total.category]!!
+            val units = unitsSeen.getValue(total.category)
             if (!total.converted && units.size == 1) {
                 fromBaseUnitTo(total.baseValue, units.first())
             } else {
@@ -108,7 +108,7 @@ class AmountAccumulator {
         preferWeight: Boolean = false
     ): List<Amount> {
         val measured = categoryTotals(preferWeight).map { total ->
-            val units = unitsSeen[total.category]!!
+            val units = unitsSeen.getValue(total.category)
             val singleUnit = units.singleOrNull()
             val keepUnit = !total.converted &&
                 total.category == UnitCategory.VOLUME &&

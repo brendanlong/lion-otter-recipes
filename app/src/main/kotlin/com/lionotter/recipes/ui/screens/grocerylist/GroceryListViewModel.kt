@@ -87,7 +87,7 @@ class GroceryListViewModel @Inject constructor(
     private val groceryListStateStore: GroceryListStateStore
 ) : ViewModel() {
 
-    private val weekStart: LocalDate = LocalDate.parse(savedStateHandle.get<String>("weekStart")!!)
+    private val weekStart: LocalDate = LocalDate.parse(checkNotNull(savedStateHandle.get<String>("weekStart")) { "Missing weekStart argument" })
     private val weekEnd: LocalDate = weekStart.plus(6, DateTimeUnit.DAY)
 
     private val _step = MutableStateFlow(GroceryListStep.SELECT_RECIPES)

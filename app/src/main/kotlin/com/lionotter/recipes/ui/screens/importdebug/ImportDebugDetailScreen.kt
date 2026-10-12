@@ -85,6 +85,7 @@ private const val DISPLAY_CHUNK_CHARS = 4_000
 @Composable
 fun ImportDebugDetailScreen(
     onBackClick: () -> Unit,
+    modifier: Modifier = Modifier,
     onNavigateToRecipe: ((String) -> Unit)? = null,
     viewModel: ImportDebugDetailViewModel = hiltViewModel()
 ) {
@@ -92,6 +93,7 @@ fun ImportDebugDetailScreen(
     val summary = (state as? ImportDebugDetailState.Loaded)?.summary
 
     Scaffold(
+        modifier = modifier,
         topBar = {
             RecipeTopAppBar(
                 title = summary?.recipeName ?: summary?.sourceUrl ?: stringResource(R.string.import_debug_data),

@@ -1,11 +1,22 @@
 package com.lionotter.recipes.data.remote.dto
 
+import android.util.Log
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentId
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.model.MealType
+import com.lionotter.recipes.util.enumOrNull
 import kotlin.time.Instant
 import kotlinx.datetime.LocalDate
+
+/**
+ * Firestore field names of [MealPlanDto] used in queries and partial updates. Must match the
+ * DTO's serialized property names (checked by DtoFieldDriftTest).
+ */
+object MealPlanFields {
+    const val RECIPE_ID = "recipeId"
+    const val RECIPE_IMAGE_URL = "recipeImageUrl"
+}
 
 data class MealPlanDto(
     @DocumentId val id: String = "",
@@ -24,7 +35,9 @@ data class MealPlanDto(
         recipeName = recipeName,
         recipeImageUrl = recipeImageUrl,
         date = LocalDate.parse(date),
-        mealType = try { MealType.valueOf(mealType) } catch (_: Exception) { MealType.DINNER },
+        mealType = enumOrNull<MealType>(mealType) ?: MealType.DINNER.also {
+            Log.w("MealPlanDto", "Unknown meal type '$mealType' in meal plan $id; showing it as dinner")
+        },
         servings = servings,
         createdAt = createdAt?.let { Instant.fromEpochSeconds(it.seconds, it.nanoseconds) }
             ?: Instant.fromEpochMilliseconds(0),

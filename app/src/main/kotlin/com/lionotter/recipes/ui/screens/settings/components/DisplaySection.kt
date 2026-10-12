@@ -19,9 +19,10 @@ import com.lionotter.recipes.R
 @Composable
 fun DisplaySection(
     keepScreenOn: Boolean,
-    onKeepScreenOnChange: (Boolean) -> Unit
+    onKeepScreenOnChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
             text = stringResource(R.string.display),
             style = MaterialTheme.typography.titleMedium

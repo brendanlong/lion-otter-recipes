@@ -86,9 +86,7 @@ object Pluralizer {
         }
 
         // Check against the replacement map for a direct word replacement
-        if (replaceMap.containsKey(token)) {
-            return restoreCase(word, replaceMap[token]!!)
-        }
+        replaceMap[token]?.let { return restoreCase(word, it) }
 
         // Run all the rules against the word
         return sanitizeWord(token, word, rules)

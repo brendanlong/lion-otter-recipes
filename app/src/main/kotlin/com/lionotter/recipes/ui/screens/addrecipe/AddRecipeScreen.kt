@@ -60,6 +60,7 @@ fun AddRecipeScreen(
     onBackClick: () -> Unit,
     onRecipeAdded: (String) -> Unit,
     onNavigateToSettings: () -> Unit,
+    modifier: Modifier = Modifier,
     onNavigateToImportSelection: (importType: String, uri: Uri) -> Unit = { _, _ -> },
     viewModel: AddRecipeViewModel = hiltViewModel()
 ) {
@@ -95,6 +96,7 @@ fun AddRecipeScreen(
     }
 
     Scaffold(
+        modifier = modifier,
         topBar = {
             RecipeTopAppBar(
                 title = stringResource(R.string.import_recipe),

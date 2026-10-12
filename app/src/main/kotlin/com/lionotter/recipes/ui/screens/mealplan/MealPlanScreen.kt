@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
+import com.lionotter.recipes.ui.format.formatScaleMultiplier
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.ui.components.RecipeThumbnail
 import com.lionotter.recipes.ui.components.SwipeActionBox
@@ -77,12 +78,16 @@ import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.plus
 
+// AddMealPlanDialog still reads the dialog fields from the ViewModel; it gets hoisted state
+// when those fields are replaced by a single dialog state.
+@Suppress("ComposeViewModelForwarding")
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun MealPlanScreen(
     onRecipeClick: (String) -> Unit,
     onBackClick: () -> Unit,
     onGroceryListClick: (String) -> Unit,
+    modifier: Modifier = Modifier,
     viewModel: MealPlanViewModel = hiltViewModel()
 ) {
     val weekStart by viewModel.currentWeekStart.collectAsStateWithLifecycle()
@@ -137,6 +142,7 @@ fun MealPlanScreen(
     }
 
     Scaffold(
+        modifier = modifier,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             RecipeTopAppBar(
@@ -410,10 +416,7 @@ private fun MealPlanCard(
                         )
                         if (entry.servings != 1.0) {
                             Text(
-                                text = stringResource(
-                                    R.string.servings_format,
-                                    formatServings(entry.servings)
-                                ),
+                                text = formatScaleMultiplier(entry.servings),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -456,13 +459,5 @@ private fun MealPlanCard(
                 }
             )
         }
-    }
-}
-
-private fun formatServings(servings: Double): String {
-    return if (servings == servings.toLong().toDouble()) {
-        servings.toLong().toString()
-    } else {
-        servings.toString()
     }
 }

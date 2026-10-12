@@ -26,14 +26,15 @@ fun UnitPreferencesSection(
     groceryVolumeUnitSystem: UnitSystem,
     onGroceryVolumeUnitSystemChange: (UnitSystem) -> Unit,
     groceryWeightUnitSystem: UnitSystem,
-    onGroceryWeightUnitSystemChange: (UnitSystem) -> Unit
+    onGroceryWeightUnitSystemChange: (UnitSystem) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val options = listOf(
         UnitSystem.CUSTOMARY to stringResource(R.string.unit_system_customary),
         UnitSystem.METRIC to stringResource(R.string.unit_system_metric)
     )
 
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(
             text = stringResource(R.string.unit_preferences),
             style = MaterialTheme.typography.titleMedium
