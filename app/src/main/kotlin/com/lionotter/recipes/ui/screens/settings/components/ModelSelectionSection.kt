@@ -23,14 +23,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
+import com.lionotter.recipes.data.remote.AnthropicService
 
 private val MODELS
     @Composable get() = listOf(
-        "claude-opus-4-6" to stringResource(R.string.model_opus_4_6),
-        "claude-opus-4-5" to stringResource(R.string.model_opus),
-        "claude-sonnet-4-6" to stringResource(R.string.model_sonnet_4_6),
-        "claude-sonnet-4-5" to stringResource(R.string.model_sonnet),
-        "claude-haiku-4-5" to stringResource(R.string.model_haiku)
+        AnthropicService.MODEL_OPUS to stringResource(R.string.model_opus_5_5),
+        AnthropicService.MODEL_SONNET to stringResource(R.string.model_sonnet_5_5),
+        AnthropicService.MODEL_HAIKU to stringResource(R.string.model_haiku_4_5),
+        AnthropicService.MODEL_FABLE to stringResource(R.string.model_fable_5_1)
     )
 
 /**
@@ -123,6 +123,8 @@ private fun ModelDropdown(
     description: String? = null
 ) {
     var expanded by remember { mutableStateOf(false) }
+    // Settings saved by older app versions may hold retired model IDs; show what will actually be used.
+    val effectiveModel = AnthropicService.normalizeModel(currentModel)
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (label != null) {
@@ -144,7 +146,7 @@ private fun ModelDropdown(
             onExpandedChange = { expanded = !expanded }
         ) {
             OutlinedTextField(
-                value = models.find { it.first == currentModel }?.second ?: currentModel,
+                value = models.find { it.first == effectiveModel }?.second ?: effectiveModel,
                 onValueChange = {},
                 modifier = Modifier
                     .fillMaxWidth()

@@ -3,6 +3,7 @@ package com.lionotter.recipes.domain.usecase
 import android.util.Log
 import com.lionotter.recipes.data.local.ImportDebugEntity
 import com.lionotter.recipes.data.local.SettingsDataStore
+import com.lionotter.recipes.data.remote.AnthropicRequestException
 import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.remote.ParseResultWithUsage
@@ -10,12 +11,14 @@ import com.lionotter.recipes.data.remote.RecipeParseException
 import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.ResourceLimits
+import com.lionotter.recipes.data.remote.RecipeParseResult
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.util.RecipeHtmlExtractor
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import kotlin.time.Clock
-import net.dankito.readability4j.Readability4J
-import org.jsoup.Jsoup
 import java.util.UUID
 import javax.inject.Inject
 import kotlin.coroutines.coroutineContext
@@ -24,7 +27,7 @@ import kotlin.coroutines.coroutineContext
  * Use case for parsing content into a Recipe using AI.
  *
  * Provides two entry points:
- * - [parseHtml]: extracts readable content from raw HTML via Readability4J, then parses with AI
+ * - [parseHtml]: extracts JSON-LD and readable text from raw HTML, then parses with AI
  * - [parseText]: parses pre-extracted text directly with AI (used by Paprika import)
  */
 class ParseHtmlUseCase @Inject constructor(
@@ -39,7 +42,8 @@ class ParseHtmlUseCase @Inject constructor(
     }
     sealed class ParseResult {
         data class Success(val recipe: Recipe) : ParseResult()
-        data class Error(val message: String) : ParseResult()
+        /** [retryable] is true when the failure is transient (network, rate limit, overload). */
+        data class Error(val message: String, val retryable: Boolean = false) : ParseResult()
         object NoApiKey : ParseResult()
     }
 
@@ -53,7 +57,7 @@ class ParseHtmlUseCase @Inject constructor(
 
     /**
      * Parse raw HTML content into a Recipe using AI.
-     * Extracts readable content via Readability4J before sending to the AI.
+     * Extracts schema.org JSON-LD and readable text before sending to the AI.
      *
      * @param html The raw HTML content
      * @param sourceUrl Optional URL for the recipe source
@@ -74,11 +78,11 @@ class ParseHtmlUseCase @Inject constructor(
         onProgress: suspend (ParseProgress) -> Unit = {}
     ): ParseResult {
         onProgress(ParseProgress.ExtractingContent)
-        val extractedContent = extractContent(html, sourceUrl)
-        val extractedImageUrl = imageUrl ?: extractImageUrl(html)
+        val pageContent = RecipeHtmlExtractor.extract(html, sourceUrl)
+        val extractedImageUrl = imageUrl ?: pageContent.imageUrl
 
         return parseText(
-            text = extractedContent,
+            text = pageContent.text,
             sourceUrl = sourceUrl,
             imageUrl = extractedImageUrl,
             saveRecipe = saveRecipe,
@@ -96,7 +100,8 @@ class ParseHtmlUseCase @Inject constructor(
      *
      * @param text The pre-extracted text content to send to the AI
      * @param sourceUrl Optional URL for the recipe source
-     * @param imageUrl Optional image URL for the recipe
+     * @param imageUrl Optional image URL for the recipe. Only downloaded when [saveRecipe] is true;
+     *   otherwise it is returned as [Recipe.sourceImageUrl] and the caller decides what to do with it.
      * @param saveRecipe Whether to save the recipe to the database (default true)
      * @param originalHtml Optional original HTML for debug data
      * @param model AI model override (null = use current setting)
@@ -128,14 +133,11 @@ class ParseHtmlUseCase @Inject constructor(
         if (saveRecipe) {
             val count = recipeRepository.getRecipeCount()
             if (count >= ResourceLimits.MAX_RECIPES) {
-                return ParseResult.Error(
-                    "Recipe limit reached ($count/${ResourceLimits.MAX_RECIPES}). " +
-                        "Delete some recipes before importing new ones."
-                )
+                return ParseResult.Error(recipeLimitMessage(count))
             }
         }
 
-        val model = model ?: settingsDataStore.aiModel.first()
+        val model = AnthropicService.normalizeModel(model ?: settingsDataStore.aiModel.first())
         val thinkingEnabled = thinkingEnabled ?: settingsDataStore.thinkingEnabled.first()
         val debuggingEnabled = settingsDataStore.importDebuggingEnabled.first()
 
@@ -145,15 +147,15 @@ class ParseHtmlUseCase @Inject constructor(
         val parseResult = anthropicService.parseRecipe(text, apiKey, model, thinkingEnabled, densityOverrides, aiInstructions)
         val durationMs = System.currentTimeMillis() - startTime
         if (parseResult.isFailure) {
-            val errorMessage = "Failed to parse recipe: ${parseResult.exceptionOrNull()?.message}"
+            val exception = parseResult.exceptionOrNull()
+            Log.w(TAG, "AI parse failed for ${sourceUrl ?: "text input"}", exception)
+            val errorMessage = when (exception) {
+                is RecipeParseException -> "Couldn't read a recipe: ${exception.message}"
+                else -> exception?.message ?: "Failed to parse recipe"
+            }
+            val retryable = (exception as? AnthropicRequestException)?.isTransient == true
 
             if (debuggingEnabled) {
-                val exception = parseResult.exceptionOrNull()
-                val aiErrorMessage = if (exception is RecipeParseException) {
-                    exception.message
-                } else {
-                    exception?.message
-                }
                 saveDebugEntry(
                     sourceUrl = sourceUrl,
                     originalHtml = originalHtml,
@@ -165,13 +167,13 @@ class ParseHtmlUseCase @Inject constructor(
                     thinkingEnabled = thinkingEnabled,
                     recipeId = null,
                     recipeName = null,
-                    errorMessage = aiErrorMessage,
+                    errorMessage = exception?.message,
                     isError = true,
                     durationMs = durationMs
                 )
             }
 
-            return ParseResult.Error(errorMessage)
+            return ParseResult.Error(errorMessage, retryable)
         }
         val parsedWithUsage = parseResult.getOrThrow()
         val parsed = parsedWithUsage.result
@@ -182,37 +184,20 @@ class ParseHtmlUseCase @Inject constructor(
         // Notify that recipe name is available
         onProgress(ParseProgress.RecipeNameAvailable(parsed.name))
 
-        // Download image locally if available, then upload to Firebase Storage
-        val downloadResult = imageUrl?.let { imageDownloadService.downloadAndStoreWithResult(it) }
-        val storedImageUrl = downloadResult?.localUri?.let { localUri ->
-            imageDownloadService.storeImage(localUri)
-        }
-
-        // Create Recipe
-        val now = Clock.System.now()
-        val recipe = Recipe(
-            id = UUID.randomUUID().toString(),
-            name = parsed.name,
-            sourceUrl = sourceUrl,
-            story = parsed.story,
-            servings = parsed.servings,
-            prepTime = parsed.prepTime,
-            cookTime = parsed.cookTime,
-            totalTime = parsed.totalTime,
-            instructionSections = parsed.instructionSections,
-            equipment = parsed.equipment,
-            tags = parsed.tags,
-            imageUrl = storedImageUrl,
-            sourceImageUrl = downloadResult?.effectiveUrl ?: imageUrl,
-            createdAt = now,
-            updatedAt = now
-        )
-
-        // Save to database if requested
-        if (saveRecipe) {
+        val recipe = if (saveRecipe) {
+            // Image download is cancellable; once it's done, upload + save run to completion.
+            val downloadResult = imageUrl?.let { imageDownloadService.downloadAndStoreWithResult(it) }
             coroutineContext.ensureActive()
             onProgress(ParseProgress.SavingRecipe)
-            recipeRepository.saveRecipe(recipe)
+            withContext(NonCancellable) {
+                val storedImageUrl = downloadResult?.localUri?.let { imageDownloadService.storeImage(it) }
+                buildRecipe(parsed, sourceUrl, storedImageUrl, downloadResult?.effectiveUrl ?: imageUrl)
+                    .also { recipeRepository.saveRecipe(it) }
+            }
+        } else {
+            // Callers that don't save (edit/regenerate) manage the image themselves, so don't
+            // download or upload anything here (that would orphan a copy on every edit).
+            buildRecipe(parsed, sourceUrl, storedImageUrl = null, sourceImageUrl = imageUrl)
         }
 
         // Save debug data on success if debugging is enabled
@@ -253,7 +238,7 @@ class ParseHtmlUseCase @Inject constructor(
      * @param model The AI model used
      * @param thinkingEnabled Whether thinking was enabled
      * @param durationMs Time taken for the batch to process (optional)
-     * @return The saved Recipe, or null if saving failed
+     * @return The saved Recipe, or a failure with a user-facing message
      */
     suspend fun saveBatchResult(
         parsedWithUsage: ParseResultWithUsage,
@@ -264,45 +249,22 @@ class ParseHtmlUseCase @Inject constructor(
         model: String,
         thinkingEnabled: Boolean,
         durationMs: Long? = null
-    ): Recipe? {
-        // Check recipe count limit
+    ): Result<Recipe> {
         val count = recipeRepository.getRecipeCount()
         if (count >= ResourceLimits.MAX_RECIPES) {
             Log.w(TAG, "Recipe limit reached ($count/${ResourceLimits.MAX_RECIPES}), skipping batch save")
-            return null
+            return Result.failure(IllegalStateException(recipeLimitMessage(count)))
         }
 
         val parsed = parsedWithUsage.result
 
-        // Download image locally if available, then upload to Firebase Storage
         val downloadResult = imageUrl?.let { imageDownloadService.downloadAndStoreWithResult(it) }
-        val storedImageUrl = downloadResult?.localUri?.let { localUri ->
-            imageDownloadService.storeImage(localUri)
-        }
-
-        // Create Recipe
-        val now = Clock.System.now()
-        val recipe = Recipe(
-            id = UUID.randomUUID().toString(),
-            name = parsed.name,
-            sourceUrl = sourceUrl,
-            story = parsed.story,
-            servings = parsed.servings,
-            prepTime = parsed.prepTime,
-            cookTime = parsed.cookTime,
-            totalTime = parsed.totalTime,
-            instructionSections = parsed.instructionSections,
-            equipment = parsed.equipment,
-            tags = parsed.tags,
-            imageUrl = storedImageUrl,
-            sourceImageUrl = downloadResult?.effectiveUrl ?: imageUrl,
-            createdAt = now,
-            updatedAt = now
-        )
-
-        // Save to database
         coroutineContext.ensureActive()
-        recipeRepository.saveRecipe(recipe)
+        val recipe = withContext(NonCancellable) {
+            val storedImageUrl = downloadResult?.localUri?.let { imageDownloadService.storeImage(it) }
+            buildRecipe(parsed, sourceUrl, storedImageUrl, downloadResult?.effectiveUrl ?: imageUrl)
+                .also { recipeRepository.saveRecipe(it) }
+        }
 
         // Save debug data if debugging is enabled
         val debuggingEnabled = settingsDataStore.importDebuggingEnabled.first()
@@ -325,7 +287,7 @@ class ParseHtmlUseCase @Inject constructor(
             )
         }
 
-        return recipe
+        return Result.success(recipe)
     }
 
     /**
@@ -397,47 +359,38 @@ class ParseHtmlUseCase @Inject constructor(
             createdAt = Clock.System.now().toEpochMilliseconds(),
             batchMode = batchMode
         )
-        importDebugRepository.saveDebugEntry(entry)
-    }
-
-    private fun extractContent(html: String, sourceUrl: String?): String {
-        return try {
-            val url = sourceUrl ?: "https://example.com"
-            val readability = Readability4J(url, html)
-            val article = readability.parse()
-
-            val title = article.title
-            val content = article.textContent?.takeIf { it.isNotBlank() }
-                ?: article.content
-                ?: html
-
-            buildString {
-                if (!title.isNullOrBlank()) {
-                    appendLine("Title: $title")
-                    appendLine()
-                }
-                append(content)
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to extract content from HTML, falling back to raw HTML", e)
-            html
+        withContext(NonCancellable) {
+            importDebugRepository.saveDebugEntry(entry)
         }
     }
 
-    private fun extractImageUrl(html: String): String? {
-        return try {
-            val doc = Jsoup.parse(html)
-            doc.selectFirst("meta[property=og:image]")?.attr("content")
-                ?.takeIf { it.isNotBlank() }
-                ?: doc.selectFirst("meta[name=og:image]")?.attr("content")
-                    ?.takeIf { it.isNotBlank() }
-                ?: doc.selectFirst("meta[name=twitter:image]")?.attr("content")
-                    ?.takeIf { it.isNotBlank() }
-                ?: doc.selectFirst("meta[name=image]")?.attr("content")
-                    ?.takeIf { it.isNotBlank() }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to extract image URL from HTML", e)
-            null
-        }
+    private fun buildRecipe(
+        parsed: RecipeParseResult,
+        sourceUrl: String?,
+        storedImageUrl: String?,
+        sourceImageUrl: String?
+    ): Recipe {
+        val now = Clock.System.now()
+        return Recipe(
+            id = UUID.randomUUID().toString(),
+            name = parsed.name,
+            sourceUrl = sourceUrl,
+            story = parsed.story,
+            servings = parsed.servings,
+            prepTime = parsed.prepTime,
+            cookTime = parsed.cookTime,
+            totalTime = parsed.totalTime,
+            instructionSections = parsed.instructionSections,
+            equipment = parsed.equipment,
+            tags = parsed.tags,
+            imageUrl = storedImageUrl,
+            sourceImageUrl = sourceImageUrl,
+            createdAt = now,
+            updatedAt = now
+        )
     }
+
+    private fun recipeLimitMessage(count: Int): String =
+        "Recipe limit reached ($count/${ResourceLimits.MAX_RECIPES}). " +
+            "Delete some recipes before importing new ones."
 }
