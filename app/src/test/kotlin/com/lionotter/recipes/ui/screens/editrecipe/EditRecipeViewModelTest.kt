@@ -1,8 +1,17 @@
 package com.lionotter.recipes.ui.screens.editrecipe
 
 import android.net.Uri
+import android.util.Log
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
 import androidx.lifecycle.SavedStateHandle
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import androidx.work.workDataOf
+import com.lionotter.recipes.worker.RecipeEditWorker
+import com.lionotter.recipes.worker.RecipeWorkScheduler
+import java.io.IOException
+import java.util.UUID
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.repository.IRecipeRepository
@@ -74,8 +83,55 @@ class EditRecipeViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun createViewModel(handle: SavedStateHandle = SavedStateHandle(mapOf("recipeId" to "r1"))) =
-        EditRecipeViewModel(handle, recipeRepository, settingsDataStore, workManager, imageDownloadService, mockk(relaxed = true), TestScope(UnconfinedTestDispatcher()))
+    private fun createViewModel(
+        handle: SavedStateHandle = SavedStateHandle(mapOf("recipeId" to "r1")),
+        scheduler: RecipeWorkScheduler = mockk(relaxed = true)
+    ) = EditRecipeViewModel(handle, recipeRepository, settingsDataStore, workManager, imageDownloadService, scheduler, TestScope(UnconfinedTestDispatcher()))
+
+    @Test
+    fun `failure to start the AI edit shows an error instead of crashing`() = runTest {
+        mockkStatic(Log::class)
+        every { Log.e(any(), any(), any()) } returns 0
+        val scheduler = mockk<RecipeWorkScheduler>()
+        every { scheduler.enqueueEdit(any(), any(), any(), any(), any(), any()) } throws IOException("disk full")
+        val viewModel = createViewModel(scheduler = scheduler)
+        advanceUntilIdle()
+
+        viewModel.setMarkdownText("changed")
+        viewModel.saveEdits()
+
+        val state = viewModel.editState.first { it is EditUiState.Error }
+        assertTrue((state as EditUiState.Error).message.contains("disk full"))
+        unmockkStatic(Log::class)
+    }
+
+    @Test
+    fun `save as copy applies a pending image to the copy, not the original`() = runTest {
+        val workId = UUID.randomUUID()
+        val scheduler = mockk<RecipeWorkScheduler>()
+        every { scheduler.enqueueEdit("r1", any(), any(), any(), true, any()) } returns workId
+        val finished = mockk<WorkInfo> {
+            every { state } returns WorkInfo.State.SUCCEEDED
+            every { outputData } returns workDataOf(RecipeEditWorker.KEY_NEW_RECIPE_ID to "copy1")
+        }
+        every { workManager.getWorkInfoByIdFlow(workId) } returns flowOf(finished)
+        coEvery { recipeRepository.getRecipeByIdOnce("copy1") } returns recipe.copy(id = "copy1")
+        coEvery { imageDownloadService.storeImage("file:///new.jpg", "file:///old.jpg", "copy1") } returns "gs://new"
+        val contentUri = mockk<Uri>()
+        coEvery { imageDownloadService.saveImageFromContentUri(contentUri) } returns "file:///new.jpg"
+        val viewModel = createViewModel(scheduler = scheduler)
+        advanceUntilIdle()
+        viewModel.onImageSelected(contentUri)
+        viewModel.imageUrl.first { it == "file:///new.jpg" }
+
+        viewModel.saveAsCopy()
+        viewModel.editState.first { it == EditUiState.Loading("Preparing...") }
+        advanceUntilIdle()
+
+        verify { recipeRepository.setImageUrl("copy1", "gs://new") }
+        verify(exactly = 0) { recipeRepository.setImageUrl("r1", any()) }
+        coVerify(exactly = 0) { imageDownloadService.deleteLocalImage("file:///new.jpg") }
+    }
 
     @Test
     fun `fields are populated from the recipe and start clean`() = runTest {
@@ -108,7 +164,7 @@ class EditRecipeViewModelTest {
     fun `picked image is pending until save`() = runTest {
         val contentUri = mockk<Uri>()
         coEvery { imageDownloadService.saveImageFromContentUri(contentUri) } returns "file:///new.jpg"
-        coEvery { imageDownloadService.storeImage("file:///new.jpg", "file:///old.jpg") } returns "gs://new"
+        coEvery { imageDownloadService.storeImage("file:///new.jpg", "file:///old.jpg", "r1") } returns "gs://new"
         val viewModel = createViewModel()
         advanceUntilIdle()
 
@@ -128,7 +184,7 @@ class EditRecipeViewModelTest {
 
     @Test
     fun `removing image is applied on save`() = runTest {
-        coEvery { imageDownloadService.cleanupImage("file:///old.jpg") } just runs
+        coEvery { imageDownloadService.cleanupImage("file:///old.jpg", "r1") } just runs
         val viewModel = createViewModel()
         advanceUntilIdle()
 
@@ -140,7 +196,7 @@ class EditRecipeViewModelTest {
         viewModel.saveEdits()
         advanceUntilIdle()
 
-        coVerify { imageDownloadService.cleanupImage("file:///old.jpg") }
+        coVerify { imageDownloadService.cleanupImage("file:///old.jpg", "r1") }
         verify { recipeRepository.setImageUrl("r1", null) }
     }
 }
