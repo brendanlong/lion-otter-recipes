@@ -13,6 +13,8 @@ import com.google.firebase.storage.StorageException
 import com.google.firebase.storage.storage
 import com.google.firebase.storage.storageMetadata
 import com.lionotter.recipes.util.ErrorLog
+import com.lionotter.recipes.data.remote.dto.RecipeFields
+import com.lionotter.recipes.data.remote.dto.MealPlanFields
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -205,7 +207,7 @@ class ImageSyncService @Inject constructor(
             var uploaded = 0
             var failed = 0
             for (doc in recipes) {
-                val localUri = doc.getString("imageUrl")?.takeIf { it.startsWith("file://") } ?: continue
+                val localUri = doc.getString(RecipeFields.IMAGE_URL)?.takeIf { it.startsWith("file://") } ?: continue
                 if (!localFileExists(localUri)) {
                     Log.w(TAG, "Local image for recipe ${doc.id} no longer exists; nothing to upload")
                     continue
@@ -218,8 +220,8 @@ class ImageSyncService @Inject constructor(
                 }
                 try {
                     val applied = doc.reference.firestore.runTransaction { tx ->
-                        val current = tx.get(doc.reference).getString("imageUrl")
-                        if (current == localUri) tx.update(doc.reference, "imageUrl", gsUri)
+                        val current = tx.get(doc.reference).getString(RecipeFields.IMAGE_URL)
+                        if (current == localUri) tx.update(doc.reference, RecipeFields.IMAGE_URL, gsUri)
                         current == localUri
                     }.await()
                     if (applied) {
@@ -229,8 +231,9 @@ class ImageSyncService @Inject constructor(
                         Log.i(TAG, "Recipe ${doc.id} image changed during upload; discarding the upload")
                         if (!isStorageObjectReferenced(uid, gsUri)) deleteRemoteImage(gsUri)
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
-                    if (e is CancellationException) throw e
                     Log.w(TAG, "Failed to point recipe ${doc.id} at its uploaded image", e)
                     failed++
                 }
@@ -251,10 +254,11 @@ class ImageSyncService @Inject constructor(
         val uid = googleUid() ?: return@withContext false
         try {
             firestoreService.recipesCollection(uid).get(Source.CACHE).await().documents.any { doc ->
-                doc.getString("imageUrl")?.takeIf { it.startsWith("file://") }?.let(::localFileExists) == true
+                doc.getString(RecipeFields.IMAGE_URL)?.takeIf { it.startsWith("file://") }?.let(::localFileExists) == true
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            if (e is CancellationException) throw e
             Log.w(TAG, "Could not check for images pending upload", e)
             true
         }
@@ -265,9 +269,10 @@ class ImageSyncService @Inject constructor(
     private fun localFileExists(localUri: String): Boolean = File(localUri.removePrefix("file://")).exists()
 
     private suspend fun isStorageObjectReferenced(uid: String, gsUri: String): Boolean = try {
-        !firestoreService.recipesCollection(uid).whereEqualTo("imageUrl", gsUri).get().await().isEmpty
+        !firestoreService.recipesCollection(uid).whereEqualTo(RecipeFields.IMAGE_URL, gsUri).get().await().isEmpty
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: Exception) {
-        if (e is CancellationException) throw e
         Log.w(TAG, "Could not check whether $gsUri is in use; keeping it", e)
         true
     }
@@ -275,15 +280,16 @@ class ImageSyncService @Inject constructor(
     private suspend fun updateMealPlanImages(uid: String, localUri: String, gsUri: String) {
         try {
             val mealPlans = firestoreService.mealPlansCollection(uid)
-                .whereEqualTo("recipeImageUrl", localUri)
+                .whereEqualTo(MealPlanFields.RECIPE_IMAGE_URL, localUri)
                 .get()
                 .await()
             for (mealPlan in mealPlans.documents) {
-                mealPlan.reference.update("recipeImageUrl", gsUri)
+                mealPlan.reference.update(MealPlanFields.RECIPE_IMAGE_URL, gsUri)
                     .addOnFailureListener { e -> Log.w(TAG, "Failed to update meal plan image ${mealPlan.id}", e) }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            if (e is CancellationException) throw e
             Log.w(TAG, "Failed to update meal plan images for $localUri", e)
         }
     }

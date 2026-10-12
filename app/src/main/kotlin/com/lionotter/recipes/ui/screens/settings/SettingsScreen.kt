@@ -32,6 +32,7 @@ import kotlinx.datetime.todayIn
 import kotlin.time.Clock
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -52,6 +53,7 @@ import com.lionotter.recipes.ui.screens.settings.components.UnitPreferencesSecti
 @Composable
 fun SettingsScreen(
     onBackClick: () -> Unit,
+    modifier: Modifier = Modifier,
     onNavigateToImportDebug: () -> Unit = {},
     onNavigateToImportSelection: (importType: String, uri: Uri) -> Unit = { _, _ -> },
     viewModel: SettingsViewModel = hiltViewModel(),
@@ -77,6 +79,7 @@ fun SettingsScreen(
     val isDeletingAccount by viewModel.isDeletingAccount.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
+    val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var showDisableDebuggingDialog by rememberSaveable { mutableStateOf(false) }
@@ -153,15 +156,13 @@ fun SettingsScreen(
     }
 
     // Show snackbar for export operation results
-    // Context is used for string formatting in a side-effect, not for rendering
-    @Suppress("LocalContextGetResourceValueCall")
     LaunchedEffect(zipOperationState) {
         when (val state = zipOperationState) {
             is ZipOperationState.ExportComplete -> {
                 val message = if (state.failedCount > 0) {
-                    context.resources.getQuantityString(R.plurals.exported_recipes_with_failures, state.exportedCount, state.exportedCount, state.failedCount)
+                    resources.getQuantityString(R.plurals.exported_recipes_with_failures, state.exportedCount, state.exportedCount, state.failedCount)
                 } else {
-                    context.resources.getQuantityString(R.plurals.exported_recipes, state.exportedCount, state.exportedCount)
+                    resources.getQuantityString(R.plurals.exported_recipes, state.exportedCount, state.exportedCount)
                 }
                 snackbarHostState.showSnackbar(message)
                 zipViewModel.resetOperationState()
@@ -175,6 +176,7 @@ fun SettingsScreen(
     }
 
     Scaffold(
+        modifier = modifier,
         topBar = {
             RecipeTopAppBar(
                 title = stringResource(R.string.settings),

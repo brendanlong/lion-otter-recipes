@@ -39,15 +39,17 @@ jobs:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
 
-      - name: Run lint
-        run: ./gradlew lintDebug
+      - name: Run lint and detekt
+        run: ./gradlew lintDebug detektDebug --continue
 
       - name: Upload lint results
         uses: actions/upload-artifact@v7
         if: always()
         with:
           name: lint-results
-          path: app/build/reports/lint-results-debug.html
+          path: |
+            app/build/reports/lint-results-debug.html
+            app/build/reports/detekt/
 
   test:
     name: Unit Tests

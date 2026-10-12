@@ -30,6 +30,7 @@ fun AccountSection(
     onSignInWithGoogle: () -> Unit,
     onSignOut: () -> Unit,
     onDeleteAccount: () -> Unit,
+    modifier: Modifier = Modifier,
     isSigningIn: Boolean = false,
     isDeletingAccount: Boolean = false
 ) {
@@ -38,7 +39,7 @@ fun AccountSection(
     var deleteConfirmationText by remember { mutableStateOf("") }
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
     ) {

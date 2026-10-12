@@ -16,7 +16,8 @@ import javax.inject.Inject
  * Passes existing ingredient densities as hints to the AI so cheaper models (like Haiku)
  * can reuse known values instead of re-deriving them.
  *
- * Preserves the recipe's ID, createdAt, favorite status, image, and source URL.
+ * When editing in place only the AI-generated content changes (see
+ * [Recipe.withRegeneratedContent]); the ID, image, source, favorite status and notes are kept.
  */
 class EditRecipeUseCase @Inject constructor(
     private val parseHtmlUseCase: ParseHtmlUseCase,
@@ -108,17 +109,7 @@ class EditRecipeUseCase @Inject constructor(
                         sourceImageUrl = freshRecipe.sourceImageUrl
                     )
                 } else {
-                    // Overwrite with same ID, preserve key metadata
-                    parseResult.recipe.copy(
-                        id = freshRecipe.id,
-                        createdAt = freshRecipe.createdAt,
-                        updatedAt = now,
-                        isFavorite = freshRecipe.isFavorite,
-                        sourceUrl = freshRecipe.sourceUrl,
-                        imageUrl = freshRecipe.imageUrl,
-                        sourceImageUrl = freshRecipe.sourceImageUrl,
-                        userNotes = freshRecipe.userNotes
-                    )
+                    freshRecipe.withRegeneratedContent(parseResult.recipe, now)
                 }
 
                 onProgress(EditProgress.SavingRecipe)

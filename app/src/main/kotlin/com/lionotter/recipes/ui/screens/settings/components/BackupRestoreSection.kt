@@ -23,9 +23,10 @@ import com.lionotter.recipes.ui.screens.settings.ZipOperationState
 fun BackupRestoreSection(
     operationState: ZipOperationState,
     onExportClick: () -> Unit,
-    onImportClick: () -> Unit
+    onImportClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
             text = stringResource(R.string.backup_restore),
             style = MaterialTheme.typography.titleMedium

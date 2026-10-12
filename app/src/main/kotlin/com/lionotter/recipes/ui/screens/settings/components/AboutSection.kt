@@ -14,8 +14,8 @@ import com.lionotter.recipes.BuildConfig
 import com.lionotter.recipes.R
 
 @Composable
-fun AboutSection() {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+fun AboutSection(modifier: Modifier = Modifier) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = stringResource(R.string.about),
             style = MaterialTheme.typography.titleMedium

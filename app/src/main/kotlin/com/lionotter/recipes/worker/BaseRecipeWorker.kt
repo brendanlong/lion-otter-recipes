@@ -72,6 +72,9 @@ abstract class BaseRecipeWorker(
             try {
                 setForeground(notificationHelper.createForegroundInfo(progressNotificationId, notificationTitle, message))
                 return
+            } catch (e: CancellationException) {
+                // A CancellationException is also an IllegalStateException
+                throw e
             } catch (e: IllegalStateException) {
                 // ForegroundServiceStartNotAllowedException (Android 12+) is an IllegalStateException.
                 Log.w(TAG, "Not allowed to run ${javaClass.simpleName} in the foreground; continuing in background", e)

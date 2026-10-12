@@ -52,6 +52,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
+import com.lionotter.recipes.ui.format.formatScaleMultiplier
 import com.lionotter.recipes.domain.model.MealType
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.ui.components.RecipeThumbnail
@@ -68,7 +69,8 @@ import kotlinx.datetime.toLocalDateTime
 @Composable
 fun AddMealPlanDialog(
     viewModel: MealPlanViewModel,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val recipes by viewModel.filteredRecipes.collectAsStateWithLifecycle()
     val searchQuery by viewModel.recipeSearchQuery.collectAsStateWithLifecycle()
@@ -118,6 +120,7 @@ fun AddMealPlanDialog(
     }
 
     ModalBottomSheet(
+        modifier = modifier,
         onDismissRequest = onDismiss,
         sheetState = sheetState
     ) {
@@ -222,7 +225,7 @@ fun AddMealPlanDialog(
                         )
                     }
                     Text(
-                        text = formatServingsDisplay(selectedServings),
+                        text = formatScaleMultiplier(selectedServings),
                         style = MaterialTheme.typography.bodyLarge,
                         modifier = Modifier.padding(horizontal = 8.dp)
                     )
@@ -385,13 +388,5 @@ private fun mealTypeLabel(mealType: MealType): String {
         MealType.LUNCH -> stringResource(R.string.lunch)
         MealType.DINNER -> stringResource(R.string.dinner)
         MealType.SNACK -> stringResource(R.string.snack)
-    }
-}
-
-private fun formatServingsDisplay(servings: Double): String {
-    return if (servings == servings.toLong().toDouble()) {
-        "${servings.toLong()}x"
-    } else {
-        "${servings}x"
     }
 }

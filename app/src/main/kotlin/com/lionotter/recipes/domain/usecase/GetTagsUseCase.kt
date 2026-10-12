@@ -2,6 +2,7 @@ package com.lionotter.recipes.domain.usecase
 
 import android.util.Log
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.model.tagKey
 import org.ojalgo.optimisation.ExpressionsBasedModel
 import org.ojalgo.optimisation.Optimisation
 import javax.inject.Inject
@@ -84,14 +85,14 @@ class GetTagsUseCase @Inject constructor() {
             for (rawTag in recipe.tags) {
                 val tag = rawTag.trim()
                 if (tag.isEmpty()) continue
-                val key = tag.lowercase()
+                val key = tagKey(tag)
                 recipesByKey.getOrPut(key) { mutableSetOf() }.add(recipe.id)
                 val spellings = spellingsByKey.getOrPut(key) { mutableMapOf() }
                 spellings[tag] = (spellings[tag] ?: 0) + 1
             }
         }
         return recipesByKey.entries.associate { (key, recipeIds) ->
-            val displayName = spellingsByKey[key]!!.entries
+            val displayName = spellingsByKey.getValue(key).entries
                 .sortedWith(
                     compareByDescending<Map.Entry<String, Int>> { it.value }
                         .thenByDescending { it.key.first().isUpperCase() }
@@ -117,7 +118,7 @@ class GetTagsUseCase @Inject constructor() {
         // Build tag membership matrix: a_ij = 1 if recipe i has tag j
         val membership = Array(recipeCount) { BooleanArray(tags.size) }
         for ((j, tag) in tags.withIndex()) {
-            for (recipeId in tagToRecipes[tag]!!) {
+            for (recipeId in tagToRecipes.getValue(tag)) {
                 val i = recipeIndex[recipeId] ?: continue
                 membership[i][j] = true
             }
@@ -134,7 +135,7 @@ class GetTagsUseCase @Inject constructor() {
             model.addVariable("x_$j").binary().apply {
                 // IDF-weighted coverage: |tag_j| * ln(N / |tag_j|)
                 // Tags covering all recipes score 0; tags covering ~37% of recipes score highest.
-                val tagSize = tagToRecipes[tag]!!.size.toDouble()
+                val tagSize = tagToRecipes.getValue(tag).size.toDouble()
                 weight(tagSize * Math.log(recipeCount.toDouble() / tagSize))
             }
         }

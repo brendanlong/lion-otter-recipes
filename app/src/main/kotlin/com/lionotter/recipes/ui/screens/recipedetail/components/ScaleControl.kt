@@ -25,7 +25,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
-import kotlin.math.abs
+import com.lionotter.recipes.ui.format.formatScaleMultiplier
 import kotlin.math.roundToInt
 
 /**
@@ -86,19 +86,4 @@ internal fun ScaleControl(
             }
         }
     }
-}
-
-private val FRACTIONS = listOf(0.25 to "¼", 0.5 to "½", 0.75 to "¾")
-
-/** Formats a scale multiplier for display, e.g. 1.0 -> "1×", 1.5 -> "1½×", 0.25 -> "¼×". */
-internal fun formatScaleMultiplier(scale: Double): String {
-    val whole = scale.toLong()
-    val fraction = scale - whole
-    val fractionText = FRACTIONS.firstOrNull { abs(it.first - fraction) < 0.01 }?.second
-    val text = when {
-        abs(fraction) < 0.01 -> whole.toString()
-        fractionText != null -> if (whole == 0L) fractionText else "$whole$fractionText"
-        else -> "%.2f".format(scale).trimEnd('0').trimEnd('.')
-    }
-    return "$text×"
 }

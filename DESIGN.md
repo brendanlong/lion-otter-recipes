@@ -21,7 +21,7 @@ The app follows **Clean Architecture** with three distinct layers:
 
 ### Dependency Rule
 
-Dependencies point inward: UI → Domain → Data. The domain layer has no dependencies on Android frameworks or external libraries (except kotlinx for serialization).
+Dependencies point inward: UI → Domain → Data. The goal is a domain layer with no dependencies on Android frameworks or external libraries (except kotlinx for serialization). This is not true yet: use cases still use some data-layer services, `android.util.Log` and Compose stability annotations. `LayerDependencyTest` enforces the rules and lists the current exceptions (see Guardrails).
 
 ## Data Layer
 
@@ -35,6 +35,8 @@ Recipes and meal plans do **not** live in Room; they are stored in Firestore (se
 - `ImportDebugEntity` (`ImportDebugDao`): raw HTML, AI input/output and errors captured when import debugging is enabled. The DAO exposes lightweight summary queries (`getAllDebugSummaries`, `getDebugSummaryById`) and chunked content reads (`getContentLength`, `getContentChunk`) so large blobs are never loaded into a single cursor window.
 
 **Design Decision**: Large debug payloads are read in chunks because a single multi-megabyte column exceeds Android's CursorWindow limit.
+
+Migrations live in `RecipeDatabaseMigrations` (10→11 drops the Firestore-era tables, 11→12 adds `import_debug.batchMode`); versions before 10 are recreated destructively.
 
 #### DataStore
 
@@ -100,6 +102,7 @@ interface IRecipeRepository {
 - Both repositories re-subscribe when the auth state (`AuthService.authState`) or the Firestore instance generation (`FirestoreService.generation`) changes, so a sign-in, sign-out or local-data clear swaps the listener to the right user.
 - `data/repository/FirestoreFlows.kt` provides the shared listener helpers: an error-tolerant snapshot `Flow` (errors are logged and reported instead of killing the collector) and incremental decoding that only re-decodes changed documents and skips undecodable ones.
 - `ImportDebugRepository` wraps `ImportDebugDao`; `PendingImportRepository` wraps `PendingImportDao`.
+- `RecipeDto` / `MealPlanDto` map the domain models to Firestore documents by hand. Field names used in queries and partial updates come from `RecipeFields` / `MealPlanFields` next to the DTOs, never string literals. A recipe whose `instructionSectionsJson` can't be parsed throws `CorruptRecipeException`: listings skip it (logged) and single reads fail, so it is never loaded with empty instructions that a later full save would write back. The JSON uses the shared `AppJson` configuration (also provided by `AppModule`).
 
 ### Authentication and Account Lifecycle
 
@@ -205,7 +208,11 @@ Reports progress via callback for UI updates. Other use cases: `ImportPaprikaUse
 
 #### GetTagsUseCase
 
-Uses a greedy set cover algorithm to select the top 10 tags that maximize recipe coverage. This is the kind of business logic that justifies a use case class.
+Selects the top 10 tags that maximize recipe coverage (an ILP, with a greedy set cover fallback). This is the kind of business logic that justifies a use case class. Tags are compared with `tagKey` (trimmed, lowercase; `domain/model/Tags.kt`), which the recipe list and meal plan filters also use through `Recipe.hasTag` / `Recipe.matchesSearch`.
+
+#### Edit and regenerate
+
+`EditRecipeUseCase` (in place) and `RegenerateRecipeUseCase` apply the AI result with `Recipe.withRegeneratedContent(parsed, now)`, which copies only AI-owned fields (name, story, servings, times, instructions, equipment, tags). Every other field, including any added later, is preserved.
 
 Simple CRUD operations (get all recipes, get by ID, delete) are handled by injecting `RecipeRepository` directly into ViewModels, since they don't require any orchestration or business logic beyond the repository call.
 
@@ -285,6 +292,7 @@ External intents are turned into `AppIntentEvent`s (`ImportUrl`, `ImportFile`, `
 #### MealPlanScreen / GroceryListScreen
 
 - Meal plans are persisted in Firestore; the grocery list aggregates the selected week's meals and persists checked state per week in `GroceryListStateStore`
+- A meal plan's `servings` is a scale multiplier, not a serving count. It and the recipe detail scale are displayed with `formatScaleMultiplier` (`ui/format`), e.g. "1½×", "0.33×"
 
 #### SettingsScreen
 
@@ -426,6 +434,19 @@ Compose observes and recomposes
 - Store multiple versions in folder structure
 - Compare versions with diff
 - Rollback capability
+
+## Guardrails
+
+Static checks and tests that catch whole classes of bugs. All run in `./ci-local.sh` and CI.
+
+- **Compiler and lint warnings are errors** (`allWarningsAsErrors` in both modules, lint `warningsAsErrors`; lint's dependency-freshness checks are disabled so new releases don't break the build). Fix the warning; suppress only with a comment saying why.
+- **Compose lint** (`com.slack.lint.compose:compose-lint-checks`): composables take a `modifier` parameter, follow the parameter order, and get ViewModels via default `hiltViewModel()` parameters. `GroceryListScreen` and `MealPlanScreen` still forward their ViewModel (suppressed until their state is hoisted).
+- **detekt** (`./gradlew detektDebug`, with type resolution) runs a targeted rule set in `config/detekt/detekt.yml`: `SuspendFunSwallowedCancellation`, `InjectDispatcher`, `SwallowedException` (logging the exception counts as handling it; `catch (_: ...)` does not), `TooGenericExceptionThrown`, `UnsafeCallOnNullableType`. Existing findings are in `config/detekt/baseline-debug.xml`: hard-coded dispatchers, `!!` in `Units.kt`/`IngredientAggregation.kt`, and catch blocks the cancellation rule flags although they are fine (cleanup then rethrow, or log-and-continue inside `NonCancellable`). Don't add to it; regenerate it with `./gradlew :app:detektBaselineDebug` only after fixing entries. Use `detektDebug`; the plain `detekt` task (part of `check`) runs without type resolution or this baseline.
+- **Layer rules** (`LayerDependencyTest`): scans imports under `app/src/main/kotlin`. Domain may not use `android.*`, `androidx.*` (except `androidx.annotation`), `com.anthropic`, Firebase or `..data..`; UI may not use WorkManager or `..data.local..`; data may not use `..ui..`. `KNOWN_VIOLATIONS` lists today's exceptions; the test fails on new violations and on entries that are no longer needed, so the list only shrinks.
+- **DTO drift** (`DtoFieldDriftTest`, `DomainFixturesTest`, `RecipeDtoRoundTripIntegrationTest`): every `Recipe` / `MealPlanEntry` field needs a DTO field, the `RecipeFields` / `MealPlanFields` constants must be keys Firestore actually writes, and the round-trip fixtures in `testutil/DomainFixtures.kt` must set every field (including nested ones) to a non-default value.
+- **AI schema** (`RecipeResponseSchemaTest`): property names and required fields in `AnthropicService.RECIPE_RESPONSE_SCHEMA` must match the serializers of `RecipeParseResponse` and the classes it contains.
+- **Edit/regenerate preservation** (`RecipeRegeneratedContentTest`): every non-AI field of `Recipe` survives `withRegeneratedContent`.
+- **Room migrations** (`RecipeDatabaseMigrationTest`): `MigrationTestHelper` runs `RecipeDatabaseMigrations` against the exported schemas in `app/schemas`. Add a step for every new migration.
 
 ## Testing Strategy
 

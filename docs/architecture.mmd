@@ -60,6 +60,7 @@ subgraph app["Android App"]
             delete_dialog["DeleteConfirmationDialog"]
             cancel_import_dialog["CancelImportConfirmationDialog"]
             account_section["AccountSection"]
+            scale_format["formatScaleMultiplier<br/>(ui.format)"]
         end
 
         screens --> components
@@ -188,7 +189,8 @@ subgraph app["Android App"]
         end
 
         subgraph models["Domain Models"]
-            recipe["Recipe"]
+            recipe["Recipe<br/>(withRegeneratedContent)"]
+            tags_fn["Tags<br/>(tagKey, hasTag, matchesSearch)"]
             ingredient["Ingredient"]
             instruction["InstructionStep"]
             section["IngredientSection"]
@@ -205,6 +207,7 @@ subgraph app["Android App"]
             ingredient_aggregation["IngredientAggregation<br/>(AmountAccumulator, aggregateIngredientOccurrences,<br/>sumIngredientAmounts, formatIngredientTotal)"]
 
             recipe -->|aggregateAllIngredients| ingredient_aggregation
+            tags_fn -->|filters| recipe
             ingredient_aggregation -->|conversions| units
 
             meal_plan_entry -->|type| meal_type
@@ -247,7 +250,7 @@ subgraph app["Android App"]
         end
 
         subgraph local["Local Storage"]
-            room[("Room Database")]
+            room[("Room Database<br/>(RecipeDatabaseMigrations)")]
             datastore[("DataStore")]
             tink_encrypted[("Tink Encrypted Storage")]
             import_debug_dao["ImportDebugDao"]
@@ -280,8 +283,8 @@ subgraph app["Android App"]
         end
 
         subgraph dto["DTOs"]
-            recipe_dto["RecipeDto"]
-            meal_plan_dto["MealPlanDto"]
+            recipe_dto["RecipeDto<br/>(RecipeFields, CorruptRecipeException)"]
+            meal_plan_dto["MealPlanDto<br/>(MealPlanFields)"]
         end
 
         subgraph paprika["Paprika"]
@@ -419,6 +422,8 @@ subgraph testing["Testing"]
     hilt_integration_tests["Full-Stack Integration Tests<br/>(Hilt + Robolectric + Room)"]
     test_tags["TestTags<br/>(ui.TestTags)"]
     test_di["Test DI Modules<br/>(TestDatabaseModule, TestNetworkModule, TestWorkerModule)"]
+    guardrails["Guardrail Tests<br/>(LayerDependencyTest, DtoFieldDriftTest, DomainFixturesTest,<br/>RecipeResponseSchemaTest, RecipeRegeneratedContentTest,<br/>RecipeDatabaseMigrationTest)"]
+    static_checks["Static Checks<br/>(warnings as errors, compose-lint-checks, detekt)"]
 
     ui_integration_tests -->|uses| test_tags
     hilt_integration_tests -->|uses| test_di
@@ -463,7 +468,7 @@ subgraph legend["Data Flow"]
         e2["2. EditRecipeScreen shows image, title/URL, AI instructions, body"]
         e3["3. Image, title, URL changes saved directly without AI (image applied on save)"]
         e4["4. Body edits or AI instructions trigger RecipeEditWorker"]
-        e5["5. AI re-parses; Save preserves metadata, Save as Copy creates new"]
+        e5["5. AI re-parses; Save applies only AI-owned fields (withRegeneratedContent), Save as Copy creates new"]
         e1 --> e2 --> e3 --> e4 --> e5
     end
 

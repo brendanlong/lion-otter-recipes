@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.lionotter.recipes.util.ErrorLog
+import com.lionotter.recipes.util.enumOrNull
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -134,7 +135,7 @@ class SettingsDataStore @Inject constructor(
     val themeMode: Flow<ThemeMode> = context.dataStore.data.map { preferences ->
         val value = preferences[Keys.THEME_MODE]
         if (value != null) {
-            try { ThemeMode.valueOf(value) } catch (_: IllegalArgumentException) { ThemeMode.AUTO }
+            enumOrNull<ThemeMode>(value) ?: ThemeMode.AUTO
         } else {
             ThemeMode.AUTO
         }
@@ -143,7 +144,7 @@ class SettingsDataStore @Inject constructor(
     val volumeUnitSystem: Flow<UnitSystem> = context.dataStore.data.map { preferences ->
         val value = preferences[Keys.VOLUME_UNIT_SYSTEM]
         if (value != null) {
-            try { UnitSystem.valueOf(value) } catch (_: IllegalArgumentException) { UnitSystem.localeDefault() }
+            enumOrNull<UnitSystem>(value) ?: UnitSystem.localeDefault()
         } else {
             UnitSystem.localeDefault()
         }
@@ -152,7 +153,7 @@ class SettingsDataStore @Inject constructor(
     val weightUnitSystem: Flow<UnitSystem> = context.dataStore.data.map { preferences ->
         val value = preferences[Keys.WEIGHT_UNIT_SYSTEM]
         if (value != null) {
-            try { UnitSystem.valueOf(value) } catch (_: IllegalArgumentException) { UnitSystem.localeDefault() }
+            enumOrNull<UnitSystem>(value) ?: UnitSystem.localeDefault()
         } else {
             UnitSystem.localeDefault()
         }
@@ -165,13 +166,13 @@ class SettingsDataStore @Inject constructor(
     val groceryVolumeUnitSystem: Flow<UnitSystem> = context.dataStore.data.map { preferences ->
         val groceryValue = preferences[Keys.GROCERY_VOLUME_UNIT_SYSTEM]
         if (groceryValue != null) {
-            try { UnitSystem.valueOf(groceryValue) } catch (_: IllegalArgumentException) { null }
+            enumOrNull<UnitSystem>(groceryValue)
         } else {
             null
         } ?: run {
             val recipeValue = preferences[Keys.VOLUME_UNIT_SYSTEM]
             if (recipeValue != null) {
-                try { UnitSystem.valueOf(recipeValue) } catch (_: IllegalArgumentException) { UnitSystem.localeDefault() }
+                enumOrNull<UnitSystem>(recipeValue) ?: UnitSystem.localeDefault()
             } else {
                 UnitSystem.localeDefault()
             }
@@ -185,13 +186,13 @@ class SettingsDataStore @Inject constructor(
     val groceryWeightUnitSystem: Flow<UnitSystem> = context.dataStore.data.map { preferences ->
         val groceryValue = preferences[Keys.GROCERY_WEIGHT_UNIT_SYSTEM]
         if (groceryValue != null) {
-            try { UnitSystem.valueOf(groceryValue) } catch (_: IllegalArgumentException) { null }
+            enumOrNull<UnitSystem>(groceryValue)
         } else {
             null
         } ?: run {
             val recipeValue = preferences[Keys.WEIGHT_UNIT_SYSTEM]
             if (recipeValue != null) {
-                try { UnitSystem.valueOf(recipeValue) } catch (_: IllegalArgumentException) { UnitSystem.localeDefault() }
+                enumOrNull<UnitSystem>(recipeValue) ?: UnitSystem.localeDefault()
             } else {
                 UnitSystem.localeDefault()
             }
@@ -201,7 +202,7 @@ class SettingsDataStore @Inject constructor(
     val startOfWeek: Flow<StartOfWeek> = context.dataStore.data.map { preferences ->
         val value = preferences[Keys.START_OF_WEEK]
         if (value != null) {
-            try { StartOfWeek.valueOf(value) } catch (_: IllegalArgumentException) { StartOfWeek.LOCALE_DEFAULT }
+            enumOrNull<StartOfWeek>(value) ?: StartOfWeek.LOCALE_DEFAULT
         } else {
             StartOfWeek.LOCALE_DEFAULT
         }

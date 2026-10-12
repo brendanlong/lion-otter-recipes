@@ -21,9 +21,10 @@ import com.lionotter.recipes.R
 fun ImportDebuggingSection(
     importDebuggingEnabled: Boolean,
     onImportDebuggingChange: (Boolean) -> Unit,
-    onViewDebugDataClick: () -> Unit
+    onViewDebugDataClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
             text = stringResource(R.string.import_debugging),
             style = MaterialTheme.typography.titleMedium

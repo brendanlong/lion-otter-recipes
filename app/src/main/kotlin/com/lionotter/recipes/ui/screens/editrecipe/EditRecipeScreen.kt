@@ -77,6 +77,7 @@ fun EditRecipeScreen(
     onBackClick: () -> Unit,
     onEditSuccess: () -> Unit,
     onCopySuccess: (newRecipeId: String) -> Unit,
+    modifier: Modifier = Modifier,
     viewModel: EditRecipeViewModel = hiltViewModel()
 ) {
     val recipe by viewModel.recipe.collectAsStateWithLifecycle()
@@ -182,6 +183,7 @@ fun EditRecipeScreen(
     }
 
     Scaffold(
+        modifier = modifier,
         topBar = {
             RecipeTopAppBar(
                 title = stringResource(R.string.edit_recipe),

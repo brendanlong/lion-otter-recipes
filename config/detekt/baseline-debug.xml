@@ -1,0 +1,47 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>InjectDispatcher:AnthropicService.kt:AnthropicService$IO</ID>
+    <ID>InjectDispatcher:AppModule.kt:AppModule$Default</ID>
+    <ID>InjectDispatcher:EditRecipeViewModel.kt:EditRecipeViewModel$IO</ID>
+    <ID>InjectDispatcher:ImageDownloadService.kt:ImageDownloadService$Default</ID>
+    <ID>InjectDispatcher:ImageDownloadService.kt:ImageDownloadService$IO</ID>
+    <ID>InjectDispatcher:ImageSyncService.kt:ImageCacheConfig$IO</ID>
+    <ID>InjectDispatcher:ImageSyncService.kt:ImageSyncService$Default</ID>
+    <ID>InjectDispatcher:ImageSyncService.kt:ImageSyncService$IO</ID>
+    <ID>InjectDispatcher:ImportDebugDetailViewModel.kt:ImportDebugDetailViewModel$IO</ID>
+    <ID>InjectDispatcher:ImportInputStore.kt:ImportInputStore$IO</ID>
+    <ID>InjectDispatcher:ImportPaprikaUseCase.kt:ImportPaprikaUseCase$IO</ID>
+    <ID>InjectDispatcher:ImportSelectionViewModel.kt:ImportSelectionViewModel$IO</ID>
+    <ID>InjectDispatcher:MealPlanRepository.kt:MealPlanRepository$Default</ID>
+    <ID>InjectDispatcher:MealPlanViewModel.kt:MealPlanViewModel$Default</ID>
+    <ID>InjectDispatcher:RecipeDetailViewModel.kt:RecipeDetailViewModel$IO</ID>
+    <ID>InjectDispatcher:RecipeListViewModel.kt:RecipeListViewModel$Default</ID>
+    <ID>InjectDispatcher:RecipeRepository.kt:RecipeRepository$Default</ID>
+    <ID>InjectDispatcher:SettingsDataStore.kt:SettingsDataStore$IO</ID>
+    <ID>SuspendFunSwallowedCancellation:AccountMigrationService.kt:AccountMigrationService$catch (e: CancellationException) { cleanupMigrationApp(migrationApp) throw e }</ID>
+    <ID>SuspendFunSwallowedCancellation:AccountMigrationService.kt:AccountMigrationService$catch (e: Exception) { Firebase.auth.signOut() // A timed-out sign-in can still complete later; undo it then too signIn.addOnSuccessListener { Firebase.auth.signOut() } throw e }</ID>
+    <ID>SuspendFunSwallowedCancellation:AccountMigrationService.kt:AccountMigrationService$catch (e: Exception) { Log.w(TAG, "Error during Firestore cleanup for migration app", e) }</ID>
+    <ID>SuspendFunSwallowedCancellation:BaseRecipeWorker.kt:BaseRecipeWorker$catch (e: CancellationException) { notificationHelper.cancelNotification(progressNotificationId) throw e }</ID>
+    <ID>SuspendFunSwallowedCancellation:ImportSelectionViewModel.kt:ImportSelectionViewModel$catch (e: Exception) { inputStore.deleteImport(importId) throw e }</ID>
+    <ID>SuspendFunSwallowedCancellation:InProgressRecipeManager.kt:InProgressRecipeManager$catch (e: Exception) { ErrorLog.e(TAG, "Failed to retry import $id", e) pendingImportRepository.updateStatusWithError( id, PendingImportEntity.STATUS_FAILED, "Couldn't retry: ${e.message}" ) }</ID>
+    <ID>SuspendFunSwallowedCancellation:InProgressRecipeManager.kt:InProgressRecipeManager$catch (e: Exception) { Log.w(TAG, "Failed to cancel Paprika batch for $id", e) }</ID>
+    <ID>SuspendFunSwallowedCancellation:PaprikaImportWorker.kt:PaprikaImportWorker$catch (cancelError: Exception) { Log.w(TAG, "Failed to cancel batch for import $importId", cancelError) }</ID>
+    <ID>SuspendFunSwallowedCancellation:PaprikaImportWorker.kt:PaprikaImportWorker$catch (e: CancellationException) { // Below API 31 the stop reason is unavailable; InProgressRecipeManager.cancelImport // cancels the batch for user cancellations in that case. if (Build.VERSION.SDK_INT &gt;= Build.VERSION_CODES.S &amp;&amp; stopReason == WorkInfo.STOP_REASON_CANCELLED_BY_APP) { // The user cancelled: stop paying for a batch nobody will collect. A failure here // must not replace the cancellation, or the user would see an error notification. try { withContext(NonCancellable) { importPaprikaUseCase.cancelBatch(workDir) } } catch (cancelError: Exception) { Log.w(TAG, "Failed to cancel batch for import $importId", cancelError) } } throw e }</ID>
+    <ID>SuspendFunSwallowedCancellation:SettingsScreen.kt:catch (e: CancellationException) { viewModel.deleteAccount(null) throw e }</ID>
+    <ID>SuspendFunSwallowedCancellation:SettingsScreen.kt:catch (e: CancellationException) { viewModel.onGoogleSignInAborted() throw e }</ID>
+    <ID>UnsafeCallOnNullableType:IngredientAggregation.kt:AmountAccumulator$g!!</ID>
+    <ID>UnsafeCallOnNullableType:IngredientAggregation.kt:AmountAccumulator$ml!!</ID>
+    <ID>UnsafeCallOnNullableType:IngredientAggregation.kt:AmountAccumulator$toBaseUnitValue(scaled, canonical)!!</ID>
+    <ID>UnsafeCallOnNullableType:IngredientAggregation.kt:AmountAccumulator$unitType(canonical)!!</ID>
+    <ID>UnsafeCallOnNullableType:Units.kt:TO_GRAMS["oz"]!!</ID>
+    <ID>UnsafeCallOnNullableType:Units.kt:TO_ML[candidate.unit]!!</ID>
+    <ID>UnsafeCallOnNullableType:Units.kt:TO_ML[canonical]!!</ID>
+    <ID>UnsafeCallOnNullableType:Units.kt:TO_ML[chosen.unit]!!</ID>
+    <ID>UnsafeCallOnNullableType:Units.kt:toBaseUnitValue(value, canonical)!!</ID>
+    <ID>UnsafeCallOnNullableType:Units.kt:unitSystem(canonical)!!</ID>
+    <ID>UnsafeCallOnNullableType:Units.kt:unitSystem(preferredUnit)!!</ID>
+    <ID>UnsafeCallOnNullableType:Units.kt:unitType(canonical)!!</ID>
+  </CurrentIssues>
+</SmellBaseline>

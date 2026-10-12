@@ -58,8 +58,9 @@ internal fun <T : Any> Flow<QuerySnapshot>.decodeIncrementally(
     val cache = HashMap<String, T?>()
     fun decodeSafely(doc: DocumentSnapshot): T? = try {
         decode(doc)
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: Exception) {
-        if (e is CancellationException) throw e
         ErrorLog.e(tag, "Error deserializing document ${doc.id}", e)
         null
     }

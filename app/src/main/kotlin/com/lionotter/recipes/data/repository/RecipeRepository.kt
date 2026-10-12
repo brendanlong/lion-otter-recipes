@@ -11,6 +11,8 @@ import com.lionotter.recipes.data.remote.dto.toDto
 import com.lionotter.recipes.data.remote.uid
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.util.ErrorLog
+import com.lionotter.recipes.data.remote.dto.RecipeFields
+import com.lionotter.recipes.data.remote.dto.MealPlanFields
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -122,7 +124,7 @@ class RecipeRepository @Inject constructor(
         // Read the recipe's image URL first, then delete everything.
         firestoreService.recipesCollection(uid).document(id).get()
             .addOnSuccessListener { snapshot ->
-                val imageUrl = snapshot.getString("imageUrl")
+                val imageUrl = snapshot.getString(RecipeFields.IMAGE_URL)
                 if (imageUrl != null) {
                     repositoryScope.launch {
                         withContext(NonCancellable) { imageDownloadService.cleanupImage(imageUrl, recipeId = id) }
@@ -147,7 +149,7 @@ class RecipeRepository @Inject constructor(
 
     override fun setFavorite(id: String, isFavorite: Boolean) = write("update favorite") { uid ->
         firestoreService.recipesCollection(uid).document(id)
-            .update("isFavorite", isFavorite)
+            .update(RecipeFields.IS_FAVORITE, isFavorite)
             .addOnFailureListener { e ->
                 ErrorLog.e(TAG, "Error updating favorite for $id", e)
                 firestoreService.reportError("Failed to update favorite: ${e.message}")
@@ -156,7 +158,7 @@ class RecipeRepository @Inject constructor(
 
     override fun setUserNotes(id: String, userNotes: String?) = write("update notes") { uid ->
         firestoreService.recipesCollection(uid).document(id)
-            .update("userNotes", userNotes)
+            .update(RecipeFields.USER_NOTES, userNotes)
             .addOnFailureListener { e ->
                 ErrorLog.e(TAG, "Error updating user notes for $id", e)
                 firestoreService.reportError("Failed to update notes: ${e.message}")
@@ -166,17 +168,17 @@ class RecipeRepository @Inject constructor(
     /** Also points the recipe's meal plans (which keep a copy of the image URL) at the new image. */
     override fun setImageUrl(id: String, imageUrl: String?) = write("update image") { uid ->
         firestoreService.recipesCollection(uid).document(id)
-            .update("imageUrl", imageUrl)
+            .update(RecipeFields.IMAGE_URL, imageUrl)
             .addOnFailureListener { e ->
                 ErrorLog.e(TAG, "Error updating image URL for $id", e)
                 firestoreService.reportError("Failed to update image: ${e.message}")
             }
         firestoreService.mealPlansCollection(uid)
-            .whereEqualTo("recipeId", id)
+            .whereEqualTo(MealPlanFields.RECIPE_ID, id)
             .get()
             .addOnSuccessListener { snapshot ->
                 for (doc in snapshot.documents) {
-                    doc.reference.update("recipeImageUrl", imageUrl)
+                    doc.reference.update(MealPlanFields.RECIPE_IMAGE_URL, imageUrl)
                         .addOnFailureListener { e -> Log.w(TAG, "Failed to update meal plan image ${doc.id}", e) }
                 }
             }
@@ -185,8 +187,8 @@ class RecipeRepository @Inject constructor(
 
     override fun updateTitleAndUrl(id: String, name: String, sourceUrl: String?) = write("update recipe") { uid ->
         val updates = mutableMapOf<String, Any?>(
-            "name" to name,
-            "sourceUrl" to sourceUrl
+            RecipeFields.NAME to name,
+            RecipeFields.SOURCE_URL to sourceUrl
         )
         firestoreService.recipesCollection(uid).document(id)
             .update(updates)
@@ -201,7 +203,7 @@ class RecipeRepository @Inject constructor(
         logFailure(TAG, "Error fetching recipe IDs and names") {
             val snapshot = firestoreService.recipesCollection(authService.awaitUid()).get().await()
             snapshot.documents.mapNotNull { doc ->
-                val name = doc.getString("name") ?: return@mapNotNull null
+                val name = doc.getString(RecipeFields.NAME) ?: return@mapNotNull null
                 RecipeIdAndName(id = doc.id, name = name)
             }
         }

@@ -5,24 +5,35 @@ import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.PropertyName
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.Recipe
-import com.lionotter.recipes.util.ErrorLog
+import com.lionotter.recipes.util.AppJson
 import kotlin.time.Instant
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 
 /**
- * Json instance matching the app-wide configuration from AppModule.
- * Used to serialize/deserialize instructionSections as a JSON string
- * to avoid deeply nested Firestore maps that cause protobuf equals()
- * performance issues in the Firestore SDK.
+ * Firestore field names of [RecipeDto] used in queries and partial updates. Must match the
+ * DTO's serialized property names (checked by DtoFieldDriftTest).
  */
-private val json = Json {
-    ignoreUnknownKeys = true
-    isLenient = true
-    encodeDefaults = true
-    prettyPrint = false
+object RecipeFields {
+    const val NAME = "name"
+    const val SOURCE_URL = "sourceUrl"
+    const val IMAGE_URL = "imageUrl"
+    const val IS_FAVORITE = "isFavorite"
+    const val USER_NOTES = "userNotes"
 }
 
+/**
+ * Thrown when a recipe document can't be decoded faithfully. Such a recipe is left out of
+ * listings (and fails single reads) rather than loaded with missing content that a later
+ * full save would write back over the stored data.
+ */
+class CorruptRecipeException(recipeId: String, cause: Throwable) :
+    IllegalStateException("Recipe $recipeId has unreadable instructions", cause)
+
+/**
+ * Firestore shape of a [Recipe]. instructionSections are stored as a JSON string
+ * to avoid deeply nested Firestore maps that cause protobuf equals() performance
+ * issues in the Firestore SDK.
+ */
 data class RecipeDto(
     @DocumentId val id: String = "",
     val name: String = "",
@@ -34,7 +45,7 @@ data class RecipeDto(
     val prepTime: String? = null,
     val cookTime: String? = null,
     val totalTime: String? = null,
-    @get:PropertyName("isFavorite") @set:PropertyName("isFavorite")
+    @get:PropertyName(RecipeFields.IS_FAVORITE) @set:PropertyName(RecipeFields.IS_FAVORITE)
     var isFavorite: Boolean = false,
     val createdAt: Timestamp? = null,
     val updatedAt: Timestamp? = null,
@@ -43,12 +54,13 @@ data class RecipeDto(
     val instructionSectionsJson: String = "[]",
     val userNotes: String? = null
 ) {
+    /** @throws CorruptRecipeException if [instructionSectionsJson] can't be parsed */
     fun toDomain(): Recipe {
         val sections = try {
-            json.decodeFromString<List<InstructionSection>>(instructionSectionsJson)
-        } catch (e: Exception) {
-            ErrorLog.e("RecipeDto", "Failed to parse instructionSectionsJson", e)
-            emptyList()
+            AppJson.decodeFromString<List<InstructionSection>>(instructionSectionsJson)
+        } catch (e: IllegalArgumentException) {
+            // kotlinx.serialization's SerializationException is an IllegalArgumentException
+            throw CorruptRecipeException(id, e)
         }
 
         return Recipe(
@@ -91,6 +103,6 @@ fun Recipe.toDto(): RecipeDto = RecipeDto(
     updatedAt = Timestamp(updatedAt.epochSeconds, updatedAt.nanosecondsOfSecond),
     tags = tags,
     equipment = equipment,
-    instructionSectionsJson = json.encodeToString(instructionSections),
+    instructionSectionsJson = AppJson.encodeToString(instructionSections),
     userNotes = userNotes
 )

@@ -6,6 +6,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lionotter.recipes.data.repository.IMealPlanRepository
 import com.lionotter.recipes.data.repository.IRecipeRepository
+import com.lionotter.recipes.domain.model.hasTag
+import com.lionotter.recipes.domain.model.matchesSearch
 import com.lionotter.recipes.domain.usecase.GetTagsUseCase
 import com.lionotter.recipes.ui.state.InProgressRecipeManager
 import com.lionotter.recipes.ui.state.RecipeListItem
@@ -126,14 +128,10 @@ class RecipeListViewModel @Inject constructor(
 
         // Filter by search and tag
         val filteredItems = items.filter { item ->
-            val matchesSearch = query.isBlank() ||
-                item.name.contains(query, ignoreCase = true) ||
-                (item is RecipeListItem.Saved && item.recipe.tags.any { it.contains(query, ignoreCase = true) })
-
-            val matchesTag = tag == null ||
-                (item is RecipeListItem.Saved && item.recipe.tags.any { it.equals(tag, ignoreCase = true) })
-
-            matchesSearch && matchesTag
+            when (item) {
+                is RecipeListItem.Saved -> item.recipe.matchesSearch(query) && (tag == null || item.recipe.hasTag(tag))
+                is RecipeListItem.InProgress -> tag == null && (query.isBlank() || item.name.contains(query, ignoreCase = true))
+            }
         }
 
         Triple(filteredItems, query, tag)

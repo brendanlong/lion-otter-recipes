@@ -25,11 +25,11 @@ fun SwipeableRecipeCard(
     onClick: () -> Unit,
     onDeleteRequest: () -> Unit,
     onFavoriteClick: () -> Unit,
+    modifier: Modifier = Modifier,
     swipeState: SwipeActionBoxState = rememberSwipeActionBoxState(),
     isSelected: Boolean = false,
     isMultiSelectActive: Boolean = false,
-    onLongClick: () -> Unit = {},
-    modifier: Modifier = Modifier
+    onLongClick: () -> Unit = {}
 ) {
     SwipeActionBox(
         modifier = modifier,

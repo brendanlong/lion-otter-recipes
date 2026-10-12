@@ -82,6 +82,7 @@ fun RecipeListScreen(
     onAddRecipeClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onMealPlanClick: () -> Unit,
+    modifier: Modifier = Modifier,
     viewModel: RecipeListViewModel = hiltViewModel()
 ) {
     val recipes by viewModel.recipes.collectAsStateWithLifecycle()
@@ -202,6 +203,7 @@ fun RecipeListScreen(
     }
 
     Scaffold(
+        modifier = modifier,
         topBar = {
             if (isMultiSelectActive) {
                 RecipeTopAppBar(

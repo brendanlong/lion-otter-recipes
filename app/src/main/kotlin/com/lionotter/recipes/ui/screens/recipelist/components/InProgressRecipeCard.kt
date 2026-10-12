@@ -40,6 +40,7 @@ import com.lionotter.recipes.ui.state.InProgressRecipe
 fun InProgressRecipeCard(
     inProgressRecipe: InProgressRecipe,
     onCancelRequest: () -> Unit,
+    modifier: Modifier = Modifier,
     swipeState: SwipeActionBoxState = rememberSwipeActionBoxState(),
     onRetry: (() -> Unit)? = null,
     onDismiss: (() -> Unit)? = null
@@ -47,6 +48,7 @@ fun InProgressRecipeCard(
     val isFailed = inProgressRecipe.isFailed
 
     SwipeActionBox(
+        modifier = modifier,
         state = swipeState,
         onEndToStartAction = onCancelRequest,
         enableStartToEnd = false,

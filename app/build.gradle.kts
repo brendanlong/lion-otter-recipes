@@ -9,6 +9,7 @@ plugins {
     alias(libs.plugins.baselineprofile)
     alias(libs.plugins.google.services)
     alias(libs.plugins.firebase.crashlytics)
+    alias(libs.plugins.detekt)
 }
 
 val gitVersionCode: Int by lazy {
@@ -100,6 +101,10 @@ android {
 
     lint {
         checkReleaseBuilds = false
+        warningsAsErrors = true
+        // Version-freshness checks start failing the build whenever something new is
+        // released; dependency updates are done deliberately instead.
+        disable += setOf("GradleDependency", "AndroidGradlePluginVersion", "NewerVersionAvailable", "OldTargetApi")
     }
 
     androidResources {
@@ -135,8 +140,22 @@ tasks.matching { it.name.startsWith("uploadCrashlyticsMappingFile") }.configureE
     enabled = name == "uploadCrashlyticsMappingFileRelease" && System.getenv("CRASHLYTICS_UPLOAD") == "true"
 }
 
+kotlin {
+    compilerOptions {
+        allWarningsAsErrors = true
+    }
+}
+
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
+}
+
+// Run with ./gradlew detektDebug (type resolution). The variant task reads baseline-debug.xml.
+detekt {
+    buildUponDefaultConfig = false
+    config.setFrom(files("$rootDir/config/detekt/detekt.yml"))
+    baseline = file("$rootDir/config/detekt/baseline.xml")
+    parallel = true
 }
 
 dependencies {
@@ -221,6 +240,8 @@ dependencies {
     implementation(libs.androidx.profileinstaller)
     "baselineProfile"(project(":baselineprofile"))
 
+    lintChecks(libs.compose.lint.checks)
+
     // Testing
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
@@ -241,6 +262,9 @@ dependencies {
 
     // WorkManager Testing
     testImplementation(libs.work.testing)
+
+    // Room migration testing
+    testImplementation(libs.room.testing)
 
     // Ktor Mock Engine (for Hilt integration tests)
     testImplementation(libs.ktor.client.mock)

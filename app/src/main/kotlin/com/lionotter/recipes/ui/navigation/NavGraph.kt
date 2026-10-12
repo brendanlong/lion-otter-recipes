@@ -9,9 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
 import androidx.navigation.NavOptionsBuilder
@@ -29,8 +27,7 @@ import com.lionotter.recipes.ui.screens.editrecipe.EditRecipeScreen
 import com.lionotter.recipes.ui.screens.grocerylist.GroceryListScreen
 import com.lionotter.recipes.ui.screens.importdebug.ImportDebugDetailScreen
 import com.lionotter.recipes.ui.screens.importdebug.ImportDebugListScreen
-import com.lionotter.recipes.ui.screens.importselection.ImportSelectionScreen
-import com.lionotter.recipes.ui.screens.importselection.ImportSelectionViewModel
+import com.lionotter.recipes.ui.screens.importselection.ImportSelectionRoute
 import com.lionotter.recipes.ui.screens.mealplan.MealPlanScreen
 import com.lionotter.recipes.ui.screens.recipedetail.RecipeDetailScreen
 import com.lionotter.recipes.ui.screens.recipelist.RecipeListScreen
@@ -319,45 +316,14 @@ fun NavGraph(
                 }
             )
         ) { backStackEntry ->
-            // ImportSelectionViewModel reads the "importType" and "uri" arguments from its
-            // SavedStateHandle and parses the file once, so selections survive rotation.
-            val title = stringResource(R.string.select_recipes_to_import)
-            val importSelectionViewModel: ImportSelectionViewModel = hiltViewModel()
-            val selectionState = importSelectionViewModel.uiState.collectAsStateWithLifecycle()
-
-            // Results are collected here (not captured in a callback) so an import that finishes
-            // starting after rotation navigates with the current NavController.
-            LaunchedEffect(importSelectionViewModel) {
-                importSelectionViewModel.results.collect { result ->
-                    when (result) {
-                        is ImportSelectionViewModel.ImportResult.ImportStarted -> {
-                            // All import types: navigate to RecipeList immediately
-                            navController.navigate(Screen.RecipeList.route) {
-                                popUpTo(0) { inclusive = true }
-                            }
-                        }
-                        is ImportSelectionViewModel.ImportResult.Error -> {
-                            Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
-                        }
+            ImportSelectionRoute(
+                onImportStarted = {
+                    // All import types: navigate to RecipeList immediately
+                    navController.navigate(Screen.RecipeList.route) {
+                        popUpTo(0) { inclusive = true }
                     }
-                }
-            }
-
-            // Auto-import single new .lorecipes recipes without showing selection screen
-            LaunchedEffect(selectionState.value) {
-                if (importSelectionViewModel.shouldAutoImport()) {
-                    importSelectionViewModel.importSelected()
-                }
-            }
-
-            ImportSelectionScreen(
-                title = title,
-                state = selectionState.value,
-                onToggleItem = importSelectionViewModel::toggleItem,
-                onSelectAll = importSelectionViewModel::selectAll,
-                onDeselectAll = importSelectionViewModel::deselectAll,
-                onImportClick = importSelectionViewModel::importSelected,
-                onCancelClick = { backStackEntry.back() }
+                },
+                onCancel = { backStackEntry.back() }
             )
         }
     }

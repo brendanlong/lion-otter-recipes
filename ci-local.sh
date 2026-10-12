@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Local CI script: sets up google-services.json, then runs build, test, and lint.
+# Local CI script: runs build, unit tests, lint, and detekt.
 # Uses a single Gradle invocation with --continue so all tasks run even if some fail.
 # Output is written to a log file for inspection.
 
@@ -14,11 +14,11 @@ mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/ci.log"
 
 echo ""
-echo "Running: ./gradlew assembleDebug testDebugUnitTest lintDebug --continue"
+echo "Running: ./gradlew assembleDebug testDebugUnitTest lintDebug detektDebug --continue"
 echo "  log: $LOG_FILE"
 echo ""
 
-if ./gradlew assembleDebug testDebugUnitTest lintDebug --continue > "$LOG_FILE" 2>&1; then
+if ./gradlew assembleDebug testDebugUnitTest lintDebug detektDebug --continue > "$LOG_FILE" 2>&1; then
   exit_code=0
 else
   exit_code=$?

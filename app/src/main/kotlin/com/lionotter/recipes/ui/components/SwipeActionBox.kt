@@ -131,13 +131,13 @@ fun rememberSwipeActionBoxState(): SwipeActionBoxState {
  */
 @Composable
 fun SwipeActionBox(
+    backgroundContent: @Composable BoxScope.(SwipeActionDirection) -> Unit,
     modifier: Modifier = Modifier,
     state: SwipeActionBoxState = rememberSwipeActionBoxState(),
     onStartToEndAction: () -> Unit = {},
     onEndToStartAction: () -> Unit = {},
     enableStartToEnd: Boolean = false,
     enableEndToStart: Boolean = true,
-    backgroundContent: @Composable BoxScope.(SwipeActionDirection) -> Unit,
     content: @Composable BoxScope.() -> Unit
 ) {
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl

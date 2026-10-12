@@ -260,7 +260,6 @@
     <string name="no_recipes_found">No recipes found</string>
     <string name="previous_week">Previous week</string>
     <string name="next_week">Next week</string>
-    <string name="servings_format">%1$sx</string>
     <string name="remove">Remove</string>
     <string name="edit">Edit</string>
     <string name="edit_meal_plan">Edit Meal Plan</string>

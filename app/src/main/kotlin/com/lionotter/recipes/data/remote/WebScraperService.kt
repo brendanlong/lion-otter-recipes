@@ -73,11 +73,19 @@ class WebScraperService @Inject constructor(
         }
     }
 
+    private suspend fun errorBodyPrefix(response: HttpResponse): String = try {
+        response.bodyAsText().take(4096)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "Couldn't read the error response body", e)
+        ""
+    }
+
     private suspend fun statusError(response: HttpResponse): PageFetchException {
         val code = response.status.value
         val isBotCheck = response.headers["cf-mitigated"] != null ||
-            (code == 403 || code == 503) && runCatching { response.bodyAsText().take(4096) }
-                .getOrDefault("")
+            (code == 403 || code == 503) && errorBodyPrefix(response)
                 .let { it.contains("Just a moment", ignoreCase = true) || it.contains("cf-chl", ignoreCase = true) }
         return when {
             isBotCheck -> PageFetchException(
