@@ -4,7 +4,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasContentDescription
@@ -26,6 +33,7 @@ import com.lionotter.recipes.ui.screens.importselection.ImportSelectionScreen
 import com.lionotter.recipes.ui.screens.importselection.ImportSelectionUiState
 import com.lionotter.recipes.ui.screens.recipedetail.components.RecipeContent
 import kotlin.time.Instant
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -193,7 +201,6 @@ class RecipeFlowUiTest {
                     onToggleInstructionIngredient = { _, _, _ -> },
                     highlightedInstructionStep = null,
                     onToggleHighlightedInstruction = { _, _ -> },
-                    onSaveNotes = {}
                 )
             }
         }
@@ -391,11 +398,11 @@ class RecipeFlowUiTest {
     fun `recipe detail shows time and servings metadata`() {
         setRecipeContent()
 
-        // Prep/cook/total time and servings are displayed via RecipeMetadata
+        // Prep/cook/total time are displayed via RecipeMetadata, servings via ScaleControl
         composeTestRule.onNodeWithText("15 min", substring = true).assertIsDisplayed()
         composeTestRule.onNodeWithText("12 min", substring = true).assertIsDisplayed()
         composeTestRule.onNodeWithText("27 min", substring = true).assertIsDisplayed()
-        composeTestRule.onNodeWithText("24", substring = true).assertIsDisplayed()
+        composeTestRule.onNodeWithText("24 servings").assertIsDisplayed()
     }
 
     @Test
@@ -478,7 +485,6 @@ class RecipeFlowUiTest {
                         onToggleInstructionIngredient = { _, _, _ -> },
                         highlightedInstructionStep = null,
                         onToggleHighlightedInstruction = { _, _ -> },
-                        onSaveNotes = {}
                     )
                 }
             }
@@ -575,4 +581,117 @@ class RecipeFlowUiTest {
             .performScrollTo()
             .assertIsDisplayed()
     }
+
+    @Test
+    fun `step ingredient row is a checkbox that toggles the ingredient`() {
+        val toggled = mutableListOf<Triple<Int, Int, Int>>()
+        composeTestRule.setContent {
+            MaterialTheme {
+                RecipeContent(
+                    recipe = createTestRecipe(),
+                    scale = 1.0,
+                    onScaleIncrement = {},
+                    onScaleDecrement = {},
+                    measurementPreference = MeasurementPreference.DEFAULT,
+                    onMeasurementPreferenceChange = {},
+                    showMeasurementToggle = false,
+                    usedInstructionIngredients = setOf("0-1-0"),
+                    ingredientUsageBySection = emptyMap(),
+                    onToggleInstructionIngredient = { s, st, i -> toggled.add(Triple(s, st, i)) },
+                    highlightedInstructionStep = null,
+                    onToggleHighlightedInstruction = { _, _ -> }
+                )
+            }
+        }
+
+        // "brown sugar" is step index 1, ingredient index 1 (unchecked)
+        composeTestRule.onNode(
+            hasRole(Role.Checkbox) and hasText("brown sugar", substring = true)
+        )
+            .performScrollTo()
+            .assertIsOff()
+            .performClick()
+        assertEquals(listOf(Triple(0, 1, 1)), toggled)
+
+        // "butter" (step 1, ingredient 0) is marked used
+        composeTestRule.onNode(
+            hasRole(Role.Checkbox) and hasText("butter", substring = true)
+        )
+            .performScrollTo()
+            .assertIsOn()
+    }
+
+    @Test
+    fun `tapping a tag invokes the tag callback`() {
+        var clickedTag: String? = null
+        composeTestRule.setContent {
+            MaterialTheme {
+                RecipeContent(
+                    recipe = createTestRecipe(),
+                    scale = 1.0,
+                    onScaleIncrement = {},
+                    onScaleDecrement = {},
+                    measurementPreference = MeasurementPreference.DEFAULT,
+                    onMeasurementPreferenceChange = {},
+                    showMeasurementToggle = false,
+                    usedInstructionIngredients = emptySet(),
+                    ingredientUsageBySection = emptyMap(),
+                    onToggleInstructionIngredient = { _, _, _ -> },
+                    highlightedInstructionStep = null,
+                    onToggleHighlightedInstruction = { _, _ -> },
+                    onTagClick = { clickedTag = it }
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithText("cookies").performClick()
+        assertEquals("cookies", clickedTag)
+    }
+
+    @Test
+    fun `scale control shows multiplier when servings are unknown`() {
+        val recipe = createTestRecipe().copy(servings = null)
+        setRecipeContent(recipe = recipe, scale = 1.5)
+
+        composeTestRule.onNodeWithText("1½×").assertIsDisplayed()
+    }
+
+    @Test
+    fun `scale control shows scaled servings when servings are known`() {
+        setRecipeContent(scale = 0.5)
+
+        composeTestRule.onNodeWithText("12 servings").assertIsDisplayed()
+    }
+
+    @Test
+    fun `notes field shows provided text and reports edits`() {
+        var edited: String? = null
+        composeTestRule.setContent {
+            MaterialTheme {
+                RecipeContent(
+                    recipe = createTestRecipe(),
+                    scale = 1.0,
+                    onScaleIncrement = {},
+                    onScaleDecrement = {},
+                    measurementPreference = MeasurementPreference.DEFAULT,
+                    onMeasurementPreferenceChange = {},
+                    showMeasurementToggle = false,
+                    usedInstructionIngredients = emptySet(),
+                    ingredientUsageBySection = emptyMap(),
+                    onToggleInstructionIngredient = { _, _, _ -> },
+                    highlightedInstructionStep = null,
+                    onToggleHighlightedInstruction = { _, _ -> },
+                    notesText = "Use less sugar",
+                    onNotesChange = { edited = it }
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithText("Use less sugar")
+            .performScrollTo()
+            .performTextReplacement("Use brown butter")
+        assertEquals("Use brown butter", edited)
+    }
 }
+
+private fun hasRole(role: Role) = SemanticsMatcher.expectValue(SemanticsProperties.Role, role)

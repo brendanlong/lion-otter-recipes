@@ -14,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import com.lionotter.recipes.R
 import com.lionotter.recipes.ui.TestTags
 
@@ -25,7 +26,14 @@ fun RecipeTopAppBar(
     actions: @Composable RowScope.() -> Unit = {}
 ) {
     TopAppBar(
-        title = { Text(title, modifier = Modifier.testTag(TestTags.RECIPE_DETAIL_NAME)) },
+        title = {
+            Text(
+                text = title,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.testTag(TestTags.RECIPE_DETAIL_NAME)
+            )
+        },
         navigationIcon = {
             if (onBackClick != null) {
                 IconButton(onClick = onBackClick) {

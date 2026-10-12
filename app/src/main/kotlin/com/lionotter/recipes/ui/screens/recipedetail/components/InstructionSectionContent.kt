@@ -7,9 +7,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -17,6 +20,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -55,21 +61,29 @@ internal fun InstructionSectionContent(
         section.steps.forEachIndexed { stepIndex, step ->
             val isHighlighted = highlightedInstructionStep?.sectionIndex == sectionIndex &&
                                 highlightedInstructionStep.stepIndex == stepIndex
+            val currentStepDescription = stringResource(R.string.current_step)
+            val highlightLabel = stringResource(
+                if (isHighlighted) R.string.unmark_current_step else R.string.mark_current_step
+            )
 
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp)
-                    .clickable { onToggleHighlightedInstruction(sectionIndex, stepIndex) }
+                    .padding(vertical = 4.dp)
+                    .clip(MaterialTheme.shapes.medium)
                     .then(
                         if (isHighlighted) {
-                            Modifier
-                                .clip(MaterialTheme.shapes.medium)
-                                .background(MaterialTheme.colorScheme.tertiaryContainer)
+                            Modifier.background(MaterialTheme.colorScheme.tertiaryContainer)
                         } else {
                             Modifier
                         }
                     )
+                    .clickable(onClickLabel = highlightLabel) {
+                        onToggleHighlightedInstruction(sectionIndex, stepIndex)
+                    }
+                    .semantics {
+                        if (isHighlighted) stateDescription = currentStepDescription
+                    }
                     .padding(horizontal = 8.dp, vertical = 8.dp)
             ) {
                 Row(
@@ -99,66 +113,61 @@ internal fun InstructionSectionContent(
                         style = MaterialTheme.typography.bodyLarge,
                         modifier = Modifier.weight(1f),
                         color = if (isHighlighted)
-                            MaterialTheme.colorScheme.onSurface
+                            MaterialTheme.colorScheme.onTertiaryContainer
                         else
                             MaterialTheme.colorScheme.onSurface
                     )
                 }
 
-                // Display step-level ingredients if present
+                // Step-level ingredients: each ingredient (with its alternates) is one
+                // full-width checkbox row that can be ticked off while cooking.
                 if (step.ingredients.isNotEmpty()) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 40.dp, top = 8.dp)
+                            .padding(start = 28.dp, top = 4.dp)
                     ) {
                         step.ingredients.forEachIndexed { ingredientIndex, ingredient ->
                             val ingredientKey = createInstructionIngredientKey(sectionIndex, stepIndex, ingredientIndex)
                             val isUsed = ingredientKey in usedInstructionIngredients
 
-                            // Main ingredient row - clickable
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { onToggleIngredient(sectionIndex, stepIndex, ingredientIndex) }
-                                    .padding(vertical = 4.dp),
+                                    .heightIn(min = 48.dp)
+                                    .clip(MaterialTheme.shapes.small)
+                                    .toggleable(
+                                        value = isUsed,
+                                        role = Role.Checkbox,
+                                        onValueChange = {
+                                            onToggleIngredient(sectionIndex, stepIndex, ingredientIndex)
+                                        }
+                                    ),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = if (isUsed) "\u2713" else "\u2022",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = if (isUsed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
-                                    modifier = Modifier.padding(end = 8.dp)
+                                Checkbox(
+                                    checked = isUsed,
+                                    onCheckedChange = null,
+                                    modifier = Modifier.padding(horizontal = 12.dp)
                                 )
-                                Text(
-                                    text = ingredient.format(scale, measurementPreference, volumeUnitSystem, weightUnitSystem),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    textDecoration = if (isUsed) TextDecoration.LineThrough else TextDecoration.None,
-                                    color = if (isUsed) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-
-                            // Display alternates for step ingredients - also clickable (same toggle)
-                            ingredient.alternates.forEach { alternate ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { onToggleIngredient(sectionIndex, stepIndex, ingredientIndex) }
-                                        .padding(vertical = 2.dp, horizontal = 24.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
+                                Column(modifier = Modifier.padding(vertical = 4.dp)) {
                                     Text(
-                                        text = stringResource(R.string.or),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.outline,
-                                        modifier = Modifier.padding(end = 8.dp)
-                                    )
-                                    Text(
-                                        text = alternate.format(scale, measurementPreference, volumeUnitSystem, weightUnitSystem),
-                                        style = MaterialTheme.typography.bodySmall,
+                                        text = ingredient.format(scale, measurementPreference, volumeUnitSystem, weightUnitSystem),
+                                        style = MaterialTheme.typography.bodyLarge,
                                         textDecoration = if (isUsed) TextDecoration.LineThrough else TextDecoration.None,
-                                        color = if (isUsed) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = if (isUsed) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface
                                     )
+                                    ingredient.alternates.forEach { alternate ->
+                                        Text(
+                                            text = stringResource(
+                                                R.string.or_alternate,
+                                                alternate.format(scale, measurementPreference, volumeUnitSystem, weightUnitSystem)
+                                            ),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            textDecoration = if (isUsed) TextDecoration.LineThrough else TextDecoration.None,
+                                            color = if (isUsed) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 }
                             }
                         }

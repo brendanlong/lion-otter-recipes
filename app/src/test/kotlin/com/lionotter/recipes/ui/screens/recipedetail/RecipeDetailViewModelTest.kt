@@ -1,5 +1,6 @@
 package com.lionotter.recipes.ui.screens.recipedetail
 
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import app.cash.turbine.test
 import com.lionotter.recipes.data.local.SettingsDataStore
@@ -21,6 +22,8 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
 import io.mockk.runs
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
@@ -66,6 +69,9 @@ class RecipeDetailViewModelTest {
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
+        mockkStatic(Log::class)
+        every { Log.e(any(), any(), any()) } returns 0
+        every { Log.w(any(), any<String>(), any()) } returns 0
         savedStateHandle = SavedStateHandle(mapOf("recipeId" to "recipe-1"))
         recipeRepository = mockk()
         mealPlanRepository = mockk()
@@ -84,6 +90,7 @@ class RecipeDetailViewModelTest {
     @After
     fun tearDown() {
         Dispatchers.resetMain()
+        unmockkStatic(Log::class)
     }
 
     private fun createViewModel(): RecipeDetailViewModel {
@@ -403,5 +410,155 @@ class RecipeDetailViewModelTest {
     fun `throws exception when recipeId not in savedStateHandle`() {
         savedStateHandle = SavedStateHandle(emptyMap())
         createViewModel()
+    }
+
+    @Test
+    fun `cooking progress is restored from SavedStateHandle`() = runTest {
+        viewModel = createViewModel()
+        viewModel.setScale(2.0)
+        viewModel.setMeasurementPreference(MeasurementPreference.WEIGHT)
+        viewModel.toggleInstructionIngredientUsed(0, 1, 2)
+        viewModel.toggleHighlightedInstructionStep(0, 3)
+        viewModel.toggleAggregateIngredientChecked("|flour")
+
+        // Simulate process death: a new ViewModel gets the same saved state
+        val restored = createViewModel()
+
+        assertEquals(2.0, restored.scale.value, 0.001)
+        assertEquals(MeasurementPreference.WEIGHT, restored.measurementPreference.value)
+        assertEquals(setOf("0-1-2"), restored.usedInstructionIngredients.value)
+        assertEquals(HighlightedInstructionStep(0, 3), restored.highlightedInstructionStep.value)
+        assertEquals(setOf("|flour"), restored.checkedAggregateIngredients.value)
+    }
+
+    @Test
+    fun `resetCookingProgress clears checked ingredients and highlighted step but keeps scale`() = runTest {
+        viewModel = createViewModel()
+        viewModel.setScale(2.0)
+        viewModel.toggleInstructionIngredientUsed(0, 0, 0)
+        viewModel.toggleHighlightedInstructionStep(0, 0)
+        viewModel.toggleAggregateIngredientChecked("|flour")
+
+        viewModel.resetCookingProgress()
+
+        assertTrue(viewModel.usedInstructionIngredients.value.isEmpty())
+        assertNull(viewModel.highlightedInstructionStep.value)
+        assertTrue(viewModel.checkedAggregateIngredients.value.isEmpty())
+        assertEquals(2.0, viewModel.scale.value, 0.001)
+
+        val restored = createViewModel()
+        assertTrue(restored.usedInstructionIngredients.value.isEmpty())
+        assertNull(restored.highlightedInstructionStep.value)
+    }
+
+    @Test
+    fun `uiState is NotFound when recipe does not exist`() = runTest {
+        every { recipeRepository.getRecipeById("recipe-1") } returns flowOf(null)
+        viewModel = createViewModel()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(RecipeDetailState.NotFound, viewModel.uiState.value)
+    }
+
+    @Test
+    fun `uiState is Loaded when recipe exists`() = runTest {
+        viewModel = createViewModel()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(RecipeDetailState.Loaded(createTestRecipe()), viewModel.uiState.value)
+    }
+
+    @Test
+    fun `deleteRecipe failure reports error instead of navigating away`() = runTest {
+        coEvery { mealPlanRepository.deleteMealPlansByRecipeId("recipe-1") } just runs
+        every { recipeRepository.deleteRecipe("recipe-1") } throws RuntimeException("offline")
+
+        viewModel = createViewModel()
+
+        viewModel.errors.test {
+            viewModel.deleteRecipe()
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(RecipeDetailError.DELETE_FAILED, awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+        viewModel.recipeDeleted.test {
+            expectNoEvents()
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `incrementScale adds one serving when servings are known`() = runTest {
+        every { recipeRepository.getRecipeById("recipe-1") } returns
+            flowOf(createTestRecipe().copy(servings = 4))
+        viewModel = createViewModel()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.incrementScale()
+        assertEquals(5.0 / 4, viewModel.scale.value, 0.001)
+
+        viewModel.decrementScale()
+        viewModel.decrementScale()
+        assertEquals(3.0 / 4, viewModel.scale.value, 0.001)
+    }
+
+    @Test
+    fun `decrementScale does not go below one serving`() = runTest {
+        every { recipeRepository.getRecipeById("recipe-1") } returns
+            flowOf(createTestRecipe().copy(servings = 2))
+        viewModel = createViewModel()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        repeat(5) { viewModel.decrementScale() }
+        assertEquals(0.5, viewModel.scale.value, 0.001)
+    }
+
+    @Test
+    fun `scale steps through presets when servings are unknown`() = runTest {
+        viewModel = createViewModel()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.incrementScale()
+        viewModel.incrementScale()
+        assertEquals(2.0, viewModel.scale.value, 0.001)
+        repeat(10) { viewModel.decrementScale() }
+        assertEquals(0.25, viewModel.scale.value, 0.001)
+    }
+
+    @Test
+    fun `notes are saved after typing stops`() = runTest {
+        every { recipeRepository.setUserNotes(any(), any()) } just runs
+        viewModel = createViewModel()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.onNotesChange("Less salt")
+        testDispatcher.scheduler.advanceTimeBy(RecipeDetailViewModel.NOTES_SAVE_DEBOUNCE_MS / 2)
+        verify(exactly = 0) { recipeRepository.setUserNotes(any(), any()) }
+
+        testDispatcher.scheduler.advanceUntilIdle()
+        verify(exactly = 1) { recipeRepository.setUserNotes("recipe-1", "Less salt") }
+        assertEquals("Less salt", viewModel.notesDraft)
+    }
+
+    @Test
+    fun `flushNotes saves pending notes immediately`() = runTest {
+        every { recipeRepository.setUserNotes(any(), any()) } just runs
+        viewModel = createViewModel()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.onNotesChange("Double the garlic")
+        viewModel.flushNotes()
+
+        verify(exactly = 1) { recipeRepository.setUserNotes("recipe-1", "Double the garlic") }
+    }
+
+    @Test
+    fun `notes draft survives recreation`() = runTest {
+        every { recipeRepository.setUserNotes(any(), any()) } just runs
+        viewModel = createViewModel()
+        viewModel.onNotesChange("Half-typed")
+
+        val restored = createViewModel()
+        assertEquals("Half-typed", restored.notesDraft)
     }
 }
