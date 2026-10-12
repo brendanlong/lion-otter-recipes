@@ -258,7 +258,7 @@ class FirestoreListenerSpikeTest {
         var error: Throwable? = null
         val doneLatch = CountDownLatch(1)
 
-        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).launch {
             try {
                 result = block()
             } catch (e: Throwable) {

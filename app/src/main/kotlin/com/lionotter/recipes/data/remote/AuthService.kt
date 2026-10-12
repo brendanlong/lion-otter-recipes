@@ -79,7 +79,7 @@ class ReauthenticationRequiredException(cause: Throwable? = null) :
  */
 @Singleton
 class AuthService @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val firestoreService: FirestoreService,
     private val accountDeletionService: AccountDeletionService,
     private val imageSyncService: ImageSyncService

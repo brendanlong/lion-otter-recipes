@@ -115,7 +115,7 @@ class AmountAccumulator {
                 singleUnit != null &&
                 convertToSystem(1.0, singleUnit, volumeSystem, weightSystem).unit == singleUnit
             if (keepUnit) {
-                fromBaseUnitTo(total.baseValue, singleUnit!!)
+                fromBaseUnitTo(total.baseValue, singleUnit)
             } else {
                 fromBaseUnit(total.baseValue, total.category, volumeSystem, weightSystem)
             }

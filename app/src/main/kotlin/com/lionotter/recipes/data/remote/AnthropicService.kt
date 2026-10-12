@@ -520,7 +520,7 @@ class AnthropicService @Inject constructor(
          * Map an exception from the SDK to a user-facing [AnthropicRequestException].
          */
         fun toFriendlyException(e: Throwable): Exception {
-            if (e is RecipeParseException || e is AnthropicRequestException) return e as Exception
+            if (e is RecipeParseException || e is AnthropicRequestException) return e
             val (message, transient) = when (e) {
                 is UnauthorizedException ->
                     "Your Anthropic API key was rejected. Check it in Settings." to false

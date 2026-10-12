@@ -40,7 +40,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class AccountDeletionService @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val firestoreService: FirestoreService,
     private val imageSyncService: ImageSyncService,
     private val importDebugRepository: ImportDebugRepository,

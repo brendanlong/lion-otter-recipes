@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Base64
 import com.google.crypto.tink.Aead
 import com.google.crypto.tink.KeyTemplates
+import com.google.crypto.tink.RegistryConfiguration
 import com.google.crypto.tink.aead.AeadConfig
 import com.google.crypto.tink.integration.android.AndroidKeysetManager
 import com.lionotter.recipes.util.ErrorLog
@@ -27,7 +28,7 @@ class TinkEncryption(context: Context) {
                 .withMasterKeyUri(MASTER_KEY_URI)
                 .build()
                 .keysetHandle
-                .getPrimitive(Aead::class.java)
+                .getPrimitive(RegistryConfiguration.get(), Aead::class.java)
         } catch (e: java.security.GeneralSecurityException) {
             ErrorLog.e(TAG, "Failed to initialize Tink AEAD", e)
             throw IllegalStateException("Tink AEAD could not be initialized", e)
