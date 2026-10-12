@@ -66,16 +66,19 @@ private val DarkColorScheme = darkColorScheme(
 )
 
 @Composable
+fun ThemeMode.isDarkTheme(): Boolean = when (this) {
+    ThemeMode.LIGHT -> false
+    ThemeMode.DARK -> true
+    ThemeMode.AUTO -> isSystemInDarkTheme()
+}
+
+@Composable
 fun LionOtterTheme(
     themeMode: ThemeMode = ThemeMode.AUTO,
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val darkTheme = when (themeMode) {
-        ThemeMode.LIGHT -> false
-        ThemeMode.DARK -> true
-        ThemeMode.AUTO -> isSystemInDarkTheme()
-    }
+    val darkTheme = themeMode.isDarkTheme()
 
     val colorScheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
