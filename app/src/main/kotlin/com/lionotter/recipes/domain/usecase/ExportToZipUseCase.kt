@@ -17,10 +17,11 @@ import javax.inject.Inject
 
 /**
  * Use case for exporting recipes to a ZIP file.
- * Uses a standard folder structure:
- * - recipe-name/recipe.json
- * - recipe-name/recipe.md
- * - recipe-name/image.* (recipe image, if available)
+ * Uses a standard folder structure (folder = recipe name plus a short ID, unique per export):
+ * - <folder>/recipe.json
+ * - <folder>/recipe.md
+ * - <folder>/image.* (recipe image, if available)
+ * - meal-plans/<date>.json
  */
 class ExportToZipUseCase @Inject constructor(
     private val recipeRepository: IRecipeRepository,
@@ -66,6 +67,7 @@ class ExportToZipUseCase @Inject constructor(
 
         var exportedCount = 0
         var failedCount = 0
+        val usedFolderNames = mutableSetOf<String>()
 
         try {
             ZipOutputStream(outputStream).use { zipOut ->
@@ -80,7 +82,12 @@ class ExportToZipUseCase @Inject constructor(
 
                     try {
                         val files = recipeSerializer.serializeRecipe(recipe)
-                        val prefix = files.folderName
+                        var prefix = files.folderName
+                        var suffix = 2
+                        while (!usedFolderNames.add(prefix)) {
+                            prefix = "${files.folderName} $suffix"
+                            suffix++
+                        }
 
                         // Write recipe.json
                         zipOut.putNextEntry(ZipEntry("$prefix/${RecipeSerializer.RECIPE_JSON_FILENAME}"))
@@ -106,6 +113,8 @@ class ExportToZipUseCase @Inject constructor(
                         }
 
                         exportedCount++
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to export recipe: ${recipe.name}", e)
                         failedCount++
@@ -128,7 +137,10 @@ class ExportToZipUseCase @Inject constructor(
                     }
                 }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
+            Log.e(TAG, "Failed to create ZIP file", e)
             return ExportResult.Error("Failed to create ZIP file: ${e.message}")
         }
 

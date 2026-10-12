@@ -4,26 +4,33 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
 import androidx.core.content.edit
+import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialCancellationException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.Firebase
 import com.google.firebase.auth.AuthCredential
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.auth
+import com.lionotter.recipes.R
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /** Represents the current authentication state of the app. */
 sealed class AuthState {
-    /** App is initializing or transitioning between auth states. */
+    /** Transitioning between auth states (sign-in migration, sign-out, account deletion). */
     data object Loading : AuthState()
 
     /** User is in guest mode (offline-only, no cloud sync). Uses a local UUID. */
@@ -41,61 +48,86 @@ val AuthState.uid: String?
         is AuthState.Google -> uid
     }
 
+/** Outcome of [AuthService.signOut]. */
+sealed class SignOutResult {
+    data object Success : SignOutResult()
+
+    /**
+     * Some local changes have not reached the server yet; signing out now would
+     * discard them. Nothing was changed. Call [AuthService.signOut] with
+     * `force = true` to sign out anyway.
+     */
+    data object PendingWrites : SignOutResult()
+}
+
+/**
+ * Thrown by [AuthService.deleteAccountAndData] when the Google account must be
+ * re-authenticated before deletion. Nothing has been deleted. Retry with an
+ * Activity context so a fresh Google credential can be requested.
+ */
+class ReauthenticationRequiredException(cause: Throwable? = null) :
+    Exception("Please sign in again to delete your account", cause)
+
+/**
+ * Owns the app's authentication state.
+ *
+ * The state is resolved synchronously on construction (from the persisted
+ * Firebase Auth user), so it is never [AuthState.Loading] at startup — even in a
+ * process started only to run a WorkManager job. [FirestoreService] independently
+ * disables the network for guests before Firestore is first used.
+ */
 @Singleton
 class AuthService @Inject constructor(
     @ApplicationContext private val context: Context,
     private val firestoreService: FirestoreService,
-    private val accountDeletionService: AccountDeletionService
+    private val accountDeletionService: AccountDeletionService,
+    private val imageSyncService: ImageSyncService
 ) {
     companion object {
         private const val TAG = "AuthService"
         private const val PREFS_NAME = "auth_prefs"
         private const val KEY_GUEST_UID = "guest_uid"
+        private const val PENDING_WRITES_TIMEOUT_MS = 10_000L
     }
 
     private val prefs: SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    private val _authState = MutableStateFlow<AuthState>(AuthState.Loading)
+    /** Serializes auth transitions so sign-out, deletion and merge cannot interleave. */
+    private val transitionMutex = Mutex()
+
+    private val _authState = MutableStateFlow(resolveCurrentState())
     val authState: StateFlow<AuthState> = _authState.asStateFlow()
 
     /** Whether the current user is signed in with Google (not a guest). */
     fun isGoogleUser(): Boolean = _authState.value is AuthState.Google
 
-    /** Returns the current guest UID, or null if none exists. */
-    fun getGuestUid(): String? = prefs.getString(KEY_GUEST_UID, null)
-
     /**
-     * Ensures the user has a valid session on startup.
-     * For Google users, enables network. For guests, disables network and
-     * uses a local UUID (no Firebase Auth call).
+     * Returns the current UID, waiting for an in-progress auth transition (which always
+     * ends, successfully or not) to finish.
      */
-    suspend fun ensureSignedIn() {
-        val firebaseUser = Firebase.auth.currentUser
-        if (firebaseUser != null && !firebaseUser.isAnonymous) {
-            _authState.value = AuthState.Google(
-                uid = firebaseUser.uid,
-                email = firebaseUser.email ?: ""
-            )
-            return
-        }
-
-        // Guest mode — no Firebase Auth needed
-        firestoreService.disableNetwork()
-        _authState.value = AuthState.Guest(uid = getOrCreateGuestUid())
-    }
+    suspend fun awaitUid(): String =
+        _authState.first { it !is AuthState.Loading }.uid
+            ?: throw IllegalStateException("User not authenticated")
 
     /**
-     * Signs in with Google. Always uses the migration flow to copy
-     * guest data to the Google account since the guest UID is local-only
-     * and never existed in Firebase.
+     * Gets a Google credential for the sign-in button flow. Always uses the migration
+     * flow to copy guest data to the Google account since the guest UID is local-only.
+     *
+     * A failure with [GetCredentialCancellationException] means the user dismissed the
+     * account picker and should not be reported as an error.
      *
      * @return The Google [AuthCredential] for use by [AccountMigrationService]
      */
     suspend fun signInWithGoogle(activityContext: Context): Result<AuthCredential> {
         return try {
-            val credential = getGoogleCredential(activityContext)
-            Result.success(credential)
+            val option = GetSignInWithGoogleOption.Builder(webClientId()).build()
+            Result.success(getGoogleCredential(activityContext, GetCredentialRequest.Builder().addCredentialOption(option).build()))
+        } catch (e: GetCredentialCancellationException) {
+            Log.i(TAG, "Google sign-in cancelled by user")
+            Result.failure(e)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Google sign-in failed", e)
             Result.failure(e)
@@ -103,72 +135,135 @@ class AuthService @Inject constructor(
     }
 
     /**
-     * Completes the merge flow after [AccountMigrationService] has finished
-     * migrating data and signing in the Google user on the default app.
+     * Moves from guest mode to a Google account: [migrate] copies the guest's data
+     * (identified by the guest UID it is given) to the Google account and signs the
+     * Google user in on the default Firebase app; then the guest cache is cleared.
      *
-     * The ordering here is critical to avoid PERMISSION_DENIED crashes:
-     * 1. Update auth state to Google (repos see the Google UID)
-     * 2. Clear guest Firestore cache (repos recreate listeners on the Google path)
-     * 3. Enable network (repos are already listening on the Google path)
+     * The state is [AuthState.Loading] throughout, so writes made meanwhile (e.g. a
+     * worker finishing an import) wait and then go to the Google account, instead of
+     * landing in the guest cache after it was copied and being wiped with it. Repos have
+     * no listeners while Loading, so none is left on the guest path when the network is
+     * enabled (which would fail with PERMISSION_DENIED).
+     *
+     * If [migrate] fails, the guest state is restored with its data intact.
      */
-    suspend fun completeMergeSignIn() {
-        val user = Firebase.auth.currentUser
-        _authState.value = if (user != null) {
-            AuthState.Google(uid = user.uid, email = user.email ?: "")
-        } else {
-            AuthState.Guest(uid = getOrCreateGuestUid())
+    suspend fun mergeGuestIntoGoogle(migrate: suspend (guestUid: String) -> Result<Unit>): Result<Unit> =
+        transitionMutex.withLock {
+            val guestUid = (_authState.value as? AuthState.Guest)?.uid
+                ?: return@withLock Result.failure(IllegalStateException("Not in guest mode"))
+            _authState.value = AuthState.Loading
+            try {
+                val result = migrate(guestUid)
+                if (result.isSuccess) {
+                    val state = resolveCurrentState()
+                    clearLocalData(enableNetwork = state is AuthState.Google)
+                    _authState.value = state
+                }
+                result
+            } finally {
+                if (_authState.value is AuthState.Loading) _authState.value = resolveCurrentState()
+            }
         }
-        firestoreService.clearLocalData()
-        firestoreService.enableNetwork()
-    }
-
-    /**
-     * Restores the auth state after a failed merge transition.
-     */
-    fun restoreAfterFailedMerge() {
-        val user = Firebase.auth.currentUser
-        _authState.value = if (user != null && !user.isAnonymous) {
-            AuthState.Google(uid = user.uid, email = user.email ?: "")
-        } else {
-            AuthState.Guest(uid = getOrCreateGuestUid())
-        }
-    }
 
     /**
      * Signs out the current Google user and transitions to guest mode.
      * Clears Firestore persistence and generates a new guest UID.
+     *
+     * Unless [force] is set, first waits for pending writes to reach the server and
+     * returns [SignOutResult.PendingWrites] (without signing out) if they don't, or if
+     * some recipe images haven't been uploaded yet, so the UI can warn that unsynced
+     * changes would be lost.
      */
-    suspend fun signOut() {
+    suspend fun signOut(force: Boolean = false): SignOutResult = transitionMutex.withLock {
+        if (!force && _authState.value is AuthState.Google) {
+            if (!firestoreService.awaitPendingWrites(PENDING_WRITES_TIMEOUT_MS)) {
+                Log.w(TAG, "Sign-out aborted: local changes have not synced yet")
+                return@withLock SignOutResult.PendingWrites
+            }
+            if (imageSyncService.hasPendingLocalImages()) {
+                Log.w(TAG, "Sign-out aborted: some recipe images have not been uploaded yet")
+                return@withLock SignOutResult.PendingWrites
+            }
+        }
         _authState.value = AuthState.Loading
-        firestoreService.clearLocalData()
-        Firebase.auth.signOut()
-        // Generate a fresh guest UID for the new session
-        prefs.edit { remove(KEY_GUEST_UID) }
-        firestoreService.disableNetwork()
-        _authState.value = AuthState.Guest(uid = getOrCreateGuestUid())
+        resetToFreshGuest()
+        SignOutResult.Success
     }
 
     /**
      * Deletes all user data and the Firebase Auth account, then transitions
-     * to guest mode. Data deletion is performed by [AccountDeletionService]
-     * before the auth account is removed.
+     * to guest mode.
      *
-     * If deletion fails, the auth state is restored so the UI is not stuck
-     * on [AuthState.Loading].
+     * @param reauthCredential A fresh Google credential from [requestReauthCredential]
+     *        (Firebase requires a recent login to delete an account). If null and the last
+     *        sign-in is not recent, [ReauthenticationRequiredException] is thrown before
+     *        anything is deleted.
+     * @throws ReauthenticationRequiredException if re-authentication is needed
+     * @throws AccountDeletionService.OfflineException if the server can't be reached
+     * @throws AccountDeletionService.AuthAccountDeletionException if user data was deleted
+     *         but the Firebase Auth account could not be. The app is still signed out.
      */
-    suspend fun deleteAccountAndData() {
-        _authState.value = AuthState.Loading
+    suspend fun deleteAccountAndData(reauthCredential: AuthCredential? = null) {
+        transitionMutex.withLock {
+            val previousState = _authState.value
+            _authState.value = AuthState.Loading
+            try {
+                accountDeletionService.deleteAllUserData(reauthCredential)
+            } catch (e: AccountDeletionService.AuthAccountDeletionException) {
+                Log.e(TAG, "User data deleted but auth account deletion failed", e)
+                resetToFreshGuest()
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to delete account and data", e)
+                _authState.value = previousState
+                throw e
+            }
+            resetToFreshGuest()
+        }
+    }
+
+    /**
+     * Clears all local account state and signs out of Firebase, ending in a fresh
+     * guest session. Caller must hold [transitionMutex] and have set [AuthState.Loading].
+     */
+    private suspend fun resetToFreshGuest() {
+        clearLocalData(enableNetwork = false)
+        Firebase.auth.signOut()
+        clearCredentialState()
+        ImageCacheConfig.clearCache(context)
+        prefs.edit { remove(KEY_GUEST_UID) }
+        _authState.value = AuthState.Guest(uid = getOrCreateGuestUid())
+    }
+
+    private suspend fun clearLocalData(enableNetwork: Boolean) {
+        if (!firestoreService.clearLocalData(enableNetwork)) {
+            firestoreService.reportError(
+                "Couldn't remove the previous account's data from this device. " +
+                    "Clear the app's storage in Android settings to remove it."
+            )
+        }
+    }
+
+    private suspend fun clearCredentialState() {
         try {
-            accountDeletionService.deleteAllUserData()
-            firestoreService.clearLocalData()
-            // Generate a fresh guest UID
-            prefs.edit { remove(KEY_GUEST_UID) }
-            firestoreService.disableNetwork()
-            _authState.value = AuthState.Guest(uid = getOrCreateGuestUid())
+            CredentialManager.create(context).clearCredentialState(ClearCredentialStateRequest())
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to delete account and data", e)
-            restoreAfterFailedMerge()
-            throw e
+            if (e is CancellationException) throw e
+            Log.w(TAG, "Failed to clear credential state", e)
+        }
+    }
+
+    private fun resolveCurrentState(): AuthState {
+        val user = try {
+            Firebase.auth.currentUser
+        } catch (e: Exception) {
+            Log.e(TAG, "Could not read Firebase Auth user", e)
+            null
+        }
+        return if (user != null && !user.isAnonymous) {
+            AuthState.Google(uid = user.uid, email = user.email ?: "")
+        } else {
+            AuthState.Guest(uid = getOrCreateGuestUid())
         }
     }
 
@@ -181,25 +276,32 @@ class AuthService @Inject constructor(
         return newUid
     }
 
-    /** Extracts a Google [AuthCredential] using Credential Manager. */
-    private suspend fun getGoogleCredential(activityContext: Context): AuthCredential {
-        val credentialManager = CredentialManager.create(activityContext)
-        val webClientId = activityContext.getString(
-            activityContext.resources.getIdentifier(
-                "default_web_client_id", "string", activityContext.packageName
-            )
-        )
+    private fun webClientId(): String = context.getString(R.string.default_web_client_id)
 
-        val googleIdOption = GetGoogleIdOption.Builder()
-            .setFilterByAuthorizedAccounts(false)
-            .setServerClientId(webClientId)
+    /** Silently (if possible) gets a fresh credential for the already-authorized account. */
+    /**
+     * Requests a fresh Google credential for the signed-in account, for re-authentication
+     * before [deleteAccountAndData]. Call from a UI-owned scope; [activityContext] must not
+     * outlive the Activity.
+     */
+    suspend fun requestReauthCredential(activityContext: Context): AuthCredential {
+        val option = GetGoogleIdOption.Builder()
+            .setFilterByAuthorizedAccounts(true)
+            .setAutoSelectEnabled(true)
+            .setServerClientId(webClientId())
             .build()
+        return try {
+            getGoogleCredential(activityContext, GetCredentialRequest.Builder().addCredentialOption(option).build())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Re-authentication failed", e)
+            throw ReauthenticationRequiredException(e)
+        }
+    }
 
-        val request = GetCredentialRequest.Builder()
-            .addCredentialOption(googleIdOption)
-            .build()
-
-        val result = credentialManager.getCredential(activityContext, request)
+    private suspend fun getGoogleCredential(activityContext: Context, request: GetCredentialRequest): AuthCredential {
+        val result = CredentialManager.create(activityContext).getCredential(activityContext, request)
         val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(result.credential.data)
         return GoogleAuthProvider.getCredential(googleIdTokenCredential.idToken, null)
     }

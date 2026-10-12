@@ -24,9 +24,8 @@ subgraph app["Android App"]
     subgraph ui["UI Layer (Compose)"]
 
         subgraph screens["Screens"]
-            login["LoginScreen"]
-            list["RecipeListScreen"]
-            detail["RecipeDetailScreen"]
+            list["RecipeListScreen<br/>(filters in SavedStateHandle)"]
+            detail["RecipeDetailScreen<br/>(Loading / NotFound / Loaded)"]
             edit["EditRecipeScreen"]
             add["AddRecipeScreen"]
             settings["SettingsScreen"]
@@ -65,9 +64,8 @@ subgraph app["Android App"]
         screens --> components
 
         subgraph viewmodels["ViewModels"]
-            login_vm["LoginViewModel"]
             list_vm["RecipeListViewModel"]
-            detail_vm["RecipeDetailViewModel"]
+            detail_vm["RecipeDetailViewModel<br/>(cooking state in SavedStateHandle)"]
             edit_vm["EditRecipeViewModel"]
             add_vm["AddRecipeViewModel"]
             settings_vm["SettingsViewModel"]
@@ -77,13 +75,19 @@ subgraph app["Android App"]
             meal_plan_vm["MealPlanViewModel"]
             grocery_list_vm["GroceryListViewModel"]
             import_selection_vm["ImportSelectionViewModel"]
+            shared_intent_vm["SharedIntentViewModel<br/>(AppIntentEvent Channel)"]
         end
+
+        nav_graph["NavGraph<br/>(start = recipe list)"]
+        main_activity["MainActivity<br/>(onNewIntent, notification recipe_id)"]
+        main_activity -->|AppIntentEvent| shared_intent_vm
+        nav_graph -->|collects events| shared_intent_vm
+        nav_graph -->|navigates| screens
 
         subgraph state["UI State"]
-            in_progress_mgr["InProgressRecipeManager"]
+            in_progress_mgr["InProgressRecipeManager<br/>(start / retry / cancel / dismiss)"]
         end
 
-        login --> login_vm
         list --> list_vm
         detail --> detail_vm
         edit --> edit_vm
@@ -96,10 +100,12 @@ subgraph app["Android App"]
         import_debug_detail --> import_debug_detail_vm
         import_selection --> import_selection_vm
 
-        list_vm -->|observes, cancel| in_progress_mgr
-        add_vm -->|adds entries| in_progress_mgr
+        list_vm -->|observes, retry, dismiss, cancel| in_progress_mgr
+        add_vm -->|start URL import| in_progress_mgr
+        in_progress_mgr -->|enqueue, cancel| work_scheduler
         in_progress_mgr -->|observes status| worker
-        in_progress_mgr -->|CRUD| pending_import_repo
+        in_progress_mgr -->|stage input files| import_input_store
+        in_progress_mgr -->|CRUD, failed imports stay visible| pending_import_repo
     end
 
     %% --------------------------------------------------------
@@ -115,7 +121,19 @@ subgraph app["Android App"]
             paprika_import_worker["PaprikaImportWorker"]
             zip_export_worker["ZipExportWorker"]
             zip_import_worker["ZipImportWorker"]
+            local_image_upload_worker["LocalImageUploadWorker"]
+            work_scheduler["RecipeWorkScheduler"]
+            import_input_store["ImportInputStore<br/>(files/imports/&lt;importId&gt;/)"]
             work_ext["observeWorkByTag()"]
+
+            work_scheduler -->|builds requests| import_worker
+            work_scheduler -->|builds requests| paprika_import_worker
+            work_scheduler -->|builds requests| zip_import_worker
+            work_scheduler -->|edit / regenerate| edit_worker
+            paprika_import_worker -->|reschedules next step| work_scheduler
+            import_worker -->|reads staged input| import_input_store
+            paprika_import_worker -->|reads staged input| import_input_store
+            zip_import_worker -->|reads staged input| import_input_store
 
             import_worker -->|extends| base_worker
             regenerate_worker -->|extends| base_worker
@@ -126,7 +144,7 @@ subgraph app["Android App"]
         end
 
         subgraph notification["Notifications"]
-            helper["RecipeNotificationHelper"]
+            helper["RecipeNotificationHelper<br/>(channels: recipe_import, recipe_import_results)"]
         end
 
         import_worker -->|notify progress| helper
@@ -159,10 +177,13 @@ subgraph app["Android App"]
         subgraph util["Utilities"]
             markdown["RecipeMarkdownFormatter"]
             serializer["RecipeSerializer"]
-            zip_import_helper["ZipImportHelper"]
+            zip_import_helper["ZipImportHelper<br/>(streaming readRecipeIndex)"]
+            html_extractor["RecipeHtmlExtractor<br/>(JSON-LD + structured text)"]
+            bounded_stream["BoundedInputStream / ArchiveBudget"]
 
             serializer -->|format| markdown
             zip_import_helper -->|deserialize| serializer
+            zip_import_helper -->|bounded reads| bounded_stream
         end
 
         subgraph models["Domain Models"]
@@ -179,7 +200,11 @@ subgraph app["Android App"]
             meal_type["MealType"]
             start_of_week["StartOfWeek"]
             ingredient_formatter["IngredientFormatter"]
-            ingredient_aggregation["IngredientAggregation"]
+            units["Units"]
+            ingredient_aggregation["IngredientAggregation<br/>(AmountAccumulator, aggregateIngredientOccurrences,<br/>sumIngredientAmounts, formatIngredientTotal)"]
+
+            recipe -->|aggregateAllIngredients| ingredient_aggregation
+            ingredient_aggregation -->|conversions| units
 
             meal_plan_entry -->|type| meal_type
             recipe --> section
@@ -192,6 +217,8 @@ subgraph app["Android App"]
         end
 
         uc_import -->|uses| parse_html
+        parse_html -->|extract page content| html_extractor
+        import_paprika -->|runStep, persists batch.json| import_input_store
         regenerate -->|uses| parse_html
         edit_recipe -->|uses| parse_html
         parse_html -->|save debug data| import_debug_repo
@@ -215,6 +242,7 @@ subgraph app["Android App"]
             import_debug_repo["ImportDebugRepository"]
             pending_import_repo["PendingImportRepository"]
             meal_plan_repo["MealPlanRepository"]
+            firestore_flows["FirestoreFlows<br/>(error-tolerant listener, incremental decoding)"]
         end
 
         subgraph local["Local Storage"]
@@ -227,6 +255,7 @@ subgraph app["Android App"]
             import_debug_entity["ImportDebugEntity"]
             image_storage[("Local Image Cache")]
             settings_ds["SettingsDataStore"]
+            grocery_state_store["GroceryListStateStore<br/>(own DataStore, per-week checked state)"]
 
             import_debug_dao --> room
             import_debug_entity --> room
@@ -234,10 +263,11 @@ subgraph app["Android App"]
             pending_import_entity --> room
             settings_ds -->|non-sensitive settings| datastore
             settings_ds -->|API key| tink_encrypted
+            grocery_state_store --> datastore
         end
 
         subgraph remote["Remote Services"]
-            anthropic_svc["AnthropicService"]
+            anthropic_svc["AnthropicService<br/>(structured output schema, streaming, per-model effort/thinking,<br/>server-side fallback, normalizeModel)"]
             scraper["WebScraperService"]
             image_dl["ImageDownloadService"]
             image_sync["ImageSyncService"]
@@ -259,6 +289,12 @@ subgraph app["Android App"]
         end
 
         repo -->|Firestore CRUD| firestore_svc
+        repo -->|snapshots, decode| firestore_flows
+        meal_plan_repo -->|snapshots, decode| firestore_flows
+        repo -->|follows auth state + generation| auth_svc
+        meal_plan_repo -->|follows auth state + generation| auth_svc
+        meal_plan_repo -->|generation| firestore_svc
+        repo -->|generation| firestore_svc
         import_debug_repo --> import_debug_dao
         pending_import_repo --> pending_import_dao
         meal_plan_repo -->|Firestore CRUD| firestore_svc
@@ -304,16 +340,15 @@ subgraph app["Android App"]
     edit_vm -->|edit model, thinking prefs| settings_ds
     edit_vm -->|save picked images| image_dl
     edit_vm -->|delete remote images| image_sync
-    edit_vm -->|save edits| edit_worker
-    edit_vm -->|regenerate from original| regenerate_worker
+    edit_vm -->|enqueue edit / regenerate| work_scheduler
+    edit_vm -.->|image change applied on save| repo
     edit_vm -->|observe edit/regenerate| work_ext
     import_selection_vm -->|check duplicates| repo
     import_selection_vm -->|deserialize| serializer
     import_selection_vm -->|read ZIP contents| zip_import_helper
     import_selection_vm -->|parse export| parser
-    import_selection_vm -->|enqueue work| worker
-    import_selection_vm -->|adds entries| in_progress_mgr
-    add_vm -->|enqueue work| worker
+    import_selection_vm -->|start Paprika / ZIP import| in_progress_mgr
+    import_selection_vm -->|parse from nav args in init| zip_import_helper
     add_vm -->|observe import| work_ext
     zip_vm -->|export| zip_export_worker
     zip_vm -->|observe export| work_ext
@@ -325,7 +360,10 @@ subgraph app["Android App"]
     grocery_list_vm -->|recipes| repo
     grocery_list_vm -->|aggregate ingredients| aggregate_grocery
     grocery_list_vm -->|grocery unit prefs| settings_ds
+    grocery_list_vm -->|checked state per week| grocery_state_store
     settings_vm -->|delete debug data| import_debug_repo
+    settings_vm -->|enqueue after Google sign-in| local_image_upload_worker
+    local_image_upload_worker -->|uploadPendingLocalImages| image_sync
     import_debug_list_vm -->|list entries| import_debug_repo
     import_debug_detail_vm -->|get entry| import_debug_repo
 
@@ -347,10 +385,16 @@ subgraph app["Android App"]
     import_paprika -->|fetch source image| scraper
     parse_html -->|download image| image_dl
 
-    login_vm -->|sign in| auth_svc
-    settings_vm -->|sign out, email, delete account| auth_svc
+    lion_app["LionOtterApp<br/>(injects AuthService eagerly)"]
+    lion_app -->|resolve auth state at startup| auth_svc
+    lion_app -->|create notification channels| helper
+    auth_svc -->|awaitUid, configure instance, clear local data| firestore_svc
+    settings_vm -->|"sign in, sign out (PendingWrites warning), email, delete account"| auth_svc
     auth_svc -->|delete all user data| deletion_svc
-    deletion_svc -->|delete collections| firestore_svc
+    deletion_svc -->|re-authenticate, read from server, delete| firestore_svc
+    deletion_svc -->|clear debug data| import_debug_repo
+    deletion_svc -->|clear API key| settings_ds
+    deletion_svc -->|delete storage images| image_sync
 end
 
 %% ============================================================
@@ -386,26 +430,28 @@ subgraph legend["Data Flow"]
 
     subgraph import_flow["URL Import Flow"]
         f1["1. User pastes URL and taps Import"]
-        f2["2. ViewModel enqueues WorkManager job"]
+        f2["2. InProgressRecipeManager.startUrlImport enqueues job via RecipeWorkScheduler"]
         f3["3. RecipeImportWorker runs as foreground service"]
         f4["4. Scraper fetches HTML, AI parses recipe"]
+        f4a["RecipeHtmlExtractor pulls JSON-LD + structured text before the AI call"]
         f5["5. Repository saves to Firestore"]
-        f1 --> f2 --> f3 --> f4 --> f5
+        f6["Failed imports stay in the list with Retry / Dismiss; result notification on recipe_import_results"]
+        f1 --> f2 --> f3 --> f4 --> f4a --> f5 --> f6
     end
 
     subgraph zip_flow[".lorecipes Export/Import Flow"]
         z1["Export: User picks save location, ZipExportWorker writes file"]
-        z2["Import: User picks file, selects recipes via ImportSelectionScreen"]
-        z3["ZipImportWorker imports selected recipes via WorkManager"]
+        z2["Import: User picks file, ImportSelectionScreen streams the recipe index"]
+        z3["ImportSelectionViewModel copies file to ImportInputStore; ZipImportWorker imports selected recipes"]
         z4["Uses RecipeSerializer for consistent format, skips duplicates"]
         z1 --> z2 --> z3 --> z4
     end
 
     subgraph paprika_flow["Paprika Import Flow"]
-        p1["1. User picks .paprikarecipes file, selects recipes"]
-        p2["2. PaprikaImportWorker parses ZIP of gzip JSON"]
-        p3["3. Multiple recipes: batch via Message Batches API (50% cheaper)"]
-        p4["4. Poll for batch completion, stream results, save to Firestore"]
+        p1["1. User picks .paprikarecipes file, selects recipes (PaprikaParser.parseIndex streams the index)"]
+        p2["2. File staged in ImportInputStore; PaprikaImportWorker runs short self-rescheduling steps"]
+        p3["3. Multiple recipes: batch via Message Batches API (50% cheaper), state in batch.json"]
+        p4["4. Each step polls batch, streams results, saves to Firestore"]
         p5["5. Images from Paprika data or source page; single = sequential"]
         p1 --> p2 --> p3 --> p4 --> p5
     end
@@ -413,16 +459,16 @@ subgraph legend["Data Flow"]
     subgraph edit_flow["Recipe Edit Flow"]
         e1["1. User taps edit on recipe detail screen"]
         e2["2. EditRecipeScreen shows image, title/URL, AI instructions, body"]
-        e3["3. Image, title, URL changes saved directly without AI"]
+        e3["3. Image, title, URL changes saved directly without AI (image applied on save)"]
         e4["4. Body edits or AI instructions trigger RecipeEditWorker"]
         e5["5. AI re-parses; Save preserves metadata, Save as Copy creates new"]
         e1 --> e2 --> e3 --> e4 --> e5
     end
 
     subgraph share_flow["Recipe Sharing Flow"]
-        s1["Share as text: Markdown via ACTION_SEND"]
+        s1["Share as text: Markdown (share layout, differs from edit layout) via ACTION_SEND"]
         s2["Share as file: .lorecipes via FileProvider"]
-        s3["Import: .lorecipes opens ImportSelectionScreen"]
+        s3["Import: .lorecipes (zip SEND/VIEW; octet-stream SEND, or VIEW by extension) opens ImportSelectionScreen"]
         s4["User selects recipes, WorkManager imports them"]
         s1 --> s2 --> s3 --> s4
     end
@@ -431,6 +477,8 @@ subgraph legend["Data Flow"]
         fav1["Recipes starred from list or detail view"]
         fav2["Favorites sorted first in recipe list"]
         fav3["Re-sort on filter/search/ID changes via runningFold"]
+        fav4["Filters kept in SavedStateHandle; detail tag chips filter the list"]
+        fav3 --> fav4
         fav1 --> fav2 --> fav3
     end
 
@@ -449,7 +497,7 @@ subgraph legend["Data Flow"]
         gl2["Aggregate ingredients: deduplicate, sum in base units"]
         gl3["Check-off: top-level hides all, sub-item reduces count"]
         gl4["Share as Markdown via share sheet"]
-        gl5["Non-persistent: state resets between sessions"]
+        gl5["Checked state persisted per week in GroceryListStateStore"]
         gl1 --> gl1a --> gl2 --> gl3 --> gl4 --> gl5
     end
 end

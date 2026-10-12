@@ -189,7 +189,7 @@ class RecipeMarkdownFormatterTest {
         )
         val markdown = RecipeMarkdownFormatter.format(recipe)
 
-        assertTrue(markdown.contains("- 2 cup flour"))
+        assertTrue(markdown.contains("- 2 cups flour"))
     }
 
     @Test
@@ -402,7 +402,7 @@ class RecipeMarkdownFormatterTest {
         )
         val markdown = RecipeMarkdownFormatter.format(recipe)
 
-        assertTrue(markdown.contains("2 1/2 cup flour"))
+        assertTrue(markdown.contains("2 1/2 cups flour"))
     }
 
     @Test
@@ -626,8 +626,101 @@ class RecipeMarkdownFormatterTest {
         assertTrue(markdown.contains("**Tags:** baking, dessert"))
         assertTrue(markdown.contains("## Ingredients"))
         assertTrue(markdown.contains("### Main Ingredients"))
-        assertTrue(markdown.contains("- 2 cup flour"))
+        assertTrue(markdown.contains("- 2 cups flour"))
         assertTrue(markdown.contains("## Instructions"))
         assertTrue(markdown.contains("1. Mix flour and sugar"))
+    }
+
+    // --- Edit (formatBody) layout ---
+
+    private fun editRecipe() = createTestRecipe(
+        instructionSections = listOf(
+            InstructionSection(
+                name = "Cake",
+                steps = listOf(
+                    InstructionStep(
+                        stepNumber = 1,
+                        instruction = "Cream the butter and sugar",
+                        ingredients = listOf(
+                            Ingredient(name = "butter", amount = Amount(0.5, "cup"), notes = "softened"),
+                            Ingredient(name = "sugar", amount = Amount(1.0, "cup"))
+                        )
+                    ),
+                    InstructionStep(
+                        stepNumber = 2,
+                        instruction = "Shape into loaves",
+                        ingredients = listOf(
+                            Ingredient(name = "flour", amount = Amount(250.0, "g"))
+                        ),
+                        yields = 2
+                    ),
+                    InstructionStep(
+                        stepNumber = 3,
+                        instruction = "Brush with butter",
+                        ingredients = listOf(
+                            Ingredient(name = "butter", amount = Amount(2.0, "tbsp"))
+                        )
+                    )
+                )
+            )
+        )
+    )
+
+    @Test
+    fun `formatBody lists each step's ingredients with amounts`() {
+        val body = RecipeMarkdownFormatter.formatBody(editRecipe())
+
+        assertTrue(body, body.contains("1. Cream the butter and sugar\n   - 1/2 cup butter, softened\n   - 1 cup sugar\n"))
+        assertTrue(body, body.contains("3. Brush with butter\n   - 2 tbsp butter\n"))
+    }
+
+    @Test
+    fun `formatBody keeps amounts split across steps instead of aggregating`() {
+        val body = RecipeMarkdownFormatter.formatBody(editRecipe())
+
+        assertFalse(body, body.contains("## Ingredients"))
+        assertFalse(body, body.contains("10 tbsp butter"))
+    }
+
+    @Test
+    fun `formatBody includes step yields`() {
+        val body = RecipeMarkdownFormatter.formatBody(editRecipe())
+
+        assertTrue(body, body.contains("2. Shape into loaves *(repeat 2 times; ingredient amounts below are for each time)*\n   - 250 g flour"))
+    }
+
+    @Test
+    fun `format for sharing aggregates ingredients and does not repeat them under steps`() {
+        val markdown = RecipeMarkdownFormatter.format(editRecipe())
+
+        assertTrue(markdown, markdown.contains("- 10 tbsp butter, softened"))
+        assertTrue(markdown, markdown.contains("- 500 g flour"))
+        assertTrue(markdown, markdown.contains("2. Shape into loaves *(repeat 2 times)*"))
+        assertFalse(markdown, markdown.contains("   - 2 tbsp butter"))
+    }
+
+    @Test
+    fun `format shows fl oz and lb oz readably`() {
+        val recipe = createTestRecipe(
+            instructionSections = listOf(
+                InstructionSection(
+                    steps = listOf(
+                        InstructionStep(
+                            stepNumber = 1,
+                            instruction = "Mix",
+                            ingredients = listOf(
+                                Ingredient(name = "cream", amount = Amount(2.0, "fl_oz")),
+                                Ingredient(name = "beef", amount = Amount(20.0, "oz"))
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        val markdown = RecipeMarkdownFormatter.format(recipe)
+
+        assertTrue(markdown, markdown.contains("- 2 fl oz cream"))
+        assertTrue(markdown, markdown.contains("- 1 lb 4 oz beef"))
     }
 }

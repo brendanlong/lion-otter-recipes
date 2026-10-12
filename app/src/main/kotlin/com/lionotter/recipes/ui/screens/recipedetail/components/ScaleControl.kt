@@ -19,16 +19,27 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
+/**
+ * Scales the recipe. Shows the number of servings when the recipe says how many it makes,
+ * otherwise a multiplier like "1½×".
+ */
 @Composable
 internal fun ScaleControl(
     scale: Double,
+    servings: Int?,
     onIncrement: () -> Unit,
     onDecrement: () -> Unit
 ) {
+    val knownServings = servings?.takeIf { it > 0 }
     Card(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.secondaryContainer
@@ -41,12 +52,14 @@ internal fun ScaleControl(
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = stringResource(R.string.scale_label),
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSecondaryContainer
-            )
-            Spacer(modifier = Modifier.width(16.dp))
+            if (knownServings == null) {
+                Text(
+                    text = stringResource(R.string.scale_label),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+            }
             IconButton(onClick = onDecrement) {
                 Icon(
                     imageVector = Icons.Default.Remove,
@@ -54,10 +67,16 @@ internal fun ScaleControl(
                 )
             }
             Text(
-                text = "${scale}x",
+                text = if (knownServings != null) {
+                    val scaledServings = (scale * knownServings).roundToInt().coerceAtLeast(1)
+                    stringResource(R.string.servings_count, scaledServings.toString())
+                } else {
+                    formatScaleMultiplier(scale)
+                },
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSecondaryContainer
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
             )
             IconButton(onClick = onIncrement) {
                 Icon(
@@ -67,4 +86,19 @@ internal fun ScaleControl(
             }
         }
     }
+}
+
+private val FRACTIONS = listOf(0.25 to "¼", 0.5 to "½", 0.75 to "¾")
+
+/** Formats a scale multiplier for display, e.g. 1.0 -> "1×", 1.5 -> "1½×", 0.25 -> "¼×". */
+internal fun formatScaleMultiplier(scale: Double): String {
+    val whole = scale.toLong()
+    val fraction = scale - whole
+    val fractionText = FRACTIONS.firstOrNull { abs(it.first - fraction) < 0.01 }?.second
+    val text = when {
+        abs(fraction) < 0.01 -> whole.toString()
+        fractionText != null -> if (whole == 0L) fractionText else "$whole$fractionText"
+        else -> "%.2f".format(scale).trimEnd('0').trimEnd('.')
+    }
+    return "$text×"
 }

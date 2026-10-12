@@ -29,31 +29,26 @@ Dependencies point inward: UI → Domain → Data. The domain layer has no depen
 
 #### Room Database (`RecipeDatabase`)
 
-Single table design with JSON-serialized complex fields:
+Recipes and meal plans do **not** live in Room; they are stored in Firestore (see Repository below). Room holds only local, device-specific data in two tables:
 
-```kotlin
-@Entity(tableName = "recipes")
-data class RecipeEntity(
-    @PrimaryKey val id: String,
-    val name: String,
-    val sourceUrl: String?,
-    val ingredientSectionsJson: String,  // Serialized List<IngredientSection>
-    val instructionSectionsJson: String, // Serialized List<InstructionSection>
-    val tagsJson: String,                // Serialized List<String>
-    // ... other fields
-)
-```
+- `PendingImportEntity` (`PendingImportDao`): the import queue shown on the recipe list (status, name, URL, WorkManager ID, failure message). Failed imports stay in the table so the list can offer Retry/Dismiss.
+- `ImportDebugEntity` (`ImportDebugDao`): raw HTML, AI input/output and errors captured when import debugging is enabled. The DAO exposes lightweight summary queries (`getAllDebugSummaries`, `getDebugSummaryById`) and chunked content reads (`getContentLength`, `getContentChunk`) so large blobs are never loaded into a single cursor window.
 
-**Design Decision**: We serialize nested lists to JSON rather than using Room relations because:
-1. Recipe structure is always loaded as a unit
-2. Avoids complex JOIN queries
-3. Simplifies schema migrations
+**Design Decision**: Large debug payloads are read in chunks because a single multi-megabyte column exceeds Android's CursorWindow limit.
 
-#### DataStore (`SettingsDataStore`)
+#### DataStore
 
-Stores user preferences:
-- `anthropic_api_key`: Encrypted API key for Claude
-- `ai_model`: Selected model (opus-4.5, sonnet-4, haiku-3.5)
+`SettingsDataStore` stores user preferences:
+- Anthropic API key, encrypted with Tink (`TinkEncryption`) and kept out of the plain DataStore
+- `ai_model` (imports) and `edit_model` (edits), plus a `thinking` toggle
+- Display, theme, keep-screen-on, measurement unit preferences (recipe and grocery), start of week, import debugging
+
+`GroceryListStateStore` is a separate DataStore holding grocery list checked state, keyed per week start date. Old weeks are pruned on save.
+
+#### Local files
+
+- Local image cache (`ImageDownloadService`, `ImageSyncService`): images are cached on disk and uploaded to Firebase Storage. Images saved while signed out of Google stay local until `ImageSyncService.uploadPendingLocalImages()` runs.
+- `ImportInputStore`: staged import inputs under `files/imports/<importId>/` (copied source file, selection, import kind, `batch.json` for Paprika batches). Orphans are cleaned up at startup.
 
 ### Remote Services
 
@@ -66,49 +61,54 @@ suspend fun fetchHtml(url: String): Result<String>
 ```
 
 - Uses mobile User-Agent to get mobile-friendly pages
-- No parsing - raw HTML passed to AI
+- No parsing in the scraper itself; `RecipeHtmlExtractor` (domain/util) prepares the page for the AI
 
 #### AnthropicService
 
-Calls Claude API to parse recipe HTML into structured data:
+Calls the Claude API (official SDK) to parse recipe text into structured data:
 
-```kotlin
-suspend fun parseRecipe(
-    html: String,
-    apiKey: String,
-    model: String
-): Result<RecipeParseResult>
-```
+- **Models**: `claude-opus-5-5` (default for imports), `claude-sonnet-5-5` (default for edits), `claude-haiku-4-5`, `claude-fable-5-1`. `normalizeModel()` maps legacy or unknown stored IDs to the closest supported family.
+- **Structured output**: requests use a JSON schema (non-recursive, derived from `RecipeParseResponse`) so the response is valid JSON; `extractJson` remains as a fallback.
+- **Streaming**: single-recipe parses use `createStreaming` so large `max_tokens` values do not hit HTTP timeouts; the stream is closed on coroutine cancellation.
+- **Effort/thinking per model**: Haiku 4.5 uses `budget_tokens` thinking when enabled. Opus 5.5, Sonnet 5.5 and Fable 5.1 cannot disable thinking, so the "thinking" setting maps to effort (medium when on, low when off).
+- **Server-side fallback**: single-recipe parses go through the beta Messages API with `fallbacks: "default"` (Opus 5.5, Sonnet 5.5, Fable 5.1), so a safety-classifier decline is retried on a fallback model in the same stream. `fallback` content blocks mark the switch; text before a mid-stream boundary is continuation context, so the joined text is parsed first, then the text after the last boundary.
+- **Batches**: `createRecipeBatch`, `retrieveBatch`, `cancelBatch`, `forEachBatchResult` (streams results) back the Paprika import.
 
 **Prompt Engineering**: The system prompt instructs Claude to:
 1. Extract all recipe metadata (name, times, servings)
-2. Group ingredients and instructions by section
+2. Group ingredients and instructions by section/step
 3. Parse quantities as decimals for scaling
 4. Generate relevant tags
-5. Return strict JSON format
-
-**Response Handling**:
-- Extracts JSON from markdown code blocks if present
-- Falls back to finding raw JSON in response
-- Validates against `RecipeParseResult` schema
+5. Prefer schema.org JSON-LD data when present alongside the page text
 
 ### Repository
 
-`RecipeRepository` is the single source of truth:
+`RecipeRepository` and `MealPlanRepository` (behind `IRecipeRepository` / `IMealPlanRepository`) are the sources of truth, backed by Firestore (`FirestoreService`) at `users/{uid}/recipes/{recipeId}` and `users/{uid}/mealPlans/{id}`. Firestore's offline persistence provides the local copy and write queue.
 
 ```kotlin
-class RecipeRepository(
-    private val recipeDao: RecipeDao,
-    private val json: Json
-) {
+interface IRecipeRepository {
     fun getAllRecipes(): Flow<List<Recipe>>
     fun getRecipeById(id: String): Flow<Recipe?>
+    suspend fun getRecipeByIdOnce(id: String): Recipe?
     fun saveRecipe(recipe: Recipe)
-    suspend fun deleteRecipe(id: String)
+    fun deleteRecipe(id: String)
+    fun setFavorite(id: String, isFavorite: Boolean)
+    // ... notes, image URL, title/URL updates, counts
 }
 ```
 
-Handles JSON serialization/deserialization between `RecipeEntity` and domain `Recipe`.
+- Both repositories re-subscribe when the auth state (`AuthService.authState`) or the Firestore instance generation (`FirestoreService.generation`) changes, so a sign-in, sign-out or local-data clear swaps the listener to the right user.
+- `data/repository/FirestoreFlows.kt` provides the shared listener helpers: an error-tolerant snapshot `Flow` (errors are logged and reported instead of killing the collector) and incremental decoding that only re-decodes changed documents and skips undecodable ones.
+- `ImportDebugRepository` wraps `ImportDebugDao`; `PendingImportRepository` wraps `PendingImportDao`.
+
+### Authentication and Account Lifecycle
+
+- `AuthService` resolves auth state synchronously at startup. `LionOtterApp` injects it eagerly so state is known (and Firestore network access is disabled for guests) before any Activity or WorkManager job touches Firestore; `MainActivity` does no auth work. There is no login screen: every user starts as a local-only **guest**, and `AuthState` is `Loading`, `Guest(uid)` or `Google(uid, email)`.
+- Code that needs a uid off the main path calls `awaitUid()`, which waits (without timeout) while the state is `Loading`. Fire-and-forget repository writes made while `Loading` likewise wait and then go to the resulting account.
+- `signInWithGoogle` gets a credential; `mergeGuestIntoGoogle { migrate }` then holds the auth transition lock with the state `Loading` while `AccountMigrationService` copies guest data (server calls have timeouts) and signs in, clears the guest cache, and switches to `Google` (or restores the guest on failure). After a successful Google sign-in, `LocalImageUploadWorker` is enqueued and calls `ImageSyncService.uploadPendingLocalImages()`.
+- `ImageDownloadService.storeImage` keeps the local file and enqueues `LocalImageUploadWorker` when a Google user's upload fails (the worker retries while any upload fails, and only replaces a recipe's image if it is still that local file). Images are only deleted from Storage when no other recipe (e.g. a "Save as copy") references them, and changing a recipe's image also updates its meal plans' `recipeImageUrl`.
+- `signOut(force)` returns `SignOutResult.Success` or `SignOutResult.PendingWrites` when changes have not reached the server or recipe images are still only on the device; Settings warns about unsynced changes and the user may sign out anyway (`force = true`).
+- `AccountDeletionService` (depends on `FirestoreService`, `ImageSyncService`, `ImportDebugRepository`, `SettingsDataStore`) first checks the server is reachable and re-authenticates, reads recipes and meal plans from the server (not the cache), deletes Firestore documents, then deletes Storage images individually (failures leave orphaned images, never recipes pointing at deleted images), clears local images, debug data and the API key, and finally deletes the Firebase Auth account.
 
 ## Domain Layer
 
@@ -116,7 +116,7 @@ Handles JSON serialization/deserialization between `RecipeEntity` and domain `Re
 
 #### Recipe
 
-Core domain model representing a complete recipe:
+Core domain model representing a complete recipe. Ingredients live inside instruction steps (so each step knows what it uses); ingredient lists are derived by aggregation:
 
 ```kotlin
 data class Recipe(
@@ -125,16 +125,19 @@ data class Recipe(
     val sourceUrl: String?,
     val story: String?,                           // AI-extracted summary
     val servings: Int?,
-    val ingredientSections: List<IngredientSection>,
     val instructionSections: List<InstructionSection>,
     val tags: List<String>,
-    // ...
-)
+    val isFavorite: Boolean,
+    // times, equipment, imageUrl, userNotes, timestamps ...
+) {
+    fun aggregateIngredients(): List<IngredientSection>   // per instruction section
+    fun aggregateAllIngredients(): List<Ingredient>       // across all sections
+}
 ```
 
-#### IngredientSection / InstructionSection
+#### InstructionSection / IngredientSection
 
-Support for grouped recipes (e.g., cake with frosting):
+Support for grouped recipes (e.g., cake with frosting). `InstructionSection` holds named steps, each with its own `ingredients` and a `yields` multiplier; `IngredientSection` is the aggregated view:
 
 ```kotlin
 data class IngredientSection(
@@ -150,9 +153,11 @@ Parsed ingredient with scaling support:
 ```kotlin
 data class Ingredient(
     val name: String,
-    val quantity: Double?,    // Decimal for math (0.5, 0.25, etc.)
-    val unit: String?,
-    val notes: String?        // "room temperature", "divided"
+    val notes: String?,       // "room temperature", "divided"
+    val alternates: List<Ingredient>,
+    val amount: Amount?,      // value (decimal) + unit
+    val density: Double?,     // enables volume <-> weight conversion
+    val optional: Boolean
 ) {
     fun format(scale: Double = 1.0): String
 }
@@ -163,6 +168,15 @@ data class Ingredient(
 - `0.25` → `1/4`
 - `2.5` → `2 1/2`
 
+#### Units and Aggregation
+
+- `Units.kt` defines unit categories and conversions to base units (weight, volume, count).
+- `IngredientAggregation.kt` combines amounts: `AmountAccumulator` sums amounts in base units, `aggregateIngredientOccurrences` merges repeated ingredients (respecting step yields), `sumIngredientAmounts` and `formatIngredientTotal` produce totals for display. Grocery lists and the recipe detail "all ingredients" view share this code.
+
+#### Markdown layouts
+
+`RecipeMarkdownFormatter` has two layouts: the share layout (`format`, readable text for ACTION_SEND) and the edit layout (`formatBody`, used by the edit screen and parsed back by the AI, including density hints).
+
 ### Use Cases
 
 #### ImportRecipeUseCase
@@ -172,12 +186,17 @@ Orchestrates the full import flow:
 ```
 1. Validate API key exists
 2. Fetch HTML from URL (WebScraperService)
-3. Parse with AI (AnthropicService)
-4. Create Recipe domain object
-5. Save to database with original HTML
+3. Extract JSON-LD + structured text (RecipeHtmlExtractor)
+4. Parse with AI (AnthropicService via ParseHtmlUseCase)
+5. Create Recipe domain object
+6. Save to Firestore (and download the image)
 ```
 
-Reports progress via callback for UI updates.
+Reports progress via callback for UI updates. Other use cases: `ImportPaprikaUseCase` (batch Paprika import, runs in short resumable steps), `ImportFromZipUseCase` / `ExportToZipUseCase` / `ExportSingleRecipeUseCase` (`.lorecipes` files), `RegenerateRecipeUseCase`, `EditRecipeUseCase`, `AggregateGroceryListUseCase`, `CalculateIngredientUsageUseCase`.
+
+#### Archive handling
+
+`ZipImportHelper.readRecipeIndex` and `PaprikaParser.parseIndex` stream the archive to list recipes without loading everything into memory. `BoundedInputStream` / `ArchiveBudget` cap per-entry and total decompressed bytes (`ResourceLimits`) to guard against zip bombs.
 
 #### GetTagsUseCase
 
@@ -185,47 +204,91 @@ Uses a greedy set cover algorithm to select the top 10 tags that maximize recipe
 
 Simple CRUD operations (get all recipes, get by ID, delete) are handled by injecting `RecipeRepository` directly into ViewModels, since they don't require any orchestration or business logic beyond the repository call.
 
+## Background Work
+
+Long-running work runs in WorkManager workers extending `BaseRecipeWorker` (foreground notification, progress): `RecipeImportWorker`, `PaprikaImportWorker`, `ZipImportWorker`, `ZipExportWorker`, `RecipeEditWorker`, `RecipeRegenerateWorker`, and `LocalImageUploadWorker`.
+
+Imports flow through `InProgressRecipeManager` (UI state layer):
+
+```
+UI (AddRecipe / ImportSelection)
+       │  startUrlImport / startPaprikaImport / startZipImport
+       ▼
+InProgressRecipeManager ──> PendingImportRepository (queue row)
+       │                 └─> ImportInputStore (files/imports/<importId>/)
+       ▼
+RecipeWorkScheduler.enqueueImport(...)  ──> worker
+       ▲
+       └── observes WorkInfo, updates status; retryImport / cancelImport / removeInProgressRecipe
+```
+
+- `ImportSelectionViewModel` copies the picked/shared file into `ImportInputStore` when the screen opens (the import ID is kept in `SavedStateHandle`), so the screen and the workers never depend on a content URI grant surviving process death. The queue row is inserted only after all inputs are written.
+- On startup `InProgressRecipeManager` reconciles each row against WorkManager by request ID; rows whose work is missing (pruned, or never enqueued) are marked failed so they can be retried. URL dedupe only reuses an import whose work is still queued/running, and starts are serialized by a mutex.
+- Cancelling an import cancels its unique work, then waits (up to 30 s) for the worker to release the import's in-process lock before cancelling any Paprika batch and deleting files.
+- Paprika batch submission and `batch.json` are written in one `NonCancellable` block; batch results are saved under IDs derived from import ID + custom_id so a resumed run overwrites rather than duplicates.
+- `PaprikaImportWorker` runs as a chain of short, self-rescheduling steps (`ImportPaprikaUseCase.runStep`). Batch state (custom_id to recipe mapping, batch ID) is saved in `batch.json` so a restarted worker resumes.
+- Failed imports stay visible in the recipe list with Retry and Dismiss actions.
+- `RecipeNotificationHelper` owns two channels: `recipe_import` (low-importance progress) and `recipe_import_results` (completed/failed imports). Tapping a notification delivers a `recipe_id` to `MainActivity.onNewIntent`.
+
 ## UI Layer
 
 ### Navigation
 
-Single-Activity architecture with Compose Navigation:
+Single-Activity architecture with Compose Navigation. The start destination is always the recipe list:
 
 ```
-RecipeListScreen ──┬──> RecipeDetailScreen
-                   ├──> AddRecipeScreen ──> SettingsScreen
-                   └──> SettingsScreen
+RecipeListScreen ──┬──> RecipeDetailScreen ──> EditRecipeScreen
+                   ├──> AddRecipeScreen ──> SettingsScreen / ImportSelectionScreen
+                   ├──> MealPlanScreen ──> GroceryListScreen
+                   └──> SettingsScreen ──> ImportDebugListScreen ──> ImportDebugDetailScreen
 ```
+
+External intents are turned into `AppIntentEvent`s (`ImportUrl`, `ImportFile`, `OpenRecipe`, `NoUrlInSharedText`) sent on a `Channel` in `SharedIntentViewModel` and collected by `NavGraph`, which navigates accordingly. Manifest filters: `text/plain` SEND (shared URLs), zip/octet-stream SEND and VIEW (`.lorecipes`, `.paprikarecipes`). Sharing HTML or Markdown files is not a supported import path.
 
 ### Screens
 
 #### RecipeListScreen
 
-- Observes `Flow<List<Recipe>>` from ViewModel
-- Search bar filters locally
-- Tag chips filter by category
+- Observes recipes plus in-progress/failed imports from `InProgressRecipeManager`
+- Search, tag and favorite filters are held in `SavedStateHandle` (survive process death); tag chips on the detail screen filter the list
 - Swipe-to-dismiss for deletion
 
 #### RecipeDetailScreen
 
-- Hero image with Coil async loading
+- State is `Loading`, `NotFound` or `Loaded(recipe)`
+- Hero image with Coil async loading (Firebase Storage fetcher)
 - Metadata card (times, servings)
 - Scale controls with +/- buttons
-- Sectioned ingredients and instructions
+- Sectioned ingredients and instructions; cooking state (scale, measurement preference, used ingredients, highlighted step) lives in `SavedStateHandle`
 
 #### AddRecipeScreen
 
 - URL input with validation
-- Progress states: Fetching → Parsing → Saving
-- Error handling with retry
+- Starts the import via `InProgressRecipeManager`; progress states: Fetching → Parsing → Saving
+- Errors surface on the in-progress card (Retry/Dismiss)
 - Redirects to Settings if no API key
+
+#### EditRecipeScreen
+
+- Image, title and URL changes are staged and applied on save without the AI; body edits or AI instructions enqueue `RecipeEditWorker`
+- Save preserves metadata, Save as Copy creates a new recipe
+
+#### ImportSelectionScreen
+
+- `ImportSelectionViewModel` copies the file from navigation args into app storage, detects Paprika vs .lorecipes from the ZIP contents (anything else shows "This file isn't a Lion+Otter or Paprika recipe export."), lists recipes (marking duplicates), and starts the import through `InProgressRecipeManager`. Results are delivered as one-shot events collected by the screen, not callbacks.
+
+#### MealPlanScreen / GroceryListScreen
+
+- Meal plans are persisted in Firestore; the grocery list aggregates the selected week's meals and persists checked state per week in `GroceryListStateStore`
 
 #### SettingsScreen
 
 - API key input with visibility toggle
 - Key validation (must start with `sk-ant-`)
-- Model selection dropdown
-- Secure storage via DataStore
+- Import and edit model selection, thinking toggle
+- Secure storage via Tink-encrypted storage
+- Account section: Google sign-in/out (with unsynced-changes warning), account deletion
+- Backup/restore, unit and display preferences, import debugging
 
 ### ViewModels
 
@@ -238,13 +301,16 @@ Example pattern:
 ```kotlin
 @HiltViewModel
 class RecipeListViewModel @Inject constructor(
-    private val recipeRepository: RecipeRepository
+    private val recipeRepository: IRecipeRepository,
+    savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
     val recipes: StateFlow<List<Recipe>> = recipeRepository.getAllRecipes()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 }
 ```
+
+Mutations (writes, deletes, uploads) run inside `withContext(NonCancellable)` so they finish even if `viewModelScope` is cancelled; UI state updates stay outside that block.
 
 ### Theme
 
@@ -261,15 +327,20 @@ Hilt modules provide:
 
 ### AppModule
 - `Json` instance with lenient parsing
+- Application-level `CoroutineScope`
 
 ### DatabaseModule
 - `RecipeDatabase` singleton
-- `RecipeDao` from database
+- `PendingImportDao`, `ImportDebugDao`
+
+### RepositoryModule
+- Binds `IRecipeRepository` / `IMealPlanRepository` to their Firestore-backed implementations
 
 ### NetworkModule
-- `HttpClient` with Ktor Android engine
-- 2-minute timeout for AI calls
-- Content negotiation for JSON
+- `HttpClient` with Ktor Android engine (page and image fetching)
+
+### WorkerModule
+- `WorkManager` (`HiltWorkerFactory` is wired in `LionOtterApp`)
 
 ## Data Flow
 
@@ -279,7 +350,10 @@ Hilt modules provide:
 User enters URL
        │
        ▼
-AddRecipeViewModel.importRecipe()
+AddRecipeViewModel ──> InProgressRecipeManager.startUrlImport()
+       │
+       ▼
+RecipeWorkScheduler.enqueueImport() ──> RecipeImportWorker
        │
        ▼
 ImportRecipeUseCase.execute()
@@ -288,15 +362,17 @@ ImportRecipeUseCase.execute()
        │
        ├──> WebScraperService.fetchHtml() (download page)
        │
+       ├──> RecipeHtmlExtractor.extract() (JSON-LD + structured text)
+       │
        ├──> AnthropicService.parseRecipe() (AI extraction)
        │
        └──> RecipeRepository.saveRecipe() (persist)
               │
               ▼
-         RecipeDao.insertRecipe()
+         FirestoreService (users/{uid}/recipes/{id})
               │
               ▼
-         Room Database
+         Firestore local cache → sync to server
 ```
 
 ### Recipe Display Flow
@@ -311,13 +387,10 @@ RecipeListViewModel.recipes (StateFlow)
 RecipeRepository.getAllRecipes()
        │
        ▼
-RecipeDao.getAllRecipes() (Flow)
+FirestoreFlows snapshot listener (re-subscribes on auth state / generation change)
        │
        ▼
-Room Database → Flow<List<RecipeEntity>>
-       │
-       ▼
-Repository maps to Flow<List<Recipe>>
+Incremental decoding: RecipeDto → domain Recipe
        │
        ▼
 ViewModel exposes StateFlow<List<Recipe>>
@@ -329,25 +402,19 @@ Compose observes and recomposes
 ## Future Considerations
 
 ### Firebase Cloud Sync (Implemented)
-- Bidirectional sync with Firebase Firestore via `FirestoreSyncUseCase`
-- Recipes stored as Firestore documents at `users/{userId}/recipes/{recipeId}`
-- Meal plans stored at `users/{userId}/mealPlans/{mealPlanId}`
-- Sync runs on app startup and every 6 hours via `FirestoreSyncWorker` (WorkManager periodic work)
-- Conflict resolution: latest `updatedAt` timestamp wins
-- New local recipes uploaded, new remote recipes downloaded
-- Updated recipes synced in either direction based on timestamp
-- Sync toggle in Settings with manual "Sync Now" button
-- Authentication via Google Sign-In through Firebase Auth
-- Sync settings stored in DataStore (enabled, last sync timestamp)
+- Recipes and meal plans are stored directly in Firestore (`users/{userId}/recipes/{recipeId}`, `users/{userId}/mealPlans/{mealPlanId}`); Firestore's own offline persistence and listeners replace the former custom sync use case and periodic worker
+- Everyone starts as a local-only guest (anonymous uid, Firestore network disabled); signing in with Google enables network sync and migrates guest data
+- Signing out clears local Firestore data and returns to a fresh guest; the repositories follow via the Firestore `generation`
+- Local images are uploaded to Firebase Storage after Google sign-in (`LocalImageUploadWorker`)
 
-### Cooking Mode
+### Cooking Mode (partially implemented)
+- Ingredient usage tracking and highlighted step exist on the detail screen (`CalculateIngredientUsageUseCase`)
 - Track ingredient usage across steps via `IngredientReference`
 - Pre-calculate "get out" list
 - Step-by-step navigation with scaled quantities
 
-### Recipe Sharing
-- Export to JSON/Markdown
-- Import from shared files
+### Recipe Sharing (implemented except diff view)
+- Export as Markdown text or `.lorecipes` files; import from shared `.lorecipes` / Paprika files
 - Diff view for recipe updates
 
 ### Version History
@@ -360,6 +427,7 @@ Compose observes and recomposes
 ### Unit Tests
 - `Ingredient.format()` - quantity formatting and scaling
 - Repository mapping logic
+- Ingredient aggregation and unit conversion
 - Use case business logic
 
 ### Integration Tests (Future)

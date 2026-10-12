@@ -1,35 +1,51 @@
 package com.lionotter.recipes.domain.usecase
 
+import android.util.Base64
 import android.util.Log
+import com.anthropic.models.messages.batches.MessageBatch
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.paprika.PaprikaParser
-import com.lionotter.recipes.data.paprika.PaprikaRecipe
-import com.anthropic.models.messages.batches.MessageBatch
+import com.lionotter.recipes.data.remote.AnthropicRequestException
 import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.remote.ImageDownloadService
-import com.lionotter.recipes.data.remote.RecipeParseException
+import com.lionotter.recipes.data.remote.ParseResultWithUsage
 import com.lionotter.recipes.data.remote.WebScraperService
-import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.data.repository.IRecipeRepository
+import com.lionotter.recipes.domain.ResourceLimits
+import com.lionotter.recipes.domain.util.ArchiveTooLargeException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.job
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import java.io.File
 import java.io.InputStream
+import java.util.UUID
 import javax.inject.Inject
 import kotlin.coroutines.coroutineContext
 
 /**
- * Use case for importing recipes from a Paprika export file (.paprikarecipes).
+ * Imports recipes from a Paprika export (.paprikarecipes).
  *
- * Uses the Anthropic Message Batches API when importing multiple recipes:
- * 1. Parse all Paprika recipe data from the export file
- * 2. Submit all recipes as a single batch for parallel AI processing (50% cheaper)
- * 3. Poll for batch completion
- * 4. Process results and save each recipe to the database
+ * Multiple recipes go through the Anthropic Message Batches API (50% cheaper), which can take
+ * minutes to hours, so the import runs as a series of short steps ([runStep]) that persist their
+ * state in a work directory:
+ * 1. Stream the export, write photos to disk, and submit one batch. The batch ID and the
+ *    custom_id → recipe mapping are saved to `batch.json` immediately, so a restarted worker
+ *    resumes polling instead of resubmitting (and paying) again.
+ * 2. Poll the batch; the caller re-schedules [runStep] until it reports the batch has ended.
+ * 3. Save each result, appending to `processed.log` so a resumed run never saves twice.
  *
- * Falls back to sequential processing for single-recipe imports.
+ * A single recipe skips batching and is parsed directly.
  */
 class ImportPaprikaUseCase @Inject constructor(
     private val paprikaParser: PaprikaParser,
@@ -37,12 +53,27 @@ class ImportPaprikaUseCase @Inject constructor(
     private val anthropicService: AnthropicService,
     private val settingsDataStore: SettingsDataStore,
     private val webScraperService: WebScraperService,
-    private val imageDownloadService: ImageDownloadService
+    private val imageDownloadService: ImageDownloadService,
+    private val recipeRepository: IRecipeRepository,
+    private val json: Json
 ) {
     companion object {
         private const val TAG = "ImportPaprikaUseCase"
-        private const val BATCH_POLL_INTERVAL_MS = 10_000L
+        private const val STATE_FILE = "batch.json"
+        private const val PROCESSED_LOG = "processed.log"
+        private const val POLL_FAILURES_FILE = "poll_failures"
+        private const val PHOTOS_DIR = "photos"
+        private const val MAX_POLL_FAILURES = 30
+        private const val SAVE_PARALLELISM = 4
+
+        /**
+         * Stable recipe ID for one batch result, so a run that's stopped between saving a recipe
+         * and recording it in processed.log overwrites the same recipe when it resumes.
+         */
+        internal fun batchRecipeId(importId: String, customId: String): String =
+            UUID.nameUUIDFromBytes("paprika-import:$importId:$customId".toByteArray()).toString()
     }
+
     sealed class ImportResult {
         data class Success(
             val importedCount: Int,
@@ -50,12 +81,7 @@ class ImportPaprikaUseCase @Inject constructor(
             val failedRecipes: List<String> = emptyList()
         ) : ImportResult()
 
-        data class Cancelled(
-            val importedCount: Int,
-            val failedCount: Int
-        ) : ImportResult()
-
-        data class Error(val message: String) : ImportResult()
+        data class Error(val message: String, val retryable: Boolean = false) : ImportResult()
         object NoApiKey : ImportResult()
     }
 
@@ -78,396 +104,446 @@ class ImportPaprikaUseCase @Inject constructor(
         data class Complete(val result: ImportResult) : ImportProgress()
     }
 
-    /**
-     * Holds prepared data for a single recipe in the batch.
-     */
-    private data class PreparedRecipe(
-        val paprikaRecipe: PaprikaRecipe,
-        val contentForAi: String,
-        val imageUrl: String?,
-        val sourceUrl: String?
+    sealed class StepResult {
+        data class Finished(val result: ImportResult) : StepResult()
+
+        /** The batch is still processing; call [runStep] again later. */
+        object PollAgain : StepResult()
+    }
+
+    @Serializable
+    data class PreparedRecipe(
+        val customId: String,
+        val uid: String,
+        val name: String,
+        val sourceUrl: String? = null,
+        val imageUrl: String? = null,
+        val photoFile: String? = null,
+        val contentForAi: String
     )
 
-    /**
-     * Import recipes from a Paprika export file.
-     *
-     * Uses batch processing for multiple recipes (50% cheaper) and falls back
-     * to sequential processing for single recipes.
-     *
-     * @param inputStream InputStream of the .paprikarecipes file
-     * @param selectedRecipeNames If non-null, only import recipes whose names are in this set
-     * @param onProgress Callback for progress updates
-     */
-    suspend fun execute(
-        inputStream: InputStream,
-        selectedRecipeNames: Set<String>? = null,
-        onProgress: suspend (ImportProgress) -> Unit = {}
-    ): ImportResult {
-        // Parse the export file
-        onProgress(ImportProgress.Parsing)
-        val allPaprikaRecipes = try {
-            paprikaParser.parseExport(inputStream)
-        } catch (e: Exception) {
-            return ImportResult.Error("Failed to parse Paprika export: ${e.message}")
-        }
+    @Serializable
+    data class BatchState(
+        val batchId: String,
+        val model: String,
+        val thinkingEnabled: Boolean,
+        val submittedAtMillis: Long,
+        val recipes: List<PreparedRecipe>,
+        /** Recipes that were never submitted (unreadable or over the recipe limit). */
+        val preFailedNames: List<String> = emptyList()
+    )
 
-        // Filter to selected recipes if a selection was provided
-        val paprikaRecipes = if (selectedRecipeNames != null) {
-            allPaprikaRecipes.filter { it.name in selectedRecipeNames }
-        } else {
-            allPaprikaRecipes
-        }
-
-        if (paprikaRecipes.isEmpty()) {
-            return ImportResult.Error("No recipes found in export file")
-        }
-
-        // For a single recipe, use sequential processing (no batch overhead)
-        if (paprikaRecipes.size == 1) {
-            return executeSequential(paprikaRecipes, onProgress)
-        }
-
-        // For multiple recipes, use batch processing
-        return executeBatch(paprikaRecipes, onProgress)
+    private sealed class BatchOutcome {
+        data class Parsed(val result: ParseResultWithUsage) : BatchOutcome()
+        data class Failed(val message: String) : BatchOutcome()
     }
 
     /**
-     * Import recipes using the Anthropic Message Batches API.
-     * Sends all recipes in a single batch for parallel processing at 50% cost.
+     * Run the next step of the import whose state lives in [workDir].
+     *
+     * @param openSource opens the export file (only used before the batch is submitted)
+     * @param selectedUids if non-null, only import recipes with these Paprika UIDs
      */
-    private suspend fun executeBatch(
-        paprikaRecipes: List<PaprikaRecipe>,
-        onProgress: suspend (ImportProgress) -> Unit
-    ): ImportResult {
-        // Check for API key
+    suspend fun runStep(
+        workDir: File,
+        openSource: () -> InputStream,
+        selectedUids: Set<String>?,
+        onProgress: suspend (ImportProgress) -> Unit = {}
+    ): StepResult {
+        val apiKey = settingsDataStore.anthropicApiKey.first()
+        if (apiKey.isNullOrBlank()) return StepResult.Finished(ImportResult.NoApiKey)
+
+        val state = loadState(workDir)
+        return if (state == null) {
+            prepareAndSubmit(workDir, openSource, selectedUids, apiKey, onProgress)
+        } else {
+            pollAndProcess(workDir, state, apiKey, onProgress)
+        }
+    }
+
+    /**
+     * Cancel the server-side batch for this import, if one was submitted. Safe to call more than once.
+     */
+    suspend fun cancelBatch(workDir: File) {
+        val state = loadState(workDir) ?: return
         val apiKey = settingsDataStore.anthropicApiKey.first()
         if (apiKey.isNullOrBlank()) {
-            return ImportResult.NoApiKey
+            Log.w(TAG, "Can't cancel batch ${state.batchId}: no API key")
+            return
         }
+        anthropicService.cancelBatch(state.batchId, apiKey)
+            .onSuccess { Log.i(TAG, "Cancelled batch ${state.batchId}") }
+    }
 
-        val model = settingsDataStore.aiModel.first()
+    private suspend fun prepareAndSubmit(
+        workDir: File,
+        openSource: () -> InputStream,
+        selectedUids: Set<String>?,
+        apiKey: String,
+        onProgress: suspend (ImportProgress) -> Unit
+    ): StepResult {
+        val model = AnthropicService.normalizeModel(settingsDataStore.aiModel.first())
         val thinkingEnabled = settingsDataStore.thinkingEnabled.first()
 
-        // Prepare all recipes: format text, resolve images in parallel
-        onProgress(ImportProgress.SubmittingBatch(paprikaRecipes.size))
-        val preparedRecipes = coroutineScope {
-            paprikaRecipes.mapIndexed { index, paprikaRecipe ->
-                async {
-                    val contentForAi = paprikaParser.formatForAi(paprikaRecipe)
-                    val imageUrl = resolveImageUrl(paprikaRecipe)
-                    val sourceUrl = paprikaRecipe.sourceUrl?.takeIf { it.isNotBlank() }
-                    val customId = "recipe-$index"
-                    customId to PreparedRecipe(
-                        paprikaRecipe = paprikaRecipe,
-                        contentForAi = contentForAi,
-                        imageUrl = imageUrl,
-                        sourceUrl = sourceUrl
-                    )
+        onProgress(ImportProgress.Parsing)
+        val prepared = mutableListOf<PreparedRecipe>()
+        val unreadable = mutableListOf<String>()
+        val photosDir = File(workDir, PHOTOS_DIR).apply { mkdirs() }
+        val job = coroutineContext.job
+        try {
+            withContext(Dispatchers.IO) {
+                openSource().buffered().use { stream ->
+                    paprikaParser.forEachRecipe(
+                        stream,
+                        onError = { entryName, e ->
+                            Log.w(TAG, "Skipping unreadable Paprika entry $entryName", e)
+                            if (selectedUids == null) {
+                                unreadable += entryName.substringAfterLast('/').removeSuffix(".paprikarecipe")
+                            }
+                        }
+                    ) { recipe ->
+                        job.ensureActive()
+                        if (selectedUids != null && recipe.uid !in selectedUids) return@forEachRecipe
+                        val index = prepared.size
+                        prepared += PreparedRecipe(
+                            customId = "recipe-$index",
+                            uid = recipe.uid,
+                            name = recipe.name,
+                            sourceUrl = recipe.sourceUrl?.takeIf { it.isNotBlank() },
+                            imageUrl = recipe.imageUrl?.takeIf { it.isNotBlank() },
+                            photoFile = recipe.photoData?.takeIf { it.isNotBlank() }
+                                ?.let { writePhoto(it, File(photosDir, "$index.jpg")) },
+                            contentForAi = paprikaParser.formatForAi(recipe)
+                        )
+                    }
                 }
-            }.awaitAll().toMap()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: ArchiveTooLargeException) {
+            Log.e(TAG, "Paprika export too large", e)
+            return finished(ImportResult.Error("This Paprika export is too large to import (${e.message})."))
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read Paprika export", e)
+            return finished(ImportResult.Error("Couldn't read the Paprika export: ${e.message ?: e.javaClass.simpleName}"))
         }
 
-        // Create batch requests
-        val batchRequests = preparedRecipes.map { (customId, prepared) ->
-            AnthropicService.BatchRequest(
-                customId = customId,
-                text = prepared.contentForAi
+        if (prepared.isEmpty()) {
+            val message = if (unreadable.isNotEmpty()) {
+                "None of the recipes in this export could be read."
+            } else {
+                "No recipes found in export file"
+            }
+            return finished(ImportResult.Error(message))
+        }
+
+        val existingCount = recipeRepository.getRecipeCount()
+        val remaining = ResourceLimits.MAX_RECIPES - existingCount
+        if (remaining <= 0) {
+            return finished(
+                ImportResult.Error(
+                    "Recipe limit reached ($existingCount/${ResourceLimits.MAX_RECIPES}). " +
+                        "Delete some recipes before importing new ones."
+                )
             )
         }
-
-        // Submit the batch
-        val startTime = System.currentTimeMillis()
-        val batchIdResult = anthropicService.createRecipeBatch(
-            requests = batchRequests,
-            apiKey = apiKey,
-            model = model,
-            thinkingEnabled = thinkingEnabled
-        )
-
-        if (batchIdResult.isFailure) {
-            val error = batchIdResult.exceptionOrNull()
-            Log.e(TAG, "Failed to create batch, falling back to sequential import", error)
-            // Fall back to sequential import
-            return executeSequential(paprikaRecipes, onProgress)
+        val toImport = prepared.take(remaining)
+        val preFailed = unreadable + prepared.drop(remaining).map { it.name }
+        if (preFailed.size > unreadable.size) {
+            Log.w(TAG, "Only importing $remaining of ${prepared.size} recipes due to the recipe limit")
         }
 
-        val batchId = batchIdResult.getOrThrow()
-        Log.i(TAG, "Created batch $batchId with ${paprikaRecipes.size} recipes")
+        if (toImport.size == 1) {
+            return importSingle(toImport.single(), preFailed, onProgress)
+        }
 
-        // Poll for batch completion
-        try {
-            while (true) {
-                coroutineContext.ensureActive()
-
-                val batchResult = anthropicService.retrieveBatch(batchId, apiKey)
-                if (batchResult.isFailure) {
-                    Log.e(TAG, "Failed to retrieve batch status", batchResult.exceptionOrNull())
-                    delay(BATCH_POLL_INTERVAL_MS)
-                    continue
-                }
-
-                val batch = batchResult.getOrThrow()
-                val counts = batch.requestCounts()
-
-                onProgress(ImportProgress.WaitingForBatch(
-                    total = paprikaRecipes.size,
-                    succeeded = counts.succeeded().toInt(),
-                    processing = counts.processing().toInt()
-                ))
-
-                if (batch.processingStatus() == MessageBatch.ProcessingStatus.ENDED) {
-                    break
-                }
-
-                delay(BATCH_POLL_INTERVAL_MS)
+        onProgress(ImportProgress.SubmittingBatch(toImport.size))
+        // Once the batch exists it's billed, so its ID must reach batch.json even if the worker
+        // is stopped mid-way; otherwise a rerun would submit (and pay for) a second batch.
+        val submitError = withContext(NonCancellable) {
+            val batchId = anthropicService.createRecipeBatch(
+                requests = toImport.map { AnthropicService.BatchRequest(it.customId, it.contentForAi) },
+                apiKey = apiKey,
+                model = model,
+                thinkingEnabled = thinkingEnabled
+            ).getOrElse { e ->
+                return@withContext ImportResult.Error(
+                    message = e.message ?: "Failed to submit recipes to the AI",
+                    retryable = (e as? AnthropicRequestException)?.isTransient == true
+                )
             }
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            // Try to cancel the batch on the server
             try {
-                anthropicService.cancelBatch(batchId, apiKey)
-            } catch (cancelError: Exception) {
-                Log.w(TAG, "Failed to cancel batch $batchId on server", cancelError)
-            }
-            val result = ImportResult.Cancelled(importedCount = 0, failedCount = 0)
-            onProgress(ImportProgress.Complete(result))
-            throw e
-        }
-
-        val durationMs = System.currentTimeMillis() - startTime
-
-        // Retrieve and process results
-        val resultsResult = anthropicService.getBatchResults(batchId, apiKey)
-        if (resultsResult.isFailure) {
-            return ImportResult.Error("Failed to retrieve batch results: ${resultsResult.exceptionOrNull()?.message}")
-        }
-
-        val results = resultsResult.getOrThrow()
-        var importedCount = 0
-        var failedCount = 0
-        val failedRecipeNames = mutableListOf<String>()
-
-        try {
-            results.forEachIndexed { resultIndex, response ->
-                coroutineContext.ensureActive()
-
-                val customId = response.customId()
-                val prepared = preparedRecipes[customId]
-                if (prepared == null) {
-                    Log.w(TAG, "Unknown custom_id in batch results: $customId")
-                    return@forEachIndexed
-                }
-
-                onProgress(ImportProgress.ImportingRecipe(
-                    recipeName = prepared.paprikaRecipe.name,
-                    current = resultIndex + 1,
-                    total = results.size,
-                    importedSoFar = importedCount,
-                    failedSoFar = failedCount
-                ))
-
-                val batchResult = response.result()
-                if (batchResult.isSucceeded()) {
-                    val message = batchResult.asSucceeded().message()
-                    val parseResult = anthropicService.parseMessageResult(message)
-
-                    if (parseResult.isSuccess) {
-                        try {
-                            val recipe = parseHtmlUseCase.saveBatchResult(
-                                parsedWithUsage = parseResult.getOrThrow(),
-                                sourceUrl = prepared.sourceUrl,
-                                imageUrl = prepared.imageUrl,
-                                cleanedContent = prepared.contentForAi,
-                                model = model,
-                                thinkingEnabled = thinkingEnabled,
-                                durationMs = durationMs
-                            )
-                            if (recipe != null) {
-                                importedCount++
-                            } else {
-                                failedCount++
-                                failedRecipeNames.add(prepared.paprikaRecipe.name)
-                            }
-                        } catch (e: kotlinx.coroutines.CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Failed to save batch result for: ${prepared.paprikaRecipe.name}", e)
-                            failedCount++
-                            failedRecipeNames.add(prepared.paprikaRecipe.name)
-                        }
-                    } else {
-                        val error = parseResult.exceptionOrNull()
-                        val errorMsg = if (error is RecipeParseException) error.message else error?.message
-                        Log.e(TAG, "Failed to parse batch result for: ${prepared.paprikaRecipe.name}", error)
-                        parseHtmlUseCase.saveBatchErrorDebugEntry(
-                            sourceUrl = prepared.sourceUrl,
-                            cleanedContent = prepared.contentForAi,
-                            errorMessage = errorMsg,
-                            model = model,
-                            thinkingEnabled = thinkingEnabled,
-                            durationMs = durationMs
-                        )
-                        failedCount++
-                        failedRecipeNames.add(prepared.paprikaRecipe.name)
-                    }
-                } else {
-                    val errorType = when {
-                        batchResult.isErrored() -> "errored"
-                        batchResult.isCanceled() -> "canceled"
-                        batchResult.isExpired() -> "expired"
-                        else -> "unknown"
-                    }
-                    Log.e(TAG, "Batch result $errorType for: ${prepared.paprikaRecipe.name}")
-                    parseHtmlUseCase.saveBatchErrorDebugEntry(
-                        sourceUrl = prepared.sourceUrl,
-                        cleanedContent = prepared.contentForAi,
-                        errorMessage = "Batch request $errorType",
+                saveState(
+                    workDir,
+                    BatchState(
+                        batchId = batchId,
                         model = model,
                         thinkingEnabled = thinkingEnabled,
-                        durationMs = durationMs
+                        submittedAtMillis = System.currentTimeMillis(),
+                        recipes = toImport,
+                        preFailedNames = preFailed
                     )
-                    failedCount++
-                    failedRecipeNames.add(prepared.paprikaRecipe.name)
-                }
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to save state for batch $batchId; cancelling it", e)
+                anthropicService.cancelBatch(batchId, apiKey)
+                return@withContext ImportResult.Error("Couldn't save the import's progress: ${e.message}")
             }
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            val result = ImportResult.Cancelled(
-                importedCount = importedCount,
-                failedCount = failedCount
+            Log.i(TAG, "Submitted batch $batchId with ${toImport.size} recipes")
+            null
+        }
+        if (submitError != null) return finished(submitError)
+        coroutineContext.ensureActive()
+        onProgress(ImportProgress.WaitingForBatch(total = toImport.size))
+        return StepResult.PollAgain
+    }
+
+    private suspend fun pollAndProcess(
+        workDir: File,
+        state: BatchState,
+        apiKey: String,
+        onProgress: suspend (ImportProgress) -> Unit
+    ): StepResult {
+        val total = state.recipes.size
+        val batch = anthropicService.retrieveBatch(state.batchId, apiKey).getOrElse { e ->
+            val transient = (e as? AnthropicRequestException)?.isTransient == true
+            val failures = incrementPollFailures(workDir)
+            if (!transient || failures > MAX_POLL_FAILURES) {
+                Log.e(TAG, "Giving up on batch ${state.batchId} after $failures failed polls", e)
+                return finished(ImportResult.Error(e.message ?: "Lost track of the AI batch", retryable = false))
+            }
+            return StepResult.PollAgain
+        }
+        File(workDir, POLL_FAILURES_FILE).delete()
+
+        val counts = batch.requestCounts()
+        onProgress(
+            ImportProgress.WaitingForBatch(
+                total = total,
+                succeeded = counts.succeeded().toInt(),
+                processing = counts.processing().toInt()
             )
-            onProgress(ImportProgress.Complete(result))
-            throw e
+        )
+        if (batch.processingStatus() != MessageBatch.ProcessingStatus.ENDED) {
+            return StepResult.PollAgain
         }
 
-        val result = ImportResult.Success(
-            importedCount = importedCount,
-            failedCount = failedCount,
-            failedRecipes = failedRecipeNames
+        val durationMs = System.currentTimeMillis() - state.submittedAtMillis
+        val processed = readProcessed(workDir)
+        val outcomes = mutableMapOf<String, BatchOutcome>()
+        val streamResult = anthropicService.forEachBatchResult(state.batchId, apiKey) { response ->
+            val customId = response.customId()
+            if (customId in processed) return@forEachBatchResult
+            val result = response.result()
+            outcomes[customId] = when {
+                result.isSucceeded() -> anthropicService.parseMessageResult(result.asSucceeded().message()).fold(
+                    onSuccess = { BatchOutcome.Parsed(it) },
+                    onFailure = { BatchOutcome.Failed(it.message ?: "Couldn't read the AI response") }
+                )
+                result.isErrored() -> BatchOutcome.Failed("The AI request for this recipe failed")
+                result.isExpired() -> BatchOutcome.Failed("The AI batch expired before this recipe was processed")
+                result.isCanceled() -> BatchOutcome.Failed("The AI batch was canceled")
+                else -> BatchOutcome.Failed("Unknown batch result")
+            }
+        }
+        streamResult.onFailure { e ->
+            val transient = (e as? AnthropicRequestException)?.isTransient == true
+            return if (transient) {
+                StepResult.PollAgain
+            } else {
+                finished(ImportResult.Error(e.message ?: "Failed to download AI results"))
+            }
+        }
+
+        val logMutex = Mutex()
+        var imported = processed.values.count { it == null }
+        var failed = processed.values.count { it != null }
+        var current = processed.size
+        val pending = state.recipes.filter { it.customId !in processed }
+
+        for (chunk in pending.chunked(SAVE_PARALLELISM)) {
+            coroutineContext.ensureActive()
+            coroutineScope {
+                chunk.map { recipe ->
+                    async {
+                        val outcome = outcomes[recipe.customId]
+                            ?: BatchOutcome.Failed("No AI result was returned for this recipe")
+                        val error = saveOutcome(workDir, recipe, outcome, state, durationMs)
+                        val progress = withContext(NonCancellable) {
+                            logMutex.withLock {
+                                appendProcessed(workDir, recipe, error)
+                                if (error == null) imported++ else failed++
+                                current++
+                                ImportProgress.ImportingRecipe(
+                                    recipeName = recipe.name,
+                                    current = current,
+                                    total = total,
+                                    importedSoFar = imported,
+                                    failedSoFar = failed
+                                )
+                            }
+                        }
+                        onProgress(progress)
+                    }
+                }.awaitAll()
+            }
+        }
+
+        val failedNames = readProcessed(workDir).mapNotNull { (customId, error) ->
+            error?.let { state.recipes.firstOrNull { it.customId == customId }?.name }
+        } + state.preFailedNames
+        return finished(
+            ImportResult.Success(
+                importedCount = imported,
+                failedCount = failedNames.size,
+                failedRecipes = failedNames
+            )
         )
-        onProgress(ImportProgress.Complete(result))
-        return result
+    }
+
+    /** Save one batch outcome. Returns null on success or an error message. */
+    private suspend fun saveOutcome(
+        workDir: File,
+        recipe: PreparedRecipe,
+        outcome: BatchOutcome,
+        state: BatchState,
+        durationMs: Long
+    ): String? = when (outcome) {
+        is BatchOutcome.Parsed -> try {
+            parseHtmlUseCase.saveBatchResult(
+                parsedWithUsage = outcome.result,
+                recipeId = batchRecipeId(workDir.name, recipe.customId),
+                sourceUrl = recipe.sourceUrl,
+                imageUrl = resolveImageUrl(recipe),
+                cleanedContent = recipe.contentForAi,
+                model = state.model,
+                thinkingEnabled = state.thinkingEnabled,
+                durationMs = durationMs
+            ).fold(
+                onSuccess = { null },
+                onFailure = { it.message ?: "Failed to save recipe" }
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save batch result for ${recipe.name}", e)
+            "Failed to save recipe: ${e.message}"
+        }
+        is BatchOutcome.Failed -> {
+            Log.w(TAG, "Batch result failed for ${recipe.name}: ${outcome.message}")
+            parseHtmlUseCase.saveBatchErrorDebugEntry(
+                sourceUrl = recipe.sourceUrl,
+                cleanedContent = recipe.contentForAi,
+                errorMessage = outcome.message,
+                model = state.model,
+                thinkingEnabled = state.thinkingEnabled,
+                durationMs = durationMs
+            )
+            outcome.message
+        }
+    }
+
+    private suspend fun importSingle(
+        recipe: PreparedRecipe,
+        preFailed: List<String>,
+        onProgress: suspend (ImportProgress) -> Unit
+    ): StepResult {
+        onProgress(ImportProgress.ImportingRecipe(recipeName = recipe.name, current = 1, total = 1))
+        val parseResult = parseHtmlUseCase.parseText(
+            text = recipe.contentForAi,
+            sourceUrl = recipe.sourceUrl,
+            imageUrl = resolveImageUrl(recipe),
+            saveRecipe = true
+        )
+        val result = when (parseResult) {
+            is ParseHtmlUseCase.ParseResult.Success ->
+                ImportResult.Success(importedCount = 1, failedCount = preFailed.size, failedRecipes = preFailed)
+            is ParseHtmlUseCase.ParseResult.Error -> if (preFailed.isEmpty()) {
+                ImportResult.Error(parseResult.message, parseResult.retryable)
+            } else {
+                Log.w(TAG, "Failed to import ${recipe.name}: ${parseResult.message}")
+                ImportResult.Success(0, preFailed.size + 1, preFailed + recipe.name)
+            }
+            ParseHtmlUseCase.ParseResult.NoApiKey -> ImportResult.NoApiKey
+        }
+        return finished(result)
     }
 
     /**
-     * Import recipes sequentially (one API call per recipe).
-     * Used as fallback for single-recipe imports or when batch creation fails.
+     * Image priority: Paprika's embedded photo, then its image_url, then the source page's og:image.
      */
-    private suspend fun executeSequential(
-        paprikaRecipes: List<PaprikaRecipe>,
-        onProgress: suspend (ImportProgress) -> Unit
-    ): ImportResult {
-        var importedCount = 0
-        var failedCount = 0
-        val failedRecipes = mutableListOf<String>()
-
-        try {
-            paprikaRecipes.forEachIndexed { index, paprikaRecipe ->
-                coroutineContext.ensureActive()
-
-                onProgress(
-                    ImportProgress.ImportingRecipe(
-                        recipeName = paprikaRecipe.name,
-                        current = index + 1,
-                        total = paprikaRecipes.size,
-                        importedSoFar = importedCount,
-                        failedSoFar = failedCount
-                    )
-                )
-
-                val result = importSingleRecipe(paprikaRecipe)
-                if (result != null) {
-                    importedCount++
-                } else {
-                    failedCount++
-                    failedRecipes.add(paprikaRecipe.name)
+    private suspend fun resolveImageUrl(recipe: PreparedRecipe): String? {
+        recipe.photoFile?.let { path ->
+            val file = File(path)
+            if (file.exists()) {
+                val localUri = withContext(Dispatchers.IO) {
+                    imageDownloadService.saveImageFromStream(file.inputStream(), ".jpg")
                 }
+                if (localUri != null) return localUri
             }
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            val result = ImportResult.Cancelled(
-                importedCount = importedCount,
-                failedCount = failedCount
-            )
-            onProgress(ImportProgress.Complete(result))
-            throw e
         }
-
-        val result = ImportResult.Success(
-            importedCount = importedCount,
-            failedCount = failedCount,
-            failedRecipes = failedRecipes
-        )
-        onProgress(ImportProgress.Complete(result))
-        return result
+        recipe.imageUrl?.let { return it }
+        val sourceUrl = recipe.sourceUrl ?: return null
+        return webScraperService.fetchPage(sourceUrl)
+            .onFailure { Log.w(TAG, "Couldn't fetch image from $sourceUrl", it) }
+            .getOrNull()
+            ?.imageUrl
     }
 
-    private suspend fun importSingleRecipe(
-        paprikaRecipe: PaprikaRecipe
-    ): Recipe? {
+    private fun writePhoto(base64: String, target: File): String? = try {
+        val bytes = Base64.decode(base64, Base64.DEFAULT)
+        if (bytes.isEmpty() || bytes.size > ResourceLimits.MAX_IMAGE_SIZE_BYTES) {
+            Log.w(TAG, "Skipping Paprika photo of ${bytes.size} bytes")
+            null
+        } else {
+            target.writeBytes(bytes)
+            target.absolutePath
+        }
+    } catch (e: Exception) {
+        Log.w(TAG, "Failed to decode Paprika photo", e)
+        null
+    }
+
+    private fun finished(result: ImportResult): StepResult = StepResult.Finished(result)
+
+    private fun loadState(workDir: File): BatchState? {
+        val file = File(workDir, STATE_FILE)
+        if (!file.exists()) return null
         return try {
-            // Format the Paprika recipe content for AI parsing
-            val contentForAi = paprikaParser.formatForAi(paprikaRecipe)
-
-            // Resolve image: try photo_data first, then image_url, then source page
-            val imageUrl = resolveImageUrl(paprikaRecipe)
-
-            val sourceUrl = paprikaRecipe.sourceUrl?.takeIf { it.isNotBlank() }
-
-            // Parse with AI via shared use case
-            val parseResult = parseHtmlUseCase.parseText(
-                text = contentForAi,
-                sourceUrl = sourceUrl,
-                imageUrl = imageUrl,
-                saveRecipe = true
-            )
-
-            when (parseResult) {
-                is ParseHtmlUseCase.ParseResult.Success -> parseResult.recipe
-                is ParseHtmlUseCase.ParseResult.Error -> null
-                ParseHtmlUseCase.ParseResult.NoApiKey -> null
-            }
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
+            json.decodeFromString<BatchState>(file.readText())
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to import Paprika recipe: ${paprikaRecipe.name}", e)
+            Log.e(TAG, "Corrupt Paprika batch state in $workDir", e)
             null
         }
     }
 
-    /**
-     * Resolve the image URL for a Paprika recipe.
-     *
-     * Priority:
-     * 1. Paprika's photo_data (base64-encoded JPEG) - saved directly to local storage
-     * 2. Paprika's image_url field (direct URL to the image)
-     * 3. Fetch the source page and extract og:image
-     * 4. null if no image available
-     */
-    private suspend fun resolveImageUrl(paprikaRecipe: PaprikaRecipe): String? {
-        // Try base64-encoded photo_data first (most reliable, doesn't require network)
-        if (!paprikaRecipe.photoData.isNullOrBlank()) {
-            val localUri = imageDownloadService.saveImageFromBase64(paprikaRecipe.photoData, ".jpg")
-            if (localUri != null) {
-                // Return the local URI directly - ParseHtmlUseCase.parseText will see
-                // the file:// URI and keep it as-is via downloadAndStore
-                return localUri
-            }
+    private fun saveState(workDir: File, state: BatchState) {
+        val tmp = File(workDir, "$STATE_FILE.tmp")
+        tmp.writeText(json.encodeToString(BatchState.serializer(), state))
+        if (!tmp.renameTo(File(workDir, STATE_FILE))) {
+            throw IllegalStateException("Failed to save Paprika import state")
         }
+    }
 
-        // Try Paprika's image_url
-        if (!paprikaRecipe.imageUrl.isNullOrBlank()) {
-            return paprikaRecipe.imageUrl
+    private fun incrementPollFailures(workDir: File): Int {
+        val file = File(workDir, POLL_FAILURES_FILE)
+        val count = (file.takeIf { it.exists() }?.readText()?.trim()?.toIntOrNull() ?: 0) + 1
+        file.writeText(count.toString())
+        return count
+    }
+
+    /** customId → null for imported, or the error message for failed. */
+    private fun readProcessed(workDir: File): Map<String, String?> {
+        val file = File(workDir, PROCESSED_LOG)
+        if (!file.exists()) return emptyMap()
+        return file.readLines().filter { it.isNotBlank() }.associate { line ->
+            val parts = line.split('\t', limit = 2)
+            parts[0] to parts.getOrNull(1)
         }
+    }
 
-        // Try fetching from source URL to get og:image
-        if (!paprikaRecipe.sourceUrl.isNullOrBlank()) {
-            return try {
-                val pageResult = webScraperService.fetchPage(paprikaRecipe.sourceUrl)
-                pageResult.getOrNull()?.imageUrl
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to fetch image URL from source: ${paprikaRecipe.sourceUrl}", e)
-                null
-            }
-        }
-
-        return null
+    private fun appendProcessed(workDir: File, recipe: PreparedRecipe, error: String?) {
+        val line = if (error == null) recipe.customId else "${recipe.customId}\t${error.replace('\n', ' ').replace('\t', ' ')}"
+        File(workDir, PROCESSED_LOG).appendText(line + "\n")
     }
 }

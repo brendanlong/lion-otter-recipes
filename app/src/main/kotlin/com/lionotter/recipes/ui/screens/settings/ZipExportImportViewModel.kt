@@ -62,16 +62,18 @@ class ZipExportImportViewModel @Inject constructor(
                 val failed = workInfo.outputData.getInt(ZipExportWorker.KEY_FAILED_COUNT, 0)
                 _operationState.value = ZipOperationState.ExportComplete(exported, failed)
                 currentWorkId = null
-                workManager.pruneWork()
             }
             WorkInfo.State.FAILED -> {
                 val error = workInfo.outputData.getString(ZipExportWorker.KEY_ERROR_MESSAGE)
                     ?: "Export failed"
                 _operationState.value = ZipOperationState.Error(error)
                 currentWorkId = null
-                workManager.pruneWork()
             }
-            else -> {}
+            WorkInfo.State.CANCELLED -> {
+                _operationState.value = ZipOperationState.Error("Export was cancelled")
+                currentWorkId = null
+            }
+            WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> {}
         }
     }
 }

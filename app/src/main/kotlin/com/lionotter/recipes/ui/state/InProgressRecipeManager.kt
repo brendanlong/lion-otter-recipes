@@ -7,15 +7,26 @@ import androidx.work.WorkManager
 import com.lionotter.recipes.data.local.PendingImportEntity
 import com.lionotter.recipes.data.repository.PendingImportRepository
 import com.lionotter.recipes.di.ApplicationScope
+import com.lionotter.recipes.domain.usecase.ImportPaprikaUseCase
+import com.lionotter.recipes.worker.BaseRecipeWorker
+import com.lionotter.recipes.worker.ImportInputStore
 import com.lionotter.recipes.worker.PaprikaImportWorker
 import com.lionotter.recipes.worker.RecipeImportWorker
+import com.lionotter.recipes.worker.RecipeWorkScheduler
 import com.lionotter.recipes.worker.ZipImportWorker
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Clock
 import java.util.UUID
 import javax.inject.Inject
@@ -29,17 +40,40 @@ data class InProgressRecipe(
     val status: String = PendingImportEntity.STATUS_PENDING,
     val url: String = "",
     val errorMessage: String? = null
-)
+) {
+    val isFailed: Boolean get() = status == PendingImportEntity.STATUS_FAILED
+}
 
+/**
+ * Owns the import queue: starts imports (persisting a pending_imports row before enqueuing
+ * work), mirrors WorkManager progress into those rows, and handles retry/cancel/dismiss.
+ *
+ * Rows are matched to work by their stored WorkManager request ID, so a worker that crashes
+ * without output still updates its row. On startup every row is reconciled against WorkManager,
+ * so rows whose work was pruned or never enqueued (process death) are marked failed instead of
+ * staying in progress forever. Failed imports stay in the list (with the error) until the user
+ * retries or dismisses them.
+ */
 @Singleton
 class InProgressRecipeManager @Inject constructor(
     private val workManager: WorkManager,
     private val pendingImportRepository: PendingImportRepository,
-    @param:ApplicationScope private val appScope: CoroutineScope
+    @param:ApplicationScope private val appScope: CoroutineScope,
+    private val scheduler: RecipeWorkScheduler,
+    private val inputStore: ImportInputStore,
+    private val importPaprikaUseCase: ImportPaprikaUseCase
 ) {
     companion object {
         private const val TAG = "InProgressRecipeManager"
+        private const val PLACEHOLDER_NAME = "Importing recipe..."
+        private const val WORKER_STOP_TIMEOUT_MILLIS = 30_000L
+        internal const val INTERRUPTED_MESSAGE = "This import was interrupted. Retry to start it again."
     }
+
+    data class StartedImport(val importId: String, val workId: UUID)
+
+    /** Serializes starting imports and startup reconciliation (check-then-insert). */
+    private val startMutex = Mutex()
 
     /**
      * In-progress recipes derived from the database-backed pending_imports table.
@@ -66,30 +100,149 @@ class InProgressRecipeManager @Inject constructor(
             )
 
     init {
-        observeImportWorkStatus()
-        observePaprikaImportWorkStatus()
-        observeZipImportWorkStatus()
+        reconcileWithWorkManager()
+        observeWork(RecipeImportWorker.TAG_RECIPE_IMPORT, ::handleRunningProgress)
+        observeWork(PaprikaImportWorker.TAG_PAPRIKA_IMPORT, ::handlePaprikaRunningProgress)
+        observeWork(ZipImportWorker.TAG_ZIP_IMPORT, ::handleZipRunningProgress)
+        cleanupOrphanedFiles()
     }
 
     fun addInProgressRecipe(id: String, name: String, url: String = "", workManagerId: String? = null) {
-        appScope.launch {
-            pendingImportRepository.insertPendingImport(
-                PendingImportEntity(
-                    id = id,
-                    url = url,
-                    name = name.takeIf { it != "Importing recipe..." },
-                    imageUrl = null,
-                    status = PendingImportEntity.STATUS_PENDING,
-                    workManagerId = workManagerId,
-                    errorMessage = null,
-                    createdAt = Clock.System.now().toEpochMilliseconds()
-                )
+        launchSafely("add import $id") {
+            insertPendingImport(id, name, url, workManagerId)
+        }
+    }
+
+    private suspend fun insertPendingImport(id: String, name: String, url: String, workManagerId: String?) {
+        pendingImportRepository.insertPendingImport(
+            PendingImportEntity(
+                id = id,
+                url = url,
+                name = name.takeIf { it != PLACEHOLDER_NAME },
+                imageUrl = null,
+                status = PendingImportEntity.STATUS_PENDING,
+                workManagerId = workManagerId,
+                errorMessage = null,
+                createdAt = Clock.System.now().toEpochMilliseconds()
             )
+        )
+    }
+
+    /**
+     * Start importing a recipe from a URL. If the same URL is already being imported, returns
+     * that import instead of starting a duplicate.
+     */
+    suspend fun startUrlImport(url: String): StartedImport = withContext(NonCancellable) {
+        startMutex.withLock {
+            val candidates = pendingImportRepository.getAllPendingImports().first().filter {
+                it.url == url && it.status != PendingImportEntity.STATUS_FAILED
+            }
+            for (existing in candidates) {
+                val workId = existing.workManagerId?.let(::parseUuid)
+                if (workId != null && isWorkActive(existing, workId)) {
+                    Log.i(TAG, "Import of $url already in progress (${existing.id})")
+                    return@withContext StartedImport(existing.id, workId)
+                }
+            }
+
+            val importId = UUID.randomUUID().toString()
+            val request = scheduler.buildUrlImportRequest(url, importId)
+            insertPendingImport(importId, PLACEHOLDER_NAME, url, request.id.toString())
+            scheduler.enqueueImport(importId, request)
+            StartedImport(importId, request.id)
+        }
+    }
+
+    /**
+     * Whether [workId] is still queued or running. Finished or missing (pruned) work is
+     * reconciled into [entity]'s row so it doesn't block a new import of the same URL.
+     */
+    private suspend fun isWorkActive(entity: PendingImportEntity, workId: UUID): Boolean {
+        val workInfo = workManager.getWorkInfoByIdFlow(workId).first()
+        if (workInfo != null && !workInfo.state.isFinished) return true
+        reconcile(entity, workInfo)
+        return false
+    }
+
+    /**
+     * Start importing a Paprika export already copied into [ImportInputStore] under [importId].
+     * @param selectedUids Paprika recipe UIDs to import, or null for all
+     */
+    suspend fun startPaprikaImport(importId: String, selectedUids: Set<String>?, displayName: String): StartedImport =
+        startFileImport(importId, selectedUids, displayName, ImportInputStore.KIND_PAPRIKA)
+
+    /**
+     * Start importing a ZIP / .lorecipes file already copied into [ImportInputStore] under [importId].
+     * @param selectedRecipeIds recipe IDs to import, or null for all
+     */
+    suspend fun startZipImport(importId: String, selectedRecipeIds: Set<String>?, displayName: String): StartedImport =
+        startFileImport(importId, selectedRecipeIds, displayName, ImportInputStore.KIND_ZIP)
+
+    /**
+     * The row is only inserted once every input file is in place, so a row always has complete
+     * inputs (and can be retried); a process death before [RecipeWorkScheduler.enqueueImport]
+     * leaves a row with no work, which startup reconciliation marks as failed.
+     */
+    private suspend fun startFileImport(
+        importId: String,
+        selectedIds: Set<String>?,
+        displayName: String,
+        kind: String
+    ): StartedImport = withContext(NonCancellable) {
+        startMutex.withLock {
+            check(inputStore.hasSource(importId)) { "The selected file is no longer available. Please choose it again." }
+            val request = buildRequest(importId, kind, url = "")
+                ?: throw IllegalArgumentException("Unknown import kind $kind")
+            inputStore.writeSelection(importId, selectedIds)
+            inputStore.writeKind(importId, kind)
+            insertPendingImport(importId, displayName, url = "", workManagerId = request.id.toString())
+            try {
+                scheduler.enqueueImport(importId, request)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to enqueue $kind import $importId", e)
+                pendingImportRepository.deletePendingImport(importId)
+                throw e
+            }
+            StartedImport(importId, request.id)
+        }
+    }
+
+    private fun buildRequest(importId: String, kind: String, url: String) = when (kind) {
+        ImportInputStore.KIND_URL -> scheduler.buildUrlImportRequest(url, importId)
+        ImportInputStore.KIND_PAPRIKA -> scheduler.buildPaprikaImportRequest(importId)
+        ImportInputStore.KIND_ZIP -> scheduler.buildZipImportRequest(importId)
+        else -> null
+    }
+
+    /** Re-run a failed import with the same inputs. */
+    fun retryImport(id: String) {
+        launchSafely("retry import $id") {
+            withContext(NonCancellable) {
+                try {
+                    val entity = pendingImportRepository.getPendingImportById(id) ?: return@withContext
+                    val kind = if (inputStore.hasImport(id)) inputStore.readKind(id) else null
+                    val request = buildRequest(id, kind ?: ImportInputStore.KIND_URL, entity.url)
+                    if (request == null || (kind == null && entity.url.isBlank())) {
+                        pendingImportRepository.updateStatusWithError(
+                            id, PendingImportEntity.STATUS_FAILED, "This import can't be retried. Please start it again."
+                        )
+                        return@withContext
+                    }
+                    pendingImportRepository.updateWorkManagerId(id, request.id.toString())
+                    pendingImportRepository.updateStatusWithError(id, PendingImportEntity.STATUS_PENDING, null)
+                    scheduler.enqueueImport(id, request)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to retry import $id", e)
+                    pendingImportRepository.updateStatusWithError(
+                        id, PendingImportEntity.STATUS_FAILED, "Couldn't retry: ${e.message}"
+                    )
+                }
+            }
         }
     }
 
     fun updateRecipeName(id: String, name: String) {
-        appScope.launch {
+        launchSafely("rename import $id") {
             val existing = pendingImportRepository.getPendingImportById(id)
             if (existing != null) {
                 pendingImportRepository.updateMetadata(
@@ -103,242 +256,259 @@ class InProgressRecipeManager @Inject constructor(
     }
 
     fun removeInProgressRecipe(id: String) {
-        appScope.launch {
-            pendingImportRepository.deletePendingImport(id)
+        launchSafely("remove import $id") {
+            withContext(NonCancellable) {
+                pendingImportRepository.deletePendingImport(id)
+            }
         }
     }
 
+    /** Cancel a running import or dismiss a failed one, cleaning up its files and any AI batch. */
     fun cancelImport(id: String) {
-        appScope.launch {
-            val entity = pendingImportRepository.getPendingImportById(id)
-            if (entity?.workManagerId != null) {
-                workManager.cancelWorkById(UUID.fromString(entity.workManagerId))
-            }
-            pendingImportRepository.deletePendingImport(id)
+        launchSafely("cancel import $id") {
+            withContext(NonCancellable) { cancelAndCleanUp(id) }
         }
     }
 
+    private suspend fun cancelAndCleanUp(id: String) {
+        val entity = pendingImportRepository.getPendingImportById(id)
+        // Cancelling the unique work also stops a queued Paprika poll continuation.
+        workManager.cancelUniqueWork(RecipeWorkScheduler.importWorkName(id))
+        entity?.workManagerId?.let(::parseUuid)?.let { workManager.cancelWorkById(it) }
+        if (inputStore.hasImport(id)) {
+            // WorkInfo turns CANCELLED before the worker has actually stopped, so wait for the
+            // worker to release the import (it may still be submitting a batch / writing
+            // batch.json) before reading the batch state and deleting the files.
+            val stopped = withTimeoutOrNull(WORKER_STOP_TIMEOUT_MILLIS) { inputStore.withImportLock(id) {} }
+            if (stopped == null) Log.w(TAG, "Worker for import $id didn't stop in time; cleaning up anyway")
+            if (inputStore.readKind(id) == ImportInputStore.KIND_PAPRIKA) {
+                try {
+                    importPaprikaUseCase.cancelBatch(inputStore.importDir(id))
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to cancel Paprika batch for $id", e)
+                }
+            }
+            inputStore.deleteImport(id)
+        }
+        pendingImportRepository.deletePendingImport(id)
+    }
+
+    /** Cancel all imports and clear the queue. */
     fun clear() {
+        launchSafely("clear imports") {
+            pendingImportRepository.getAllPendingImports().first().forEach { entity ->
+                cancelImport(entity.id)
+            }
+        }
+    }
+
+    private fun parseUuid(value: String): UUID? = try {
+        UUID.fromString(value)
+    } catch (e: IllegalArgumentException) {
+        Log.w(TAG, "Invalid WorkManager ID $value", e)
+        null
+    }
+
+    /** Launch in the app scope, logging failures instead of crashing the process. */
+    private fun launchSafely(description: String, block: suspend () -> Unit) {
         appScope.launch {
-            pendingImportRepository.getAllPendingImports().map { entities ->
-                entities.forEach { entity ->
-                    if (entity.workManagerId != null) {
-                        workManager.cancelWorkById(UUID.fromString(entity.workManagerId))
+            try {
+                block()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to $description", e)
+            }
+        }
+    }
+
+    private fun cleanupOrphanedFiles() {
+        launchSafely("clean up orphaned import files") {
+            val activeIds = pendingImportRepository.getAllPendingImports().first().map { it.id }.toSet()
+            inputStore.cleanupOrphans(activeIds)
+        }
+    }
+
+    /**
+     * Bring every in-progress row in line with WorkManager. Work can be missing because it was
+     * pruned (WorkManager auto-prunes finished work) or because the process died between
+     * inserting the row and enqueuing the work.
+     */
+    private fun reconcileWithWorkManager() {
+        launchSafely("reconcile imports with WorkManager") {
+            startMutex.withLock {
+                pendingImportRepository.getAllPendingImports().first()
+                    .filter { it.status != PendingImportEntity.STATUS_FAILED }
+                    .forEach { entity ->
+                        try {
+                            val workInfo = entity.workManagerId?.let(::parseUuid)
+                                ?.let { workManager.getWorkInfoByIdFlow(it).first() }
+                            reconcile(entity, workInfo)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to reconcile import ${entity.id}", e)
+                        }
+                    }
+            }
+        }
+    }
+
+    private suspend fun reconcile(entity: PendingImportEntity, workInfo: WorkInfo?) {
+        if (workInfo == null) {
+            Log.w(TAG, "Work for import ${entity.id} no longer exists; marking it failed")
+            pendingImportRepository.updateStatusWithError(entity.id, PendingImportEntity.STATUS_FAILED, INTERRUPTED_MESSAGE)
+        } else if (workInfo.state.isFinished) {
+            applyWorkState(entity, workInfo) { _, _ -> }
+        }
+    }
+
+    /**
+     * Mirror WorkManager state for [tag] into pending_imports rows, matched by the row's stored
+     * WorkManager ID. Runs in the application scope so rows are updated regardless of which
+     * screens are visible.
+     */
+    private fun observeWork(
+        tag: String,
+        onRunning: suspend (PendingImportEntity, WorkInfo) -> Unit
+    ) {
+        launchSafely("observe $tag work") {
+            workManager.getWorkInfosByTagFlow(tag).collect { workInfos ->
+                workInfos.forEach { workInfo ->
+                    try {
+                        handleWorkInfo(workInfo, onRunning)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to update import for work ${workInfo.id}", e)
                     }
                 }
             }
         }
     }
 
-    /**
-     * Observe WorkManager status for all recipe imports. This runs in the application scope
-     * so it is always active regardless of which screens are visible, ensuring orphaned
-     * in-progress entries are cleaned up when work completes.
-     */
-    private fun observeImportWorkStatus() {
-        appScope.launch {
-            workManager.getWorkInfosByTagFlow(RecipeImportWorker.TAG_RECIPE_IMPORT)
-                .collect { workInfos ->
-                    workInfos.forEach { workInfo ->
-                        val importId = workInfo.progress.getString(RecipeImportWorker.KEY_IMPORT_ID)
-                            ?: workInfo.outputData.getString(RecipeImportWorker.KEY_IMPORT_ID)
+    private suspend fun handleWorkInfo(
+        workInfo: WorkInfo,
+        onRunning: suspend (PendingImportEntity, WorkInfo) -> Unit
+    ) {
+        val entity = pendingImportRepository.getPendingImportByWorkManagerId(workInfo.id.toString()) ?: return
+        applyWorkState(entity, workInfo, onRunning)
+    }
 
-                        when (workInfo.state) {
-                            WorkInfo.State.RUNNING -> {
-                                if (importId != null) {
-                                    handleRunningProgress(importId, workInfo)
-                                }
-                            }
-                            WorkInfo.State.SUCCEEDED, WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> {
-                                if (importId != null) {
-                                    pendingImportRepository.deletePendingImport(importId)
-                                }
-                            }
-                            else -> {}
-                        }
-                    }
-                }
+    private suspend fun applyWorkState(
+        entity: PendingImportEntity,
+        workInfo: WorkInfo,
+        onRunning: suspend (PendingImportEntity, WorkInfo) -> Unit
+    ) {
+        when (workInfo.state) {
+            WorkInfo.State.RUNNING -> onRunning(entity, workInfo)
+            WorkInfo.State.ENQUEUED -> if (workInfo.runAttemptCount > 0 &&
+                entity.status != PendingImportEntity.STATUS_PENDING &&
+                entity.status != PendingImportEntity.STATUS_WAITING_FOR_BATCH
+            ) {
+                // Waiting to retry after a transient failure.
+                pendingImportRepository.updateStatus(entity.id, PendingImportEntity.STATUS_PENDING)
+            }
+            WorkInfo.State.SUCCEEDED, WorkInfo.State.CANCELLED -> {
+                pendingImportRepository.deletePendingImport(entity.id)
+            }
+            WorkInfo.State.FAILED -> if (entity.status != PendingImportEntity.STATUS_FAILED) {
+                val message = workInfo.outputData.getString(BaseRecipeWorker.KEY_ERROR_MESSAGE)
+                    ?: "Import failed unexpectedly"
+                pendingImportRepository.updateStatusWithError(entity.id, PendingImportEntity.STATUS_FAILED, message)
+            }
+            WorkInfo.State.BLOCKED -> {}
         }
     }
 
-    /**
-     * Observe WorkManager status for Paprika imports. Matches by KEY_IMPORT_ID in progress/output data.
-     */
-    private fun observePaprikaImportWorkStatus() {
-        appScope.launch {
-            workManager.getWorkInfosByTagFlow(PaprikaImportWorker.TAG_PAPRIKA_IMPORT)
-                .collect { workInfos ->
-                    workInfos.forEach { workInfo ->
-                        val importId = workInfo.progress.getString(PaprikaImportWorker.KEY_IMPORT_ID)
-                            ?: workInfo.outputData.getString(PaprikaImportWorker.KEY_IMPORT_ID)
-
-                        when (workInfo.state) {
-                            WorkInfo.State.RUNNING -> {
-                                if (importId != null) {
-                                    handlePaprikaRunningProgress(importId, workInfo)
-                                }
-                            }
-                            WorkInfo.State.SUCCEEDED, WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> {
-                                if (importId != null) {
-                                    pendingImportRepository.deletePendingImport(importId)
-                                }
-                            }
-                            else -> {}
-                        }
-                    }
-                }
-        }
-    }
-
-    private suspend fun handlePaprikaRunningProgress(importId: String, workInfo: WorkInfo) {
+    private suspend fun handlePaprikaRunningProgress(entity: PendingImportEntity, workInfo: WorkInfo) {
         val progress = workInfo.progress.getString(PaprikaImportWorker.KEY_PROGRESS)
         val recipeName = workInfo.progress.getString(PaprikaImportWorker.KEY_RECIPE_NAME)
         val current = workInfo.progress.getInt(PaprikaImportWorker.KEY_CURRENT, 0)
         val total = workInfo.progress.getInt(PaprikaImportWorker.KEY_TOTAL, 0)
 
-        try {
-            when (progress) {
-                PaprikaImportWorker.PROGRESS_PARSING -> {
-                    pendingImportRepository.updateStatus(importId, PendingImportEntity.STATUS_PARSING)
-                }
-                PaprikaImportWorker.PROGRESS_IMPORTING -> {
-                    val name = if (recipeName != null && total > 0) {
-                        "Importing $current/$total: $recipeName"
-                    } else {
-                        null
-                    }
-                    val existing = pendingImportRepository.getPendingImportById(importId)
-                    pendingImportRepository.updateMetadata(
-                        id = importId,
-                        name = name ?: existing?.name,
-                        imageUrl = existing?.imageUrl,
-                        status = PendingImportEntity.STATUS_PARSING
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to update Paprika import progress for $importId", e)
+        when (progress) {
+            PaprikaImportWorker.PROGRESS_PARSING ->
+                pendingImportRepository.updateStatus(entity.id, PendingImportEntity.STATUS_PARSING)
+            PaprikaImportWorker.PROGRESS_SUBMITTING_BATCH -> pendingImportRepository.updateMetadata(
+                id = entity.id,
+                name = if (total > 0) "Importing $total recipes from Paprika" else entity.name,
+                imageUrl = entity.imageUrl,
+                status = PendingImportEntity.STATUS_SUBMITTING_BATCH
+            )
+            PaprikaImportWorker.PROGRESS_WAITING_FOR_BATCH -> pendingImportRepository.updateMetadata(
+                id = entity.id,
+                name = if (total > 0) "Importing $total recipes from Paprika ($current done by AI)" else entity.name,
+                imageUrl = entity.imageUrl,
+                status = PendingImportEntity.STATUS_WAITING_FOR_BATCH
+            )
+            PaprikaImportWorker.PROGRESS_IMPORTING -> pendingImportRepository.updateMetadata(
+                id = entity.id,
+                name = if (recipeName != null && total > 0) "Importing $current/$total: $recipeName" else entity.name,
+                imageUrl = entity.imageUrl,
+                status = PendingImportEntity.STATUS_SAVING
+            )
         }
     }
 
-    /**
-     * Observe WorkManager status for ZIP/.lorecipes imports. Matches by KEY_IMPORT_ID in progress/output data.
-     */
-    private fun observeZipImportWorkStatus() {
-        appScope.launch {
-            workManager.getWorkInfosByTagFlow(ZipImportWorker.TAG_ZIP_IMPORT)
-                .collect { workInfos ->
-                    workInfos.forEach { workInfo ->
-                        val importId = workInfo.progress.getString(ZipImportWorker.KEY_IMPORT_ID)
-                            ?: workInfo.outputData.getString(ZipImportWorker.KEY_IMPORT_ID)
-
-                        when (workInfo.state) {
-                            WorkInfo.State.RUNNING -> {
-                                if (importId != null) {
-                                    handleZipRunningProgress(importId, workInfo)
-                                }
-                            }
-                            WorkInfo.State.SUCCEEDED, WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> {
-                                if (importId != null) {
-                                    pendingImportRepository.deletePendingImport(importId)
-                                }
-                            }
-                            else -> {}
-                        }
-                    }
-                }
-        }
-    }
-
-    private suspend fun handleZipRunningProgress(importId: String, workInfo: WorkInfo) {
+    private suspend fun handleZipRunningProgress(entity: PendingImportEntity, workInfo: WorkInfo) {
         val progress = workInfo.progress.getString(ZipImportWorker.KEY_PROGRESS)
         val recipeName = workInfo.progress.getString(ZipImportWorker.KEY_RECIPE_NAME)
         val current = workInfo.progress.getInt(ZipImportWorker.KEY_CURRENT, 0)
         val total = workInfo.progress.getInt(ZipImportWorker.KEY_TOTAL, 0)
 
-        try {
-            when (progress) {
-                ZipImportWorker.PROGRESS_READING -> {
-                    pendingImportRepository.updateStatus(importId, PendingImportEntity.STATUS_PENDING)
+        when (progress) {
+            ZipImportWorker.PROGRESS_READING ->
+                pendingImportRepository.updateStatus(entity.id, PendingImportEntity.STATUS_PENDING)
+            ZipImportWorker.PROGRESS_IMPORTING -> {
+                val name = when {
+                    recipeName == null -> entity.name
+                    total > 0 -> "Importing $current/$total: $recipeName"
+                    else -> "Importing $current: $recipeName"
                 }
-                ZipImportWorker.PROGRESS_IMPORTING -> {
-                    val name = if (recipeName != null && total > 0) {
-                        "Importing $current/$total: $recipeName"
-                    } else {
-                        null
-                    }
-                    val existing = pendingImportRepository.getPendingImportById(importId)
-                    pendingImportRepository.updateMetadata(
-                        id = importId,
-                        name = name ?: existing?.name,
-                        imageUrl = existing?.imageUrl,
-                        status = PendingImportEntity.STATUS_SAVING
-                    )
-                }
+                pendingImportRepository.updateMetadata(
+                    id = entity.id,
+                    name = name,
+                    imageUrl = entity.imageUrl,
+                    status = PendingImportEntity.STATUS_SAVING
+                )
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to update ZIP import progress for $importId", e)
         }
     }
 
-    private suspend fun handleRunningProgress(importId: String, workInfo: WorkInfo) {
-        val progress = workInfo.progress.getString(RecipeImportWorker.KEY_PROGRESS)
-
-        when (progress) {
+    private suspend fun handleRunningProgress(entity: PendingImportEntity, workInfo: WorkInfo) {
+        when (workInfo.progress.getString(RecipeImportWorker.KEY_PROGRESS)) {
             RecipeImportWorker.PROGRESS_METADATA_AVAILABLE -> {
                 val pageTitle = workInfo.progress.getString(RecipeImportWorker.KEY_PAGE_TITLE)
                 val imageUrl = workInfo.progress.getString(RecipeImportWorker.KEY_IMAGE_URL)
                 if (pageTitle != null || imageUrl != null) {
-                    try {
-                        pendingImportRepository.updateMetadata(
-                            id = importId,
-                            name = pageTitle,
-                            imageUrl = imageUrl,
-                            status = PendingImportEntity.STATUS_METADATA_READY
-                        )
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to update metadata for $importId", e)
-                    }
-                }
-            }
-            RecipeImportWorker.PROGRESS_FETCHING -> {
-                try {
-                    pendingImportRepository.updateStatus(
-                        importId, PendingImportEntity.STATUS_FETCHING_METADATA
+                    pendingImportRepository.updateMetadata(
+                        id = entity.id,
+                        name = pageTitle ?: entity.name,
+                        imageUrl = imageUrl ?: entity.imageUrl,
+                        status = PendingImportEntity.STATUS_METADATA_READY
                     )
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to update status for $importId", e)
                 }
             }
+            RecipeImportWorker.PROGRESS_FETCHING -> pendingImportRepository.updateStatus(
+                entity.id, PendingImportEntity.STATUS_FETCHING_METADATA
+            )
             RecipeImportWorker.PROGRESS_PARSING -> {
                 val recipeName = workInfo.progress.getString(RecipeImportWorker.KEY_RECIPE_NAME)
-                try {
-                    if (recipeName != null) {
-                        val existing = pendingImportRepository.getPendingImportById(importId)
-                        pendingImportRepository.updateMetadata(
-                            id = importId,
-                            name = recipeName,
-                            imageUrl = existing?.imageUrl,
-                            status = PendingImportEntity.STATUS_PARSING
-                        )
-                    } else {
-                        pendingImportRepository.updateStatus(
-                            importId, PendingImportEntity.STATUS_PARSING
-                        )
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to update status for $importId", e)
-                }
-            }
-            RecipeImportWorker.PROGRESS_SAVING -> {
-                try {
-                    pendingImportRepository.updateStatus(
-                        importId, PendingImportEntity.STATUS_SAVING
+                if (recipeName != null) {
+                    pendingImportRepository.updateMetadata(
+                        id = entity.id,
+                        name = recipeName,
+                        imageUrl = entity.imageUrl,
+                        status = PendingImportEntity.STATUS_PARSING
                     )
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to update status for $importId", e)
+                } else {
+                    pendingImportRepository.updateStatus(entity.id, PendingImportEntity.STATUS_PARSING)
                 }
             }
+            RecipeImportWorker.PROGRESS_SAVING -> pendingImportRepository.updateStatus(
+                entity.id, PendingImportEntity.STATUS_SAVING
+            )
         }
     }
 }

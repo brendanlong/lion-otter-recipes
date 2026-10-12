@@ -6,20 +6,29 @@ import com.lionotter.recipes.data.repository.IMealPlanRepository
 import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.ResourceLimits
 import com.lionotter.recipes.domain.model.MealPlanEntry
-import kotlin.time.Clock
+import com.lionotter.recipes.domain.model.Recipe
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
-import java.io.ByteArrayInputStream
 import java.io.InputStream
 import java.util.zip.ZipInputStream
 import javax.inject.Inject
+import kotlin.coroutines.coroutineContext
+import kotlin.time.Clock
+
+/** A recipe found in a .lorecipes / ZIP backup, for the import selection list. */
+data class ZipRecipeIndexEntry(val id: String, val name: String)
 
 /**
- * Shared helper for importing recipes and meal plans from ZIP files.
+ * Streams recipes and meal plans out of ZIP backups (.lorecipes / exported ZIPs).
  *
- * Consolidates the common logic used by ImportFromZipUseCase and ImportSelectionViewModel:
- * - Reading ZIP entries into a folder-grouped map
- * - Importing a single recipe (deserialize, deduplicate, download image, save)
- * - Importing meal plan entries from the meal-plans folder
+ * Archives are processed one entry at a time — images are written straight to disk and only
+ * one recipe is held in memory — with per-entry and total size limits to guard against zip bombs.
+ * Expected layout: `<folder>/recipe.json`, `<folder>/recipe.md`, `<folder>/image.*` and
+ * `meal-plans/<date>.json`. Folder names are not significant (older exports used the recipe name,
+ * newer ones append a short ID to keep them unique).
  */
 class ZipImportHelper @Inject constructor(
     private val recipeRepository: IRecipeRepository,
@@ -31,6 +40,9 @@ class ZipImportHelper @Inject constructor(
     companion object {
         private const val TAG = "ZipImportHelper"
         const val MEAL_PLANS_FOLDER = "meal-plans"
+        private const val MAX_TEXT_ENTRY_BYTES = 2L * 1024 * 1024
+        private const val MAX_TOTAL_BYTES = 1024L * 1024 * 1024
+        private const val MAX_ENTRIES = 50_000
     }
 
     /**
@@ -39,169 +51,228 @@ class ZipImportHelper @Inject constructor(
     sealed class SingleRecipeResult {
         data class Imported(val recipeId: String) : SingleRecipeResult()
         data class Skipped(val recipeId: String) : SingleRecipeResult()
-        object NoJson : SingleRecipeResult()
         object LimitReached : SingleRecipeResult()
         data class Failed(val error: Exception) : SingleRecipeResult()
     }
 
-    /**
-     * Contents read from a ZIP file, with text files and binary image data separated.
-     */
-    data class ZipContents(
-        /** Map of folder name to (filename to text content) for text files */
-        val textFiles: Map<String, Map<String, String>>,
-        /** Map of folder name to (filename to raw bytes) for image files */
-        val imageFiles: Map<String, Map<String, ByteArray>>
+    data class ImportSummary(
+        val importedCount: Int,
+        val skippedCount: Int,
+        val failedCount: Int,
+        val mealPlansImported: Int
     )
 
     /**
-     * Reads all entries from a ZIP input stream into a folder-grouped structure.
-     * Text files (json, html, md) are stored as strings.
-     * Image files are stored as raw bytes for later saving.
-     *
-     * @return [ZipContents] with text and image files, or null if reading fails
+     * Read just the recipe IDs and names from a ZIP, without loading images. Malformed recipe
+     * entries are skipped (and logged).
      */
-    fun readZipContents(inputStream: InputStream): ZipContents? {
-        val textContents = mutableMapOf<String, MutableMap<String, String>>()
-        val imageContents = mutableMapOf<String, MutableMap<String, ByteArray>>()
-
-        try {
-            ZipInputStream(inputStream).use { zipIn ->
-                var entry = zipIn.nextEntry
-                while (entry != null) {
-                    if (!entry.isDirectory) {
-                        val pathParts = entry.name.split("/", limit = 2)
-                        if (pathParts.size == 2) {
-                            val folderName = pathParts[0]
-                            val fileName = pathParts[1]
-                            val isImage = isImageFile(fileName)
-
-                            if (isImage) {
-                                val bytes = zipIn.readBytes()
-                                imageContents.getOrPut(folderName) { mutableMapOf() }[fileName] = bytes
-                            } else {
-                                val content = zipIn.readBytes().toString(Charsets.UTF_8)
-                                textContents.getOrPut(folderName) { mutableMapOf() }[fileName] = content
-                            }
-                        }
-                    }
-                    zipIn.closeEntry()
-                    entry = zipIn.nextEntry
+    fun readRecipeIndex(inputStream: InputStream): List<ZipRecipeIndexEntry> {
+        val results = mutableListOf<ZipRecipeIndexEntry>()
+        val budget = ArchiveBudget(MAX_TOTAL_BYTES)
+        forEachEntry(inputStream) { zipIn, folder, fileName ->
+            if (folder != MEAL_PLANS_FOLDER && fileName == RecipeSerializer.RECIPE_JSON_FILENAME) {
+                try {
+                    val recipe = recipeSerializer.deserializeRecipe(readText(zipIn, budget))
+                    results.add(ZipRecipeIndexEntry(recipe.id, recipe.name))
+                } catch (e: ArchiveTooLargeException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "Skipping unreadable recipe in $folder", e)
                 }
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to read ZIP contents", e)
-            return null
         }
-
-        if (textContents.isEmpty() && imageContents.isEmpty()) return null
-        return ZipContents(textContents, imageContents)
+        return results
     }
 
     /**
-     * Imports a single recipe from its folder files.
+     * Import recipes (optionally only [selectedRecipeIds]) and the meal plans that reference
+     * imported or already-present recipes.
      *
-     * Handles deserialization, duplicate checking (by ID), image importing
-     * (from bundled image or download), and saving to the repository.
-     *
-     * @param files map of filename to content for a single recipe folder (text files)
-     * @param imageFiles map of filename to bytes for image files in the folder (may be empty)
-     * @return the result of the import attempt
+     * @param onRecipe called before each selected recipe is imported, with its name and 1-based index
      */
-    suspend fun importRecipe(
-        files: Map<String, String>,
-        imageFiles: Map<String, ByteArray> = emptyMap()
-    ): SingleRecipeResult {
-        val jsonContent = files[RecipeSerializer.RECIPE_JSON_FILENAME]
-            ?: return SingleRecipeResult.NoJson
+    suspend fun importFromZip(
+        inputStream: InputStream,
+        selectedRecipeIds: Set<String>?,
+        onRecipe: suspend (name: String, index: Int) -> Unit = { _, _ -> }
+    ): ImportSummary {
+        val budget = ArchiveBudget(MAX_TOTAL_BYTES)
+        var imported = 0
+        var skipped = 0
+        var failed = 0
+        var index = 0
+        val presentRecipeIds = mutableSetOf<String>()
+        val mealPlanEntries = mutableListOf<MealPlanEntry>()
 
+        var currentFolder: String? = null
+        var folderRecipe: Recipe? = null
+        var folderImage: String? = null
+        var folderHadBadJson = false
+
+        suspend fun flushFolder() {
+            val recipe = folderRecipe
+            if (recipe != null && (selectedRecipeIds == null || recipe.id in selectedRecipeIds) &&
+                recipe.id !in presentRecipeIds
+            ) {
+                index++
+                onRecipe(recipe.name, index)
+                when (val result = importRecipe(recipe, folderImage)) {
+                    is SingleRecipeResult.Imported -> {
+                        imported++
+                        presentRecipeIds.add(recipe.id)
+                        folderImage = null // now owned by the recipe
+                    }
+                    is SingleRecipeResult.Skipped -> {
+                        skipped++
+                        presentRecipeIds.add(recipe.id)
+                    }
+                    SingleRecipeResult.LimitReached -> failed++
+                    is SingleRecipeResult.Failed -> failed++
+                }
+            } else if (recipe == null && folderHadBadJson && selectedRecipeIds == null) {
+                failed++
+            }
+            folderImage?.let { imageDownloadService.deleteLocalImage(it) }
+            folderRecipe = null
+            folderImage = null
+            folderHadBadJson = false
+        }
+
+        forEachEntrySuspend(inputStream) { zipIn, folder, fileName ->
+            coroutineContext.ensureActive()
+            if (folder == MEAL_PLANS_FOLDER) {
+                if (fileName.endsWith(".json")) {
+                    try {
+                        mealPlanEntries += json.decodeFromString<List<MealPlanEntry>>(readText(zipIn, budget))
+                    } catch (e: ArchiveTooLargeException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to read meal plan file $fileName", e)
+                    }
+                }
+                return@forEachEntrySuspend
+            }
+            if (folder != currentFolder) {
+                flushFolder()
+                currentFolder = folder
+            }
+            when {
+                fileName == RecipeSerializer.RECIPE_JSON_FILENAME -> try {
+                    folderRecipe = recipeSerializer.deserializeRecipe(readText(zipIn, budget))
+                } catch (e: ArchiveTooLargeException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to read recipe in folder $folder", e)
+                    folderHadBadJson = true
+                }
+                isImageFile(fileName) && folderImage == null -> {
+                    val known = folderRecipe
+                    val wanted = known == null || selectedRecipeIds == null || known.id in selectedRecipeIds
+                    if (wanted) {
+                        val extension = ".${fileName.substringAfterLast('.', "jpg")}"
+                        folderImage = imageDownloadService.saveImageFromStream(
+                            BoundedInputStream(zipIn, ResourceLimits.MAX_IMAGE_SIZE_BYTES, budget),
+                            extension
+                        )
+                    }
+                }
+            }
+        }
+        flushFolder()
+
+        val mealPlansImported = importMealPlans(mealPlanEntries.filter { it.recipeId in presentRecipeIds })
+        return ImportSummary(imported, skipped, failed, mealPlansImported)
+    }
+
+    /**
+     * Imports a single recipe, skipping it if a recipe with the same ID already exists.
+     *
+     * @param bundledImageUri local file:// URI of the image bundled in the ZIP, if any
+     */
+    suspend fun importRecipe(recipe: Recipe, bundledImageUri: String?): SingleRecipeResult {
         return try {
-            val recipe = recipeSerializer.deserializeRecipe(jsonContent)
-
-            val existing = recipeRepository.getRecipeByIdOnce(recipe.id)
-            if (existing != null) {
+            if (recipeRepository.getRecipeByIdOnce(recipe.id) != null) {
                 return SingleRecipeResult.Skipped(recipe.id)
             }
 
-            // Check recipe count limit
             val count = recipeRepository.getRecipeCount()
             if (count >= ResourceLimits.MAX_RECIPES) {
                 Log.w(TAG, "Recipe limit reached ($count/${ResourceLimits.MAX_RECIPES})")
                 return SingleRecipeResult.LimitReached
             }
 
-            // Try to use bundled image from the ZIP first, then fall back to download
-            val localImageUrl = importImageFromZipOrDownload(imageFiles, recipe.imageUrl, recipe.sourceImageUrl)
-            // Upload to Firebase Storage for cross-device sync
-            val storedImageUrl = localImageUrl?.let { imageDownloadService.storeImage(it) }
+            val localImageUrl = bundledImageUri
+                ?: recipe.sourceImageUrl?.takeIf { it.isNotBlank() }?.let { imageDownloadService.downloadAndStore(it) }
+                ?: imageDownloadService.downloadImageIfNeeded(recipe.imageUrl)
 
-            val importedRecipe = recipe.copy(
-                updatedAt = Clock.System.now(),
-                imageUrl = storedImageUrl
-            )
-            recipeRepository.saveRecipe(importedRecipe)
+            withContext(NonCancellable) {
+                val storedImageUrl = localImageUrl?.let { imageDownloadService.storeImage(it) }
+                recipeRepository.saveRecipe(
+                    recipe.copy(updatedAt = Clock.System.now(), imageUrl = storedImageUrl)
+                )
+            }
             SingleRecipeResult.Imported(recipe.id)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
+            Log.e(TAG, "Failed to import recipe ${recipe.id} (${recipe.name})", e)
             SingleRecipeResult.Failed(e)
         }
     }
 
-    /**
-     * Imports meal plan entries from the meal-plans folder in a ZIP backup.
-     * Uses Firestore's idempotent set() — existing entries are overwritten.
-     *
-     * @param mealPlanFiles map of filename to content from the meal-plans folder
-     * @return pair of (imported count, skipped count)
-     */
-    fun importMealPlans(mealPlanFiles: Map<String, String>): Pair<Int, Int> {
+    private suspend fun importMealPlans(entries: List<MealPlanEntry>): Int {
         var imported = 0
-        val skipped = 0
-
-        for ((fileName, content) in mealPlanFiles) {
-            if (!fileName.endsWith(".json")) continue
-            try {
-                val entries = json.decodeFromString<List<MealPlanEntry>>(content)
-                for (entry in entries) {
+        withContext(NonCancellable) {
+            for (entry in entries) {
+                try {
                     mealPlanRepository.saveMealPlan(entry)
                     imported++
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to import meal plan entry ${entry.id}", e)
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to import meal plan file $fileName", e)
             }
         }
-
-        return Pair(imported, skipped)
+        return imported
     }
 
-    /**
-     * Tries to import an image from bundled ZIP data, falling back to downloading
-     * from the source image URL or the stored image URL.
-     */
-    private suspend fun importImageFromZipOrDownload(
-        imageFiles: Map<String, ByteArray>,
-        imageUrl: String?,
-        sourceImageUrl: String?
-    ): String? {
-        // 1. Try bundled image from the ZIP export
-        val bundledImage = imageFiles.entries.firstOrNull { isImageFile(it.key) }
-        if (bundledImage != null) {
-            val extension = ".${bundledImage.key.substringAfterLast('.', "jpg")}"
-            val localUri = imageDownloadService.saveImageFromStream(
-                ByteArrayInputStream(bundledImage.value),
-                extension
-            )
-            if (localUri != null) return localUri
-        }
+    private fun readText(zipIn: ZipInputStream, budget: ArchiveBudget): String =
+        BoundedInputStream(zipIn, MAX_TEXT_ENTRY_BYTES, budget).readBytes().toString(Charsets.UTF_8)
 
-        // 2. Try downloading from the source image URL (original remote URL)
-        if (!sourceImageUrl.isNullOrBlank()) {
-            val localUri = imageDownloadService.downloadAndStore(sourceImageUrl)
-            if (localUri != null) return localUri
+    private inline fun forEachEntry(
+        inputStream: InputStream,
+        block: (ZipInputStream, folder: String, fileName: String) -> Unit
+    ) {
+        ZipInputStream(inputStream).use { zipIn ->
+            var entryCount = 0
+            var entry = zipIn.nextEntry
+            while (entry != null) {
+                if (++entryCount > MAX_ENTRIES) throw ArchiveTooLargeException("Archive has too many entries")
+                if (!entry.isDirectory) {
+                    val parts = entry.name.split("/", limit = 2)
+                    if (parts.size == 2 && parts[1].isNotEmpty()) block(zipIn, parts[0], parts[1])
+                }
+                zipIn.closeEntry()
+                entry = zipIn.nextEntry
+            }
         }
+    }
 
-        // 3. Fall back to the stored imageUrl (may be a file:// URI that doesn't exist,
-        //    or a remote URL that can be downloaded)
-        return imageDownloadService.downloadImageIfNeeded(imageUrl)
+    private suspend inline fun forEachEntrySuspend(
+        inputStream: InputStream,
+        crossinline block: suspend (ZipInputStream, folder: String, fileName: String) -> Unit
+    ) {
+        ZipInputStream(inputStream).use { zipIn ->
+            var entryCount = 0
+            var entry = zipIn.nextEntry
+            while (entry != null) {
+                if (++entryCount > MAX_ENTRIES) throw ArchiveTooLargeException("Archive has too many entries")
+                if (!entry.isDirectory) {
+                    val parts = entry.name.split("/", limit = 2)
+                    if (parts.size == 2 && parts[1].isNotEmpty()) block(zipIn, parts[0], parts[1])
+                }
+                zipIn.closeEntry()
+                entry = zipIn.nextEntry
+            }
+        }
     }
 
     private fun isImageFile(fileName: String): Boolean {

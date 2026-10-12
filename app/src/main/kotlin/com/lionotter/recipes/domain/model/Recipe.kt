@@ -38,104 +38,40 @@ data class Recipe(
 ) {
     /**
      * Aggregates all ingredients from all steps across all instruction sections.
-     * Combines amounts for the same ingredient name (case-insensitive),
+     * Combines amounts for the same ingredient name (case-insensitive) within each section,
      * respecting the yields multiplier on each step.
      *
-     * Amounts are summed in base units (grams for weight, mL for volume) to avoid
-     * unit mismatch errors (e.g., "1 lb butter" + "1 tsp butter" sum correctly).
-     * Amount-less occurrences (e.g., "a pinch of butter") are skipped gracefully.
+     * See [aggregateIngredientOccurrences] for how amounts in different units are combined.
      *
      * Returns grouped by instruction section name for display.
      */
     fun aggregateIngredients(): List<IngredientSection> {
-        val sectionMap = linkedMapOf<String?, MutableMap<String, AggregatedIngredient>>()
-
+        val sectionOccurrences = linkedMapOf<String?, MutableList<Pair<Ingredient, Int>>>()
         for (section in instructionSections) {
-            val sectionIngredients = sectionMap.getOrPut(section.name) { linkedMapOf() }
+            val occurrences = sectionOccurrences.getOrPut(section.name) { mutableListOf() }
             for (step in section.steps) {
-                val yields = step.yields
-                for (ingredient in step.ingredients) {
-                    addToAggregation(sectionIngredients, ingredient, yields)
-                }
+                step.ingredients.forEach { occurrences.add(it to step.yields) }
             }
         }
 
-        return sectionMap.map { (sectionName, ingredients) ->
+        return sectionOccurrences.map { (sectionName, occurrences) ->
             IngredientSection(
                 name = sectionName,
-                ingredients = ingredients.values.map { it.toIngredient() }
+                ingredients = aggregateIngredientOccurrences(occurrences)
             )
         }
     }
 
-    private fun addToAggregation(
-        map: MutableMap<String, AggregatedIngredient>,
-        ingredient: Ingredient,
-        yields: Int
-    ) {
-        val key = ingredient.name.lowercase()
-        val baseValue = ingredient.getBaseValue(yields)
-        val unit = ingredient.amount?.unit
-        val category = unit?.let { unitType(it) }
-
-        val existing = map[key]
-        if (existing != null) {
-            existing.accumulator.add(baseValue)
-        } else {
-            map[key] = AggregatedIngredient(
-                name = ingredient.name,
-                notes = ingredient.notes,
-                density = ingredient.density,
-                optional = ingredient.optional,
-                alternates = ingredient.alternates,
-                accumulator = BaseUnitAccumulator(baseValue = baseValue, category = category),
-                originalUnit = unit
-            )
-        }
-    }
-}
-
-private data class AggregatedIngredient(
-    val name: String,
-    val notes: String?,
-    val density: Double?,
-    val optional: Boolean,
-    val alternates: List<Ingredient>,
-    val accumulator: BaseUnitAccumulator,
-    val originalUnit: String?
-) {
-    fun toIngredient(): Ingredient {
-        val baseValue = accumulator.baseValue
-        val category = accumulator.category
-
-        // Convert base value back to the original unit so downstream callers
-        // (Ingredient.format(), getDisplayAmount()) see the unit the recipe used.
-        val amount = when {
-            baseValue != null && originalUnit != null && category != null -> {
-                val conversionFactor = toBaseUnitValue(1.0, originalUnit)
-                val displayValue = if (conversionFactor != null && conversionFactor > 0) {
-                    kotlin.math.round(baseValue / conversionFactor * 100) / 100
-                } else {
-                    baseValue
-                }
-                Amount(value = displayValue, unit = originalUnit)
+    /**
+     * Aggregates all ingredients across every section into a single list, combining
+     * the same ingredient used in different sections (e.g. butter in both cake and frosting).
+     */
+    fun aggregateAllIngredients(): List<Ingredient> =
+        aggregateIngredientOccurrences(
+            instructionSections.flatMap { section ->
+                section.steps.flatMap { step -> step.ingredients.map { it to step.yields } }
             }
-            baseValue != null -> {
-                // Count item (no unit)
-                Amount(value = baseValue, unit = null)
-            }
-            else -> null
-        }
-
-        return Ingredient(
-            name = name,
-            notes = notes,
-            alternates = alternates,
-            amount = amount,
-            density = density,
-            optional = optional
         )
-    }
 }
 
 @Immutable
@@ -255,274 +191,3 @@ data class InstructionStep(
     val yields: Int = 1,
     val optional: Boolean = false
 )
-
-// --- Unit conversion utilities ---
-
-enum class UnitCategory { WEIGHT, VOLUME }
-
-private val WEIGHT_UNITS = setOf("mg", "g", "kg", "oz", "lb")
-private val VOLUME_UNITS = setOf("mL", "L", "tsp", "tbsp", "cup", "fl_oz", "pint", "quart", "gal")
-
-// Which units belong to which system
-private val METRIC_WEIGHT_UNITS = setOf("mg", "g", "kg")
-private val CUSTOMARY_WEIGHT_UNITS = setOf("oz", "lb")
-private val METRIC_VOLUME_UNITS = setOf("mL", "L")
-private val CUSTOMARY_VOLUME_UNITS = setOf("tsp", "tbsp", "cup", "fl_oz", "pint", "quart", "gal")
-
-// Conversion factors to base units (grams for weight, mL for volume)
-private val TO_GRAMS = mapOf(
-    "mg" to 0.001,
-    "g" to 1.0,
-    "kg" to 1000.0,
-    "oz" to 28.3495,
-    "lb" to 453.592
-)
-
-private val TO_ML = mapOf(
-    "mL" to 1.0,
-    "L" to 1000.0,
-    "tsp" to 4.929,
-    "tbsp" to 14.787,
-    "cup" to 236.588,
-    "fl_oz" to 29.574,
-    "pint" to 473.176,
-    "quart" to 946.353,
-    "gal" to 3785.41
-)
-
-internal fun unitType(unit: String): UnitCategory? {
-    // Case-insensitive matching for robustness
-    val lower = unit.lowercase()
-    return when {
-        WEIGHT_UNITS.any { it.lowercase() == lower } -> UnitCategory.WEIGHT
-        VOLUME_UNITS.any { it.lowercase() == lower } -> UnitCategory.VOLUME
-        else -> null
-    }
-}
-
-/**
- * Returns the UnitSystem that a given unit belongs to, or null if unrecognized.
- */
-private fun unitSystem(unit: String): UnitSystem? {
-    val lower = unit.lowercase()
-    return when {
-        METRIC_WEIGHT_UNITS.any { it.lowercase() == lower } -> UnitSystem.METRIC
-        CUSTOMARY_WEIGHT_UNITS.any { it.lowercase() == lower } -> UnitSystem.CUSTOMARY
-        METRIC_VOLUME_UNITS.any { it.lowercase() == lower } -> UnitSystem.METRIC
-        CUSTOMARY_VOLUME_UNITS.any { it.lowercase() == lower } -> UnitSystem.CUSTOMARY
-        else -> null
-    }
-}
-
-/**
- * Convert an amount between weight and volume using density (g/mL).
- * The result uses the best unit in the target system (e.g. metric weight → grams/kg).
- */
-private fun convertAmount(
-    value: Double,
-    fromUnit: String,
-    fromType: UnitCategory,
-    toType: UnitCategory,
-    density: Double,
-    volumeSystem: UnitSystem = UnitSystem.localeDefault(),
-    weightSystem: UnitSystem = UnitSystem.localeDefault()
-): Amount {
-    return when {
-        fromType == UnitCategory.VOLUME && toType == UnitCategory.WEIGHT -> {
-            // volume → mL → grams (via density) → best weight unit
-            val mL = value * (TO_ML[fromUnit] ?: return Amount(value, fromUnit))
-            val grams = mL * density
-            bestUnit(grams, TO_GRAMS, weightSystem)
-        }
-        fromType == UnitCategory.WEIGHT && toType == UnitCategory.VOLUME -> {
-            // weight → grams → mL (via density) → best volume unit
-            val grams = value * (TO_GRAMS[fromUnit] ?: return Amount(value, fromUnit))
-            val mL = grams / density
-            bestUnit(mL, TO_ML, volumeSystem)
-        }
-        else -> Amount(value, fromUnit)
-    }
-}
-
-/**
- * Convert a unit within the same category to the preferred unit system.
- * For example, cups → mL when metric volume is preferred, or grams → oz when customary weight is preferred.
- * For weight units, always re-evaluates the best unit even within the same system
- * (e.g., 0.25 kg → 250 g) since weight display rules differ from volume.
- * Returns the original amount if no conversion is needed or the unit is unrecognized.
- */
-internal fun convertToSystem(
-    value: Double?,
-    unit: String,
-    volumeSystem: UnitSystem = UnitSystem.localeDefault(),
-    weightSystem: UnitSystem = UnitSystem.localeDefault()
-): Amount {
-    if (value == null) return Amount(value, unit)
-
-    val category = unitType(unit) ?: return Amount(value, unit)
-    val currentSystem = unitSystem(unit) ?: return Amount(value, unit)
-    val targetSystem = when (category) {
-        UnitCategory.VOLUME -> volumeSystem
-        UnitCategory.WEIGHT -> weightSystem
-    }
-
-    // For volume, skip if already in the right system
-    if (category == UnitCategory.VOLUME && currentSystem == targetSystem) return Amount(value, unit)
-
-    // Convert to base units, then find best unit in target system
-    return when (category) {
-        UnitCategory.WEIGHT -> {
-            val grams = value * (TO_GRAMS[unit] ?: return Amount(value, unit))
-            bestUnit(grams, TO_GRAMS, targetSystem)
-        }
-        UnitCategory.VOLUME -> {
-            val mL = value * (TO_ML[unit] ?: return Amount(value, unit))
-            bestUnit(mL, TO_ML, targetSystem)
-        }
-    }
-}
-
-/**
- * Convert a display amount to its base unit value (grams for weight, mL for volume).
- * Returns null if the unit is unrecognized.
- */
-internal fun toBaseUnitValue(value: Double, unit: String): Double? {
-    return TO_GRAMS[unit]?.let { value * it }
-        ?: TO_ML[unit]?.let { value * it }
-}
-
-/**
- * Convert a base unit value (grams or mL) back to a display amount using the best unit
- * for the given unit category and target system.
- */
-internal fun fromBaseUnit(baseValue: Double, category: UnitCategory, volumeSystem: UnitSystem, weightSystem: UnitSystem): Amount {
-    return when (category) {
-        UnitCategory.WEIGHT -> bestUnit(baseValue, TO_GRAMS, weightSystem)
-        UnitCategory.VOLUME -> bestUnit(baseValue, TO_ML, volumeSystem)
-    }
-}
-
-/**
- * Find the best unit for a given amount in base units (g or mL).
- * Filters to only units in the target system.
- * Prefers common cooking units and values between 0.25 and 999.
- */
-private fun bestUnit(
-    baseValue: Double,
-    conversions: Map<String, Double>,
-    targetSystem: UnitSystem
-): Amount {
-    // Use weight-specific logic for weight units
-    if (conversions === TO_GRAMS) {
-        return bestWeightUnit(baseValue, targetSystem)
-    }
-
-    val systemUnits = when {
-        conversions === TO_ML && targetSystem == UnitSystem.CUSTOMARY -> CUSTOMARY_VOLUME_UNITS
-        conversions === TO_ML && targetSystem == UnitSystem.METRIC -> METRIC_VOLUME_UNITS
-        else -> conversions.keys
-    }
-
-    // Preferred order within each system
-    val preferred = when {
-        conversions === TO_ML && targetSystem == UnitSystem.CUSTOMARY ->
-            listOf("tsp", "tbsp", "cup", "fl_oz", "pint", "quart", "gal")
-        conversions === TO_ML && targetSystem == UnitSystem.METRIC ->
-            listOf("mL", "L")
-        else -> conversions.keys.toList()
-    }.filter { it in systemUnits }
-
-    if (preferred.isEmpty()) return Amount(baseValue, conversions.entries.first().key)
-
-    var bestUnitName = preferred.first()
-    var bestValue = baseValue / conversions[bestUnitName]!!
-    var bestScore = unitScore(bestValue)
-
-    for (unit in preferred) {
-        val factor = conversions[unit] ?: continue
-        val converted = baseValue / factor
-        val score = unitScore(converted)
-        if (score > bestScore) {
-            bestScore = score
-            bestUnitName = unit
-            bestValue = converted
-        }
-    }
-
-    // Round to reasonable precision
-    val rounded = kotlin.math.round(bestValue * 100) / 100
-    return Amount(rounded, bestUnitName)
-}
-
-/**
- * Weight-specific unit selection that reflects how people think about weights.
- *
- * Metric: Use grams for most cooking weights (under 10 kg), kg with decimals above that,
- * and mg for tiny amounts under 1g.
- *
- * Customary: Use oz for amounts under 1 lb, lb with decimals above that.
- */
-private fun bestWeightUnit(gramsValue: Double, targetSystem: UnitSystem): Amount {
-    return if (targetSystem == UnitSystem.METRIC) {
-        bestMetricWeightUnit(gramsValue)
-    } else {
-        bestCustomaryWeightUnit(gramsValue)
-    }
-}
-
-private fun bestMetricWeightUnit(grams: Double): Amount {
-    return when {
-        // Tiny amounts: use mg
-        grams < 1.0 -> {
-            val mg = grams * 1000.0
-            val rounded = kotlin.math.round(mg * 100) / 100
-            Amount(rounded, "mg")
-        }
-        // Under 10 kg: use grams (this covers the vast majority of cooking)
-        grams < 10_000.0 -> {
-            val rounded = kotlin.math.round(grams * 100) / 100
-            Amount(rounded, "g")
-        }
-        // 10 kg and above: use kg with decimals
-        else -> {
-            val kg = grams / 1000.0
-            val rounded = kotlin.math.round(kg * 100) / 100
-            Amount(rounded, "kg")
-        }
-    }
-}
-
-private fun bestCustomaryWeightUnit(grams: Double): Amount {
-    val oz = grams / TO_GRAMS["oz"]!!
-    // Always return in oz; the formatting layer handles lb+oz compound display
-    val rounded = kotlin.math.round(oz * 100) / 100
-    return Amount(rounded, "oz")
-}
-
-/**
- * Score how "nice" a value is for display. Higher is better.
- * Prefers values like 1, 2, 0.5, 0.25 in a reasonable range.
- */
-private fun unitScore(value: Double): Double {
-    if (value <= 0) return -1000.0
-    if (value > 999) return -100.0
-    if (value < 0.125) return -50.0
-
-    // Prefer values in common cooking range (0.25 to 16)
-    val rangeScore = when {
-        value in 0.25..16.0 -> 10.0
-        value in 0.125..100.0 -> 5.0
-        else -> 0.0
-    }
-
-    // Prefer "round" values (whole, half, quarter, third)
-    val roundness = when {
-        value == kotlin.math.round(value) -> 5.0
-        kotlin.math.abs(value * 2 - kotlin.math.round(value * 2)) < 0.01 -> 4.0
-        kotlin.math.abs(value * 4 - kotlin.math.round(value * 4)) < 0.01 -> 3.0
-        kotlin.math.abs(value * 3 - kotlin.math.round(value * 3)) < 0.01 -> 2.0
-        else -> 0.0
-    }
-
-    return rangeScore + roundness
-}

@@ -1,6 +1,10 @@
 package com.lionotter.recipes.ui.screens.editrecipe
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -21,7 +25,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.HideImage
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Psychology
@@ -86,11 +89,43 @@ fun EditRecipeScreen(
     val model by viewModel.model.collectAsStateWithLifecycle()
     val thinkingEnabled by viewModel.thinkingEnabled.collectAsStateWithLifecycle()
     val canRegenerate by viewModel.canRegenerate.collectAsStateWithLifecycle()
+    val recipeLoaded by viewModel.recipeLoaded.collectAsStateWithLifecycle()
+    val hasUnsavedChanges by viewModel.hasUnsavedChanges.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
     var showRegenerateConfirmDialog by remember { mutableStateOf(false) }
+    var showDiscardDialog by rememberSaveable { mutableStateOf(false) }
 
     val isLoading = editState is EditUiState.Loading
+
+    // Back (system or toolbar) asks before throwing away edits
+    val requestLeave = {
+        if (hasUnsavedChanges) showDiscardDialog = true else onBackClick()
+    }
+    BackHandler(enabled = hasUnsavedChanges && !isLoading) {
+        showDiscardDialog = true
+    }
+
+    if (showDiscardDialog) {
+        AlertDialog(
+            onDismissRequest = { showDiscardDialog = false },
+            title = { Text(stringResource(R.string.edit_recipe_discard_title)) },
+            text = { Text(stringResource(R.string.edit_recipe_discard_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDiscardDialog = false
+                    onBackClick()
+                }) {
+                    Text(stringResource(R.string.edit_recipe_discard))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDiscardDialog = false }) {
+                    Text(stringResource(R.string.edit_recipe_keep_editing))
+                }
+            }
+        )
+    }
 
     // Image picker launcher
     val imagePickerLauncher = rememberLauncherForActivityResult(
@@ -150,7 +185,7 @@ fun EditRecipeScreen(
         topBar = {
             RecipeTopAppBar(
                 title = stringResource(R.string.edit_recipe),
-                onBackClick = if (!isLoading) onBackClick else null,
+                onBackClick = if (!isLoading) requestLeave else null,
                 actions = {
                     if (canRegenerate && !isLoading) {
                         IconButton(
@@ -168,6 +203,26 @@ fun EditRecipeScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
         when {
+            recipe == null && recipeLoaded -> {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues)
+                        .padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = stringResource(R.string.edit_recipe_not_found),
+                        style = MaterialTheme.typography.bodyLarge,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = onBackClick) {
+                        Text(stringResource(R.string.back))
+                    }
+                }
+            }
             recipe == null -> {
                 Box(
                     modifier = Modifier
@@ -209,8 +264,7 @@ fun EditRecipeScreen(
                     editState = editState,
                     onSave = viewModel::saveEdits,
                     onSaveAsCopy = viewModel::saveAsCopy,
-                    onCancel = onBackClick,
-                    modifier = Modifier.padding(paddingValues)
+                    paddingValues = paddingValues
                 )
             }
         }
@@ -300,12 +354,13 @@ private fun EditContent(
     editState: EditUiState,
     onSave: () -> Unit,
     onSaveAsCopy: () -> Unit,
-    onCancel: () -> Unit,
-    modifier: Modifier = Modifier
+    paddingValues: PaddingValues
 ) {
     Column(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxSize()
+            .padding(paddingValues)
+            .consumeWindowInsets(paddingValues)
             .imePadding()
     ) {
         // Scrollable content area
@@ -422,33 +477,29 @@ private fun EditContent(
             }
         }
 
-        // Bottom action bar
+        // Bottom action bar. Two equal-width buttons fit 360dp phones; cancelling is
+        // done with back, which asks before discarding changes.
+        val canSave = title.isNotBlank() && markdownText.isNotBlank()
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            OutlinedButton(onClick = onCancel) {
-                Text(stringResource(R.string.cancel))
-            }
             OutlinedButton(
                 onClick = onSaveAsCopy,
-                enabled = title.isNotBlank() && markdownText.isNotBlank()
+                enabled = canSave,
+                modifier = Modifier.weight(1f)
             ) {
-                Icon(
-                    imageVector = Icons.Default.ContentCopy,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
                 Text(
                     text = stringResource(R.string.save_as_copy),
-                    modifier = Modifier.padding(start = 8.dp)
+                    textAlign = TextAlign.Center
                 )
             }
             Button(
                 onClick = onSave,
-                enabled = title.isNotBlank() && markdownText.isNotBlank()
+                enabled = canSave,
+                modifier = Modifier.weight(1f)
             ) {
                 Icon(
                     imageVector = Icons.Default.Save,

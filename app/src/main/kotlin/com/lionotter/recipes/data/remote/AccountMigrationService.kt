@@ -10,7 +10,11 @@ import com.google.firebase.auth.auth
 import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.firestore
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeout
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -42,6 +46,46 @@ class AccountMigrationService @Inject constructor(
          * "multiple DataStores active for the same file".
          */
         private val migrationCounter = AtomicInteger(0)
+        private const val SERVER_TIMEOUT_MS = 30_000L
+
+        internal const val MAX_DOCS_PER_BATCH = 100
+        internal const val MAX_BATCH_BYTES = 4L * 1024 * 1024
+
+        /**
+         * Splits documents into batches of at most [MAX_DOCS_PER_BATCH] documents and
+         * roughly [MAX_BATCH_BYTES] estimated bytes. A single oversized document gets
+         * its own batch.
+         */
+        internal fun <T> chunkForBatches(documents: List<Pair<String, Map<String, T>>>): List<List<Pair<String, Map<String, T>>>> {
+            val batches = mutableListOf<List<Pair<String, Map<String, T>>>>()
+            var current = mutableListOf<Pair<String, Map<String, T>>>()
+            var currentBytes = 0L
+            for (doc in documents) {
+                val size = estimateSize(doc.first) + estimateSize(doc.second)
+                if (current.isNotEmpty() &&
+                    (current.size >= MAX_DOCS_PER_BATCH || currentBytes + size > MAX_BATCH_BYTES)
+                ) {
+                    batches += current
+                    current = mutableListOf()
+                    currentBytes = 0L
+                }
+                current += doc
+                currentBytes += size
+            }
+            if (current.isNotEmpty()) batches += current
+            return batches
+        }
+
+        /** Approximates Firestore's storage size for a value (UTF-8 strings + fixed overheads). */
+        internal fun estimateSize(value: Any?): Long = when (value) {
+            null, is Boolean -> 1
+            is String -> value.toByteArray(Charsets.UTF_8).size + 1L
+            is Number -> 8
+            is Map<*, *> -> value.entries.sumOf { estimateSize(it.key) + estimateSize(it.value) } + 32
+            is Iterable<*> -> value.sumOf { estimateSize(it) } + 32
+            is ByteArray -> value.size + 1L
+            else -> 32
+        }
     }
 
     /**
@@ -64,7 +108,7 @@ class AccountMigrationService @Inject constructor(
         val migrationApp = createMigrationApp()
         try {
             val migrationAuth = com.google.firebase.auth.FirebaseAuth.getInstance(migrationApp)
-            migrationAuth.signInWithCredential(credential).await()
+            serverCall { migrationAuth.signInWithCredential(credential).await() }
             val googleUid = migrationAuth.currentUser?.uid
                 ?: run {
                     cleanupMigrationApp(migrationApp)
@@ -126,6 +170,9 @@ class AccountMigrationService @Inject constructor(
 
             // 6. Switch default app to Google user
             return completeSignIn(credential)
+        } catch (e: CancellationException) {
+            cleanupMigrationApp(migrationApp)
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Migration failed", e)
             cleanupMigrationApp(migrationApp)
@@ -136,17 +183,35 @@ class AccountMigrationService @Inject constructor(
     /**
      * Completes the sign-in on the default app: signs in as Google.
      *
-     * If sign-in fails, guest data is still intact on the default app.
+     * If sign-in fails, guest data is still intact on the default app. A sign-in that
+     * times out is undone, in case it completes later.
      *
-     * Firestore cache clearing and network enabling are NOT done here — the
-     * caller must first update the UID (via [AuthService.completeMergeSignIn])
-     * so that when `clearLocalData()` bumps the generation counter,
-     * repositories recreate listeners on the Google path (not the old guest
-     * path). This prevents PERMISSION_DENIED crashes.
+     * Firestore cache clearing and network enabling are NOT done here; the caller
+     * ([AuthService.mergeGuestIntoGoogle]) does them while auth is still Loading.
      */
     private suspend fun completeSignIn(credential: AuthCredential): Result<Unit> {
-        Firebase.auth.signInWithCredential(credential).await()
+        val signIn = Firebase.auth.signInWithCredential(credential)
+        try {
+            serverCall { signIn.await() }
+        } catch (e: Exception) {
+            Firebase.auth.signOut()
+            // A timed-out sign-in can still complete later; undo it then too
+            signIn.addOnSuccessListener { Firebase.auth.signOut() }
+            throw e
+        }
         return Result.success(Unit)
+    }
+
+    /**
+     * Runs a server round trip with a timeout, so an offline or flaky connection fails
+     * the migration (leaving guest data intact) instead of hanging sign-in forever.
+     */
+    private suspend fun <T> serverCall(block: suspend () -> T): T {
+        return try {
+            withTimeout(SERVER_TIMEOUT_MS) { block() }
+        } catch (e: TimeoutCancellationException) {
+            throw IOException("Timed out waiting for the server", e)
+        }
     }
 
     /**
@@ -201,18 +266,19 @@ class AccountMigrationService @Inject constructor(
     }
 
     /**
-     * Reads all document IDs from a collection.
+     * Reads all document IDs from a collection on the server (the migration app's
+     * cache is empty, so a cache fallback would wrongly report no existing documents).
      */
     private suspend fun readDocumentIds(
         collection: com.google.firebase.firestore.CollectionReference
     ): Set<String> {
-        val snapshot = collection.get().await()
+        val snapshot = serverCall { collection.get(Source.SERVER).await() }
         return snapshot.documents.map { it.id }.toSet()
     }
 
     /**
-     * Writes documents to a collection using batched writes.
-     * Firestore batches support up to 500 operations.
+     * Writes documents to a collection using batched writes, keeping each batch well
+     * under Firestore's 10 MiB request limit (recipe documents can be large).
      */
     private suspend fun writeDocuments(
         collection: com.google.firebase.firestore.CollectionReference,
@@ -221,12 +287,12 @@ class AccountMigrationService @Inject constructor(
         if (documents.isEmpty()) return
 
         val firestore = collection.firestore
-        for (chunk in documents.chunked(500)) {
+        for (chunk in chunkForBatches(documents)) {
             val batch = firestore.batch()
             for ((id, data) in chunk) {
                 batch.set(collection.document(id), data)
             }
-            batch.commit().await()
+            serverCall { batch.commit().await() }
         }
     }
 }

@@ -9,11 +9,14 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.domain.model.StartOfWeek
@@ -49,11 +52,19 @@ class SettingsDataStore @Inject constructor(
         context.getSharedPreferences(API_KEY_PREFS_FILE, Context.MODE_PRIVATE)
     }
 
-    private val _anthropicApiKey = MutableStateFlow<String?>(null)
+    /** Wrapper so "not loaded yet" (null) is distinct from "no key stored". */
+    private class LoadedApiKey(val value: String?)
+
+    private val _anthropicApiKey = MutableStateFlow<LoadedApiKey?>(null)
 
     init {
-        cleanUpOldEncryptedSharedPreferences()
-        _anthropicApiKey.value = loadApiKey()
+        // Tink/Keystore initialization and disk reads are slow; keep them off the main thread.
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            cleanUpOldEncryptedSharedPreferences()
+            val loaded = LoadedApiKey(loadApiKey())
+            // A key set while loading wins over the stored value.
+            _anthropicApiKey.compareAndSet(null, loaded)
+        }
     }
 
     /**
@@ -99,7 +110,8 @@ class SettingsDataStore @Inject constructor(
         }
     }
 
-    val anthropicApiKey: Flow<String?> = _anthropicApiKey.asStateFlow()
+    /** The stored API key. Does not emit until the key has been loaded from disk. */
+    val anthropicApiKey: Flow<String?> = _anthropicApiKey.filterNotNull().map { it.value }
 
     val aiModel: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[Keys.AI_MODEL] ?: AnthropicService.DEFAULT_MODEL
@@ -201,14 +213,14 @@ class SettingsDataStore @Inject constructor(
         withContext(Dispatchers.IO) {
             val encrypted = tinkEncryption.encrypt(apiKey)
             apiKeyPrefs.edit().putString(API_KEY_PREF_KEY, encrypted).commit()
-            _anthropicApiKey.value = apiKey
+            _anthropicApiKey.value = LoadedApiKey(apiKey)
         }
     }
 
     suspend fun clearAnthropicApiKey() {
         withContext(Dispatchers.IO) {
             apiKeyPrefs.edit().remove(API_KEY_PREF_KEY).commit()
-            _anthropicApiKey.value = null
+            _anthropicApiKey.value = LoadedApiKey(null)
         }
     }
 

@@ -11,13 +11,24 @@ class GetTagsUseCase @Inject constructor() {
         private const val TAG = "GetTagsUseCase"
         internal const val MAX_TAGS = 10
         internal const val GAMMA_MULTIPLIER = 10.0 // γ = GAMMA_MULTIPLIER * maxTagSize
+
+        // The ILP grows with recipes × tags; beyond these sizes use the greedy solver so the
+        // worst case stays bounded on low-end phones.
+        internal const val ILP_MAX_RECIPES = 300
+        internal const val ILP_MAX_TAGS = 200
+        private const val ILP_TIME_ABORT_MS = 2_000L
+        private const val ILP_TIME_SUFFICE_MS = 500L
     }
 
     /**
      * Returns the top tags using an ILP (Integer Linear Programming) optimization to maximize
      * recipe coverage while preferring specific tags over generic ones.
      *
-     * Falls back to a greedy set cover algorithm if the ILP solver fails.
+     * Tags are grouped case-insensitively ("Dessert" and "dessert" count as one tag); the
+     * returned name is the most common spelling.
+     *
+     * Falls back to a greedy set cover algorithm if the ILP solver fails, times out, or the
+     * problem is too large to solve quickly.
      *
      * ILP formulation:
      *   Maximize: Σ_j (x_j · w_j) - γ · Σ_i u_i
@@ -48,6 +59,11 @@ class GetTagsUseCase @Inject constructor() {
                 .map { it.key }
         }
 
+        val recipeCount = recipes.distinctBy { it.id }.size
+        if (recipeCount > ILP_MAX_RECIPES || tagToRecipes.size > ILP_MAX_TAGS) {
+            return solveGreedy(recipes, tagToRecipes)
+        }
+
         return try {
             solveIlp(recipes, tagToRecipes)
         } catch (e: Exception) {
@@ -56,14 +72,34 @@ class GetTagsUseCase @Inject constructor() {
         }
     }
 
-    private fun buildTagMap(recipes: List<Recipe>): Map<String, Set<String>> {
-        val tagToRecipes = mutableMapOf<String, MutableSet<String>>()
+    /**
+     * Map each tag (by its display name) to the IDs of recipes carrying it. Tags are grouped
+     * case-insensitively and whitespace-trimmed; the display name is the most frequently used
+     * spelling, preferring a capitalized one on ties.
+     */
+    internal fun buildTagMap(recipes: List<Recipe>): Map<String, Set<String>> {
+        val recipesByKey = linkedMapOf<String, MutableSet<String>>()
+        val spellingsByKey = mutableMapOf<String, MutableMap<String, Int>>()
         for (recipe in recipes) {
-            for (tag in recipe.tags) {
-                tagToRecipes.getOrPut(tag) { mutableSetOf() }.add(recipe.id)
+            for (rawTag in recipe.tags) {
+                val tag = rawTag.trim()
+                if (tag.isEmpty()) continue
+                val key = tag.lowercase()
+                recipesByKey.getOrPut(key) { mutableSetOf() }.add(recipe.id)
+                val spellings = spellingsByKey.getOrPut(key) { mutableMapOf() }
+                spellings[tag] = (spellings[tag] ?: 0) + 1
             }
         }
-        return tagToRecipes
+        return recipesByKey.entries.associate { (key, recipeIds) ->
+            val displayName = spellingsByKey[key]!!.entries
+                .sortedWith(
+                    compareByDescending<Map.Entry<String, Int>> { it.value }
+                        .thenByDescending { it.key.first().isUpperCase() }
+                        .thenBy { it.key }
+                )
+                .first().key
+            displayName to recipeIds
+        }
     }
 
     internal fun solveIlp(
@@ -90,6 +126,8 @@ class GetTagsUseCase @Inject constructor() {
         val gamma = GAMMA_MULTIPLIER * maxTagSize
 
         val model = ExpressionsBasedModel()
+        model.options.time_abort = ILP_TIME_ABORT_MS
+        model.options.time_suffice = ILP_TIME_SUFFICE_MS
 
         // x_j: binary variable for whether tag j is selected
         val xVars = tags.mapIndexed { j, tag ->

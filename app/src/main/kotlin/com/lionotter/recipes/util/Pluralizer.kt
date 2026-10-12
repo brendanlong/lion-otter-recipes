@@ -231,7 +231,10 @@ object Pluralizer {
             "groove" to "grooves",
             "pickaxe" to "pickaxes",
             "passerby" to "passersby",
-            "canvas" to "canvases"
+            "canvas" to "canvases",
+            // Food words the generic rules get wrong
+            "chili" to "chilies",
+            "chilli" to "chillies"
         ).forEach { (single, plural) -> addIrregularRule(single, plural) }
     }
 
@@ -310,7 +313,9 @@ object Pluralizer {
             "pliers", "police", "pollution", "premises", "rain", "research", "rice",
             "salmon", "scissors", "series", "sewage", "shambles", "shrimp", "software",
             "staff", "swine", "tennis", "traffic", "transportation", "trout", "tuna",
-            "wealth", "welfare", "whiting", "wildebeest", "wildlife", "you"
+            "wealth", "welfare", "whiting", "wildebeest", "wildlife", "you",
+            // Food words that are mass nouns or already look plural
+            "asparagus", "couscous", "hummus", "molasses", "species", "swiss chard"
         ).forEach { addUncountableRule(it) }
 
         // Unit abbreviations should not be pluralized (e.g. "oz" not "ozs", "mL" not "mLs")

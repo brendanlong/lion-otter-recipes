@@ -21,34 +21,47 @@
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.LionOtterRecipes">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Handle shared text (URLs), HTML, and Markdown -->
+            <!-- Handle shared text containing a recipe URL -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
             </intent-filter>
+
+            <!-- Handle .lorecipes / .paprikarecipes files shared from other apps.
+                 The import type is detected from the ZIP contents. -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/html" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.SEND" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/markdown" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/octet-stream" />
             </intent-filter>
 
-            <!-- Handle .lorecipes files opened from file manager or shared from other apps -->
-            <intent-filter tools:ignore="AppLinkUrlError">
+            <!-- Handle .lorecipes files (exported as application/zip) opened from a file manager.
+                 Content URIs are usually opaque (no file extension in the path), so match ZIPs
+                 on MIME type; any other ZIP gets a "not a recipe export" error on the import
+                 screen. -->
+            <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="content" />
                 <data android:mimeType="application/zip" />
+            </intent-filter>
+            <!-- Generic binaries only when the path shows a recipe export extension, so the app
+                 doesn't appear in "Open with" for every binary file. -->
+            <intent-filter tools:ignore="AppLinkUrlError">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:host="*" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:pathPattern=".*\\.paprikarecipes" />
                 <data android:pathPattern=".*\\.lorecipes" />
             </intent-filter>
             <intent-filter tools:ignore="AppLinkUrlError">
@@ -57,15 +70,6 @@
                 <data android:scheme="file" />
                 <data android:mimeType="*/*" />
                 <data android:pathPattern=".*\\.lorecipes" />
-            </intent-filter>
-
-            <!-- Handle .paprikarecipes files opened from file manager -->
-            <intent-filter tools:ignore="AppLinkUrlError">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:scheme="content" />
-                <data android:mimeType="application/zip" />
-                <data android:pathPattern=".*\\.paprikarecipes" />
             </intent-filter>
             <intent-filter tools:ignore="AppLinkUrlError">
                 <action android:name="android.intent.action.VIEW" />

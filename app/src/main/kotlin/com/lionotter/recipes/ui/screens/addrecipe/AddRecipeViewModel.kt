@@ -1,15 +1,19 @@
 package com.lionotter.recipes.ui.screens.addrecipe
 
+import android.util.Log
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.lionotter.recipes.data.local.SettingsDataStore
+import com.lionotter.recipes.extractFirstUrl
 import com.lionotter.recipes.ui.state.InProgressRecipeManager
 import com.lionotter.recipes.worker.RecipeImportWorker
 import com.lionotter.recipes.worker.observeWorkByTag
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -22,6 +26,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class AddRecipeViewModel @Inject constructor(
+    private val savedStateHandle: SavedStateHandle,
     private val workManager: WorkManager,
     private val inProgressRecipeManager: InProgressRecipeManager,
     settingsDataStore: SettingsDataStore
@@ -30,9 +35,21 @@ class AddRecipeViewModel @Inject constructor(
     // Track the current import started from this screen
     private var currentImportId: String? = null
     private var currentWorkId: UUID? = null
+    private var startJob: Job? = null
+    private var cancelRequested = false
 
-    private val _url = MutableStateFlow("")
-    val url: StateFlow<String> = _url.asStateFlow()
+    companion object {
+        // "url" is the nav argument pre-filled from a share; edits are saved separately so they
+        // survive rotation and process death without being overwritten by the argument.
+        private const val KEY_URL_ARG = "url"
+        private const val KEY_URL_INPUT = "url_input"
+        private const val TAG = "AddRecipeViewModel"
+    }
+
+    val url: StateFlow<String> = savedStateHandle.getStateFlow(
+        KEY_URL_INPUT,
+        savedStateHandle.get<String>(KEY_URL_ARG) ?: ""
+    )
 
     private val _uiState = MutableStateFlow<AddRecipeUiState>(AddRecipeUiState.Idle)
     val uiState: StateFlow<AddRecipeUiState> = _uiState.asStateFlow()
@@ -83,7 +100,6 @@ class AddRecipeViewModel @Inject constructor(
                 }
                 currentImportId = null
                 currentWorkId = null
-                workManager.pruneWork()
             }
             WorkInfo.State.FAILED -> {
                 val resultType = workInfo.outputData.getString(RecipeImportWorker.KEY_RESULT_TYPE)
@@ -96,58 +112,58 @@ class AddRecipeViewModel @Inject constructor(
                 }
                 currentImportId = null
                 currentWorkId = null
-                workManager.pruneWork()
             }
             WorkInfo.State.CANCELLED -> {
                 _uiState.value = AddRecipeUiState.Idle
                 currentImportId = null
                 currentWorkId = null
-                workManager.pruneWork()
             }
         }
     }
 
     fun onUrlChange(url: String) {
-        _url.value = url
+        savedStateHandle[KEY_URL_INPUT] = url
     }
 
     fun importRecipe() {
-        val currentUrl = _url.value.trim()
-        if (currentUrl.isBlank()) {
+        val input = url.value.trim()
+        if (input.isBlank()) {
             _uiState.value = AddRecipeUiState.Error("Please enter a URL")
             return
         }
 
-        if (!currentUrl.startsWith("http://") && !currentUrl.startsWith("https://")) {
+        // Accept pasted text like "Recipe title https://example.com/recipe"
+        val currentUrl = extractFirstUrl(input) ?: input
+        if (!currentUrl.startsWith("http://", ignoreCase = true) && !currentUrl.startsWith("https://", ignoreCase = true)) {
             _uiState.value = AddRecipeUiState.Error("URL must start with http:// or https://")
             return
         }
 
-        // Generate ID for tracking this import in the recipe list
-        currentImportId = UUID.randomUUID().toString()
-
-        // Build the work request first so we can persist its UUID for cancellation
-        val workRequest = OneTimeWorkRequestBuilder<RecipeImportWorker>()
-            .setInputData(RecipeImportWorker.createInputData(currentUrl, currentImportId!!))
-            .addTag(RecipeImportWorker.TAG_RECIPE_IMPORT)
-            .build()
-
-        currentWorkId = workRequest.id
-        inProgressRecipeManager.addInProgressRecipe(
-            currentImportId!!, "Importing recipe...",
-            url = currentUrl,
-            workManagerId = workRequest.id.toString()
-        )
-        workManager.enqueue(workRequest)
-
         _uiState.value = AddRecipeUiState.Loading(ImportProgress.Queued)
+        cancelRequested = false
+        startJob = viewModelScope.launch {
+            val started = try {
+                inProgressRecipeManager.startUrlImport(currentUrl)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start import of $currentUrl", e)
+                _uiState.value = AddRecipeUiState.Error("Couldn't start the import: ${e.message ?: "unknown error"}")
+                return@launch
+            }
+            if (cancelRequested) {
+                inProgressRecipeManager.cancelImport(started.importId)
+                return@launch
+            }
+            currentImportId = started.importId
+            currentWorkId = started.workId
+        }
     }
 
     fun cancelImport() {
-        currentWorkId?.let { workManager.cancelWorkById(it) }
-        if (currentImportId != null) {
-            inProgressRecipeManager.removeInProgressRecipe(currentImportId!!)
-        }
+        // If the import is still being started, cancel it as soon as its ID is known.
+        if (startJob?.isActive == true) cancelRequested = true
+        currentImportId?.let { inProgressRecipeManager.cancelImport(it) }
         currentImportId = null
         currentWorkId = null
         _uiState.value = AddRecipeUiState.Idle

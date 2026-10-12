@@ -25,7 +25,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
-import com.lionotter.recipes.data.local.ImportDebugEntity
+import androidx.compose.material3.CircularProgressIndicator
+import com.lionotter.recipes.data.local.ImportDebugSummary
+import com.lionotter.recipes.ui.components.ErrorCard
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import kotlin.time.Instant
 import kotlinx.datetime.TimeZone
@@ -38,7 +40,8 @@ fun ImportDebugListScreen(
     onEntryClick: (String) -> Unit,
     viewModel: ImportDebugListViewModel = hiltViewModel()
 ) {
-    val entries by viewModel.debugEntries.collectAsStateWithLifecycle()
+    val loadedEntries by viewModel.debugEntries.collectAsStateWithLifecycle()
+    val loadFailed by viewModel.loadFailed.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -48,7 +51,27 @@ fun ImportDebugListScreen(
             )
         }
     ) { paddingValues ->
-        if (entries.isEmpty()) {
+        val entries = loadedEntries
+        if (entries == null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        } else if (loadFailed) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .padding(16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                ErrorCard(message = stringResource(R.string.import_debug_list_load_failed))
+            }
+        } else if (entries.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -92,7 +115,7 @@ fun ImportDebugListScreen(
 
 @Composable
 private fun DebugEntryCard(
-    entry: ImportDebugEntity,
+    entry: ImportDebugSummary,
     onClick: () -> Unit
 ) {
     Card(

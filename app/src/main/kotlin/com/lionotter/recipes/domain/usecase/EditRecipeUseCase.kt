@@ -3,6 +3,8 @@ package com.lionotter.recipes.domain.usecase
 import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlin.time.Clock
 import javax.inject.Inject
 
@@ -22,7 +24,7 @@ class EditRecipeUseCase @Inject constructor(
 ) {
     sealed class EditResult {
         data class Success(val recipe: Recipe) : EditResult()
-        data class Error(val message: String) : EditResult()
+        data class Error(val message: String, val retryable: Boolean = false) : EditResult()
         object NoApiKey : EditResult()
     }
 
@@ -39,6 +41,7 @@ class EditRecipeUseCase @Inject constructor(
      * @param recipeId The ID of the recipe being edited
      * @param markdownText The user-edited markdown text to parse
      * @param saveAsCopy If true, saves as a new recipe instead of updating the existing one
+     * @param copyRecipeId ID for the copy when [saveAsCopy] is set (random if null)
      * @param model The AI model to use (null = use current setting)
      * @param thinkingEnabled Whether to use extended thinking (null = use current setting)
      * @param aiInstructions Optional user instructions for the AI (e.g. "Make this recipe vegan")
@@ -48,6 +51,7 @@ class EditRecipeUseCase @Inject constructor(
         recipeId: String,
         markdownText: String,
         saveAsCopy: Boolean = false,
+        copyRecipeId: String? = null,
         model: String? = null,
         thinkingEnabled: Boolean? = null,
         aiInstructions: String? = null,
@@ -61,11 +65,12 @@ class EditRecipeUseCase @Inject constructor(
         val densityOverrides = RecipeMarkdownFormatter.collectDensities(existingRecipe)
             .ifEmpty { null }
 
-        // Parse the edited markdown text with AI (don't save yet)
+        // Parse the edited markdown text with AI (don't save yet). The image is kept as-is,
+        // so no image URL is passed.
         val parseResult = parseHtmlUseCase.parseText(
             text = markdownText,
             sourceUrl = existingRecipe.sourceUrl,
-            imageUrl = existingRecipe.sourceImageUrl ?: existingRecipe.imageUrl,
+            imageUrl = null,
             saveRecipe = false,
             model = model,
             thinkingEnabled = thinkingEnabled,
@@ -94,14 +99,13 @@ class EditRecipeUseCase @Inject constructor(
                 val editedRecipe = if (saveAsCopy) {
                     // Save as a new recipe with new ID and timestamps
                     parseResult.recipe.copy(
-                        id = java.util.UUID.randomUUID().toString(),
+                        id = copyRecipeId ?: java.util.UUID.randomUUID().toString(),
                         createdAt = now,
                         updatedAt = now,
                         isFavorite = false,
                         sourceUrl = freshRecipe.sourceUrl,
-                        // Use the user's current image, not the AI's
                         imageUrl = freshRecipe.imageUrl,
-                        sourceImageUrl = parseResult.recipe.sourceImageUrl ?: freshRecipe.sourceImageUrl
+                        sourceImageUrl = freshRecipe.sourceImageUrl
                     )
                 } else {
                     // Overwrite with same ID, preserve key metadata
@@ -111,22 +115,23 @@ class EditRecipeUseCase @Inject constructor(
                         updatedAt = now,
                         isFavorite = freshRecipe.isFavorite,
                         sourceUrl = freshRecipe.sourceUrl,
-                        // Use the user's current image, not the AI's
                         imageUrl = freshRecipe.imageUrl,
-                        sourceImageUrl = parseResult.recipe.sourceImageUrl ?: freshRecipe.sourceImageUrl,
+                        sourceImageUrl = freshRecipe.sourceImageUrl,
                         userNotes = freshRecipe.userNotes
                     )
                 }
 
                 onProgress(EditProgress.SavingRecipe)
-                recipeRepository.saveRecipe(editedRecipe)
+                withContext(NonCancellable) {
+                    recipeRepository.saveRecipe(editedRecipe)
+                }
 
                 val result = EditResult.Success(editedRecipe)
                 onProgress(EditProgress.Complete(result))
                 result
             }
             is ParseHtmlUseCase.ParseResult.Error ->
-                EditResult.Error(parseResult.message)
+                EditResult.Error(parseResult.message, parseResult.retryable)
             ParseHtmlUseCase.ParseResult.NoApiKey ->
                 EditResult.NoApiKey
         }

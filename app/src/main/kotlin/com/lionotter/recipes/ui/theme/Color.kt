@@ -6,6 +6,10 @@ import androidx.compose.ui.graphics.Color
 val LionGold = Color(0xFFD4A03C)
 val LionOrange = Color(0xFFE07B2B)
 val LionLight = Color(0xFFFFF3E0)
+// Gold and orange are too light for text/icons on white (WCAG AA needs 4.5:1), so the light
+// theme uses darker tones of the same hues.
+val LionAmber = Color(0xFF8A5A00) // ~5.9:1 with white
+val LionBurntOrange = Color(0xFF8C4A00) // ~6.2:1 on LionLight
 
 // Otter colors (cool blues/teals)
 val OtterTeal = Color(0xFF2A7B9B)
@@ -17,10 +21,10 @@ val md_theme_light_primary = OtterTeal
 val md_theme_light_onPrimary = Color.White
 val md_theme_light_primaryContainer = OtterLight
 val md_theme_light_onPrimaryContainer = OtterBlue
-val md_theme_light_secondary = LionGold
+val md_theme_light_secondary = LionAmber
 val md_theme_light_onSecondary = Color.White
 val md_theme_light_secondaryContainer = LionLight
-val md_theme_light_onSecondaryContainer = LionOrange
+val md_theme_light_onSecondaryContainer = LionBurntOrange
 val md_theme_light_tertiary = Color(0xFF7D5260)
 val md_theme_light_onTertiary = Color.White
 val md_theme_light_tertiaryContainer = Color(0xFFFFD8E4)

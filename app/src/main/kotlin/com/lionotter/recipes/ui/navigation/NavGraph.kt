@@ -1,34 +1,41 @@
 package com.lionotter.recipes.ui.navigation
 
 import android.net.Uri
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.runtime.Composable
-import androidx.core.net.toUri
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavController
+import androidx.navigation.NavOptionsBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.lionotter.recipes.AppIntentEvent
 import com.lionotter.recipes.R
 import com.lionotter.recipes.SharedIntentViewModel
+import com.lionotter.recipes.ui.components.rememberNotificationPermissionRequester
 import com.lionotter.recipes.ui.screens.addrecipe.AddRecipeScreen
+import com.lionotter.recipes.ui.screens.editrecipe.EditRecipeScreen
+import com.lionotter.recipes.ui.screens.grocerylist.GroceryListScreen
 import com.lionotter.recipes.ui.screens.importdebug.ImportDebugDetailScreen
 import com.lionotter.recipes.ui.screens.importdebug.ImportDebugListScreen
-import com.lionotter.recipes.ui.screens.grocerylist.GroceryListScreen
 import com.lionotter.recipes.ui.screens.importselection.ImportSelectionScreen
 import com.lionotter.recipes.ui.screens.importselection.ImportSelectionViewModel
-import com.lionotter.recipes.ui.screens.importselection.ImportType
 import com.lionotter.recipes.ui.screens.mealplan.MealPlanScreen
-import com.lionotter.recipes.ui.screens.editrecipe.EditRecipeScreen
 import com.lionotter.recipes.ui.screens.recipedetail.RecipeDetailScreen
 import com.lionotter.recipes.ui.screens.recipelist.RecipeListScreen
+import com.lionotter.recipes.ui.screens.recipelist.RecipeListViewModel
 import com.lionotter.recipes.ui.screens.settings.SettingsScreen
-import kotlinx.coroutines.flow.collectLatest
 
 sealed class Screen(val route: String) {
     object RecipeList : Screen("recipes")
@@ -40,7 +47,7 @@ sealed class Screen(val route: String) {
     }
     object AddRecipe : Screen("add-recipe?url={url}") {
         fun createRoute(url: String? = null) =
-            if (url != null) "add-recipe?url=${url.replace("/", "%2F").replace(":", "%3A").replace("?", "%3F").replace("&", "%26").replace("=", "%3D")}"
+            if (url != null) "add-recipe?url=${Uri.encode(url)}"
             else "add-recipe"
     }
     object Settings : Screen("settings")
@@ -58,52 +65,66 @@ sealed class Screen(val route: String) {
     }
 }
 
+private const val TAG = "NavGraph"
+
+private fun NavBackStackEntry.isResumed() = lifecycle.currentState == Lifecycle.State.RESUMED
+
+/**
+ * Navigates only if [from] is the resumed (visible, interactive) destination. Drops repeated
+ * taps that arrive while a transition is already running, which would otherwise push the
+ * same screen twice.
+ */
+private fun NavController.navigateFrom(
+    from: NavBackStackEntry,
+    route: String,
+    builder: NavOptionsBuilder.() -> Unit = {}
+) {
+    if (from.isResumed()) navigate(route, builder)
+}
+
+private fun NavController.openRecipe(recipeId: String) {
+    val current = currentBackStackEntry
+    if (current?.destination?.route == Screen.RecipeDetail.route &&
+        current.arguments?.getString("recipeId") == recipeId
+    ) {
+        return
+    }
+    navigate(Screen.RecipeDetail.createRoute(recipeId))
+}
+
 @Composable
 fun NavGraph(
-    sharedIntentViewModel: SharedIntentViewModel? = null,
-    initialSharedUrl: String? = null,
-    initialFileUri: Uri? = null,
-    recipeId: String? = null
+    sharedIntentViewModel: SharedIntentViewModel? = null
 ) {
     val navController = rememberNavController()
     val context = LocalContext.current
+    val requestNotificationPermission by rememberUpdatedState(rememberNotificationPermissionRequester())
+    val noLinkMessage = stringResource(R.string.no_link_in_shared_text)
 
-    val startDestination = when {
-        recipeId != null -> Screen.RecipeDetail.createRoute(recipeId)
-        initialSharedUrl != null -> Screen.AddRecipe.createRoute(initialSharedUrl)
-        else -> Screen.RecipeList.route
-    }
-
-    // Handle shared URL changes while app is running
+    // Shares, file opens and notification taps. Events are buffered in the ViewModel until
+    // collected here and consumed exactly once, so they aren't lost while auth is loading
+    // and aren't replayed on rotation.
     LaunchedEffect(sharedIntentViewModel) {
-        sharedIntentViewModel?.sharedUrl?.collectLatest { url ->
-            if (url != null) {
-                navController.navigate(Screen.AddRecipe.createRoute(url))
+        sharedIntentViewModel?.events?.collect { event ->
+            when (event) {
+                is AppIntentEvent.ImportUrl -> {
+                    requestNotificationPermission()
+                    navController.navigate(Screen.AddRecipe.createRoute(event.url))
+                }
+                is AppIntentEvent.ImportFile -> {
+                    requestNotificationPermission()
+                    navController.navigate(
+                        Screen.ImportSelection.createRoute("lorecipes", event.uri.toString())
+                    )
+                }
+                is AppIntentEvent.OpenRecipe -> navController.openRecipe(event.recipeId)
+                AppIntentEvent.NoUrlInSharedText ->
+                    Toast.makeText(context, noLinkMessage, Toast.LENGTH_LONG).show()
             }
         }
     }
 
-    // Handle .lorecipes file import on launch - navigate to selection screen
-    LaunchedEffect(initialFileUri) {
-        if (initialFileUri != null) {
-            navController.navigate(
-                Screen.ImportSelection.createRoute("lorecipes", initialFileUri.toString())
-            )
-        }
-    }
-
-    // Handle .lorecipes file shared/opened while app is running
-    LaunchedEffect(sharedIntentViewModel) {
-        sharedIntentViewModel?.sharedFileUri?.collectLatest { uri ->
-            navController.navigate(
-                Screen.ImportSelection.createRoute("lorecipes", uri.toString())
-            )
-        }
-    }
-
-    // Helper to navigate back, falling back to RecipeList if back stack is empty.
-    // This handles the case when the app is launched via share intent (AddRecipe is
-    // the start destination) or after importing a recipe from share intent flow.
+    // Navigate back, falling back to RecipeList if the back stack is empty.
     val navigateBack: () -> Unit = {
         if (!navController.popBackStack()) {
             navController.navigate(Screen.RecipeList.route) {
@@ -112,23 +133,27 @@ fun NavGraph(
         }
     }
 
+    fun NavBackStackEntry.back() {
+        if (isResumed()) navigateBack()
+    }
+
     NavHost(
         navController = navController,
-        startDestination = startDestination
+        startDestination = Screen.RecipeList.route
     ) {
-        composable(Screen.RecipeList.route) {
+        composable(Screen.RecipeList.route) { entry ->
             RecipeListScreen(
                 onRecipeClick = { recipeId ->
-                    navController.navigate(Screen.RecipeDetail.createRoute(recipeId))
+                    navController.navigateFrom(entry, Screen.RecipeDetail.createRoute(recipeId))
                 },
                 onAddRecipeClick = {
-                    navController.navigate(Screen.AddRecipe.createRoute())
+                    navController.navigateFrom(entry, Screen.AddRecipe.createRoute())
                 },
                 onSettingsClick = {
-                    navController.navigate(Screen.Settings.route)
+                    navController.navigateFrom(entry, Screen.Settings.route)
                 },
                 onMealPlanClick = {
-                    navController.navigate(Screen.MealPlan.route)
+                    navController.navigateFrom(entry, Screen.MealPlan.route)
                 }
             )
         }
@@ -143,12 +168,24 @@ fun NavGraph(
             val editSuccess = backStackEntry.savedStateHandle
                 .get<Boolean>("edit_success") == true
             RecipeDetailScreen(
-                onBackClick = navigateBack,
+                onBackClick = { backStackEntry.back() },
                 onEditClick = {
-                    navController.navigate(Screen.EditRecipe.createRoute(recipeIdArg))
+                    navController.navigateFrom(backStackEntry, Screen.EditRecipe.createRoute(recipeIdArg))
                 },
                 onNavigateToSettings = {
-                    navController.navigate(Screen.Settings.route)
+                    navController.navigateFrom(backStackEntry, Screen.Settings.route)
+                },
+                onTagClick = { tag ->
+                    if (backStackEntry.isResumed()) {
+                        try {
+                            val listEntry = navController.getBackStackEntry(Screen.RecipeList.route)
+                            listEntry.savedStateHandle[RecipeListViewModel.KEY_SEARCH_QUERY] = ""
+                            listEntry.savedStateHandle[RecipeListViewModel.KEY_SELECTED_TAG] = tag
+                            navController.popBackStack(Screen.RecipeList.route, inclusive = false)
+                        } catch (e: IllegalArgumentException) {
+                            Log.w(TAG, "Recipe list not on back stack; can't filter by tag", e)
+                        }
+                    }
                 },
                 editSuccess = editSuccess,
                 onEditSuccessConsumed = {
@@ -162,9 +199,9 @@ fun NavGraph(
             arguments = listOf(
                 navArgument("recipeId") { type = NavType.StringType }
             )
-        ) {
+        ) { backStackEntry ->
             EditRecipeScreen(
-                onBackClick = navigateBack,
+                onBackClick = { backStackEntry.back() },
                 onEditSuccess = {
                     navController.previousBackStackEntry
                         ?.savedStateHandle
@@ -190,10 +227,8 @@ fun NavGraph(
                 }
             )
         ) { backStackEntry ->
-            val urlArg = backStackEntry.arguments?.getString("url")
             AddRecipeScreen(
-                sharedUrl = urlArg,
-                onBackClick = navigateBack,
+                onBackClick = { backStackEntry.back() },
                 onRecipeAdded = { recipeId ->
                     // Clear back stack and set up proper navigation: RecipeList -> RecipeDetail
                     // This ensures back from RecipeDetail always goes to RecipeList
@@ -203,7 +238,7 @@ fun NavGraph(
                     navController.navigate(Screen.RecipeDetail.createRoute(recipeId))
                 },
                 onNavigateToSettings = {
-                    navController.navigate(Screen.Settings.route)
+                    navController.navigateFrom(backStackEntry, Screen.Settings.route)
                 },
                 onNavigateToImportSelection = { importType, uri ->
                     navController.navigate(
@@ -213,14 +248,14 @@ fun NavGraph(
             )
         }
 
-        composable(Screen.MealPlan.route) {
+        composable(Screen.MealPlan.route) { entry ->
             MealPlanScreen(
                 onRecipeClick = { recipeId ->
-                    navController.navigate(Screen.RecipeDetail.createRoute(recipeId))
+                    navController.navigateFrom(entry, Screen.RecipeDetail.createRoute(recipeId))
                 },
-                onBackClick = navigateBack,
+                onBackClick = { entry.back() },
                 onGroceryListClick = { weekStart ->
-                    navController.navigate(Screen.GroceryList.createRoute(weekStart))
+                    navController.navigateFrom(entry, Screen.GroceryList.createRoute(weekStart))
                 }
             )
         }
@@ -230,17 +265,17 @@ fun NavGraph(
             arguments = listOf(
                 navArgument("weekStart") { type = NavType.StringType }
             )
-        ) {
+        ) { entry ->
             GroceryListScreen(
-                onBackClick = navigateBack
+                onBackClick = { entry.back() }
             )
         }
 
-        composable(Screen.Settings.route) {
+        composable(Screen.Settings.route) { entry ->
             SettingsScreen(
-                onBackClick = navigateBack,
+                onBackClick = { entry.back() },
                 onNavigateToImportDebug = {
-                    navController.navigate(Screen.ImportDebugList.route)
+                    navController.navigateFrom(entry, Screen.ImportDebugList.route)
                 },
                 onNavigateToImportSelection = { importType, uri ->
                     navController.navigate(
@@ -250,11 +285,11 @@ fun NavGraph(
             )
         }
 
-        composable(Screen.ImportDebugList.route) {
+        composable(Screen.ImportDebugList.route) { entry ->
             ImportDebugListScreen(
-                onBackClick = navigateBack,
+                onBackClick = { entry.back() },
                 onEntryClick = { debugEntryId ->
-                    navController.navigate(Screen.ImportDebugDetail.createRoute(debugEntryId))
+                    navController.navigateFrom(entry, Screen.ImportDebugDetail.createRoute(debugEntryId))
                 }
             )
         }
@@ -264,11 +299,11 @@ fun NavGraph(
             arguments = listOf(
                 navArgument("debugEntryId") { type = NavType.StringType }
             )
-        ) {
+        ) { entry ->
             ImportDebugDetailScreen(
-                onBackClick = navigateBack,
+                onBackClick = { entry.back() },
                 onNavigateToRecipe = { recipeId ->
-                    navController.navigate(Screen.RecipeDetail.createRoute(recipeId))
+                    navController.navigateFrom(entry, Screen.RecipeDetail.createRoute(recipeId))
                 }
             )
         }
@@ -284,38 +319,34 @@ fun NavGraph(
                 }
             )
         ) { backStackEntry ->
-            val importTypeStr = backStackEntry.arguments?.getString("importType") ?: "lorecipes"
-            val uriStr = backStackEntry.arguments?.getString("uri")
-            val importType = when (importTypeStr) {
-                "paprika" -> ImportType.PAPRIKA
-                else -> ImportType.LORECIPES
-            }
+            // ImportSelectionViewModel reads the "importType" and "uri" arguments from its
+            // SavedStateHandle and parses the file once, so selections survive rotation.
             val title = stringResource(R.string.select_recipes_to_import)
             val importSelectionViewModel: ImportSelectionViewModel = hiltViewModel()
             val selectionState = importSelectionViewModel.uiState.collectAsStateWithLifecycle()
 
-            LaunchedEffect(uriStr) {
-                if (uriStr != null) {
-                    val uri = uriStr.toUri()
-                    importSelectionViewModel.parseFile(uri, importType, context.contentResolver)
+            // Results are collected here (not captured in a callback) so an import that finishes
+            // starting after rotation navigates with the current NavController.
+            LaunchedEffect(importSelectionViewModel) {
+                importSelectionViewModel.results.collect { result ->
+                    when (result) {
+                        is ImportSelectionViewModel.ImportResult.ImportStarted -> {
+                            // All import types: navigate to RecipeList immediately
+                            navController.navigate(Screen.RecipeList.route) {
+                                popUpTo(0) { inclusive = true }
+                            }
+                        }
+                        is ImportSelectionViewModel.ImportResult.Error -> {
+                            Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                        }
+                    }
                 }
             }
 
             // Auto-import single new .lorecipes recipes without showing selection screen
             LaunchedEffect(selectionState.value) {
                 if (importSelectionViewModel.shouldAutoImport()) {
-                    importSelectionViewModel.importSelected { result ->
-                        when (result) {
-                            is ImportSelectionViewModel.ImportResult.ImportStarted -> {
-                                navController.navigate(Screen.RecipeList.route) {
-                                    popUpTo(0) { inclusive = true }
-                                }
-                            }
-                            is ImportSelectionViewModel.ImportResult.Error -> {
-                                Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    }
+                    importSelectionViewModel.importSelected()
                 }
             }
 
@@ -325,22 +356,8 @@ fun NavGraph(
                 onToggleItem = importSelectionViewModel::toggleItem,
                 onSelectAll = importSelectionViewModel::selectAll,
                 onDeselectAll = importSelectionViewModel::deselectAll,
-                onImportClick = {
-                    importSelectionViewModel.importSelected { result ->
-                        when (result) {
-                            is ImportSelectionViewModel.ImportResult.ImportStarted -> {
-                                // All import types: navigate to RecipeList immediately
-                                navController.navigate(Screen.RecipeList.route) {
-                                    popUpTo(0) { inclusive = true }
-                                }
-                            }
-                            is ImportSelectionViewModel.ImportResult.Error -> {
-                                Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    }
-                },
-                onCancelClick = navigateBack
+                onImportClick = importSelectionViewModel::importSelected,
+                onCancelClick = { backStackEntry.back() }
             )
         }
     }

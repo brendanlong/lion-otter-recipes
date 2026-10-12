@@ -1,6 +1,8 @@
 package com.lionotter.recipes.ui.screens.recipedetail.components
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.util.Log
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,7 +13,9 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.foundation.verticalScroll
@@ -23,20 +27,21 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -46,16 +51,16 @@ import coil3.compose.SubcomposeAsyncImageContent
 import com.lionotter.recipes.R
 import com.lionotter.recipes.data.remote.imageModel
 import com.lionotter.recipes.domain.model.IngredientUsageStatus
-import com.lionotter.recipes.ui.TestTags
 import com.lionotter.recipes.domain.model.InstructionIngredientKey
 import com.lionotter.recipes.domain.model.MeasurementPreference
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.UnitSystem
+import com.lionotter.recipes.ui.TestTags
 import com.lionotter.recipes.ui.screens.recipedetail.HighlightedInstructionStep
-import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.flow.debounce
 
-@OptIn(ExperimentalLayoutApi::class, FlowPreview::class)
+private const val TAG = "RecipeContent"
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RecipeContent(
     recipe: Recipe,
@@ -70,10 +75,16 @@ fun RecipeContent(
     onToggleInstructionIngredient: (Int, Int, Int) -> Unit,
     highlightedInstructionStep: HighlightedInstructionStep?,
     onToggleHighlightedInstruction: (Int, Int) -> Unit,
-    onSaveNotes: (String?) -> Unit,
+    modifier: Modifier = Modifier,
+    notesText: String = recipe.userNotes ?: "",
+    onNotesChange: (String) -> Unit = {},
+    onNotesFocusLost: () -> Unit = {},
+    onTagClick: (String) -> Unit = {},
+    onOpenLinkFailed: () -> Unit = {},
+    checkedAggregateIngredients: Set<String> = emptySet(),
+    onToggleAggregateIngredient: ((String) -> Unit)? = null,
     volumeUnitSystem: UnitSystem = UnitSystem.localeDefault(),
-    weightUnitSystem: UnitSystem = UnitSystem.localeDefault(),
-    modifier: Modifier = Modifier
+    weightUnitSystem: UnitSystem = UnitSystem.localeDefault()
 ) {
     Column(
         modifier = modifier
@@ -87,7 +98,7 @@ fun RecipeContent(
             if (showImage) {
                 SubcomposeAsyncImage(
                     model = imageModel(imageUrl),
-                    contentDescription = recipe.name,
+                    contentDescription = null,
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(16f / 9f)
@@ -101,24 +112,35 @@ fun RecipeContent(
         }
 
         Column(modifier = Modifier.padding(16.dp)) {
+            // The app bar truncates long names to one line, so show the full name here.
+            Text(
+                text = recipe.name,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.semantics { heading() }
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
             // Tags
             if (recipe.tags.isNotEmpty()) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    recipe.tags.forEach { tag ->
-                        SuggestionChip(
-                            onClick = { },
-                            label = { Text(tag) }
-                        )
+                DisableSelection {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        recipe.tags.forEach { tag ->
+                            SuggestionChip(
+                                onClick = { onTagClick(tag) },
+                                label = { Text(tag) }
+                            )
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
             // Time and servings info
-            RecipeMetadata(recipe = recipe, scale = scale)
+            RecipeMetadata(recipe = recipe)
 
             // Story
             recipe.story?.let { story ->
@@ -139,19 +161,24 @@ fun RecipeContent(
 
             // Scale controls
             Spacer(modifier = Modifier.height(24.dp))
-            ScaleControl(
-                scale = scale,
-                onIncrement = onScaleIncrement,
-                onDecrement = onScaleDecrement
-            )
+            DisableSelection {
+                ScaleControl(
+                    scale = scale,
+                    servings = recipe.servings,
+                    onIncrement = onScaleIncrement,
+                    onDecrement = onScaleDecrement
+                )
+            }
 
             // Measurement toggle (only shown if recipe has ingredients with density for conversion)
             if (showMeasurementToggle) {
                 Spacer(modifier = Modifier.height(16.dp))
-                MeasurementToggle(
-                    selectedPreference = measurementPreference,
-                    onPreferenceChange = onMeasurementPreferenceChange
-                )
+                DisableSelection {
+                    MeasurementToggle(
+                        selectedPreference = measurementPreference,
+                        onPreferenceChange = onMeasurementPreferenceChange
+                    )
+                }
             }
 
             // Ingredients (aggregated from steps)
@@ -160,16 +187,20 @@ fun RecipeContent(
                 text = stringResource(R.string.ingredients),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.testTag(TestTags.INGREDIENTS_SECTION)
+                modifier = Modifier
+                    .testTag(TestTags.INGREDIENTS_SECTION)
+                    .semantics { heading() }
             )
             Spacer(modifier = Modifier.height(12.dp))
-            val aggregatedSections = recipe.aggregateIngredients()
+            val aggregatedSections = remember(recipe) { recipe.aggregateIngredients() }
             aggregatedSections.forEach { section ->
                 IngredientSectionContent(
                     section = section,
                     scale = scale,
                     measurementPreference = measurementPreference,
                     ingredientUsage = ingredientUsageBySection[section.name] ?: emptyMap(),
+                    checkedIngredients = checkedAggregateIngredients,
+                    onToggleChecked = onToggleAggregateIngredient,
                     volumeUnitSystem = volumeUnitSystem,
                     weightUnitSystem = weightUnitSystem
                 )
@@ -181,12 +212,13 @@ fun RecipeContent(
                 Text(
                     text = stringResource(R.string.equipment),
                     style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.semantics { heading() }
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 recipe.equipment.forEach { item ->
                     Text(
-                        text = "\u2022 $item",
+                        text = "• $item",
                         style = MaterialTheme.typography.bodyLarge,
                         modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
                     )
@@ -199,7 +231,9 @@ fun RecipeContent(
                 text = stringResource(R.string.instructions),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.testTag(TestTags.INSTRUCTIONS_SECTION)
+                modifier = Modifier
+                    .testTag(TestTags.INSTRUCTIONS_SECTION)
+                    .semantics { heading() }
             )
             Spacer(modifier = Modifier.height(12.dp))
             recipe.instructionSections.forEachIndexed { sectionIndex, section ->
@@ -222,39 +256,21 @@ fun RecipeContent(
             Text(
                 text = stringResource(R.string.notes),
                 style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.semantics { heading() }
             )
             Spacer(modifier = Modifier.height(12.dp))
             DisableSelection {
-                var notesText by remember(recipe.id) {
-                    mutableStateOf(recipe.userNotes ?: "")
-                }
-                val currentRecipe by rememberUpdatedState(recipe)
-                val currentOnSaveNotes by rememberUpdatedState(onSaveNotes)
-                // Auto-save notes after the user stops typing
-                LaunchedEffect(recipe.id) {
-                    snapshotFlow { notesText }
-                        .debounce(1000)
-                        .collect { text ->
-                            val normalizedNotes = text.takeIf { it.isNotBlank() }
-                            if (normalizedNotes != currentRecipe.userNotes) {
-                                currentOnSaveNotes(normalizedNotes)
-                            }
-                        }
-                }
+                var wasFocused by remember { mutableStateOf(false) }
                 OutlinedTextField(
                     value = notesText,
-                    onValueChange = { notesText = it },
+                    onValueChange = onNotesChange,
                     placeholder = { Text(stringResource(R.string.add_notes)) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .onFocusChanged { focusState ->
-                            if (!focusState.isFocused) {
-                                val normalizedNotes = notesText.takeIf { it.isNotBlank() }
-                                if (normalizedNotes != currentRecipe.userNotes) {
-                                    currentOnSaveNotes(normalizedNotes)
-                                }
-                            }
+                            if (wasFocused && !focusState.isFocused) onNotesFocusLost()
+                            wasFocused = focusState.isFocused
                         },
                     minLines = 3
                 )
@@ -265,15 +281,23 @@ fun RecipeContent(
                 val context = LocalContext.current
                 Spacer(modifier = Modifier.height(24.dp))
                 HorizontalDivider()
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = stringResource(R.string.source_prefix, url),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clickable {
-                        val intent = Intent(Intent.ACTION_VIEW, url.toUri())
-                        context.startActivity(intent)
-                    }
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .clickable(role = Role.Button) {
+                            try {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+                            } catch (e: ActivityNotFoundException) {
+                                Log.w(TAG, "No app to open $url", e)
+                                onOpenLinkFailed()
+                            }
+                        }
+                        .wrapContentHeight(Alignment.CenterVertically)
                 )
             }
 

@@ -1,9 +1,9 @@
 package com.lionotter.recipes.data.repository
 
 import android.util.Log
+import com.google.firebase.firestore.FieldPath
 import com.lionotter.recipes.data.local.RecipeIdAndName
 import com.lionotter.recipes.data.remote.AuthService
-import com.lionotter.recipes.data.remote.AuthState
 import com.lionotter.recipes.data.remote.FirestoreService
 import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.remote.dto.RecipeDto
@@ -13,20 +13,21 @@ import com.lionotter.recipes.domain.model.Recipe
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -41,7 +42,7 @@ class RecipeRepository @Inject constructor(
         private const val TAG = "RecipeRepository"
     }
 
-    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /**
      * Single shared Firestore snapshot listener for all recipes.
@@ -51,6 +52,8 @@ class RecipeRepository @Inject constructor(
      * Combines [AuthState] with the Firestore [generation][FirestoreService.generation]
      * counter so the listener is re-created when either the user changes or the
      * Firestore instance is recycled (e.g., after clearLocalData during migration).
+     *
+     * Documents are decoded off the main thread, and only when they change.
      */
     private val allRecipesShared: Flow<List<Recipe>> = combine(
         authService.authState,
@@ -69,31 +72,15 @@ class RecipeRepository @Inject constructor(
             replay = 1
         )
 
-    private fun recipesFlowForUser(uid: String): Flow<List<Recipe>> = callbackFlow {
-        val collection = firestoreService.recipesCollection(uid)
-        val listener = collection.addSnapshotListener { snapshot, error ->
-            if (error != null) {
-                Log.e(TAG, "Error listening to recipes", error)
-                firestoreService.reportError("Failed to load recipes: ${error.message}")
-                close(error)
-                return@addSnapshotListener
-            }
-            val recipes = snapshot?.documents?.mapNotNull { doc ->
-                try {
-                    doc.toObject(RecipeDto::class.java)?.toDomain()
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error deserializing recipe ${doc.id}", e)
-                    null
-                }
-            } ?: emptyList()
-            trySend(recipes)
-        }
-        awaitClose { listener.remove() }
-    }.conflate()
+    private fun recipesFlowForUser(uid: String): Flow<List<Recipe>> =
+        firestoreService.recipesCollection(uid)
+            .snapshots(firestoreService, TAG, "recipes")
+            .decodeIncrementally(TAG) { doc -> doc.toObject(RecipeDto::class.java)?.toDomain() }
+            .flowOn(Dispatchers.Default)
+            .conflate()
 
-    private fun requireUid(): String =
-        authService.authState.value.uid
-            ?: throw IllegalStateException("User not authenticated")
+    private fun write(action: String, block: (uid: String) -> Unit) =
+        authService.writeForCurrentUser(repositoryScope, firestoreService, TAG, action, block)
 
     override fun getAllRecipes(): Flow<List<Recipe>> = allRecipesShared
 
@@ -102,34 +89,42 @@ class RecipeRepository @Inject constructor(
             .map { recipes -> recipes.find { it.id == id } }
             .distinctUntilChanged()
 
-    override suspend fun getRecipeByIdOnce(id: String): Recipe? {
-        return try {
-            val snapshot = firestoreService.recipesCollection(requireUid()).document(id).get().await()
-            snapshot.toObject(RecipeDto::class.java)?.toDomain()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error fetching recipe $id", e)
-            null
+    /**
+     * Uses a document-ID query rather than `document(id).get()`: when offline (always,
+     * for guests) a document get fails with UNAVAILABLE if the document isn't cached,
+     * whereas a query resolves from the cache and is simply empty.
+     *
+     * @return the recipe, or null if it does not exist
+     * @throws Exception if the recipe could not be read
+     */
+    override suspend fun getRecipeByIdOnce(id: String): Recipe? =
+        logFailure(TAG, "Error fetching recipe $id") {
+            val snapshot = firestoreService.recipesCollection(authService.awaitUid())
+                .whereEqualTo(FieldPath.documentId(), id)
+                .limit(1)
+                .get()
+                .await()
+            val doc = snapshot.documents.firstOrNull() ?: return@logFailure null
+            withContext(Dispatchers.Default) { doc.toObject(RecipeDto::class.java)?.toDomain() }
         }
-    }
 
-    override fun saveRecipe(recipe: Recipe) {
+    override fun saveRecipe(recipe: Recipe) = write("save recipe") { uid ->
         val dto = recipe.toDto()
-        firestoreService.recipesCollection(requireUid()).document(recipe.id).set(dto)
+        firestoreService.recipesCollection(uid).document(recipe.id).set(dto)
             .addOnFailureListener { e ->
                 Log.e(TAG, "Error saving recipe ${recipe.id}", e)
                 firestoreService.reportError("Failed to save recipe: ${e.message}")
             }
     }
 
-    override fun deleteRecipe(id: String) {
-        val uid = requireUid()
+    override fun deleteRecipe(id: String) = write("delete recipe") { uid ->
         // Read the recipe's image URL first, then delete everything.
         firestoreService.recipesCollection(uid).document(id).get()
             .addOnSuccessListener { snapshot ->
                 val imageUrl = snapshot.getString("imageUrl")
                 if (imageUrl != null) {
                     repositoryScope.launch {
-                        imageDownloadService.cleanupImage(imageUrl)
+                        withContext(NonCancellable) { imageDownloadService.cleanupImage(imageUrl, recipeId = id) }
                     }
                 }
                 deleteRecipeDocuments(uid, id)
@@ -149,8 +144,8 @@ class RecipeRepository @Inject constructor(
             }
     }
 
-    override fun setFavorite(id: String, isFavorite: Boolean) {
-        firestoreService.recipesCollection(requireUid()).document(id)
+    override fun setFavorite(id: String, isFavorite: Boolean) = write("update favorite") { uid ->
+        firestoreService.recipesCollection(uid).document(id)
             .update("isFavorite", isFavorite)
             .addOnFailureListener { e ->
                 Log.e(TAG, "Error updating favorite for $id", e)
@@ -158,8 +153,8 @@ class RecipeRepository @Inject constructor(
             }
     }
 
-    override fun setUserNotes(id: String, userNotes: String?) {
-        firestoreService.recipesCollection(requireUid()).document(id)
+    override fun setUserNotes(id: String, userNotes: String?) = write("update notes") { uid ->
+        firestoreService.recipesCollection(uid).document(id)
             .update("userNotes", userNotes)
             .addOnFailureListener { e ->
                 Log.e(TAG, "Error updating user notes for $id", e)
@@ -167,21 +162,32 @@ class RecipeRepository @Inject constructor(
             }
     }
 
-    override fun setImageUrl(id: String, imageUrl: String?) {
-        firestoreService.recipesCollection(requireUid()).document(id)
+    /** Also points the recipe's meal plans (which keep a copy of the image URL) at the new image. */
+    override fun setImageUrl(id: String, imageUrl: String?) = write("update image") { uid ->
+        firestoreService.recipesCollection(uid).document(id)
             .update("imageUrl", imageUrl)
             .addOnFailureListener { e ->
                 Log.e(TAG, "Error updating image URL for $id", e)
                 firestoreService.reportError("Failed to update image: ${e.message}")
             }
+        firestoreService.mealPlansCollection(uid)
+            .whereEqualTo("recipeId", id)
+            .get()
+            .addOnSuccessListener { snapshot ->
+                for (doc in snapshot.documents) {
+                    doc.reference.update("recipeImageUrl", imageUrl)
+                        .addOnFailureListener { e -> Log.w(TAG, "Failed to update meal plan image ${doc.id}", e) }
+                }
+            }
+            .addOnFailureListener { e -> Log.w(TAG, "Failed to update meal plan images for recipe $id", e) }
     }
 
-    override fun updateTitleAndUrl(id: String, name: String, sourceUrl: String?) {
+    override fun updateTitleAndUrl(id: String, name: String, sourceUrl: String?) = write("update recipe") { uid ->
         val updates = mutableMapOf<String, Any?>(
             "name" to name,
             "sourceUrl" to sourceUrl
         )
-        firestoreService.recipesCollection(requireUid()).document(id)
+        firestoreService.recipesCollection(uid).document(id)
             .update(updates)
             .addOnFailureListener { e ->
                 Log.e(TAG, "Error updating title/URL for $id", e)
@@ -189,26 +195,19 @@ class RecipeRepository @Inject constructor(
             }
     }
 
-    override suspend fun getAllRecipeIdsAndNames(): List<RecipeIdAndName> {
-        return try {
-            val snapshot = firestoreService.recipesCollection(requireUid()).get().await()
+    /** @throws Exception if recipes could not be read */
+    override suspend fun getAllRecipeIdsAndNames(): List<RecipeIdAndName> =
+        logFailure(TAG, "Error fetching recipe IDs and names") {
+            val snapshot = firestoreService.recipesCollection(authService.awaitUid()).get().await()
             snapshot.documents.mapNotNull { doc ->
                 val name = doc.getString("name") ?: return@mapNotNull null
                 RecipeIdAndName(id = doc.id, name = name)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error fetching recipe IDs and names", e)
-            emptyList()
         }
-    }
 
-    override suspend fun getRecipeCount(): Int {
-        return try {
-            val snapshot = firestoreService.recipesCollection(requireUid()).get().await()
-            snapshot.size()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error fetching recipe count", e)
-            0
+    /** @throws Exception if recipes could not be read */
+    override suspend fun getRecipeCount(): Int =
+        logFailure(TAG, "Error fetching recipe count") {
+            firestoreService.recipesCollection(authService.awaitUid()).get().await().size()
         }
-    }
 }

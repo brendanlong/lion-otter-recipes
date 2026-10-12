@@ -2,6 +2,7 @@ package com.lionotter.recipes.worker
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.core.net.toUri
 import androidx.hilt.work.HiltWorker
 import androidx.work.Data
@@ -21,22 +22,24 @@ class ZipExportWorker @AssistedInject constructor(
 ) : BaseRecipeWorker(context, workerParams, notificationHelper) {
 
     override val notificationTitle = "Exporting recipes"
+    override val errorTitle = "Export Failed"
 
     companion object {
+        private const val TAG = "ZipExportWorker"
         const val TAG_ZIP_EXPORT = "zip_export"
 
         const val KEY_FILE_URI = "file_uri"
-        const val KEY_RESULT_TYPE = "result_type"
+        const val KEY_RESULT_TYPE = BaseRecipeWorker.KEY_RESULT_TYPE
         const val KEY_EXPORTED_COUNT = "exported_count"
         const val KEY_FAILED_COUNT = "failed_count"
-        const val KEY_ERROR_MESSAGE = "error_message"
+        const val KEY_ERROR_MESSAGE = BaseRecipeWorker.KEY_ERROR_MESSAGE
         const val KEY_PROGRESS = "progress"
         const val KEY_CURRENT = "current"
         const val KEY_TOTAL = "total"
         const val KEY_RECIPE_NAME = "recipe_name"
 
         const val RESULT_SUCCESS = "success"
-        const val RESULT_ERROR = "error"
+        const val RESULT_ERROR = BaseRecipeWorker.RESULT_ERROR
 
         const val PROGRESS_STARTING = "starting"
         const val PROGRESS_EXPORTING = "exporting"
@@ -46,33 +49,19 @@ class ZipExportWorker @AssistedInject constructor(
         }
     }
 
-    override suspend fun doWork(): Result {
+    override suspend fun doRecipeWork(): Result {
         val fileUriString = inputData.getString(KEY_FILE_URI)
-            ?: return Result.failure(
-                workDataOf(
-                    KEY_RESULT_TYPE to RESULT_ERROR,
-                    KEY_ERROR_MESSAGE to "No file URI provided"
-                )
-            )
+            ?: return errorResult("No file URI provided")
 
         val fileUri = fileUriString.toUri()
         setForegroundProgress("Starting export...")
 
         val outputStream = try {
             context.contentResolver.openOutputStream(fileUri)
-                ?: return Result.failure(
-                    workDataOf(
-                        KEY_RESULT_TYPE to RESULT_ERROR,
-                        KEY_ERROR_MESSAGE to "Could not open file for writing"
-                    )
-                )
+                ?: return errorResult("Could not open file for writing")
         } catch (e: Exception) {
-            return Result.failure(
-                workDataOf(
-                    KEY_RESULT_TYPE to RESULT_ERROR,
-                    KEY_ERROR_MESSAGE to "Failed to open file: ${e.message}"
-                )
-            )
+            Log.e(TAG, "Failed to open export file", e)
+            return errorResult("Failed to open file: ${e.message}")
         }
 
         val result = outputStream.use { stream ->
@@ -102,9 +91,11 @@ class ZipExportWorker @AssistedInject constructor(
 
         return when (result) {
             is ExportToZipUseCase.ExportResult.Success -> {
-                notificationHelper.showZipExportSuccessNotification(
-                    exportedCount = result.exportedCount,
-                    failedCount = result.failedCount
+                cancelProgressNotification()
+                notificationHelper.showSummaryNotification(
+                    key = operationKey,
+                    title = "Export Complete",
+                    message = notificationHelper.zipExportMessage(result.exportedCount, result.failedCount)
                 )
                 Result.success(
                     workDataOf(
@@ -114,13 +105,7 @@ class ZipExportWorker @AssistedInject constructor(
                     )
                 )
             }
-            is ExportToZipUseCase.ExportResult.Error -> errorResult(
-                errorNotificationTitle = "Export Failed",
-                resultTypeKey = KEY_RESULT_TYPE,
-                errorMessageKey = KEY_ERROR_MESSAGE,
-                errorType = RESULT_ERROR,
-                errorMessage = result.message
-            )
+            is ExportToZipUseCase.ExportResult.Error -> errorResult(result.message)
         }
     }
 }

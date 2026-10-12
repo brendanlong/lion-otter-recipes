@@ -12,29 +12,30 @@ import dagger.assisted.AssistedInject
 
 @HiltWorker
 class RecipeImportWorker @AssistedInject constructor(
-    @Assisted private val context: Context,
+    @Assisted context: Context,
     @Assisted workerParams: WorkerParameters,
     private val importRecipeUseCase: ImportRecipeUseCase,
     notificationHelper: RecipeNotificationHelper
 ) : BaseRecipeWorker(context, workerParams, notificationHelper) {
 
     override val notificationTitle = "Importing Recipe"
+    override val errorTitle = "Import Failed"
 
     companion object {
         const val TAG_RECIPE_IMPORT = "recipe_import"
 
         const val KEY_URL = "url"
-        const val KEY_IMPORT_ID = "import_id"
+        const val KEY_IMPORT_ID = BaseRecipeWorker.KEY_IMPORT_ID
         const val KEY_RECIPE_ID = "recipe_id"
         const val KEY_RECIPE_NAME = "recipe_name"
         const val KEY_PAGE_TITLE = "page_title"
         const val KEY_IMAGE_URL = "image_url"
-        const val KEY_ERROR_MESSAGE = "error_message"
+        const val KEY_ERROR_MESSAGE = BaseRecipeWorker.KEY_ERROR_MESSAGE
         const val KEY_PROGRESS = "progress"
-        const val KEY_RESULT_TYPE = "result_type"
+        const val KEY_RESULT_TYPE = BaseRecipeWorker.KEY_RESULT_TYPE
 
         const val RESULT_SUCCESS = "success"
-        const val RESULT_ERROR = "error"
+        const val RESULT_ERROR = BaseRecipeWorker.RESULT_ERROR
         const val RESULT_NO_API_KEY = "no_api_key"
 
         const val PROGRESS_FETCHING = "fetching"
@@ -50,17 +51,11 @@ class RecipeImportWorker @AssistedInject constructor(
         }
     }
 
-    override suspend fun doWork(): Result {
+    override suspend fun doRecipeWork(): Result {
         val url = inputData.getString(KEY_URL)
-            ?: return Result.failure(
-                workDataOf(
-                    KEY_RESULT_TYPE to RESULT_ERROR,
-                    KEY_ERROR_MESSAGE to "No URL provided"
-                )
-            )
+            ?: return errorResult("No URL provided")
         val importId = inputData.getString(KEY_IMPORT_ID) ?: id.toString()
 
-        // Set as foreground service for long-running work
         setForegroundProgress("Starting import...")
 
         val result = importRecipeUseCase.execute(
@@ -113,7 +108,9 @@ class RecipeImportWorker @AssistedInject constructor(
 
         return when (result) {
             is ImportRecipeUseCase.ImportResult.Success -> {
+                cancelProgressNotification()
                 notificationHelper.showSuccessNotification(
+                    key = importId,
                     recipeName = result.recipe.name,
                     recipeId = result.recipe.id
                 )
@@ -127,19 +124,13 @@ class RecipeImportWorker @AssistedInject constructor(
                 )
             }
             is ImportRecipeUseCase.ImportResult.Error -> errorResult(
-                errorNotificationTitle = "Import Failed",
-                resultTypeKey = KEY_RESULT_TYPE,
-                errorMessageKey = KEY_ERROR_MESSAGE,
-                errorType = RESULT_ERROR,
                 errorMessage = result.message,
-                KEY_IMPORT_ID to importId
+                retryable = result.retryable
             )
-            ImportRecipeUseCase.ImportResult.NoApiKey -> notAvailableResult(
-                resultTypeKey = KEY_RESULT_TYPE,
-                errorMessageKey = KEY_ERROR_MESSAGE,
-                resultType = RESULT_NO_API_KEY,
-                errorMessage = "API key not configured",
-                KEY_IMPORT_ID to importId
+            ImportRecipeUseCase.ImportResult.NoApiKey -> errorResult(
+                errorMessage = "Add your Anthropic API key in Settings to import recipes.",
+                errorType = RESULT_NO_API_KEY,
+                notify = false
             )
         }
     }
