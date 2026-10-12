@@ -4,8 +4,10 @@ import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.navigation.toRoute
 import com.lionotter.recipes.data.local.ImportDebugDao
 import com.lionotter.recipes.data.local.ImportDebugSummary
+import com.lionotter.recipes.ui.navigation.Route
 import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -51,7 +53,7 @@ class ImportDebugDetailViewModel @Inject constructor(
     @param:ApplicationContext private val appContext: Context
 ) : ViewModel() {
 
-    private val entryId: String = checkNotNull(savedStateHandle["debugEntryId"])
+    private val entryId: String = savedStateHandle.toRoute<Route.ImportDebugDetail>().debugEntryId
 
     private val _state = MutableStateFlow<ImportDebugDetailState>(ImportDebugDetailState.Loading)
     val state: StateFlow<ImportDebugDetailState> = _state.asStateFlow()

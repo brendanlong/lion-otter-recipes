@@ -520,7 +520,7 @@ class ImportPaprikaUseCase @Inject constructor(
 
     private fun saveState(workDir: File, state: BatchState) {
         val tmp = File(workDir, "$STATE_FILE.tmp")
-        tmp.writeText(json.encodeToString(BatchState.serializer(), state))
+        tmp.writeText(json.encodeToString(state))
         if (!tmp.renameTo(File(workDir, STATE_FILE))) {
             throw IllegalStateException("Failed to save Paprika import state")
         }

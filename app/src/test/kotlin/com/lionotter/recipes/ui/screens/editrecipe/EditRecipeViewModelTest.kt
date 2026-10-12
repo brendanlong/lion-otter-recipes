@@ -2,6 +2,8 @@ package com.lionotter.recipes.ui.screens.editrecipe
 
 import android.net.Uri
 import android.util.Log
+import androidx.navigation.testing.invoke
+import com.lionotter.recipes.ui.navigation.Route
 import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
 import androidx.lifecycle.SavedStateHandle
@@ -41,7 +43,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import kotlin.time.Instant
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+// Robolectric: building a SavedStateHandle from a typed route encodes it with android.net.Uri.
+@RunWith(RobolectricTestRunner::class)
 @OptIn(ExperimentalCoroutinesApi::class)
 class EditRecipeViewModelTest {
 
@@ -80,7 +86,7 @@ class EditRecipeViewModelTest {
     }
 
     private fun createViewModel(
-        handle: SavedStateHandle = SavedStateHandle(mapOf("recipeId" to "r1")),
+        handle: SavedStateHandle = SavedStateHandle(route = Route.EditRecipe("r1")),
         scheduler: RecipeWorkScheduler = mockk(relaxed = true)
     ) = EditRecipeViewModel(handle, recipeRepository, settingsDataStore, imageDownloadService, scheduler, TestScope(UnconfinedTestDispatcher()))
 
@@ -147,7 +153,7 @@ class EditRecipeViewModelTest {
         val workId = UUID.randomUUID()
         val scheduler = mockk<RecipeWorkScheduler>()
         every { scheduler.observeEdit(workId) } returns flowOf(WorkStatus.Running(RecipeEditWork.Progress.Saving))
-        val handle = SavedStateHandle(mapOf("recipeId" to "r1", "edit_work_id" to workId.toString()))
+        val handle = SavedStateHandle(route = Route.EditRecipe("r1")).apply { set("edit_work_id", workId.toString()) }
 
         val viewModel = createViewModel(handle, scheduler)
 
@@ -188,7 +194,7 @@ class EditRecipeViewModelTest {
 
     @Test
     fun `edited fields survive recreation from saved state`() = runTest {
-        val handle = SavedStateHandle(mapOf("recipeId" to "r1"))
+        val handle = SavedStateHandle(route = Route.EditRecipe("r1"))
         val first = createViewModel(handle)
         advanceUntilIdle()
         first.setTitle("Edited")

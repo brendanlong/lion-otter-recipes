@@ -55,6 +55,7 @@ import com.lionotter.recipes.imports.ImportStage
 import com.lionotter.recipes.ui.components.ErrorCard
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.components.rememberNotificationPermissionRequester
+import com.lionotter.recipes.ui.screens.importselection.ImportType
 
 @Composable
 fun AddRecipeScreen(
@@ -62,7 +63,7 @@ fun AddRecipeScreen(
     onRecipeAdded: (recipeId: String?) -> Unit,
     onNavigateToSettings: () -> Unit,
     modifier: Modifier = Modifier,
-    onNavigateToImportSelection: (importType: String, uri: Uri) -> Unit = { _, _ -> },
+    onNavigateToImportSelection: (importType: ImportType, uri: Uri) -> Unit = { _, _ -> },
     viewModel: AddRecipeViewModel = hiltViewModel()
 ) {
     val url by viewModel.url.collectAsStateWithLifecycle()
@@ -84,15 +85,8 @@ fun AddRecipeScreen(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
-            // Determine import type from file extension
-            val uriString = uri.toString().lowercase()
-            val importType = if (uriString.endsWith(".paprikarecipes")) {
-                "paprika"
-            } else {
-                "lorecipes"
-            }
             requestNotificationPermission()
-            onNavigateToImportSelection(importType, uri)
+            onNavigateToImportSelection(ImportType.guessFromUri(uri.toString()), uri)
         }
     }
 

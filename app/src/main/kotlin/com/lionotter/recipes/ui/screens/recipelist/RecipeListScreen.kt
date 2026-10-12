@@ -83,8 +83,18 @@ fun RecipeListScreen(
     onSettingsClick: () -> Unit,
     onMealPlanClick: () -> Unit,
     modifier: Modifier = Modifier,
+    filterTag: String? = null,
+    onFilterTagConsumed: () -> Unit = {},
     viewModel: RecipeListViewModel = hiltViewModel()
 ) {
+    // A tag tapped on a recipe: filter by it once, then clear the request.
+    LaunchedEffect(filterTag) {
+        if (filterTag != null) {
+            viewModel.showOnlyTag(filterTag)
+            onFilterTagConsumed()
+        }
+    }
+
     val recipes by viewModel.recipes.collectAsStateWithLifecycle()
     val hasLoaded by viewModel.hasLoaded.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()

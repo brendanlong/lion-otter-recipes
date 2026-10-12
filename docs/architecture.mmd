@@ -80,7 +80,7 @@ subgraph app["Android App"]
             shared_intent_vm["SharedIntentViewModel<br/>(AppIntentEvent Channel)"]
         end
 
-        nav_graph["NavGraph<br/>(start = recipe list)"]
+        nav_graph["NavGraph<br/>(typed @Serializable Route destinations,<br/>start = Route.RecipeList)"]
         main_activity["MainActivity<br/>(onNewIntent, notification recipe_id)"]
         main_activity -->|AppIntentEvent| shared_intent_vm
         nav_graph -->|collects events| shared_intent_vm
@@ -369,7 +369,7 @@ subgraph app["Android App"]
     import_selection_vm -->|read ZIP contents| zip_import_helper
     import_selection_vm -->|parse export| parser
     import_selection_vm -->|start Paprika / ZIP import| import_queue
-    import_selection_vm -->|parse from nav args in init| zip_import_helper
+    import_selection_vm -->|parse file from Route.ImportSelection in init| zip_import_helper
     zip_vm -->|prepare export| work_scheduler
     zip_vm -->|track export| work_tracker
     meal_plan_vm -->|CRUD| meal_plan_repo

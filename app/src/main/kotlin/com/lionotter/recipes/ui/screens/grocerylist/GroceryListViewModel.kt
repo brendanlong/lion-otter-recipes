@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.navigation.toRoute
 import com.lionotter.recipes.R
 import com.lionotter.recipes.data.local.GroceryListStateStore
 import com.lionotter.recipes.data.local.SavedGroceryListState
@@ -17,6 +18,7 @@ import com.lionotter.recipes.domain.model.formatIngredientTotal
 import com.lionotter.recipes.domain.usecase.AggregateGroceryListUseCase
 import com.lionotter.recipes.domain.usecase.GroceryIngredientSource
 import com.lionotter.recipes.domain.usecase.GroceryItem
+import com.lionotter.recipes.ui.navigation.Route
 import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -87,7 +89,7 @@ class GroceryListViewModel @Inject constructor(
     private val groceryListStateStore: GroceryListStateStore
 ) : ViewModel() {
 
-    private val weekStart: LocalDate = LocalDate.parse(checkNotNull(savedStateHandle.get<String>("weekStart")) { "Missing weekStart argument" })
+    private val weekStart: LocalDate = savedStateHandle.toRoute<Route.GroceryList>().weekStartDate
     private val weekEnd: LocalDate = weekStart.plus(6, DateTimeUnit.DAY)
 
     private val _step = MutableStateFlow(GroceryListStep.SELECT_RECIPES)

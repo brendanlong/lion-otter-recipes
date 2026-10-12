@@ -10,6 +10,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.navigation.toRoute
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.repository.IMealPlanRepository
 import com.lionotter.recipes.data.repository.IRecipeRepository
@@ -22,6 +23,7 @@ import com.lionotter.recipes.domain.model.createInstructionIngredientKey
 import com.lionotter.recipes.domain.usecase.CalculateIngredientUsageUseCase
 import com.lionotter.recipes.domain.usecase.ExportSingleRecipeUseCase
 import com.lionotter.recipes.domain.util.RecipeSerializer
+import com.lionotter.recipes.ui.navigation.Route
 import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -97,8 +99,7 @@ class RecipeDetailViewModel @Inject constructor(
         internal val SCALE_PRESETS = listOf(0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0)
     }
 
-    private val recipeId: String = savedStateHandle.get<String>("recipeId")
-        ?: throw IllegalArgumentException("RecipeDetailViewModel requires a 'recipeId' argument in SavedStateHandle")
+    private val recipeId: String = savedStateHandle.toRoute<Route.RecipeDetail>().recipeId
 
     private val _recipeDeleted = Channel<Unit>(Channel.BUFFERED)
     val recipeDeleted: Flow<Unit> = _recipeDeleted.receiveAsFlow()

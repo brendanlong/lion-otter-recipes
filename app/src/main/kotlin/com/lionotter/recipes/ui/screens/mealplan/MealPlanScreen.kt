@@ -86,7 +86,7 @@ import kotlinx.datetime.plus
 fun MealPlanScreen(
     onRecipeClick: (String) -> Unit,
     onBackClick: () -> Unit,
-    onGroceryListClick: (String) -> Unit,
+    onGroceryListClick: (weekStart: LocalDate) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: MealPlanViewModel = hiltViewModel()
 ) {
@@ -149,7 +149,7 @@ fun MealPlanScreen(
                 title = stringResource(R.string.meal_planner),
                 onBackClick = onBackClick,
                 actions = {
-                    IconButton(onClick = { onGroceryListClick(weekStart.toString()) }) {
+                    IconButton(onClick = { onGroceryListClick(weekStart) }) {
                         Icon(
                             imageVector = Icons.Default.ShoppingCart,
                             contentDescription = stringResource(R.string.grocery_list)

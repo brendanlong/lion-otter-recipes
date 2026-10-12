@@ -361,7 +361,7 @@ class AnthropicService @Inject constructor(
         return try {
             val jsonContent = extractJson(textContent)
 
-            val parseResponse = json.decodeFromString(RecipeParseResponse.serializer(), jsonContent)
+            val parseResponse = json.decodeFromString<RecipeParseResponse>(jsonContent)
 
             if (!parseResponse.success) {
                 val errorMessage = parseResponse.error ?: "Failed to parse recipe"
