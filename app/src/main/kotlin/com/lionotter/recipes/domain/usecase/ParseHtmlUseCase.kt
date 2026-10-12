@@ -231,6 +231,7 @@ class ParseHtmlUseCase @Inject constructor(
      * Handles image download, recipe creation, database save, and debug entry.
      *
      * @param parsedWithUsage The pre-parsed AI result with token usage
+     * @param recipeId ID to save under; stable per batch result so a resumed import overwrites
      * @param sourceUrl Optional URL for the recipe source
      * @param imageUrl Optional image URL for the recipe
      * @param originalHtml Optional original HTML for debug data
@@ -242,6 +243,7 @@ class ParseHtmlUseCase @Inject constructor(
      */
     suspend fun saveBatchResult(
         parsedWithUsage: ParseResultWithUsage,
+        recipeId: String,
         sourceUrl: String? = null,
         imageUrl: String? = null,
         originalHtml: String? = null,
@@ -251,7 +253,7 @@ class ParseHtmlUseCase @Inject constructor(
         durationMs: Long? = null
     ): Result<Recipe> {
         val count = recipeRepository.getRecipeCount()
-        if (count >= ResourceLimits.MAX_RECIPES) {
+        if (count >= ResourceLimits.MAX_RECIPES && recipeRepository.getRecipeByIdOnce(recipeId) == null) {
             Log.w(TAG, "Recipe limit reached ($count/${ResourceLimits.MAX_RECIPES}), skipping batch save")
             return Result.failure(IllegalStateException(recipeLimitMessage(count)))
         }
@@ -262,7 +264,7 @@ class ParseHtmlUseCase @Inject constructor(
         coroutineContext.ensureActive()
         val recipe = withContext(NonCancellable) {
             val storedImageUrl = downloadResult?.localUri?.let { imageDownloadService.storeImage(it) }
-            buildRecipe(parsed, sourceUrl, storedImageUrl, downloadResult?.effectiveUrl ?: imageUrl)
+            buildRecipe(parsed, sourceUrl, storedImageUrl, downloadResult?.effectiveUrl ?: imageUrl, recipeId)
                 .also { recipeRepository.saveRecipe(it) }
         }
 
@@ -368,11 +370,12 @@ class ParseHtmlUseCase @Inject constructor(
         parsed: RecipeParseResult,
         sourceUrl: String?,
         storedImageUrl: String?,
-        sourceImageUrl: String?
+        sourceImageUrl: String?,
+        id: String = UUID.randomUUID().toString()
     ): Recipe {
         val now = Clock.System.now()
         return Recipe(
-            id = UUID.randomUUID().toString(),
+            id = id,
             name = parsed.name,
             sourceUrl = sourceUrl,
             story = parsed.story,

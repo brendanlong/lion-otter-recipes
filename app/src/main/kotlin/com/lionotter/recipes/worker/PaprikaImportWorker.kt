@@ -70,6 +70,12 @@ class PaprikaImportWorker @AssistedInject constructor(
     override suspend fun doRecipeWork(): Result {
         val importId = inputData.getString(KEY_IMPORT_ID)
             ?: return errorResult("No import ID provided")
+        // Held until this run (including any batch submission) has fully stopped, so
+        // InProgressRecipeManager.cancelImport can wait before cleaning up the batch and files.
+        return inputStore.withImportLock(importId) { runImportStep(importId) }
+    }
+
+    private suspend fun runImportStep(importId: String): Result {
         val workDir = inputStore.importDir(importId)
         val sourceFile = inputStore.sourceFile(importId)
         val selectedUids = inputStore.readSelection(importId)
@@ -90,8 +96,13 @@ class PaprikaImportWorker @AssistedInject constructor(
             // Below API 31 the stop reason is unavailable; InProgressRecipeManager.cancelImport
             // cancels the batch for user cancellations in that case.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && stopReason == WorkInfo.STOP_REASON_CANCELLED_BY_APP) {
-                // The user cancelled: stop paying for a batch nobody will collect.
-                withContext(NonCancellable) { importPaprikaUseCase.cancelBatch(workDir) }
+                // The user cancelled: stop paying for a batch nobody will collect. A failure here
+                // must not replace the cancellation, or the user would see an error notification.
+                try {
+                    withContext(NonCancellable) { importPaprikaUseCase.cancelBatch(workDir) }
+                } catch (cancelError: Exception) {
+                    Log.w(TAG, "Failed to cancel batch for import $importId", cancelError)
+                }
             }
             throw e
         }

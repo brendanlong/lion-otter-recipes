@@ -442,7 +442,7 @@ subgraph legend["Data Flow"]
     subgraph zip_flow[".lorecipes Export/Import Flow"]
         z1["Export: User picks save location, ZipExportWorker writes file"]
         z2["Import: User picks file, ImportSelectionScreen streams the recipe index"]
-        z3["InProgressRecipeManager copies file to ImportInputStore; ZipImportWorker imports selected recipes"]
+        z3["ImportSelectionViewModel copies file to ImportInputStore; ZipImportWorker imports selected recipes"]
         z4["Uses RecipeSerializer for consistent format, skips duplicates"]
         z1 --> z2 --> z3 --> z4
     end
@@ -468,7 +468,7 @@ subgraph legend["Data Flow"]
     subgraph share_flow["Recipe Sharing Flow"]
         s1["Share as text: Markdown (share layout, differs from edit layout) via ACTION_SEND"]
         s2["Share as file: .lorecipes via FileProvider"]
-        s3["Import: .lorecipes (zip/octet-stream SEND/VIEW) opens ImportSelectionScreen"]
+        s3["Import: .lorecipes (zip SEND/VIEW; octet-stream SEND, or VIEW by extension) opens ImportSelectionScreen"]
         s4["User selects recipes, WorkManager imports them"]
         s1 --> s2 --> s3 --> s4
     end

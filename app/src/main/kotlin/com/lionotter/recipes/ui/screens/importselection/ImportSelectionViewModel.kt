@@ -1,30 +1,29 @@
 package com.lionotter.recipes.ui.screens.importselection
 
-import android.content.ContentResolver
-import android.content.Context
-import android.net.Uri
 import android.util.Log
 import androidx.core.net.toUri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.WorkManager
 import com.lionotter.recipes.data.paprika.PaprikaParser
 import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.util.RecipeSerializer
 import com.lionotter.recipes.domain.util.ZipImportHelper
 import com.lionotter.recipes.ui.state.InProgressRecipeManager
+import com.lionotter.recipes.worker.ImportInputStore
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
-import java.io.InputStream
+import java.io.File
 import java.util.UUID
 import java.util.zip.ZipInputStream
 import javax.inject.Inject
@@ -32,12 +31,10 @@ import javax.inject.Inject
 @HiltViewModel
 class ImportSelectionViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
-    @param:ApplicationContext private val appContext: Context,
     private val recipeRepository: IRecipeRepository,
     private val paprikaParser: PaprikaParser,
-    private val recipeSerializer: RecipeSerializer,
     private val zipImportHelper: ZipImportHelper,
-    private val workManager: WorkManager,
+    private val inputStore: ImportInputStore,
     private val inProgressRecipeManager: InProgressRecipeManager
 ) : ViewModel() {
 
@@ -46,24 +43,25 @@ class ImportSelectionViewModel @Inject constructor(
         private const val ARG_IMPORT_TYPE = "importType"
         private const val ARG_URI = "uri"
         private const val KEY_SELECTED_IDS = "import_selection_selected_ids"
+        private const val KEY_STAGED_IMPORT_ID = "import_selection_staged_id"
+        const val NOT_AN_EXPORT_MESSAGE = "This file isn't a Lion+Otter or Paprika recipe export."
     }
 
     private val _uiState = MutableStateFlow<ImportSelectionUiState>(ImportSelectionUiState.Loading)
     val uiState: StateFlow<ImportSelectionUiState> = _uiState.asStateFlow()
 
+    /** One-shot results of [importSelected], collected by the screen. */
+    private val _results = Channel<ImportResult>(Channel.BUFFERED)
+    val results: Flow<ImportResult> = _results.receiveAsFlow()
+
     private var currentImportType: ImportType? = null
-    private var currentFileUri: Uri? = null
+
+    /** The import ID whose directory holds this screen's copy of the file. */
+    private var stagedImportId: String? = null
     private var importStarted = false
 
     init {
-        val uriArg = savedStateHandle.get<String>(ARG_URI)
-        if (uriArg != null) {
-            val typeHint = when (savedStateHandle.get<String>(ARG_IMPORT_TYPE)) {
-                "paprika" -> ImportType.PAPRIKA
-                else -> ImportType.LORECIPES
-            }
-            parseFile(uriArg.toUri(), typeHint, appContext.contentResolver)
-        }
+        loadFile()
     }
 
     /**
@@ -77,34 +75,68 @@ class ImportSelectionViewModel @Inject constructor(
     }
 
     /**
-     * Parse the given file and populate the selection list.
-     * The importType is used as a hint but may be overridden by auto-detection
-     * based on the actual ZIP contents (since Android content URIs often
-     * have opaque paths that don't reflect the file extension).
+     * Copy the file from the navigation argument into app storage (once per screen, surviving
+     * process death via the saved import ID) and parse it to populate the selection list.
      *
-     * The file is parsed once per ViewModel (normally from the navigation arguments in init);
-     * calling this again for the same URI is a no-op, so screen recreation doesn't reset the
-     * user's selection.
+     * The type argument is only a hint: the actual type is detected from the ZIP contents,
+     * since content URIs often have opaque paths that don't reflect the file extension.
      */
-    fun parseFile(uri: Uri, importType: ImportType, contentResolver: ContentResolver) {
-        if (uri == currentFileUri) return
-        currentFileUri = uri
-        currentImportType = importType
-        _uiState.value = ImportSelectionUiState.Loading
-
+    private fun loadFile() {
+        val uriArg = savedStateHandle.get<String>(ARG_URI) ?: return
+        val typeHint = when (savedStateHandle.get<String>(ARG_IMPORT_TYPE)) {
+            "paprika" -> ImportType.PAPRIKA
+            else -> ImportType.LORECIPES
+        }
         viewModelScope.launch {
-            val detectedType = withContext(Dispatchers.IO) {
-                detectImportType(uri, contentResolver)
+            val importId = try {
+                stageFile(uriArg)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Could not copy import file", e)
+                _uiState.value = ImportSelectionUiState.Error("Could not open file: ${e.message}")
+                return@launch
             }
-            val actualType = detectedType ?: importType
+            stagedImportId = importId
+            val file = inputStore.sourceFile(importId)
+
+            val actualType = withContext(Dispatchers.IO) { detectImportType(file) }
+            if (actualType == null) {
+                Log.w(TAG, "Not a recipe export (hint was $typeHint)")
+                _uiState.value = ImportSelectionUiState.Error(NOT_AN_EXPORT_MESSAGE)
+                return@launch
+            }
             currentImportType = actualType
 
             when (actualType) {
-                ImportType.PAPRIKA -> parsePaprikaFile(uri, contentResolver)
-                ImportType.LORECIPES -> parseZipContents(uri, contentResolver)
+                ImportType.PAPRIKA -> parsePaprikaFile(file)
+                ImportType.LORECIPES -> parseZipContents(file)
             }
             applySavedSelection()
         }
+    }
+
+    private suspend fun stageFile(uriArg: String): String {
+        savedStateHandle.get<String>(KEY_STAGED_IMPORT_ID)?.let { existing ->
+            if (inputStore.hasSource(existing)) {
+                inputStore.touch(existing)
+                return existing
+            }
+        }
+        val importId = UUID.randomUUID().toString()
+        try {
+            inputStore.copySource(importId, uriArg.toUri())
+        } catch (e: Exception) {
+            inputStore.deleteImport(importId)
+            throw e
+        }
+        savedStateHandle[KEY_STAGED_IMPORT_ID] = importId
+        return importId
+    }
+
+    override fun onCleared() {
+        // Leaving without importing: the copy is no longer needed.
+        if (!importStarted) stagedImportId?.let(inputStore::deleteImport)
     }
 
     /**
@@ -131,52 +163,37 @@ class ImportSelectionViewModel @Inject constructor(
      * Detect import type by peeking at ZIP entry names.
      * - Paprika exports contain `.paprikarecipe` entries (gzip-compressed JSON)
      * - .lorecipes files contain folders with `recipe.json` files
-     * Returns null if detection is inconclusive.
+     * Returns null if the file isn't a ZIP or contains neither.
      */
-    private fun detectImportType(uri: Uri, contentResolver: ContentResolver): ImportType? {
+    private fun detectImportType(file: File): ImportType? {
         return try {
-            contentResolver.openInputStream(uri)?.use { rawStream ->
-                val buffered = BufferedInputStream(rawStream)
-                ZipInputStream(buffered).use { zip ->
-                    var entry = zip.nextEntry
-                    while (entry != null) {
-                        val name = entry.name
-                        if (!entry.isDirectory) {
-                            if (name.endsWith(".paprikarecipe")) {
-                                return@use ImportType.PAPRIKA
-                            }
-                            if (name.endsWith(RecipeSerializer.RECIPE_JSON_FILENAME)) {
-                                return@use ImportType.LORECIPES
-                            }
+            ZipInputStream(BufferedInputStream(file.inputStream())).use { zip ->
+                var entry = zip.nextEntry
+                while (entry != null) {
+                    val name = entry.name
+                    if (!entry.isDirectory) {
+                        if (name.endsWith(".paprikarecipe")) {
+                            return@use ImportType.PAPRIKA
                         }
-                        zip.closeEntry()
-                        entry = zip.nextEntry
+                        if (name.endsWith(RecipeSerializer.RECIPE_JSON_FILENAME)) {
+                            return@use ImportType.LORECIPES
+                        }
                     }
-                    null
+                    zip.closeEntry()
+                    entry = zip.nextEntry
                 }
+                null
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to detect import type, falling back to hint", e)
+            Log.w(TAG, "Failed to read import file as a ZIP", e)
             null
         }
     }
 
-    private suspend fun parsePaprikaFile(uri: Uri, contentResolver: ContentResolver) {
+    private suspend fun parsePaprikaFile(file: File) {
         withContext(Dispatchers.IO) {
-            val inputStream: InputStream = try {
-                contentResolver.openInputStream(uri)
-                    ?: run {
-                        _uiState.value = ImportSelectionUiState.Error("Could not open file")
-                        return@withContext
-                    }
-            } catch (e: Exception) {
-                Log.e(TAG, "Could not open Paprika export", e)
-                _uiState.value = ImportSelectionUiState.Error("Could not open file: ${e.message}")
-                return@withContext
-            }
-
             try {
-                val recipes = inputStream.use { paprikaParser.parseIndex(BufferedInputStream(it)) }
+                val recipes = file.inputStream().use { paprikaParser.parseIndex(BufferedInputStream(it)) }
                 if (recipes.isEmpty()) {
                     _uiState.value = ImportSelectionUiState.Error("No recipes found in Paprika export")
                     return@withContext
@@ -196,6 +213,8 @@ class ImportSelectionViewModel @Inject constructor(
                 }.sortedWith(compareBy<ImportSelectionItem> { it.alreadyExists }.thenBy { it.name.lowercase() })
 
                 _uiState.value = ImportSelectionUiState.Ready(items)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to parse Paprika export", e)
                 _uiState.value = ImportSelectionUiState.Error("Failed to read Paprika export: ${e.message}")
@@ -203,22 +222,10 @@ class ImportSelectionViewModel @Inject constructor(
         }
     }
 
-    private suspend fun parseZipContents(uri: Uri, contentResolver: ContentResolver) {
+    private suspend fun parseZipContents(file: File) {
         withContext(Dispatchers.IO) {
-            val inputStream: InputStream = try {
-                contentResolver.openInputStream(uri)
-                    ?: run {
-                        _uiState.value = ImportSelectionUiState.Error("Could not open file")
-                        return@withContext
-                    }
-            } catch (e: Exception) {
-                Log.e(TAG, "Could not open import file", e)
-                _uiState.value = ImportSelectionUiState.Error("Could not open file: ${e.message}")
-                return@withContext
-            }
-
             try {
-                val index = inputStream.use { zipImportHelper.readRecipeIndex(BufferedInputStream(it)) }
+                val index = file.inputStream().use { zipImportHelper.readRecipeIndex(BufferedInputStream(it)) }
 
                 val existingRecipes = recipeRepository.getAllRecipeIdsAndNames()
                 val existingIds = existingRecipes.map { it.id }.toSet()
@@ -243,6 +250,8 @@ class ImportSelectionViewModel @Inject constructor(
                 }
 
                 _uiState.value = ImportSelectionUiState.Ready(items)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to read ZIP contents", e)
                 _uiState.value = ImportSelectionUiState.Error("Failed to read file: ${e.message}")
@@ -284,11 +293,10 @@ class ImportSelectionViewModel @Inject constructor(
     }
 
     /**
-     * Enqueue the import as a WorkManager job and return immediately.
-     * All import types follow the same pattern: enqueue work, register in-progress entry, navigate to RecipeList.
+     * Enqueue the import as a WorkManager job; the outcome is delivered through [results].
      * Repeated calls (double taps, auto-import re-running after recreation) are ignored.
      */
-    fun importSelected(onResult: (ImportResult) -> Unit) {
+    fun importSelected() {
         if (importStarted) return
         val current = _uiState.value
         if (current !is ImportSelectionUiState.Ready) return
@@ -296,17 +304,16 @@ class ImportSelectionViewModel @Inject constructor(
         val selectedItems = current.items.filter { it.isSelected }
         if (selectedItems.isEmpty()) return
 
-        val fileUri = currentFileUri ?: run {
-            onResult(ImportResult.Error("No file URI available"))
+        val importId = stagedImportId ?: run {
+            _results.trySend(ImportResult.Error("No file available"))
+            return
+        }
+        val importType = currentImportType ?: run {
+            _results.trySend(ImportResult.Error("Unknown import type"))
             return
         }
         importStarted = true
 
-        val importType = currentImportType ?: run {
-            importStarted = false
-            onResult(ImportResult.Error("Unknown import type"))
-            return
-        }
         // Pass null when everything is selected so the worker doesn't need the full ID list.
         val selectedIds = selectedItems.map { it.id }.toSet()
             .takeIf { selectedItems.size < current.items.size }
@@ -322,17 +329,17 @@ class ImportSelectionViewModel @Inject constructor(
             try {
                 when (importType) {
                     ImportType.PAPRIKA ->
-                        inProgressRecipeManager.startPaprikaImport(fileUri, selectedIds, importName)
+                        inProgressRecipeManager.startPaprikaImport(importId, selectedIds, importName)
                     ImportType.LORECIPES ->
-                        inProgressRecipeManager.startZipImport(fileUri, selectedIds, importName)
+                        inProgressRecipeManager.startZipImport(importId, selectedIds, importName)
                 }
-                onResult(ImportResult.ImportStarted)
+                _results.send(ImportResult.ImportStarted)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start import", e)
                 importStarted = false
-                onResult(ImportResult.Error("Couldn't start the import: ${e.message}"))
+                _results.send(ImportResult.Error("Couldn't start the import: ${e.message}"))
             }
         }
     }

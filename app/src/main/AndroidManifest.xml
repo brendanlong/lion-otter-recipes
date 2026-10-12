@@ -43,15 +43,26 @@
                 <data android:mimeType="application/octet-stream" />
             </intent-filter>
 
-            <!-- Handle .lorecipes / .paprikarecipes files opened from a file manager.
-                 Content URIs are usually opaque (no file extension in the path), so match on
-                 MIME type rather than pathPattern. -->
+            <!-- Handle .lorecipes files (exported as application/zip) opened from a file manager.
+                 Content URIs are usually opaque (no file extension in the path), so match ZIPs
+                 on MIME type; any other ZIP gets a "not a recipe export" error on the import
+                 screen. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="content" />
                 <data android:mimeType="application/zip" />
+            </intent-filter>
+            <!-- Generic binaries only when the path shows a recipe export extension, so the app
+                 doesn't appear in "Open with" for every binary file. -->
+            <intent-filter tools:ignore="AppLinkUrlError">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:host="*" />
                 <data android:mimeType="application/octet-stream" />
+                <data android:pathPattern=".*\\.paprikarecipes" />
+                <data android:pathPattern=".*\\.lorecipes" />
             </intent-filter>
             <intent-filter tools:ignore="AppLinkUrlError">
                 <action android:name="android.intent.action.VIEW" />

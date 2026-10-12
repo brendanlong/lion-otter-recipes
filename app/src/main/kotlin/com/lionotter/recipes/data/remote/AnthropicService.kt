@@ -12,18 +12,25 @@ import com.anthropic.errors.NotFoundException
 import com.anthropic.errors.PermissionDeniedException
 import com.anthropic.errors.RateLimitException
 import com.anthropic.errors.UnauthorizedException
-import com.anthropic.helpers.MessageAccumulator
+import com.anthropic.helpers.BetaMessageAccumulator
+import com.anthropic.models.beta.messages.BetaCacheControlEphemeral
+import com.anthropic.models.beta.messages.BetaJsonOutputFormat
+import com.anthropic.models.beta.messages.BetaMessage
+import com.anthropic.models.beta.messages.BetaOutputConfig
+import com.anthropic.models.beta.messages.BetaStopReason
+import com.anthropic.models.beta.messages.BetaTextBlockParam
+import com.anthropic.models.beta.messages.BetaThinkingConfigAdaptive
+import com.anthropic.models.beta.messages.BetaThinkingConfigEnabled
 import com.anthropic.models.messages.CacheControlEphemeral
 import com.anthropic.models.messages.JsonOutputFormat
 import com.anthropic.models.messages.Message
-import com.anthropic.models.messages.MessageCreateParams
 import com.anthropic.models.messages.OutputConfig
 import com.anthropic.models.messages.StopReason
 import com.anthropic.models.messages.TextBlockParam
 import com.anthropic.models.messages.ThinkingConfigAdaptive
 import com.anthropic.models.messages.ThinkingConfigEnabled
-import com.anthropic.models.messages.ThinkingConfigParam
 import com.anthropic.models.messages.batches.BatchCreateParams
+import com.anthropic.models.beta.messages.MessageCreateParams as BetaMessageCreateParams
 import com.anthropic.models.messages.batches.MessageBatch
 import com.anthropic.models.messages.batches.MessageBatchIndividualResponse
 import com.lionotter.recipes.data.local.SettingsDataStore
@@ -82,17 +89,20 @@ class AnthropicService @Inject constructor(
             val client = clientFor(apiKey)
             val requestConfig = requestConfigFor(resolvedModel, thinkingEnabled)
 
-            val paramsBuilder = MessageCreateParams.builder()
+            val paramsBuilder = BetaMessageCreateParams.builder()
                 .model(resolvedModel)
                 .maxTokens(MAX_OUTPUT_TOKENS)
-                .systemOfTextBlockParams(systemBlocks())
+                .systemOfBetaTextBlockParams(BETA_SYSTEM_BLOCKS)
                 .addUserMessage(buildUserMessage(html, densityOverrides, aiInstructions))
-                .outputConfig(requestConfig.outputConfig)
-            requestConfig.thinking?.let { paramsBuilder.thinking(it) }
+                .outputConfig(requestConfig.toBetaOutputConfig())
+            requestConfig.thinkingBudgetTokens?.let {
+                paramsBuilder.thinking(BetaThinkingConfigEnabled.builder().budgetTokens(it).build())
+            }
+            if (requestConfig.adaptiveThinking) {
+                paramsBuilder.thinking(BetaThinkingConfigAdaptive.builder().build())
+            }
             if (supportsServerSideFallback(resolvedModel)) {
-                paramsBuilder
-                    .putAdditionalHeader("anthropic-beta", SERVER_SIDE_FALLBACK_BETA)
-                    .putAdditionalBodyProperty("fallbacks", JsonValue.from("default"))
+                paramsBuilder.addBeta(SERVER_SIDE_FALLBACK_BETA).fallbacksDefault()
             }
             val params = paramsBuilder.build()
 
@@ -100,10 +110,10 @@ class AnthropicService @Inject constructor(
             // so run on IO and close the stream if the coroutine is cancelled.
             val message = withContext(Dispatchers.IO) {
                 val job = coroutineContext.job
-                client.messages().createStreaming(params).use { stream ->
+                client.beta().messages().createStreaming(params).use { stream ->
                     val handle = job.invokeOnCompletion { stream.close() }
                     try {
-                        val accumulator = MessageAccumulator.create()
+                        val accumulator = BetaMessageAccumulator.create()
                         stream.stream().forEach { event ->
                             job.ensureActive()
                             accumulator.accumulate(event)
@@ -115,7 +125,7 @@ class AnthropicService @Inject constructor(
                 }
             }
 
-            parseMessageResult(message)
+            parseBetaMessageResult(message)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -157,8 +167,13 @@ class AnthropicService @Inject constructor(
                     .maxTokens(MAX_OUTPUT_TOKENS)
                     .systemOfTextBlockParams(system)
                     .addUserMessage(buildUserMessage(request.text, request.densityOverrides, null))
-                    .outputConfig(requestConfig.outputConfig)
-                requestConfig.thinking?.let { paramsBuilder.thinking(it) }
+                    .outputConfig(requestConfig.toOutputConfig())
+                requestConfig.thinkingBudgetTokens?.let {
+                    paramsBuilder.thinking(ThinkingConfigEnabled.builder().budgetTokens(it).build())
+                }
+                if (requestConfig.adaptiveThinking) {
+                    paramsBuilder.thinking(ThinkingConfigAdaptive.builder().build())
+                }
 
                 BatchCreateParams.Request.builder()
                     .customId(request.customId)
@@ -256,31 +271,86 @@ class AnthropicService @Inject constructor(
     }
 
     /**
-     * Parse a [Message] (from a direct call or a batch result) into a [ParseResultWithUsage].
+     * Parse a batch result [Message] into a [ParseResultWithUsage].
      */
     fun parseMessageResult(message: Message): Result<ParseResultWithUsage> {
-        return try {
-            val usage = message.usage()
+        val text = message.content()
+            .filter { it.isText() }
+            .joinToString("") { it.asText().text() }
+        val stopReason = message.stopReason().orElse(null)
+        return parseModelOutput(
+            refused = stopReason == StopReason.REFUSAL,
+            truncated = stopReason == StopReason.MAX_TOKENS,
+            textCandidates = listOf(text),
+            inputTokens = message.usage().inputTokens(),
+            outputTokens = message.usage().outputTokens()
+        )
+    }
 
-            when (message.stopReason().orElse(null)) {
-                StopReason.REFUSAL -> return Result.failure(
-                    RecipeParseException("The AI declined to process this content.")
-                )
-                StopReason.MAX_TOKENS -> return Result.failure(
-                    RecipeParseException(
-                        "The AI ran out of room before finishing this recipe. " +
-                            "Try again with thinking turned off or a shorter recipe."
-                    )
-                )
-                else -> {}
-            }
-
-            val textContent = message.content()
+    /**
+     * Parse a streamed beta [BetaMessage], which may contain server-side `fallback` blocks.
+     *
+     * A fallback block marks where a model declined and the next model took over. Text from
+     * before the boundary is passed to the fallback model as continuation context, so the joined
+     * text is tried first; if that doesn't parse, only the text after the last boundary is used.
+     */
+    internal fun parseBetaMessageResult(message: BetaMessage): Result<ParseResultWithUsage> {
+        val content = message.content()
+        val lastFallback = content.indexOfLast { it.isFallback() }
+        if (lastFallback >= 0) {
+            Log.i(TAG, "Recipe parse fell back to ${message.model()}")
+        }
+        val fullText = content.filter { it.isText() }.joinToString("") { it.asText().text() }
+        val candidates = if (lastFallback >= 0) {
+            val afterFallback = content.drop(lastFallback + 1)
                 .filter { it.isText() }
                 .joinToString("") { it.asText().text() }
-                .takeIf { it.isNotBlank() }
-                ?: return Result.failure(RecipeParseException("The AI returned an empty response."))
+            listOf(fullText, afterFallback).distinct()
+        } else {
+            listOf(fullText)
+        }
+        val stopReason = message.stopReason().orElse(null)
+        return parseModelOutput(
+            refused = stopReason == BetaStopReason.REFUSAL,
+            truncated = stopReason == BetaStopReason.MAX_TOKENS,
+            textCandidates = candidates,
+            inputTokens = message.usage().inputTokens(),
+            outputTokens = message.usage().outputTokens()
+        )
+    }
 
+    private fun parseModelOutput(
+        refused: Boolean,
+        truncated: Boolean,
+        textCandidates: List<String>,
+        inputTokens: Long,
+        outputTokens: Long
+    ): Result<ParseResultWithUsage> {
+        if (refused) {
+            return Result.failure(RecipeParseException("The AI declined to process this content."))
+        }
+        if (truncated) {
+            return Result.failure(
+                RecipeParseException(
+                    "The AI ran out of room before finishing this recipe. " +
+                        "Try again with thinking turned off or a shorter recipe."
+                )
+            )
+        }
+        val nonBlank = textCandidates.filter { it.isNotBlank() }
+        if (nonBlank.isEmpty()) {
+            return Result.failure(RecipeParseException("The AI returned an empty response."))
+        }
+        val results = nonBlank.map { parseResponseText(it, inputTokens, outputTokens) }
+        return results.firstOrNull { it.isSuccess } ?: results.first()
+    }
+
+    private fun parseResponseText(
+        textContent: String,
+        inputTokens: Long,
+        outputTokens: Long
+    ): Result<ParseResultWithUsage> {
+        return try {
             val jsonContent = extractJson(textContent)
 
             val parseResponse = json.decodeFromString(RecipeParseResponse.serializer(), jsonContent)
@@ -295,8 +365,8 @@ class AnthropicService @Inject constructor(
 
             Result.success(ParseResultWithUsage(
                 result = recipeResult,
-                inputTokens = usage.inputTokens(),
-                outputTokens = usage.outputTokens(),
+                inputTokens = inputTokens,
+                outputTokens = outputTokens,
                 aiOutputJson = jsonContent
             ))
         } catch (e: Exception) {
@@ -347,10 +417,34 @@ class AnthropicService @Inject constructor(
         return content
     }
 
+    internal enum class Effort { LOW, MEDIUM }
+
+    /** Model-specific thinking/effort settings, applied to both the beta (streaming) and batch APIs. */
     internal data class RequestConfig(
-        val thinking: ThinkingConfigParam?,
-        val outputConfig: OutputConfig
-    )
+        val thinkingBudgetTokens: Long?,
+        val adaptiveThinking: Boolean,
+        val effort: Effort?
+    ) {
+        fun toOutputConfig(): OutputConfig {
+            val builder = OutputConfig.builder().format(RECIPE_OUTPUT_FORMAT)
+            when (effort) {
+                Effort.LOW -> builder.effort(OutputConfig.Effort.LOW)
+                Effort.MEDIUM -> builder.effort(OutputConfig.Effort.MEDIUM)
+                null -> {}
+            }
+            return builder.build()
+        }
+
+        fun toBetaOutputConfig(): BetaOutputConfig {
+            val builder = BetaOutputConfig.builder().format(BETA_RECIPE_OUTPUT_FORMAT)
+            when (effort) {
+                Effort.LOW -> builder.effort(BetaOutputConfig.Effort.LOW)
+                Effort.MEDIUM -> builder.effort(BetaOutputConfig.Effort.MEDIUM)
+                null -> {}
+            }
+            return builder.build()
+        }
+    }
 
     companion object {
         private const val TAG = "AnthropicService"
@@ -400,24 +494,18 @@ class AnthropicService @Inject constructor(
          *   "thinking" toggle maps to effort (medium when on, low when off).
          */
         internal fun requestConfigFor(model: String, thinkingEnabled: Boolean): RequestConfig {
-            val outputConfig = OutputConfig.builder().format(RECIPE_OUTPUT_FORMAT)
             if (usesBudgetThinking(model)) {
-                val thinking = if (thinkingEnabled) {
-                    ThinkingConfigParam.ofEnabled(
-                        ThinkingConfigEnabled.builder().budgetTokens(HAIKU_THINKING_BUDGET).build()
-                    )
-                } else {
-                    null
-                }
-                return RequestConfig(thinking, outputConfig.build())
+                return RequestConfig(
+                    thinkingBudgetTokens = if (thinkingEnabled) HAIKU_THINKING_BUDGET else null,
+                    adaptiveThinking = false,
+                    effort = null
+                )
             }
-            val thinking = if (thinkingEnabled && model != MODEL_FABLE) {
-                ThinkingConfigParam.ofAdaptive(ThinkingConfigAdaptive.builder().build())
-            } else {
-                null
-            }
-            outputConfig.effort(if (thinkingEnabled) OutputConfig.Effort.MEDIUM else OutputConfig.Effort.LOW)
-            return RequestConfig(thinking, outputConfig.build())
+            return RequestConfig(
+                thinkingBudgetTokens = null,
+                adaptiveThinking = thinkingEnabled && model != MODEL_FABLE,
+                effort = if (thinkingEnabled) Effort.MEDIUM else Effort.LOW
+            )
         }
 
         /**
@@ -541,6 +629,16 @@ class AnthropicService @Inject constructor(
             JsonOutputFormat.builder()
                 .schema(
                     JsonOutputFormat.Schema.builder()
+                        .putAllAdditionalProperties(RECIPE_RESPONSE_SCHEMA.mapValues { JsonValue.from(it.value) })
+                        .build()
+                )
+                .build()
+        }
+
+        private val BETA_RECIPE_OUTPUT_FORMAT: BetaJsonOutputFormat by lazy {
+            BetaJsonOutputFormat.builder()
+                .schema(
+                    BetaJsonOutputFormat.Schema.builder()
                         .putAllAdditionalProperties(RECIPE_RESPONSE_SCHEMA.mapValues { JsonValue.from(it.value) })
                         .build()
                 )
@@ -706,6 +804,15 @@ ADDITIONAL GUIDELINES:
                 TextBlockParam.builder()
                     .text(buildSystemPrompt())
                     .cacheControl(CacheControlEphemeral.builder().build())
+                    .build()
+            )
+        }
+
+        private val BETA_SYSTEM_BLOCKS: List<BetaTextBlockParam> by lazy {
+            listOf(
+                BetaTextBlockParam.builder()
+                    .text(buildSystemPrompt())
+                    .cacheControl(BetaCacheControlEphemeral.builder().build())
                     .build()
             )
         }

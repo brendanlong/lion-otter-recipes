@@ -15,12 +15,20 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
+import androidx.work.OneTimeWorkRequest
+import androidx.work.OneTimeWorkRequestBuilder
+import com.lionotter.recipes.worker.RecipeWorkScheduler
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
+import java.util.UUID
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -37,15 +45,22 @@ class InProgressRecipeManagerTest {
     private val pendingImportsFlow = MutableStateFlow<List<PendingImportEntity>>(emptyList())
     private val pendingImportsStore = mutableMapOf<String, PendingImportEntity>()
     private val importWorkInfos = MutableStateFlow<List<WorkInfo>>(emptyList())
+    private val workInfosById = mutableMapOf<UUID, WorkInfo>()
+    private lateinit var scheduler: RecipeWorkScheduler
 
     @Before
     fun setup() {
         mockkStatic(Log::class)
         every { Log.w(any<String>(), any<String>(), any()) } returns 0
+        every { Log.w(any<String>(), any<String>()) } returns 0
+        every { Log.i(any(), any()) } returns 0
+        every { Log.e(any(), any(), any()) } returns 0
 
         workManager = mockk {
             every { getWorkInfosByTagFlow(any()) } returns MutableStateFlow(emptyList<WorkInfo>())
             every { getWorkInfosByTagFlow(RecipeImportWorker.TAG_RECIPE_IMPORT) } returns importWorkInfos
+            every { getWorkInfoByIdFlow(any()) } answers { flowOf(workInfosById[firstArg()]) }
+            every { cancelUniqueWork(any()) } returns mockk()
         }
 
         pendingImportRepository = mockk {
@@ -100,22 +115,35 @@ class InProgressRecipeManagerTest {
             }
         }
 
+        scheduler = mockk(relaxed = true) {
+            every { buildUrlImportRequest(any(), any()) } answers {
+                OneTimeWorkRequestBuilder<RecipeImportWorker>().build()
+            }
+            every { enqueueImport(any(), any()) } answers {
+                val request = secondArg<OneTimeWorkRequest>()
+                workInfosById[request.id] = WorkInfo(request.id, WorkInfo.State.ENQUEUED, emptySet())
+            }
+        }
+
         testScope = TestScope()
-        manager = InProgressRecipeManager(
-            workManager,
-            pendingImportRepository,
-            testScope,
-            scheduler = mockk(relaxed = true),
-            inputStore = mockk(relaxed = true),
-            importPaprikaUseCase = mockk(relaxed = true)
-        )
+        manager = createManager()
     }
+
+    private fun createManager() = InProgressRecipeManager(
+        workManager,
+        pendingImportRepository,
+        testScope,
+        scheduler = scheduler,
+        inputStore = mockk(relaxed = true),
+        importPaprikaUseCase = mockk(relaxed = true)
+    )
 
     @After
     fun tearDown() {
         unmockkStatic(Log::class)
         pendingImportsStore.clear()
         pendingImportsFlow.value = emptyList()
+        workInfosById.clear()
     }
 
     @Test
@@ -364,5 +392,76 @@ class InProgressRecipeManagerTest {
         testScope.advanceUntilIdle()
 
         assertEquals(setOf("import-2"), pendingImportsStore.keys)
+    }
+
+    @Test
+    fun `startUrlImport returns the existing import while its work is active`() = runTest {
+        val first = manager.startUrlImport("https://example.com/r")
+        val second = manager.startUrlImport("https://example.com/r")
+
+        assertEquals(first, second)
+        assertEquals(1, pendingImportsStore.size)
+    }
+
+    @Test
+    fun `startUrlImport does not dedupe against pruned work`() = runTest {
+        val first = manager.startUrlImport("https://example.com/r")
+        workInfosById.clear() // WorkManager pruned the finished work
+
+        val second = manager.startUrlImport("https://example.com/r")
+
+        assertNotEquals(first.importId, second.importId)
+        assertEquals(PendingImportEntity.STATUS_FAILED, pendingImportsStore[first.importId]!!.status)
+        assertEquals(PendingImportEntity.STATUS_PENDING, pendingImportsStore[second.importId]!!.status)
+    }
+
+    @Test
+    fun `startUrlImport does not dedupe against finished work`() = runTest {
+        val first = manager.startUrlImport("https://example.com/r")
+        workInfosById[first.workId] = WorkInfo(first.workId, WorkInfo.State.SUCCEEDED, emptySet())
+
+        val second = manager.startUrlImport("https://example.com/r")
+
+        assertNotEquals(first.importId, second.importId)
+        assertTrue(first.importId !in pendingImportsStore)
+    }
+
+    @Test
+    fun `concurrent startUrlImport calls start one import`() = runTest {
+        val results = (1..3).map { async { manager.startUrlImport("https://example.com/r") } }.awaitAll()
+
+        assertEquals(1, results.map { it.importId }.distinct().size)
+        assertEquals(1, pendingImportsStore.size)
+    }
+
+    @Test
+    fun `startup reconciles rows whose work is missing or finished`() = runTest {
+        val missingWork = UUID.randomUUID()
+        val succeededWork = UUID.randomUUID()
+        val runningWork = UUID.randomUUID()
+        workInfosById[succeededWork] = WorkInfo(succeededWork, WorkInfo.State.SUCCEEDED, emptySet())
+        workInfosById[runningWork] = WorkInfo(runningWork, WorkInfo.State.RUNNING, emptySet())
+        listOf(
+            "missing" to missingWork.toString(),
+            "succeeded" to succeededWork.toString(),
+            "running" to runningWork.toString(),
+            "never-enqueued" to null
+        ).forEach { (id, workId) ->
+            pendingImportsStore[id] = PendingImportEntity(
+                id = id, url = "https://example.com/$id", name = id, imageUrl = null,
+                status = PendingImportEntity.STATUS_PENDING, workManagerId = workId,
+                errorMessage = null, createdAt = 0L
+            )
+        }
+        pendingImportsFlow.value = pendingImportsStore.values.toList()
+
+        createManager()
+        testScope.advanceUntilIdle()
+
+        assertEquals(PendingImportEntity.STATUS_FAILED, pendingImportsStore["missing"]!!.status)
+        assertEquals(InProgressRecipeManager.INTERRUPTED_MESSAGE, pendingImportsStore["missing"]!!.errorMessage)
+        assertEquals(PendingImportEntity.STATUS_FAILED, pendingImportsStore["never-enqueued"]!!.status)
+        assertTrue("succeeded" !in pendingImportsStore)
+        assertEquals(PendingImportEntity.STATUS_PENDING, pendingImportsStore["running"]!!.status)
     }
 }

@@ -15,6 +15,7 @@ import com.lionotter.recipes.domain.ResourceLimits
 import com.lionotter.recipes.domain.util.ArchiveTooLargeException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -28,6 +29,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.InputStream
+import java.util.UUID
 import javax.inject.Inject
 import kotlin.coroutines.coroutineContext
 
@@ -63,6 +65,13 @@ class ImportPaprikaUseCase @Inject constructor(
         private const val PHOTOS_DIR = "photos"
         private const val MAX_POLL_FAILURES = 30
         private const val SAVE_PARALLELISM = 4
+
+        /**
+         * Stable recipe ID for one batch result, so a run that's stopped between saving a recipe
+         * and recording it in processed.log overwrites the same recipe when it resumes.
+         */
+        internal fun batchRecipeId(importId: String, customId: String): String =
+            UUID.nameUUIDFromBytes("paprika-import:$importId:$customId".toByteArray()).toString()
     }
 
     sealed class ImportResult {
@@ -249,33 +258,42 @@ class ImportPaprikaUseCase @Inject constructor(
         }
 
         onProgress(ImportProgress.SubmittingBatch(toImport.size))
-        val batchIdResult = anthropicService.createRecipeBatch(
-            requests = toImport.map { AnthropicService.BatchRequest(it.customId, it.contentForAi) },
-            apiKey = apiKey,
-            model = model,
-            thinkingEnabled = thinkingEnabled
-        )
-        val batchId = batchIdResult.getOrElse { e ->
-            return finished(
-                ImportResult.Error(
+        // Once the batch exists it's billed, so its ID must reach batch.json even if the worker
+        // is stopped mid-way; otherwise a rerun would submit (and pay for) a second batch.
+        val submitError = withContext(NonCancellable) {
+            val batchId = anthropicService.createRecipeBatch(
+                requests = toImport.map { AnthropicService.BatchRequest(it.customId, it.contentForAi) },
+                apiKey = apiKey,
+                model = model,
+                thinkingEnabled = thinkingEnabled
+            ).getOrElse { e ->
+                return@withContext ImportResult.Error(
                     message = e.message ?: "Failed to submit recipes to the AI",
                     retryable = (e as? AnthropicRequestException)?.isTransient == true
                 )
-            )
+            }
+            try {
+                saveState(
+                    workDir,
+                    BatchState(
+                        batchId = batchId,
+                        model = model,
+                        thinkingEnabled = thinkingEnabled,
+                        submittedAtMillis = System.currentTimeMillis(),
+                        recipes = toImport,
+                        preFailedNames = preFailed
+                    )
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to save state for batch $batchId; cancelling it", e)
+                anthropicService.cancelBatch(batchId, apiKey)
+                return@withContext ImportResult.Error("Couldn't save the import's progress: ${e.message}")
+            }
+            Log.i(TAG, "Submitted batch $batchId with ${toImport.size} recipes")
+            null
         }
-
-        saveState(
-            workDir,
-            BatchState(
-                batchId = batchId,
-                model = model,
-                thinkingEnabled = thinkingEnabled,
-                submittedAtMillis = System.currentTimeMillis(),
-                recipes = toImport,
-                preFailedNames = preFailed
-            )
-        )
-        Log.i(TAG, "Submitted batch $batchId with ${toImport.size} recipes")
+        if (submitError != null) return finished(submitError)
+        coroutineContext.ensureActive()
         onProgress(ImportProgress.WaitingForBatch(total = toImport.size))
         return StepResult.PollAgain
     }
@@ -350,12 +368,12 @@ class ImportPaprikaUseCase @Inject constructor(
                     async {
                         val outcome = outcomes[recipe.customId]
                             ?: BatchOutcome.Failed("No AI result was returned for this recipe")
-                        val error = saveOutcome(recipe, outcome, state, durationMs)
-                        logMutex.withLock {
-                            appendProcessed(workDir, recipe, error)
-                            if (error == null) imported++ else failed++
-                            current++
-                            onProgress(
+                        val error = saveOutcome(workDir, recipe, outcome, state, durationMs)
+                        val progress = withContext(NonCancellable) {
+                            logMutex.withLock {
+                                appendProcessed(workDir, recipe, error)
+                                if (error == null) imported++ else failed++
+                                current++
                                 ImportProgress.ImportingRecipe(
                                     recipeName = recipe.name,
                                     current = current,
@@ -363,8 +381,9 @@ class ImportPaprikaUseCase @Inject constructor(
                                     importedSoFar = imported,
                                     failedSoFar = failed
                                 )
-                            )
+                            }
                         }
+                        onProgress(progress)
                     }
                 }.awaitAll()
             }
@@ -384,6 +403,7 @@ class ImportPaprikaUseCase @Inject constructor(
 
     /** Save one batch outcome. Returns null on success or an error message. */
     private suspend fun saveOutcome(
+        workDir: File,
         recipe: PreparedRecipe,
         outcome: BatchOutcome,
         state: BatchState,
@@ -392,6 +412,7 @@ class ImportPaprikaUseCase @Inject constructor(
         is BatchOutcome.Parsed -> try {
             parseHtmlUseCase.saveBatchResult(
                 parsedWithUsage = outcome.result,
+                recipeId = batchRecipeId(workDir.name, recipe.customId),
                 sourceUrl = recipe.sourceUrl,
                 imageUrl = resolveImageUrl(recipe),
                 cleanedContent = recipe.contentForAi,
