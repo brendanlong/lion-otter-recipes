@@ -5,16 +5,14 @@ import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.lionotter.recipes.data.paprika.PaprikaParser
 import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.util.RecipeSerializer
 import com.lionotter.recipes.domain.util.ZipImportHelper
 import com.lionotter.recipes.ui.state.InProgressRecipeManager
-import com.lionotter.recipes.worker.PaprikaImportWorker
-import com.lionotter.recipes.worker.ZipImportWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -130,7 +128,7 @@ class ImportSelectionViewModel @Inject constructor(
             }
 
             try {
-                val recipes = inputStream.use { paprikaParser.parseExport(it) }
+                val recipes = inputStream.use { paprikaParser.parseIndex(BufferedInputStream(it)) }
                 if (recipes.isEmpty()) {
                     _uiState.value = ImportSelectionUiState.Error("No recipes found in Paprika export")
                     return@withContext
@@ -139,10 +137,10 @@ class ImportSelectionViewModel @Inject constructor(
                 val existingRecipes = recipeRepository.getAllRecipeIdsAndNames()
                 val existingNames = existingRecipes.map { it.name.lowercase() }.toSet()
 
-                val items = recipes.mapIndexed { index, recipe ->
+                val items = recipes.distinctBy { it.uid }.map { recipe ->
                     val exists = recipe.name.lowercase() in existingNames
                     ImportSelectionItem(
-                        id = index.toString(),
+                        id = recipe.uid,
                         name = recipe.name,
                         isSelected = !exists,
                         alreadyExists = exists
@@ -171,36 +169,22 @@ class ImportSelectionViewModel @Inject constructor(
             }
 
             try {
-                val zipContents = inputStream.use { zipImportHelper.readZipContents(it) }
-                if (zipContents == null || zipContents.textFiles.isEmpty()) {
-                    _uiState.value = ImportSelectionUiState.Error("No recipes found in file")
-                    return@withContext
-                }
+                val index = inputStream.use { zipImportHelper.readRecipeIndex(BufferedInputStream(it)) }
 
                 val existingRecipes = recipeRepository.getAllRecipeIdsAndNames()
                 val existingIds = existingRecipes.map { it.id }.toSet()
                 val existingNames = existingRecipes.map { it.name.lowercase() }.toSet()
 
-                val items = zipContents.textFiles.entries
-                    .filter { it.key != ZipImportHelper.MEAL_PLANS_FOLDER }
-                    .mapNotNull { (_, files) ->
-                        val jsonContent = files[RecipeSerializer.RECIPE_JSON_FILENAME]
-                            ?: return@mapNotNull null
-                        try {
-                            val recipe = recipeSerializer.deserializeRecipe(jsonContent)
-                            val existsById = recipe.id in existingIds
-                            val existsByName = recipe.name.lowercase() in existingNames
-                            val exists = existsById || existsByName
-                            ImportSelectionItem(
-                                id = recipe.id,
-                                name = recipe.name,
-                                isSelected = !exists,
-                                alreadyExists = exists
-                            )
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Failed to deserialize recipe for selection", e)
-                            null
-                        }
+                val items = index
+                    .distinctBy { it.id }
+                    .map { recipe ->
+                        val exists = recipe.id in existingIds || recipe.name.lowercase() in existingNames
+                        ImportSelectionItem(
+                            id = recipe.id,
+                            name = recipe.name,
+                            isSelected = !exists,
+                            alreadyExists = exists
+                        )
                     }
                     .sortedWith(compareBy<ImportSelectionItem> { it.alreadyExists }.thenBy { it.name.lowercase() })
 
@@ -270,57 +254,36 @@ class ImportSelectionViewModel @Inject constructor(
             return
         }
 
-        val importId = UUID.randomUUID().toString()
+        val importType = currentImportType ?: run {
+            onResult(ImportResult.Error("Unknown import type"))
+            return
+        }
+        // Pass null when everything is selected so the worker doesn't need the full ID list.
+        val selectedIds = selectedItems.map { it.id }.toSet()
+            .takeIf { selectedItems.size < current.items.size }
+        val importName = if (selectedItems.size == 1) {
+            "Importing ${selectedItems[0].name}\u2026"
+        } else if (importType == ImportType.PAPRIKA) {
+            "Importing ${selectedItems.size} recipes from Paprika\u2026"
+        } else {
+            "Importing ${selectedItems.size} recipes\u2026"
+        }
 
-        when (currentImportType) {
-            ImportType.PAPRIKA -> {
-                val selectedNames = selectedItems.map { it.name }.toSet()
-                val workRequest = OneTimeWorkRequestBuilder<PaprikaImportWorker>()
-                    .setInputData(
-                        PaprikaImportWorker.createInputData(
-                            fileUri = fileUri,
-                            importId = importId,
-                            selectedRecipeNames = selectedNames
-                        )
-                    )
-                    .addTag(PaprikaImportWorker.TAG_PAPRIKA_IMPORT)
-                    .build()
-
-                inProgressRecipeManager.addInProgressRecipe(
-                    id = importId,
-                    name = "Importing from Paprika\u2026",
-                    workManagerId = workRequest.id.toString()
-                )
-                workManager.enqueue(workRequest)
-                onResult(ImportResult.ImportStarted)
-            }
-            ImportType.LORECIPES -> {
-                val selectedIds = selectedItems.map { it.id }.toSet()
-                val workRequest = OneTimeWorkRequestBuilder<ZipImportWorker>()
-                    .setInputData(
-                        ZipImportWorker.createInputData(
-                            fileUri = fileUri,
-                            importId = importId,
-                            selectedRecipeIds = selectedIds
-                        )
-                    )
-                    .addTag(ZipImportWorker.TAG_ZIP_IMPORT)
-                    .build()
-
-                val importName = if (selectedItems.size == 1) {
-                    "Importing ${selectedItems[0].name}\u2026"
-                } else {
-                    "Importing ${selectedItems.size} recipes\u2026"
+        viewModelScope.launch {
+            try {
+                when (importType) {
+                    ImportType.PAPRIKA ->
+                        inProgressRecipeManager.startPaprikaImport(fileUri, selectedIds, importName)
+                    ImportType.LORECIPES ->
+                        inProgressRecipeManager.startZipImport(fileUri, selectedIds, importName)
                 }
-                inProgressRecipeManager.addInProgressRecipe(
-                    id = importId,
-                    name = importName,
-                    workManagerId = workRequest.id.toString()
-                )
-                workManager.enqueue(workRequest)
                 onResult(ImportResult.ImportStarted)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start import", e)
+                onResult(ImportResult.Error("Couldn't start the import: ${e.message}"))
             }
-            null -> onResult(ImportResult.Error("Unknown import type"))
         }
     }
 }

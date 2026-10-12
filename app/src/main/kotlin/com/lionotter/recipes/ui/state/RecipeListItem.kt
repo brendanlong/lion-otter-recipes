@@ -18,6 +18,6 @@ sealed class RecipeListItem {
     data class InProgress(val inProgressRecipe: InProgressRecipe) : RecipeListItem() {
         override val id: String = inProgressRecipe.id
         override val name: String = inProgressRecipe.name
-        override val isLoading: Boolean = true
+        override val isLoading: Boolean = !inProgressRecipe.isFailed
     }
 }

@@ -25,6 +25,8 @@ data class PendingImportEntity(
         const val STATUS_METADATA_READY = "metadata_ready"
         const val STATUS_PARSING = "parsing"
         const val STATUS_SAVING = "saving"
+        const val STATUS_SUBMITTING_BATCH = "submitting_batch"
+        const val STATUS_WAITING_FOR_BATCH = "waiting_for_batch"
         const val STATUS_FAILED = "failed"
     }
 }

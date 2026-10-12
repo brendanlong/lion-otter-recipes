@@ -13,13 +13,15 @@ import dagger.assisted.AssistedInject
 
 @HiltWorker
 class RecipeRegenerateWorker @AssistedInject constructor(
-    @Assisted private val context: Context,
+    @Assisted context: Context,
     @Assisted workerParams: WorkerParameters,
     private val regenerateRecipeUseCase: RegenerateRecipeUseCase,
     notificationHelper: RecipeNotificationHelper
 ) : BaseRecipeWorker(context, workerParams, notificationHelper) {
 
     override val notificationTitle = "Regenerating Recipe"
+    override val errorTitle = "Regeneration Failed"
+    override val operationKey: String get() = inputData.getString(KEY_RECIPE_ID) ?: id.toString()
 
     companion object {
         const val TAG_RECIPE_REGENERATE = "recipe_regenerate"
@@ -27,13 +29,13 @@ class RecipeRegenerateWorker @AssistedInject constructor(
         const val KEY_RECIPE_ID = "recipe_id"
         const val KEY_MODEL = "model"
         const val KEY_EXTENDED_THINKING = "extended_thinking"
-        const val KEY_ERROR_MESSAGE = "error_message"
+        const val KEY_ERROR_MESSAGE = BaseRecipeWorker.KEY_ERROR_MESSAGE
         const val KEY_PROGRESS = "progress"
-        const val KEY_RESULT_TYPE = "result_type"
+        const val KEY_RESULT_TYPE = BaseRecipeWorker.KEY_RESULT_TYPE
         const val KEY_RECIPE_NAME = "recipe_name"
 
         const val RESULT_SUCCESS = "success"
-        const val RESULT_ERROR = "error"
+        const val RESULT_ERROR = BaseRecipeWorker.RESULT_ERROR
         const val RESULT_NO_API_KEY = "no_api_key"
         const val RESULT_NO_SOURCE_URL = "no_source_url"
 
@@ -54,14 +56,9 @@ class RecipeRegenerateWorker @AssistedInject constructor(
         }
     }
 
-    override suspend fun doWork(): Result {
+    override suspend fun doRecipeWork(): Result {
         val recipeId = inputData.getString(KEY_RECIPE_ID)
-            ?: return Result.failure(
-                workDataOf(
-                    KEY_RESULT_TYPE to RESULT_ERROR,
-                    KEY_ERROR_MESSAGE to "No recipe ID provided"
-                )
-            )
+            ?: return errorResult("No recipe ID provided")
         val model = inputData.getString(KEY_MODEL)
         val thinkingEnabled = if (inputData.keyValueMap.containsKey(KEY_EXTENDED_THINKING)) {
             inputData.getBoolean(KEY_EXTENDED_THINKING, SettingsDataStore.DEFAULT_THINKING_ENABLED)
@@ -114,9 +111,12 @@ class RecipeRegenerateWorker @AssistedInject constructor(
 
         return when (result) {
             is RegenerateRecipeUseCase.RegenerateResult.Success -> {
+                cancelProgressNotification()
                 notificationHelper.showSuccessNotification(
+                    key = operationKey,
                     recipeName = result.recipe.name,
-                    recipeId = result.recipe.id
+                    recipeId = result.recipe.id,
+                    title = "Recipe Regenerated"
                 )
                 Result.success(
                     workDataOf(
@@ -127,27 +127,20 @@ class RecipeRegenerateWorker @AssistedInject constructor(
                 )
             }
             is RegenerateRecipeUseCase.RegenerateResult.Error -> errorResult(
-                errorNotificationTitle = "Regeneration Failed",
-                resultTypeKey = KEY_RESULT_TYPE,
-                errorMessageKey = KEY_ERROR_MESSAGE,
-                errorType = RESULT_ERROR,
                 errorMessage = result.message,
-                KEY_RECIPE_ID to recipeId
+                retryable = result.retryable,
+                extraData = mapOf(KEY_RECIPE_ID to recipeId)
             )
-            RegenerateRecipeUseCase.RegenerateResult.NoApiKey -> notAvailableResult(
-                resultTypeKey = KEY_RESULT_TYPE,
-                errorMessageKey = KEY_ERROR_MESSAGE,
-                resultType = RESULT_NO_API_KEY,
+            RegenerateRecipeUseCase.RegenerateResult.NoApiKey -> errorResult(
                 errorMessage = "API key not configured",
-                KEY_RECIPE_ID to recipeId
+                errorType = RESULT_NO_API_KEY,
+                notify = false,
+                extraData = mapOf(KEY_RECIPE_ID to recipeId)
             )
             RegenerateRecipeUseCase.RegenerateResult.NoSourceUrl -> errorResult(
-                errorNotificationTitle = "Regeneration Failed",
-                resultTypeKey = KEY_RESULT_TYPE,
-                errorMessageKey = KEY_ERROR_MESSAGE,
-                errorType = RESULT_NO_SOURCE_URL,
                 errorMessage = "No source URL available for this recipe",
-                KEY_RECIPE_ID to recipeId
+                errorType = RESULT_NO_SOURCE_URL,
+                extraData = mapOf(KEY_RECIPE_ID to recipeId)
             )
         }
     }

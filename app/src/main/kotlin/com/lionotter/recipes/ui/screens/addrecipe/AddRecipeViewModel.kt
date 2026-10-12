@@ -2,7 +2,6 @@ package com.lionotter.recipes.ui.screens.addrecipe
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.lionotter.recipes.data.local.SettingsDataStore
@@ -123,24 +122,12 @@ class AddRecipeViewModel @Inject constructor(
             return
         }
 
-        // Generate ID for tracking this import in the recipe list
-        currentImportId = UUID.randomUUID().toString()
-
-        // Build the work request first so we can persist its UUID for cancellation
-        val workRequest = OneTimeWorkRequestBuilder<RecipeImportWorker>()
-            .setInputData(RecipeImportWorker.createInputData(currentUrl, currentImportId!!))
-            .addTag(RecipeImportWorker.TAG_RECIPE_IMPORT)
-            .build()
-
-        currentWorkId = workRequest.id
-        inProgressRecipeManager.addInProgressRecipe(
-            currentImportId!!, "Importing recipe...",
-            url = currentUrl,
-            workManagerId = workRequest.id.toString()
-        )
-        workManager.enqueue(workRequest)
-
         _uiState.value = AddRecipeUiState.Loading(ImportProgress.Queued)
+        viewModelScope.launch {
+            val started = inProgressRecipeManager.startUrlImport(currentUrl)
+            currentImportId = started.importId
+            currentWorkId = started.workId
+        }
     }
 
     fun cancelImport() {

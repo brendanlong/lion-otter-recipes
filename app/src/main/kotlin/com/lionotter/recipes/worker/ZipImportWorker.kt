@@ -1,8 +1,7 @@
 package com.lionotter.recipes.worker
 
 import android.content.Context
-import android.net.Uri
-import androidx.core.net.toUri
+import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.Data
 import androidx.work.WorkerParameters
@@ -14,82 +13,54 @@ import dagger.assisted.AssistedInject
 
 @HiltWorker
 class ZipImportWorker @AssistedInject constructor(
-    @Assisted private val context: Context,
+    @Assisted context: Context,
     @Assisted workerParams: WorkerParameters,
     private val importFromZipUseCase: ImportFromZipUseCase,
+    private val inputStore: ImportInputStore,
     notificationHelper: RecipeNotificationHelper
 ) : BaseRecipeWorker(context, workerParams, notificationHelper) {
 
     override val notificationTitle = "Importing recipes"
+    override val errorTitle = "Import Failed"
 
     companion object {
+        private const val TAG = "ZipImportWorker"
         const val TAG_ZIP_IMPORT = "zip_import"
 
-        const val KEY_FILE_URI = "file_uri"
-        const val KEY_IMPORT_ID = "import_id"
-        const val KEY_SELECTED_RECIPE_IDS = "selected_recipe_ids"
-        const val KEY_RESULT_TYPE = "result_type"
+        const val KEY_IMPORT_ID = BaseRecipeWorker.KEY_IMPORT_ID
+        const val KEY_RESULT_TYPE = BaseRecipeWorker.KEY_RESULT_TYPE
         const val KEY_IMPORTED_COUNT = "imported_count"
         const val KEY_FAILED_COUNT = "failed_count"
         const val KEY_SKIPPED_COUNT = "skipped_count"
-        const val KEY_ERROR_MESSAGE = "error_message"
+        const val KEY_MEAL_PLANS_IMPORTED = "meal_plans_imported"
+        const val KEY_ERROR_MESSAGE = BaseRecipeWorker.KEY_ERROR_MESSAGE
         const val KEY_PROGRESS = "progress"
         const val KEY_CURRENT = "current"
         const val KEY_TOTAL = "total"
         const val KEY_RECIPE_NAME = "recipe_name"
 
         const val RESULT_SUCCESS = "success"
-        const val RESULT_ERROR = "error"
+        const val RESULT_ERROR = BaseRecipeWorker.RESULT_ERROR
 
         const val PROGRESS_STARTING = "starting"
         const val PROGRESS_READING = "reading"
         const val PROGRESS_IMPORTING = "importing"
 
-        fun createInputData(
-            fileUri: Uri,
-            importId: String? = null,
-            selectedRecipeIds: Set<String>? = null
-        ): Data {
-            return workDataOf(
-                KEY_FILE_URI to fileUri.toString(),
-                KEY_IMPORT_ID to importId,
-                KEY_SELECTED_RECIPE_IDS to selectedRecipeIds?.toTypedArray()
-            )
-        }
+        /** The file and selection live in [ImportInputStore] under [importId]. */
+        fun createInputData(importId: String): Data = workDataOf(KEY_IMPORT_ID to importId)
     }
 
-    override suspend fun doWork(): Result {
-        val fileUriString = inputData.getString(KEY_FILE_URI)
-            ?: return Result.failure(
-                workDataOf(
-                    KEY_RESULT_TYPE to RESULT_ERROR,
-                    KEY_ERROR_MESSAGE to "No file URI provided"
-                )
-            )
-
-        val fileUri = fileUriString.toUri()
+    override suspend fun doRecipeWork(): Result {
         val importId = inputData.getString(KEY_IMPORT_ID)
-        val selectedRecipeIds = inputData.getStringArray(KEY_SELECTED_RECIPE_IDS)?.toSet()
+            ?: return errorResult("No import ID provided")
+        val sourceFile = inputStore.sourceFile(importId)
+        if (!sourceFile.exists()) {
+            return errorResult("The file to import is no longer available. Please choose it again.")
+        }
+        val selectedRecipeIds = inputStore.readSelection(importId)
         setForegroundProgress("Starting import...")
 
-        val inputStream = try {
-            context.contentResolver.openInputStream(fileUri)
-                ?: return Result.failure(
-                    workDataOf(
-                        KEY_RESULT_TYPE to RESULT_ERROR,
-                        KEY_ERROR_MESSAGE to "Could not open file"
-                    )
-                )
-        } catch (e: Exception) {
-            return Result.failure(
-                workDataOf(
-                    KEY_RESULT_TYPE to RESULT_ERROR,
-                    KEY_ERROR_MESSAGE to "Failed to open file: ${e.message}"
-                )
-            )
-        }
-
-        val result = inputStream.use { stream ->
+        val result = sourceFile.inputStream().buffered().use { stream ->
             importFromZipUseCase.importFromZip(
                 inputStream = stream,
                 selectedRecipeIds = selectedRecipeIds,
@@ -117,7 +88,11 @@ class ZipImportWorker @AssistedInject constructor(
                                 KEY_CURRENT to progress.current,
                                 KEY_TOTAL to progress.total
                             ))
-                            "Importing ${progress.current}/${progress.total}: ${progress.recipeName}"
+                            if (progress.total > 0) {
+                                "Importing ${progress.current}/${progress.total}: ${progress.recipeName}"
+                            } else {
+                                "Importing ${progress.current}: ${progress.recipeName}"
+                            }
                         }
                         is ImportFromZipUseCase.ImportProgress.Complete -> "Complete!"
                     }
@@ -128,10 +103,17 @@ class ZipImportWorker @AssistedInject constructor(
 
         return when (result) {
             is ImportFromZipUseCase.ImportResult.Success -> {
-                notificationHelper.showZipImportSuccessNotification(
-                    importedCount = result.importedCount,
-                    failedCount = result.failedCount,
-                    skippedCount = result.skippedCount
+                inputStore.deleteImport(importId)
+                cancelProgressNotification()
+                notificationHelper.showSummaryNotification(
+                    key = importId,
+                    title = "Import Complete",
+                    message = notificationHelper.zipImportMessage(
+                        importedCount = result.importedCount,
+                        failedCount = result.failedCount,
+                        skippedCount = result.skippedCount,
+                        mealPlansImported = result.mealPlansImported
+                    )
                 )
                 Result.success(
                     workDataOf(
@@ -139,17 +121,15 @@ class ZipImportWorker @AssistedInject constructor(
                         KEY_IMPORT_ID to importId,
                         KEY_IMPORTED_COUNT to result.importedCount,
                         KEY_FAILED_COUNT to result.failedCount,
-                        KEY_SKIPPED_COUNT to result.skippedCount
+                        KEY_SKIPPED_COUNT to result.skippedCount,
+                        KEY_MEAL_PLANS_IMPORTED to result.mealPlansImported
                     )
                 )
             }
-            is ImportFromZipUseCase.ImportResult.Error -> errorResult(
-                errorNotificationTitle = "Import Failed",
-                resultTypeKey = KEY_RESULT_TYPE,
-                errorMessageKey = KEY_ERROR_MESSAGE,
-                errorType = RESULT_ERROR,
-                errorMessage = result.message
-            )
+            is ImportFromZipUseCase.ImportResult.Error -> {
+                Log.w(TAG, "ZIP import $importId failed: ${result.message}")
+                errorResult(result.message)
+            }
         }
     }
 }
