@@ -12,6 +12,7 @@ import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.remote.ImageSyncService
 import com.lionotter.recipes.data.repository.MealPlanRepository
 import com.lionotter.recipes.data.repository.RecipeRepository
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -56,6 +57,7 @@ abstract class FirestoreIntegrationTest {
     protected lateinit var firestoreService: TestFirestoreService
     protected lateinit var recipeRepository: RecipeRepository
     protected lateinit var mealPlanRepository: MealPlanRepository
+    protected val authState = MutableStateFlow<AuthState>(AuthState.Guest(uid = "test-user"))
 
     @Before
     fun baseSetup() {
@@ -78,13 +80,14 @@ abstract class FirestoreIntegrationTest {
         db.disableNetwork()
 
         firestoreService = TestFirestoreService()
-        val imageSyncService = ImageSyncService(context)
+        val imageSyncService = ImageSyncService(context, firestoreService)
         val httpClient = HttpClient(MockEngine) {
             engine { addHandler { respond("", HttpStatusCode.NotFound) } }
         }
         val authService: AuthService = mockk()
-        every { authService.authState } returns MutableStateFlow<AuthState>(AuthState.Guest(uid = "test-user"))
+        every { authService.authState } returns authState
         every { authService.isGoogleUser() } returns false
+        coEvery { authService.awaitUid() } returns "test-user"
         val imageDownloadService = ImageDownloadService(context, httpClient, imageSyncService, authService)
         recipeRepository = RecipeRepository(firestoreService, imageDownloadService, authService)
         mealPlanRepository = MealPlanRepository(firestoreService, authService)

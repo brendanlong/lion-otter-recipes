@@ -6,6 +6,7 @@ import com.lionotter.recipes.data.remote.AuthState
 import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.remote.ImageSyncService
 import com.lionotter.recipes.data.repository.RecipeRepository
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -320,13 +321,14 @@ class FirestoreListenerSpikeTest {
         // Full integration: fire-and-forget write → pumpLooper → suspend read via looper pumping
         val testFirestoreService = TestFirestoreService()
         val context = RuntimeEnvironment.getApplication()
-        val imageSyncService = ImageSyncService(context)
+        val imageSyncService = ImageSyncService(context, testFirestoreService)
         val httpClient = HttpClient(MockEngine) {
             engine { addHandler { respond("", HttpStatusCode.NotFound) } }
         }
         val authService: AuthService = mockk()
         every { authService.authState } returns MutableStateFlow<AuthState>(AuthState.Guest(uid = "test-user"))
         every { authService.isGoogleUser() } returns false
+        coEvery { authService.awaitUid() } returns "test-user"
         val imageDownloadService = ImageDownloadService(context, httpClient, imageSyncService, authService)
         val recipeRepo = RecipeRepository(testFirestoreService, imageDownloadService, authService)
 
