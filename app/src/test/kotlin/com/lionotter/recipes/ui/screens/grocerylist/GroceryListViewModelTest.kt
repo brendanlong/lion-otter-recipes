@@ -1,8 +1,18 @@
 package com.lionotter.recipes.ui.screens.grocerylist
 
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import app.cash.turbine.test
+import com.lionotter.recipes.R
+import com.lionotter.recipes.data.local.GroceryListStateStore
+import com.lionotter.recipes.data.local.SavedGroceryListState
 import com.lionotter.recipes.data.local.SettingsDataStore
+import io.mockk.coVerify
+import io.mockk.just
+import io.mockk.mockkStatic
+import io.mockk.runs
+import io.mockk.unmockkStatic
+import kotlinx.coroutines.flow.flow
 import com.lionotter.recipes.data.repository.MealPlanRepository
 import com.lionotter.recipes.data.repository.RecipeRepository
 import com.lionotter.recipes.domain.model.Amount
@@ -44,6 +54,7 @@ class GroceryListViewModelTest {
     private lateinit var mealPlanRepository: MealPlanRepository
     private lateinit var recipeRepository: RecipeRepository
     private lateinit var settingsDataStore: SettingsDataStore
+    private lateinit var groceryListStateStore: GroceryListStateStore
     private val testDispatcher = StandardTestDispatcher()
 
     // Week containing 2025-01-01 (Wednesday), starting Monday 2024-12-30
@@ -56,6 +67,8 @@ class GroceryListViewModelTest {
         mealPlanRepository = mockk()
         recipeRepository = mockk()
         settingsDataStore = mockk()
+        groceryListStateStore = mockk()
+        coEvery { groceryListStateStore.save(any(), any()) } just runs
 
         every { settingsDataStore.groceryVolumeUnitSystem } returns flowOf(UnitSystem.CUSTOMARY)
         every { settingsDataStore.groceryWeightUnitSystem } returns flowOf(UnitSystem.METRIC)
@@ -107,16 +120,149 @@ class GroceryListViewModelTest {
         updatedAt = Instant.fromEpochMilliseconds(2000)
     )
 
-    private fun createViewModel(entries: List<MealPlanEntry> = emptyList()): GroceryListViewModel {
+    private fun createViewModel(
+        entries: List<MealPlanEntry> = emptyList(),
+        savedState: SavedGroceryListState? = null
+    ): GroceryListViewModel {
         every { mealPlanRepository.getMealPlansForDateRange(testWeekStart, testWeekEnd) } returns flowOf(entries)
+        coEvery { groceryListStateStore.load(testWeekStart) } returns savedState
         val savedStateHandle = SavedStateHandle(mapOf("weekStart" to testWeekStart.toString()))
         return GroceryListViewModel(
             savedStateHandle = savedStateHandle,
             mealPlanRepository = mealPlanRepository,
             recipeRepository = recipeRepository,
             aggregateGroceryListUseCase = AggregateGroceryListUseCase(),
-            settingsDataStore = settingsDataStore
+            settingsDataStore = settingsDataStore,
+            groceryListStateStore = groceryListStateStore
         )
+    }
+
+    private suspend fun generateAndAwait(
+        viewModel: GroceryListViewModel
+    ): List<DisplayGroceryItem> {
+        var result: List<DisplayGroceryItem> = emptyList()
+        viewModel.displayGroceryItems.test {
+            awaitItem() // initial empty
+            viewModel.generateGroceryList()
+            result = awaitItem()
+            cancelAndIgnoreRemainingEvents()
+        }
+        return result
+    }
+
+    @Test
+    fun `counts and measured amounts are both shown`() = runTest {
+        coEvery { recipeRepository.getRecipeByIdOnce("r1") } returns createRecipe(
+            "r1", "Recipe A", listOf(Ingredient(name = "onion", amount = Amount(value = 1.0)))
+        )
+        coEvery { recipeRepository.getRecipeByIdOnce("r2") } returns createRecipe(
+            "r2", "Recipe B", listOf(Ingredient(name = "onion", amount = Amount(value = 200.0, unit = "g")))
+        )
+        val viewModel = createViewModel(
+            listOf(createEntry("e1", "r1", "Recipe A"), createEntry("e2", "r2", "Recipe B"))
+        )
+        advanceUntilIdle()
+
+        val total = generateAndAwait(viewModel)[0].totalAmount!!
+
+        assertTrue("Expected grams and count but got: $total", total.contains("g") && total.endsWith("+ 1"))
+    }
+
+    @Test
+    fun `sources without an amount mark the total as partial`() = runTest {
+        coEvery { recipeRepository.getRecipeByIdOnce("r1") } returns createRecipe(
+            "r1", "Recipe A", listOf(Ingredient(name = "salt", amount = Amount(value = 1.0, unit = "tsp")))
+        )
+        coEvery { recipeRepository.getRecipeByIdOnce("r2") } returns createRecipe(
+            "r2", "Recipe B", listOf(Ingredient(name = "salt"))
+        )
+        val viewModel = createViewModel(
+            listOf(createEntry("e1", "r1", "Recipe A"), createEntry("e2", "r2", "Recipe B"))
+        )
+        advanceUntilIdle()
+
+        val item = generateAndAwait(viewModel)[0]
+
+        assertNotNull(item.totalAmount)
+        assertTrue(item.totalIsPartial)
+        assertTrue(GroceryListViewModel.aggregateHeaderText(item, "+ more").endsWith("salt + more"))
+    }
+
+    @Test
+    fun `missing recipes are reported as skipped`() = runTest {
+        coEvery { recipeRepository.getRecipeByIdOnce("r1") } returns createRecipe(
+            "r1", "Recipe A", listOf(Ingredient(name = "sugar", amount = Amount(value = 1.0, unit = "cup")))
+        )
+        coEvery { recipeRepository.getRecipeByIdOnce("gone") } returns null
+        val viewModel = createViewModel(
+            listOf(createEntry("e1", "r1", "Recipe A"), createEntry("e2", "gone", "Deleted Recipe"))
+        )
+        advanceUntilIdle()
+
+        val items = generateAndAwait(viewModel)
+
+        assertEquals(1, items.size)
+        assertEquals(listOf("Deleted Recipe"), viewModel.skippedRecipeNames.value)
+    }
+
+    @Test
+    fun `saved state restores the generated list and checked items`() = runTest {
+        coEvery { recipeRepository.getRecipeByIdOnce("r1") } returns createRecipe(
+            "r1", "Recipe A", listOf(
+                Ingredient(name = "sugar", amount = Amount(value = 1.0, unit = "cup")),
+                Ingredient(name = "flour", amount = Amount(value = 2.0, unit = "cup"))
+            )
+        )
+        val viewModel = createViewModel(
+            entries = listOf(createEntry("e1", "r1", "Recipe A")),
+            savedState = SavedGroceryListState(
+                selectedEntryIds = setOf("e1"),
+                showingList = true,
+                checkedItems = setOf("sugar", "no longer on the list"),
+                checkedSources = emptySet()
+            )
+        )
+
+        viewModel.displayGroceryItems.test {
+            advanceUntilIdle()
+            val items = expectMostRecentItem()
+            assertEquals(GroceryListStep.VIEW_LIST, viewModel.step.value)
+            assertEquals(2, items.size)
+            assertTrue(items.first { it.key == "sugar" }.isChecked)
+            assertFalse(items.first { it.key == "flour" }.isChecked)
+            cancelAndIgnoreRemainingEvents()
+        }
+        coVerify {
+            groceryListStateStore.save(
+                testWeekStart,
+                SavedGroceryListState(setOf("e1"), true, setOf("sugar"), emptySet())
+            )
+        }
+    }
+
+    @Test
+    fun `meal plan load failure shows error instead of crashing`() = runTest {
+        mockkStatic(Log::class)
+        every { Log.e(any(), any(), any()) } returns 0
+        every { mealPlanRepository.getMealPlansForDateRange(testWeekStart, testWeekEnd) } returns
+            flow { throw IllegalStateException("boom") }
+        coEvery { groceryListStateStore.load(testWeekStart) } returns null
+        val viewModel = GroceryListViewModel(
+            savedStateHandle = SavedStateHandle(mapOf("weekStart" to testWeekStart.toString())),
+            mealPlanRepository = mealPlanRepository,
+            recipeRepository = recipeRepository,
+            aggregateGroceryListUseCase = AggregateGroceryListUseCase(),
+            settingsDataStore = settingsDataStore,
+            groceryListStateStore = groceryListStateStore
+        )
+
+        viewModel.selectableEntries.test {
+            advanceUntilIdle()
+            assertEquals(emptyMap<LocalDate, List<SelectableMealPlanEntry>>(), expectMostRecentItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+        assertEquals(R.string.grocery_list_load_failed, viewModel.errorMessage.value)
+        unmockkStatic(Log::class)
     }
 
     @Test

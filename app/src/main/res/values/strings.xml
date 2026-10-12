@@ -309,5 +309,9 @@
     <string name="import_debug_share_failed">Couldn\'t share content</string>
     <string name="copy_content">Copy</string>
     <string name="share_full_content">Share full content</string>
+    <string name="grocery_list_load_failed">Couldn\'t load this week\'s meal plan.</string>
+    <string name="grocery_list_generate_failed">Couldn\'t generate the grocery list. Please try again.</string>
+    <string name="grocery_list_skipped_recipes">Couldn\'t find these recipes, so their ingredients aren\'t included: %1$s</string>
+    <string name="grocery_total_partial_suffix">+ more</string>
     <!-- ===== END secondary screens ===== -->
 </resources>

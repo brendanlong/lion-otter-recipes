@@ -1,36 +1,51 @@
 package com.lionotter.recipes.ui.screens.grocerylist
 
 import android.content.Intent
-import androidx.compose.foundation.clickable
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -40,11 +55,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.MealType
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
+import com.lionotter.recipes.ui.screens.mealplan.MealPlanDateFormat
 import kotlinx.datetime.LocalDate
-import kotlinx.datetime.toJavaDayOfWeek
-import kotlinx.datetime.toJavaMonth
-import java.time.format.TextStyle
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,14 +65,31 @@ fun GroceryListScreen(
     viewModel: GroceryListViewModel = hiltViewModel()
 ) {
     val step by viewModel.step.collectAsStateWithLifecycle()
+    val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    val errorText = errorMessage?.let { stringResource(it) }
+    LaunchedEffect(errorText) {
+        if (errorText != null) {
+            snackbarHostState.showSnackbar(errorText)
+            viewModel.clearError()
+        }
+    }
+
+    // The list is a sub-step of this screen, so system back returns to the selection
+    BackHandler(enabled = step == GroceryListStep.VIEW_LIST) {
+        viewModel.backToSelection()
+    }
 
     when (step) {
         GroceryListStep.SELECT_RECIPES -> RecipeSelectionScreen(
             viewModel = viewModel,
+            snackbarHostState = snackbarHostState,
             onBackClick = onBackClick
         )
         GroceryListStep.VIEW_LIST -> GroceryListDisplayScreen(
             viewModel = viewModel,
+            snackbarHostState = snackbarHostState,
             onBackClick = { viewModel.backToSelection() }
         )
     }
@@ -70,10 +99,13 @@ fun GroceryListScreen(
 @Composable
 private fun RecipeSelectionScreen(
     viewModel: GroceryListViewModel,
+    snackbarHostState: SnackbarHostState,
     onBackClick: () -> Unit
 ) {
-    val selectableEntries by viewModel.selectableEntries.collectAsStateWithLifecycle()
-    val hasSelection = selectableEntries.values.any { entries ->
+    val loadedEntries by viewModel.selectableEntries.collectAsStateWithLifecycle()
+    val isGenerating by viewModel.isGenerating.collectAsStateWithLifecycle()
+    val selectableEntries = loadedEntries
+    val hasSelection = selectableEntries.orEmpty().values.any { entries ->
         entries.any { it.isSelected }
     }
 
@@ -84,23 +116,45 @@ private fun RecipeSelectionScreen(
                 onBackClick = onBackClick
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                Button(
-                    onClick = { viewModel.generateGroceryList() },
-                    enabled = hasSelection,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(stringResource(R.string.generate_grocery_list))
+            if (!selectableEntries.isNullOrEmpty()) {
+                Surface(tonalElevation = 3.dp) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .windowInsetsPadding(WindowInsets.navigationBars)
+                            .padding(16.dp)
+                    ) {
+                        Button(
+                            onClick = { viewModel.generateGroceryList() },
+                            enabled = hasSelection && !isGenerating,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            if (isGenerating) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            Text(stringResource(R.string.generate_grocery_list))
+                        }
+                    }
                 }
             }
         }
     ) { paddingValues ->
-        if (selectableEntries.isEmpty()) {
+        if (selectableEntries == null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        } else if (selectableEntries.isEmpty()) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -175,13 +229,8 @@ private fun RecipeSelectionScreen(
 
 @Composable
 private fun DateHeader(date: LocalDate) {
-    val dayName = date.dayOfWeek.toJavaDayOfWeek()
-        .getDisplayName(TextStyle.FULL, Locale.getDefault())
-    val monthName = date.month.toJavaMonth()
-        .getDisplayName(TextStyle.SHORT, Locale.getDefault())
-
     Text(
-        text = "$dayName, $monthName ${date.day}",
+        text = MealPlanDateFormat.dayHeader(date),
         style = MaterialTheme.typography.titleSmall,
         fontWeight = FontWeight.Bold,
         color = MaterialTheme.colorScheme.primary,
@@ -204,13 +253,18 @@ private fun MealPlanCheckboxRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onToggle)
+            .toggleable(
+                value = entry.isSelected,
+                role = Role.Checkbox,
+                onValueChange = { onToggle() }
+            )
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Checkbox(
             checked = entry.isSelected,
-            onCheckedChange = { onToggle() }
+            onCheckedChange = null,
+            modifier = Modifier.padding(12.dp)
         )
         Spacer(modifier = Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -222,7 +276,7 @@ private fun MealPlanCheckboxRow(
             )
             Text(
                 text = mealTypeLabel + if (entry.entry.servings != 1.0) {
-                    " \u2022 ${formatServings(entry.entry.servings)}x"
+                    " • ${formatServings(entry.entry.servings)}x"
                 } else "",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -235,10 +289,14 @@ private fun MealPlanCheckboxRow(
 @Composable
 private fun GroceryListDisplayScreen(
     viewModel: GroceryListViewModel,
+    snackbarHostState: SnackbarHostState,
     onBackClick: () -> Unit
 ) {
     val items by viewModel.displayGroceryItems.collectAsStateWithLifecycle()
+    val isGenerating by viewModel.isGenerating.collectAsStateWithLifecycle()
+    val skippedRecipeNames by viewModel.skippedRecipeNames.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val partialTotalSuffix = stringResource(R.string.grocery_total_partial_suffix)
 
     Scaffold(
         topBar = {
@@ -246,14 +304,17 @@ private fun GroceryListDisplayScreen(
                 title = stringResource(R.string.grocery_list),
                 onBackClick = onBackClick,
                 actions = {
-                    IconButton(onClick = {
-                        val shareText = viewModel.getShareText()
-                        val intent = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, shareText)
-                        }
-                        context.startActivity(Intent.createChooser(intent, null))
-                    }) {
+                    IconButton(
+                        onClick = {
+                            val shareText = viewModel.getShareText(partialTotalSuffix)
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, shareText)
+                            }
+                            context.startActivity(Intent.createChooser(intent, null))
+                        },
+                        enabled = !isGenerating && items.isNotEmpty()
+                    ) {
                         Icon(
                             imageVector = Icons.Default.Share,
                             contentDescription = stringResource(R.string.share_grocery_list)
@@ -261,9 +322,19 @@ private fun GroceryListDisplayScreen(
                     }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
-        if (items.isEmpty()) {
+        if (isGenerating) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        } else if (items.isEmpty()) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -277,6 +348,10 @@ private fun GroceryListDisplayScreen(
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (skippedRecipeNames.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    SkippedRecipesNotice(skippedRecipeNames)
+                }
             }
         } else {
             LazyColumn(
@@ -286,12 +361,21 @@ private fun GroceryListDisplayScreen(
                     .padding(paddingValues),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
+                if (skippedRecipeNames.isNotEmpty()) {
+                    item(key = "skipped_notice") {
+                        SkippedRecipesNotice(
+                            names = skippedRecipeNames,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                    }
+                }
                 items(
                     items = items,
                     key = { it.key }
                 ) { item ->
                     GroceryItemRow(
                         item = item,
+                        partialTotalSuffix = partialTotalSuffix,
                         onItemToggle = { viewModel.toggleItemChecked(item.key) },
                         onSourceToggle = { sourceKey -> viewModel.toggleSourceChecked(sourceKey) }
                     )
@@ -302,32 +386,53 @@ private fun GroceryListDisplayScreen(
 }
 
 @Composable
+private fun SkippedRecipesNotice(names: List<String>, modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer
+        )
+    ) {
+        Text(
+            text = stringResource(R.string.grocery_list_skipped_recipes, names.joinToString(", ")),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(12.dp)
+        )
+    }
+}
+
+@Composable
 private fun GroceryItemRow(
     item: DisplayGroceryItem,
+    partialTotalSuffix: String,
     onItemToggle: () -> Unit,
     onSourceToggle: (String) -> Unit
 ) {
     // If only one source total, show it directly
     if (item.sources.size <= 1) {
         val source = item.sources.firstOrNull() ?: return
-        SingleIngredientRow(
-            source = source,
-            recipeName = source.recipeName,
+        CheckRow(
+            text = "${source.displayText} (${source.recipeName})",
             isChecked = item.isChecked || source.isChecked,
             onToggle = onItemToggle
         )
     } else {
         // Multiple sources - show aggregate header with sub-items
         Column {
-            AggregateIngredientHeader(
-                item = item,
-                onToggle = onItemToggle
+            CheckRow(
+                text = GroceryListViewModel.aggregateHeaderText(item, partialTotalSuffix),
+                isChecked = item.isChecked,
+                onToggle = onItemToggle,
+                bold = true
             )
-            // Sub-items
             for (source in item.sources) {
-                SubIngredientRow(
-                    source = source,
-                    onToggle = { onSourceToggle(source.key) }
+                CheckRow(
+                    text = "${source.displayText} (${source.recipeName})",
+                    isChecked = source.isChecked,
+                    onToggle = { onSourceToggle(source.key) },
+                    modifier = Modifier.padding(start = 40.dp),
+                    small = true
                 )
             }
         }
@@ -335,90 +440,37 @@ private fun GroceryItemRow(
 }
 
 @Composable
-private fun SingleIngredientRow(
-    source: DisplayGrocerySource,
-    recipeName: String,
+private fun CheckRow(
+    text: String,
     isChecked: Boolean,
-    onToggle: () -> Unit
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+    bold: Boolean = false,
+    small: Boolean = false
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onToggle)
+            .toggleable(
+                value = isChecked,
+                role = Role.Checkbox,
+                onValueChange = { onToggle() }
+            )
             .padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Checkbox(
             checked = isChecked,
-            onCheckedChange = { onToggle() }
+            onCheckedChange = null,
+            modifier = Modifier.padding(12.dp)
         )
         Spacer(modifier = Modifier.width(4.dp))
         Text(
-            text = "${source.displayText} ($recipeName)",
-            style = MaterialTheme.typography.bodyMedium,
+            text = text,
+            style = if (small) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
+            fontWeight = if (bold) FontWeight.Bold else null,
             textDecoration = if (isChecked) TextDecoration.LineThrough else TextDecoration.None,
             color = if (isChecked) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f)
-        )
-    }
-}
-
-@Composable
-private fun AggregateIngredientHeader(
-    item: DisplayGroceryItem,
-    onToggle: () -> Unit
-) {
-    val headerText = if (item.totalAmount != null) {
-        "${item.totalAmount} ${item.displayText}"
-    } else {
-        item.displayText
-    }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onToggle)
-            .padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Checkbox(
-            checked = item.isChecked,
-            onCheckedChange = { onToggle() }
-        )
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(
-            text = headerText,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Bold,
-            textDecoration = if (item.isChecked) TextDecoration.LineThrough else TextDecoration.None,
-            color = if (item.isChecked) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f)
-        )
-    }
-}
-
-@Composable
-private fun SubIngredientRow(
-    source: DisplayGrocerySource,
-    onToggle: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onToggle)
-            .padding(start = 40.dp, top = 2.dp, bottom = 2.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Checkbox(
-            checked = source.isChecked,
-            onCheckedChange = { onToggle() }
-        )
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(
-            text = "${source.displayText} (${source.recipeName})",
-            style = MaterialTheme.typography.bodySmall,
-            textDecoration = if (source.isChecked) TextDecoration.LineThrough else TextDecoration.None,
-            color = if (source.isChecked) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f)
         )
     }

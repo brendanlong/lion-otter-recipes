@@ -1,12 +1,17 @@
 package com.lionotter.recipes.ui.screens.grocerylist
 
+import android.util.Log
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lionotter.recipes.R
+import com.lionotter.recipes.data.local.GroceryListStateStore
+import com.lionotter.recipes.data.local.SavedGroceryListState
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.repository.IMealPlanRepository
 import com.lionotter.recipes.data.repository.IRecipeRepository
-import com.lionotter.recipes.domain.model.Amount
 import com.lionotter.recipes.domain.model.MealPlanEntry
+import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.UnitCategory
 import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.domain.model.formatAmount
@@ -17,17 +22,24 @@ import com.lionotter.recipes.domain.model.unitType
 import com.lionotter.recipes.domain.usecase.AggregateGroceryListUseCase
 import com.lionotter.recipes.domain.usecase.GroceryIngredientSource
 import com.lionotter.recipes.domain.usecase.GroceryItem
-import androidx.lifecycle.SavedStateHandle
+import com.lionotter.recipes.util.singularize
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.plus
@@ -43,13 +55,19 @@ data class SelectableMealPlanEntry(
 
 /**
  * A displayable grocery item with check-off state.
+ *
+ * @param totalAmount sum of the unchecked sources' amounts, possibly several parts joined
+ *   with " + " when they can't be converted to one unit (e.g. "200 g + 2 cups")
+ * @param totalIsPartial true if some unchecked sources had no usable amount, so
+ *   [totalAmount] doesn't cover everything
  */
 data class DisplayGroceryItem(
     val key: String,
     val displayText: String,
     val totalAmount: String?,
     val isChecked: Boolean,
-    val sources: List<DisplayGrocerySource>
+    val sources: List<DisplayGrocerySource>,
+    val totalIsPartial: Boolean = false
 )
 
 data class DisplayGrocerySource(
@@ -70,7 +88,8 @@ class GroceryListViewModel @Inject constructor(
     private val mealPlanRepository: IMealPlanRepository,
     private val recipeRepository: IRecipeRepository,
     private val aggregateGroceryListUseCase: AggregateGroceryListUseCase,
-    private val settingsDataStore: SettingsDataStore
+    private val settingsDataStore: SettingsDataStore,
+    private val groceryListStateStore: GroceryListStateStore
 ) : ViewModel() {
 
     private val weekStart: LocalDate = LocalDate.parse(savedStateHandle.get<String>("weekStart")!!)
@@ -79,55 +98,43 @@ class GroceryListViewModel @Inject constructor(
     private val _step = MutableStateFlow(GroceryListStep.SELECT_RECIPES)
     val step: StateFlow<GroceryListStep> = _step.asStateFlow()
 
-    /**
-     * Tracks whether the initial selection has been applied (select all on first load).
-     */
-    private var initialSelectionApplied = false
-
-    private val _mealPlanEntries: StateFlow<List<MealPlanEntry>> =
-        mealPlanRepository.getMealPlansForDateRange(weekStart, weekEnd)
-            .map { entries ->
-                entries.sortedWith(
-                    compareBy<MealPlanEntry> { it.date }
-                        .thenBy { it.mealType.displayOrder }
-                        .thenBy { it.recipeName }
-                )
-            }
-            .onEach { entries ->
-                // Select all by default on first load
-                if (!initialSelectionApplied) {
-                    _selectedEntryIds.value = entries.map { it.id }.toSet()
-                    initialSelectionApplied = true
-                }
-            }
-            .stateIn(
-                scope = viewModelScope,
-                started = SharingStarted.Eagerly,
-                initialValue = emptyList()
-            )
+    /** Meal plan entries for the week, or null while loading. */
+    private val _mealPlanEntries = MutableStateFlow<List<MealPlanEntry>?>(null)
 
     private val _selectedEntryIds = MutableStateFlow<Set<String>>(emptySet())
 
-    val selectableEntries: StateFlow<Map<LocalDate, List<SelectableMealPlanEntry>>> = combine(
+    private val _isGenerating = MutableStateFlow(false)
+    val isGenerating: StateFlow<Boolean> = _isGenerating.asStateFlow()
+
+    /** String resource id of an error to show, or null. */
+    private val _errorMessage = MutableStateFlow<Int?>(null)
+    val errorMessage: StateFlow<Int?> = _errorMessage.asStateFlow()
+
+    /** Names of selected meals whose recipe couldn't be found when generating the list. */
+    private val _skippedRecipeNames = MutableStateFlow<List<String>>(emptyList())
+    val skippedRecipeNames: StateFlow<List<String>> = _skippedRecipeNames.asStateFlow()
+
+    /** Selectable entries grouped by date, or null while loading. */
+    val selectableEntries: StateFlow<Map<LocalDate, List<SelectableMealPlanEntry>>?> = combine(
         _mealPlanEntries,
         _selectedEntryIds
     ) { entries, selectedIds ->
-        entries.map { entry ->
+        entries?.map { entry ->
             SelectableMealPlanEntry(
                 entry = entry,
                 isSelected = entry.id in selectedIds
             )
-        }.groupBy { it.entry.date }
-            .mapValues { (_, entries) ->
+        }?.groupBy { it.entry.date }
+            ?.mapValues { (_, entries) ->
                 entries.sortedWith(
                     compareBy<SelectableMealPlanEntry> { it.entry.mealType.displayOrder }
                         .thenBy { it.entry.recipeName }
                 )
-            }.toSortedMap()
+            }?.toSortedMap()
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyMap()
+        initialValue = null
     )
 
     // Grocery list state
@@ -145,7 +152,7 @@ class GroceryListViewModel @Inject constructor(
         _volumeSystem,
         _weightSystem
     ) { items, checkedItems, checkedSources, volumeSystem, weightSystem ->
-        items.mapNotNull { item ->
+        items.map { item ->
             buildDisplayItem(item, checkedItems, checkedSources, volumeSystem, weightSystem)
         }.sortedWith(
             compareBy<DisplayGroceryItem> { it.isChecked }
@@ -164,6 +171,87 @@ class GroceryListViewModel @Inject constructor(
         viewModelScope.launch {
             settingsDataStore.groceryWeightUnitSystem.collect { _weightSystem.value = it }
         }
+        viewModelScope.launch {
+            val saved = loadSavedState()
+            mealPlanRepository.getMealPlansForDateRange(weekStart, weekEnd)
+                .map { entries ->
+                    entries.sortedWith(
+                        compareBy<MealPlanEntry> { it.date }
+                            .thenBy { it.mealType.displayOrder }
+                            .thenBy { it.recipeName }
+                    )
+                }
+                .catch { e ->
+                    Log.e(TAG, "Failed to load meal plans for $weekStart", e)
+                    _errorMessage.value = R.string.grocery_list_load_failed
+                    emit(emptyList())
+                }
+                .collect { entries ->
+                    val isFirstLoad = _mealPlanEntries.value == null
+                    _mealPlanEntries.value = entries
+                    if (isFirstLoad) {
+                        restoreState(saved, entries)
+                    }
+                }
+        }
+    }
+
+    private suspend fun loadSavedState(): SavedGroceryListState? = try {
+        groceryListStateStore.load(weekStart)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "Failed to load saved grocery list state", e)
+        null
+    }
+
+    private fun restoreState(saved: SavedGroceryListState?, entries: List<MealPlanEntry>) {
+        if (saved == null) {
+            // Select all by default on first visit
+            _selectedEntryIds.value = entries.map { it.id }.toSet()
+        } else {
+            _selectedEntryIds.value = saved.selectedEntryIds
+            _checkedItems.value = saved.checkedItems
+            _checkedSources.value = saved.checkedSources
+            if (saved.showingList) {
+                _step.value = GroceryListStep.VIEW_LIST
+                generateGroceryList()
+            }
+        }
+        persistStateChanges()
+    }
+
+    private fun persistStateChanges() {
+        viewModelScope.launch {
+            combine(
+                _selectedEntryIds,
+                _step,
+                _checkedItems,
+                _checkedSources
+            ) { selected, step, checkedItems, checkedSources ->
+                SavedGroceryListState(
+                    selectedEntryIds = selected,
+                    showingList = step == GroceryListStep.VIEW_LIST,
+                    checkedItems = checkedItems,
+                    checkedSources = checkedSources
+                )
+            }
+                .distinctUntilChanged()
+                .conflate()
+                .collect { state ->
+                    try {
+                        withContext(NonCancellable) { groceryListStateStore.save(weekStart, state) }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to save grocery list state", e)
+                    }
+                }
+        }
+    }
+
+    fun clearError() {
+        _errorMessage.value = null
     }
 
     fun toggleEntrySelection(entryId: String) {
@@ -176,30 +264,69 @@ class GroceryListViewModel @Inject constructor(
     }
 
     fun selectAll() {
-        _selectedEntryIds.value = _mealPlanEntries.value.map { it.id }.toSet()
+        _selectedEntryIds.value = _mealPlanEntries.value.orEmpty().map { it.id }.toSet()
     }
 
     fun deselectAll() {
         _selectedEntryIds.value = emptySet()
     }
 
+    /**
+     * Loads the selected meals' recipes in parallel and aggregates their ingredients.
+     * Checked-off state is kept for items that are still on the list.
+     */
     fun generateGroceryList() {
+        if (_isGenerating.value) return
+        _isGenerating.value = true
         viewModelScope.launch {
-            val selectedIds = _selectedEntryIds.value
-            val selectedEntries = _mealPlanEntries.value.filter { it.id in selectedIds }
+            try {
+                val selectedIds = _selectedEntryIds.value
+                val selectedEntries = _mealPlanEntries.value.orEmpty().filter { it.id in selectedIds }
 
-            // Load recipes for selected entries
-            val entriesWithRecipes = selectedEntries.mapNotNull { entry ->
-                val recipe = recipeRepository.getRecipeByIdOnce(entry.recipeId)
-                if (recipe != null) entry to recipe else null
+                val recipesById: Map<String, Recipe?> = selectedEntries
+                    .map { it.recipeId }
+                    .distinct()
+                    .map { recipeId -> async { recipeId to loadRecipe(recipeId) } }
+                    .awaitAll()
+                    .toMap()
+
+                val entriesWithRecipes = selectedEntries.mapNotNull { entry ->
+                    recipesById[entry.recipeId]?.let { entry to it }
+                }
+                _skippedRecipeNames.value = selectedEntries
+                    .filter { recipesById[it.recipeId] == null }
+                    .map { it.recipeName }
+                    .distinct()
+
+                val items = aggregateGroceryListUseCase.execute(entriesWithRecipes)
+                val itemKeys = items.map { it.normalizedName.lowercase() }.toSet()
+                val sourceKeys = items.flatMap { item ->
+                    val itemKey = item.normalizedName.lowercase()
+                    item.sources.map { sourceKey(itemKey, it) }
+                }.toSet()
+                _checkedItems.value = _checkedItems.value intersect itemKeys
+                _checkedSources.value = _checkedSources.value intersect sourceKeys
+                _groceryItems.value = items
+                _step.value = GroceryListStep.VIEW_LIST
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to generate grocery list", e)
+                _errorMessage.value = R.string.grocery_list_generate_failed
+                _step.value = GroceryListStep.SELECT_RECIPES
+            } finally {
+                _isGenerating.value = false
             }
-
-            val items = aggregateGroceryListUseCase.execute(entriesWithRecipes)
-            _groceryItems.value = items
-            _checkedItems.value = emptySet()
-            _checkedSources.value = emptySet()
-            _step.value = GroceryListStep.VIEW_LIST
         }
+    }
+
+    private suspend fun loadRecipe(recipeId: String): Recipe? = try {
+        recipeRepository.getRecipeByIdOnce(recipeId)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "Failed to load recipe $recipeId for grocery list", e)
+        null
     }
 
     fun backToSelection() {
@@ -254,8 +381,10 @@ class GroceryListViewModel @Inject constructor(
 
     /**
      * Build a shareable Markdown string of the grocery list.
+     *
+     * @param partialTotalSuffix appended to totals that don't include every source's amount
      */
-    fun getShareText(): String {
+    fun getShareText(partialTotalSuffix: String = "+ more"): String {
         val items = displayGroceryItems.value
         return buildString {
             appendLine("# Grocery List")
@@ -271,12 +400,7 @@ class GroceryListViewModel @Inject constructor(
                     appendLine("- [ ] ${source.displayText} (${source.recipeName})")
                 } else {
                     // Multiple sources - show aggregate header and sub-items
-                    val headerText = if (item.totalAmount != null) {
-                        "${item.totalAmount} ${item.displayText}"
-                    } else {
-                        item.displayText
-                    }
-                    appendLine("- [ ] $headerText")
+                    appendLine("- [ ] ${aggregateHeaderText(item, partialTotalSuffix)}")
                     for (source in uncheckedSources) {
                         appendLine("  - [ ] ${source.displayText} (${source.recipeName})")
                     }
@@ -316,8 +440,8 @@ class GroceryListViewModel @Inject constructor(
         )
 
         // Calculate total display amount for aggregate header
-        val totalAmountText = if (displaySources.size > 1) {
-            calculateTotalDisplay(item.sources, itemKey, checkedSources, volumeSystem, weightSystem)
+        val total = if (displaySources.size > 1) {
+            calculateTotal(item.sources, itemKey, checkedSources, volumeSystem, weightSystem)
         } else {
             null
         }
@@ -325,129 +449,130 @@ class GroceryListViewModel @Inject constructor(
         return DisplayGroceryItem(
             key = itemKey,
             displayText = item.normalizedName,
-            totalAmount = totalAmountText,
+            totalAmount = total?.text,
             isChecked = isItemChecked,
-            sources = displaySources
+            sources = displaySources,
+            totalIsPartial = total?.isPartial ?: false
         )
     }
 
+    private data class Total(val text: String, val isPartial: Boolean)
+
     /**
-     * Calculate the aggregate display amount by summing all unchecked sources.
-     * Uses Ingredient.getDisplayAmount() to get each source's scaled amount,
-     * then converts to base units to sum, then back to a display unit.
+     * Sums the unchecked sources' amounts for the aggregate header.
      *
-     * When sources have mixed unit categories (e.g. some in volume, some in weight),
-     * converts everything to weight (grams) using ingredient density where available.
-     * If all sources share the same category, sums in that category directly.
+     * Weight and volume are each summed in base units; when both are present, volume
+     * sources with a known density (their own or any other source's, since they're the
+     * same ingredient) are converted to weight. Amounts that can't be combined are kept
+     * as separate parts ("200 g + 2 cups + 3 cloves + 1") rather than dropped, and the
+     * total is marked partial if any unchecked source has no amount at all, so the
+     * header never shows a misleadingly small number.
      */
-    private fun calculateTotalDisplay(
+    private fun calculateTotal(
         sources: List<GroceryIngredientSource>,
         itemKey: String,
         checkedSources: Set<String>,
         volumeSystem: UnitSystem,
         weightSystem: UnitSystem
-    ): String? {
-        data class SourceAmount(
-            val value: Double,
-            val unit: String?,
-            val category: UnitCategory?,
-            val density: Double?
-        )
+    ): Total? {
+        data class VolumeAmount(val milliliters: Double, val density: Double?)
 
-        val amounts = mutableListOf<SourceAmount>()
-        var countTotal = 0.0
-        var hasCountOnly = false
-        var anyUnchecked = false
+        var grams = 0.0
+        val volumes = mutableListOf<VolumeAmount>()
+        var count = 0.0
+        // singular lowercase unit -> (unit as written, total)
+        val otherUnits = linkedMapOf<String, Pair<String, Double>>()
+        var missingAmount = false
 
         for (source in sources) {
-            val key = sourceKey(itemKey, source)
-            if (key in checkedSources) continue
-            anyUnchecked = true
+            if (sourceKey(itemKey, source) in checkedSources) continue
 
-            // Use the same getDisplayAmount that format() uses internally
             val displayAmount = source.ingredient.getDisplayAmount(
                 scale = source.scale,
                 volumeSystem = volumeSystem,
                 weightSystem = weightSystem
-            ) ?: continue
-            val value = displayAmount.value ?: continue
-
-            if (displayAmount.unit != null) {
-                val cat = unitType(displayAmount.unit)
-                amounts.add(SourceAmount(value, displayAmount.unit, cat, source.ingredient.density))
-            } else {
-                // Count item (no unit, like "3 eggs")
-                hasCountOnly = true
-                countTotal += value
+            )
+            val value = displayAmount?.value
+            if (value == null) {
+                missingAmount = true
+                continue
+            }
+            val unit = displayAmount.unit
+            if (unit == null) {
+                count += value
+                continue
+            }
+            val base = toBaseUnitValue(value, unit)
+            when (unitType(unit)) {
+                UnitCategory.WEIGHT -> if (base != null) grams += base else missingAmount = true
+                UnitCategory.VOLUME -> if (base != null) {
+                    volumes.add(VolumeAmount(base, source.ingredient.density))
+                } else {
+                    missingAmount = true
+                }
+                null -> {
+                    val groupKey = unit.lowercase().singularize()
+                    val (displayUnit, total) = otherUnits[groupKey] ?: (unit to 0.0)
+                    otherUnits[groupKey] = displayUnit to total + value
+                }
             }
         }
 
-        if (!anyUnchecked) return null
-
-        if (amounts.isNotEmpty()) {
-            val categories = amounts.mapNotNull { it.category }.toSet()
-
-            val (totalBase, resultCategory) = if (categories.size <= 1) {
-                // All same category (or all unknown) — sum directly
-                val cat = categories.firstOrNull()
-                var total = 0.0
-                for (a in amounts) {
-                    if (a.unit != null && a.category == cat) {
-                        val base = toBaseUnitValue(a.value, a.unit)
-                        if (base != null) total += base
-                    }
+        var milliliters = 0.0
+        if (grams > 0) {
+            val sharedDensity = sources.firstNotNullOfOrNull { it.ingredient.density }
+            for (volume in volumes) {
+                val density = volume.density ?: sharedDensity
+                if (density != null) {
+                    grams += volume.milliliters * density
+                } else {
+                    milliliters += volume.milliliters
                 }
-                total to cat
-            } else {
-                // Mixed categories — convert everything to weight (grams).
-                // Since all sources are the same ingredient, use any available
-                // density for volume→weight conversion.
-                val sharedDensity = amounts.firstNotNullOfOrNull { it.density }
-                var totalGrams = 0.0
-                for (a in amounts) {
-                    if (a.unit == null) continue
-                    when (a.category) {
-                        UnitCategory.WEIGHT -> {
-                            val base = toBaseUnitValue(a.value, a.unit)
-                            if (base != null) totalGrams += base
-                        }
-                        UnitCategory.VOLUME -> {
-                            // Convert volume to mL, then to grams via density
-                            val density = a.density ?: sharedDensity
-                            val mL = toBaseUnitValue(a.value, a.unit)
-                            if (mL != null && density != null) {
-                                totalGrams += mL * density
-                            }
-                        }
-                        null -> { /* unknown unit category, skip */ }
-                    }
-                }
-                totalGrams to UnitCategory.WEIGHT
             }
-
-            if (resultCategory != null && totalBase > 0) {
-                val displayAmount = fromBaseUnit(totalBase, resultCategory, volumeSystem, weightSystem)
-                return formatAmountForDisplay(displayAmount)
-            }
-        }
-
-        return if (!amounts.any { it.category != null } && hasCountOnly && countTotal > 0) {
-            formatCountForDisplay(countTotal)
         } else {
-            null
+            milliliters = volumes.sumOf { it.milliliters }
         }
+
+        val parts = buildList {
+            if (grams > 0) {
+                add(formatBaseAmount(grams, UnitCategory.WEIGHT, volumeSystem, weightSystem))
+            }
+            if (milliliters > 0) {
+                add(formatBaseAmount(milliliters, UnitCategory.VOLUME, volumeSystem, weightSystem))
+            }
+            for ((unit, total) in otherUnits.values) {
+                if (total > 0) add(formatAmount(total, unit))
+            }
+            if (count > 0) add(formatQuantity(count))
+        }.filterNotNull()
+
+        if (parts.isEmpty()) return null
+        return Total(parts.joinToString(" + "), isPartial = missingAmount)
+    }
+
+    private fun formatBaseAmount(
+        baseValue: Double,
+        category: UnitCategory,
+        volumeSystem: UnitSystem,
+        weightSystem: UnitSystem
+    ): String? {
+        val amount = fromBaseUnit(baseValue, category, volumeSystem, weightSystem)
+        val value = amount.value ?: return null
+        return formatAmount(value, amount.unit)
     }
 
     private fun sourceKey(itemKey: String, source: GroceryIngredientSource): String {
         return "${itemKey}_${source.recipeName}_${source.ingredient.name}".lowercase()
     }
 
-    private fun formatAmountForDisplay(amount: Amount): String? {
-        val value = amount.value ?: return null
-        return formatAmount(value, amount.unit)
-    }
+    companion object {
+        private const val TAG = "GroceryListViewModel"
 
-    private fun formatCountForDisplay(count: Double): String {
-        return formatQuantity(count)
+        /** Header text for an aggregated item, e.g. "200 g + 2 cups flour (+ more)". */
+        fun aggregateHeaderText(item: DisplayGroceryItem, partialTotalSuffix: String): String {
+            val total = item.totalAmount ?: return item.displayText
+            val header = "$total ${item.displayText}"
+            return if (item.totalIsPartial) "$header $partialTotalSuffix" else header
+        }
     }
 }
