@@ -40,7 +40,8 @@ data class RecipeDto(
     val updatedAt: Timestamp? = null,
     val tags: List<String> = emptyList(),
     val equipment: List<String> = emptyList(),
-    val instructionSectionsJson: String = "[]"
+    val instructionSectionsJson: String = "[]",
+    val userNotes: String? = null
 ) {
     fun toDomain(): Recipe {
         val sections = try {
@@ -68,7 +69,8 @@ data class RecipeDto(
                 ?: Instant.fromEpochMilliseconds(0),
             tags = tags,
             equipment = equipment,
-            instructionSections = sections
+            instructionSections = sections,
+            userNotes = userNotes
         )
     }
 }
@@ -89,5 +91,6 @@ fun Recipe.toDto(): RecipeDto = RecipeDto(
     updatedAt = Timestamp(updatedAt.epochSeconds, updatedAt.nanosecondsOfSecond),
     tags = tags,
     equipment = equipment,
-    instructionSectionsJson = json.encodeToString(instructionSections)
+    instructionSectionsJson = json.encodeToString(instructionSections),
+    userNotes = userNotes
 )
