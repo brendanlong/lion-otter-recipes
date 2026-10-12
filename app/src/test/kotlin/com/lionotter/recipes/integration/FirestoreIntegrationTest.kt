@@ -16,6 +16,8 @@ import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import com.lionotter.recipes.data.remote.uid
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -87,8 +89,8 @@ abstract class FirestoreIntegrationTest {
         val authService: AuthService = mockk()
         every { authService.authState } returns authState
         every { authService.isGoogleUser() } returns false
-        coEvery { authService.awaitUid() } returns "test-user"
-        val imageDownloadService = ImageDownloadService(context, httpClient, imageSyncService, authService)
+        coEvery { authService.awaitUid() } coAnswers { authState.first { it !is AuthState.Loading }.uid!! }
+        val imageDownloadService = ImageDownloadService(context, httpClient, imageSyncService, authService, firestoreService, { mockk(relaxed = true) })
         recipeRepository = RecipeRepository(firestoreService, imageDownloadService, authService)
         mealPlanRepository = MealPlanRepository(firestoreService, authService)
     }

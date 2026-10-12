@@ -24,14 +24,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /** Represents the current authentication state of the app. */
 sealed class AuthState {
-    /** Transitioning between auth states (sign-out, account deletion). */
+    /** Transitioning between auth states (sign-in migration, sign-out, account deletion). */
     data object Loading : AuthState()
 
     /** User is in guest mode (offline-only, no cloud sync). Uses a local UUID. */
@@ -81,13 +80,13 @@ class ReauthenticationRequiredException(cause: Throwable? = null) :
 class AuthService @Inject constructor(
     @ApplicationContext private val context: Context,
     private val firestoreService: FirestoreService,
-    private val accountDeletionService: AccountDeletionService
+    private val accountDeletionService: AccountDeletionService,
+    private val imageSyncService: ImageSyncService
 ) {
     companion object {
         private const val TAG = "AuthService"
         private const val PREFS_NAME = "auth_prefs"
         private const val KEY_GUEST_UID = "guest_uid"
-        private const val AUTH_RESOLUTION_TIMEOUT_MS = 30_000L
         private const val PENDING_WRITES_TIMEOUT_MS = 10_000L
     }
 
@@ -103,19 +102,13 @@ class AuthService @Inject constructor(
     /** Whether the current user is signed in with Google (not a guest). */
     fun isGoogleUser(): Boolean = _authState.value is AuthState.Google
 
-    /** Returns the current guest UID, or null if none exists. */
-    fun getGuestUid(): String? = prefs.getString(KEY_GUEST_UID, null)
-
     /**
-     * Returns the current UID, waiting for an in-progress auth transition to finish.
-     * @throws IllegalStateException if no UID becomes available within the timeout.
+     * Returns the current UID, waiting for an in-progress auth transition (which always
+     * ends, successfully or not) to finish.
      */
-    suspend fun awaitUid(): String {
-        val state = withTimeoutOrNull(AUTH_RESOLUTION_TIMEOUT_MS) {
-            _authState.first { it !is AuthState.Loading }
-        }
-        return state?.uid ?: throw IllegalStateException("User not authenticated")
-    }
+    suspend fun awaitUid(): String =
+        _authState.first { it !is AuthState.Loading }.uid
+            ?: throw IllegalStateException("User not authenticated")
 
     /**
      * Gets a Google credential for the sign-in button flow. Always uses the migration
@@ -142,43 +135,55 @@ class AuthService @Inject constructor(
     }
 
     /**
-     * Completes the merge flow after [AccountMigrationService] has finished
-     * migrating data and signing in the Google user on the default app.
+     * Moves from guest mode to a Google account: [migrate] copies the guest's data
+     * (identified by the guest UID it is given) to the Google account and signs the
+     * Google user in on the default Firebase app; then the guest cache is cleared.
      *
-     * The ordering here is critical to avoid PERMISSION_DENIED crashes:
-     * 1. Update auth state to Google (repos see the Google UID)
-     * 2. Clear guest Firestore cache (repos recreate listeners on the Google path)
-     * 3. Enable network (repos are already listening on the Google path)
+     * The state is [AuthState.Loading] throughout, so writes made meanwhile (e.g. a
+     * worker finishing an import) wait and then go to the Google account, instead of
+     * landing in the guest cache after it was copied and being wiped with it. Repos have
+     * no listeners while Loading, so none is left on the guest path when the network is
+     * enabled (which would fail with PERMISSION_DENIED).
+     *
+     * If [migrate] fails, the guest state is restored with its data intact.
      */
-    suspend fun completeMergeSignIn() {
+    suspend fun mergeGuestIntoGoogle(migrate: suspend (guestUid: String) -> Result<Unit>): Result<Unit> =
         transitionMutex.withLock {
-            val state = resolveCurrentState()
-            _authState.value = state
-            firestoreService.clearLocalData(enableNetwork = state is AuthState.Google)
+            val guestUid = (_authState.value as? AuthState.Guest)?.uid
+                ?: return@withLock Result.failure(IllegalStateException("Not in guest mode"))
+            _authState.value = AuthState.Loading
+            try {
+                val result = migrate(guestUid)
+                if (result.isSuccess) {
+                    val state = resolveCurrentState()
+                    clearLocalData(enableNetwork = state is AuthState.Google)
+                    _authState.value = state
+                }
+                result
+            } finally {
+                if (_authState.value is AuthState.Loading) _authState.value = resolveCurrentState()
+            }
         }
-    }
-
-    /**
-     * Restores the auth state after a failed merge transition.
-     */
-    fun restoreAfterFailedMerge() {
-        _authState.value = resolveCurrentState()
-    }
 
     /**
      * Signs out the current Google user and transitions to guest mode.
      * Clears Firestore persistence and generates a new guest UID.
      *
      * Unless [force] is set, first waits for pending writes to reach the server and
-     * returns [SignOutResult.PendingWrites] (without signing out) if they don't, so
-     * the UI can warn that unsynced changes would be lost.
+     * returns [SignOutResult.PendingWrites] (without signing out) if they don't, or if
+     * some recipe images haven't been uploaded yet, so the UI can warn that unsynced
+     * changes would be lost.
      */
     suspend fun signOut(force: Boolean = false): SignOutResult = transitionMutex.withLock {
-        if (!force && _authState.value is AuthState.Google &&
-            !firestoreService.awaitPendingWrites(PENDING_WRITES_TIMEOUT_MS)
-        ) {
-            Log.w(TAG, "Sign-out aborted: local changes have not synced yet")
-            return@withLock SignOutResult.PendingWrites
+        if (!force && _authState.value is AuthState.Google) {
+            if (!firestoreService.awaitPendingWrites(PENDING_WRITES_TIMEOUT_MS)) {
+                Log.w(TAG, "Sign-out aborted: local changes have not synced yet")
+                return@withLock SignOutResult.PendingWrites
+            }
+            if (imageSyncService.hasPendingLocalImages()) {
+                Log.w(TAG, "Sign-out aborted: some recipe images have not been uploaded yet")
+                return@withLock SignOutResult.PendingWrites
+            }
         }
         _authState.value = AuthState.Loading
         resetToFreshGuest()
@@ -222,12 +227,21 @@ class AuthService @Inject constructor(
      * guest session. Caller must hold [transitionMutex] and have set [AuthState.Loading].
      */
     private suspend fun resetToFreshGuest() {
-        firestoreService.clearLocalData(enableNetwork = false)
+        clearLocalData(enableNetwork = false)
         Firebase.auth.signOut()
         clearCredentialState()
         ImageCacheConfig.clearCache(context)
         prefs.edit { remove(KEY_GUEST_UID) }
         _authState.value = AuthState.Guest(uid = getOrCreateGuestUid())
+    }
+
+    private suspend fun clearLocalData(enableNetwork: Boolean) {
+        if (!firestoreService.clearLocalData(enableNetwork)) {
+            firestoreService.reportError(
+                "Couldn't remove the previous account's data from this device. " +
+                    "Clear the app's storage in Android settings to remove it."
+            )
+        }
     }
 
     private suspend fun clearCredentialState() {

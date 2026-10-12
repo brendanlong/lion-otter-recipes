@@ -10,9 +10,11 @@ import com.lionotter.recipes.data.remote.dto.MealPlanDto
 import com.lionotter.recipes.data.remote.dto.toDto
 import com.lionotter.recipes.data.remote.uid
 import com.lionotter.recipes.domain.model.MealPlanEntry
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
@@ -35,14 +37,10 @@ class MealPlanRepository @Inject constructor(
         private const val TAG = "MealPlanRepository"
     }
 
-    /** Current UID for fire-and-forget writes; reports an error if mid-transition. */
-    private fun uidForWrite(action: String): String? {
-        val uid = authService.authState.value.uid
-        if (uid == null) {
-            firestoreService.reportError("Failed to $action: account is changing, please try again")
-        }
-        return uid
-    }
+    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    private fun write(action: String, block: (uid: String) -> Unit) =
+        authService.writeForCurrentUser(repositoryScope, firestoreService, TAG, action, block)
 
     private fun decodeMealPlan(doc: DocumentSnapshot): MealPlanEntry? =
         doc.toObject(MealPlanDto::class.java)?.toDomain()
@@ -68,8 +66,7 @@ class MealPlanRepository @Inject constructor(
             }
             .conflate()
 
-    override fun saveMealPlan(entry: MealPlanEntry) {
-        val uid = uidForWrite("save meal plan") ?: return
+    override fun saveMealPlan(entry: MealPlanEntry) = write("save meal plan") { uid ->
         val dto = entry.toDto()
         firestoreService.mealPlansCollection(uid).document(entry.id).set(dto)
             .addOnFailureListener { e ->
@@ -78,8 +75,7 @@ class MealPlanRepository @Inject constructor(
             }
     }
 
-    override fun updateMealPlan(entry: MealPlanEntry) {
-        val uid = uidForWrite("update meal plan") ?: return
+    override fun updateMealPlan(entry: MealPlanEntry) = write("update meal plan") { uid ->
         val dto = entry.toDto()
         firestoreService.mealPlansCollection(uid).document(entry.id).set(dto)
             .addOnFailureListener { e ->
@@ -88,8 +84,7 @@ class MealPlanRepository @Inject constructor(
             }
     }
 
-    override fun deleteMealPlan(id: String) {
-        val uid = uidForWrite("delete meal plan") ?: return
+    override fun deleteMealPlan(id: String) = write("delete meal plan") { uid ->
         firestoreService.mealPlansCollection(uid).document(id).delete()
             .addOnFailureListener { e ->
                 Log.e(TAG, "Error deleting meal plan $id", e)

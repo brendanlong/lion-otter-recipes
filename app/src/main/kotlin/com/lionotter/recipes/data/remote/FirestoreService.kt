@@ -9,6 +9,7 @@ import com.google.firebase.firestore.firestore
 import com.google.firebase.firestore.firestoreSettings
 import com.google.firebase.firestore.persistentCacheSettings
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -28,6 +29,8 @@ open class FirestoreService @Inject constructor() {
         const val USERS_COLLECTION = "users"
         const val RECIPES_COLLECTION = "recipes"
         const val MEAL_PLANS_COLLECTION = "mealPlans"
+        private const val CLEAR_PERSISTENCE_ATTEMPTS = 3
+        private const val CLEAR_PERSISTENCE_RETRY_DELAY_MS = 250L
     }
 
     private val _errors = MutableSharedFlow<String>(extraBufferCapacity = 10)
@@ -99,23 +102,36 @@ open class FirestoreService @Inject constructor() {
      * fresh instance. The [generation] is bumped even on failure so listeners always
      * re-attach to the live instance.
      *
+     * Clearing fails if something uses Firestore between terminate and clear, so it is
+     * retried a few times. If it still fails, false is returned so the caller can tell the user.
+     *
      * @param enableNetwork whether the fresh instance should be online (Google user)
      *        or offline (guest).
+     * @return true if the local cache was cleared
      */
-    suspend fun clearLocalData(enableNetwork: Boolean) {
+    suspend fun clearLocalData(enableNetwork: Boolean): Boolean {
+        var cleared = false
         try {
-            val old = Firebase.firestore
-            old.terminate().await()
-            old.clearPersistence().await()
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            Log.e(TAG, "Error clearing Firestore persistence", e)
+            for (attempt in 1..CLEAR_PERSISTENCE_ATTEMPTS) {
+                try {
+                    val old = Firebase.firestore
+                    old.terminate().await()
+                    old.clearPersistence().await()
+                    cleared = true
+                    break
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    Log.e(TAG, "Error clearing Firestore persistence (attempt $attempt)", e)
+                    if (attempt < CLEAR_PERSISTENCE_ATTEMPTS) delay(CLEAR_PERSISTENCE_RETRY_DELAY_MS)
+                }
+            }
         } finally {
             configureInstance()
             if (!enableNetwork) startDisablingNetwork()
             _generation.value++
         }
         if (enableNetwork) enableNetwork()
+        return cleared
     }
 
     /**

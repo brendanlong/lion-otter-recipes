@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.BitmapFactory
 import android.util.Base64
 import android.util.Log
+import androidx.work.WorkManager
+import com.lionotter.recipes.worker.LocalImageUploadWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
@@ -17,12 +19,14 @@ import io.ktor.http.isSuccess
 import io.ktor.utils.io.jvm.javaio.toInputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.util.UUID
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 
 /**
@@ -42,7 +46,9 @@ class ImageDownloadService @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val httpClient: HttpClient,
     private val imageSyncService: ImageSyncService,
-    private val authService: AuthService
+    private val authService: AuthService,
+    private val firestoreService: FirestoreService,
+    private val workManager: Provider<WorkManager>
 ) {
     /**
      * Result of downloading an image, containing both the local file URI
@@ -70,36 +76,63 @@ class ImageDownloadService @Inject constructor(
      * a local file:// URI. It handles:
      * - Upload to Firebase Storage (with resizing if needed)
      * - Deletion of the previous image from both local cache and remote storage,
-     *   only after the new image has been stored
+     *   only after the new image has been uploaded and only if no other recipe uses it
      * - Returning the storage path for Firestore
+     *
+     * If a Google user's upload fails, the local URI is returned, the previous image is
+     * kept, and [LocalImageUploadWorker] is scheduled to retry the upload.
      *
      * @param localUri A file:// URI pointing to the local image
      * @param previousImageUrl The previous imageUrl to clean up (gs:// URI or file:// URI), or null
+     * @param recipeId The recipe the image belongs to; it doesn't count as another user of
+     *        [previousImageUrl] when deciding whether that can be deleted
      * @return A gs:// URI (e.g., "gs://bucket/users/{uid}/images/{filename}"),
      *         or the original local URI if the user is a guest or upload fails
      */
-    suspend fun storeImage(localUri: String, previousImageUrl: String? = null): String {
+    suspend fun storeImage(localUri: String, previousImageUrl: String? = null, recipeId: String? = null): String {
         // Already a storage path — no need to re-upload
         if (imageSyncService.isStoragePath(localUri)) return localUri
 
         // Guests keep the local file; it is uploaded after sign-in
         // (see ImageSyncService.uploadPendingLocalImages).
-        val stored = if (authService.isGoogleUser()) {
-            imageSyncService.uploadImage(localUri) ?: localUri
-        } else {
-            localUri
+        if (!authService.isGoogleUser()) {
+            cleanupPrevious(previousImageUrl, localUri, recipeId)
+            return localUri
         }
 
-        if (previousImageUrl != null && previousImageUrl != stored && previousImageUrl != localUri) {
-            cleanupImage(previousImageUrl)
+        val uploaded = imageSyncService.uploadImage(localUri)
+        if (uploaded == null) {
+            Log.w(TAG, "Image upload failed; keeping the local copy and scheduling a retry")
+            scheduleLocalImageUpload()
+            return localUri
         }
-        return stored
+        cleanupPrevious(previousImageUrl, uploaded, recipeId)
+        return uploaded
+    }
+
+    private suspend fun cleanupPrevious(previousImageUrl: String?, stored: String, recipeId: String?) {
+        if (previousImageUrl != null && previousImageUrl != stored) {
+            cleanupImage(previousImageUrl, recipeId)
+        }
+    }
+
+    private fun scheduleLocalImageUpload() {
+        try {
+            LocalImageUploadWorker.enqueue(workManager.get())
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to schedule local image upload", e)
+        }
     }
 
     /**
-     * Delete an image from both local cache and Firebase Storage.
+     * Delete an image from both local cache and Firebase Storage, unless a recipe other
+     * than [recipeId] still references it (e.g. a recipe saved as a copy shares its image).
      */
-    suspend fun cleanupImage(imageUrl: String) {
+    suspend fun cleanupImage(imageUrl: String, recipeId: String? = null) {
+        if (isReferencedByOtherRecipe(imageUrl, recipeId)) {
+            Log.d(TAG, "Image is still used by another recipe; keeping it: $imageUrl")
+            return
+        }
         if (imageSyncService.isStoragePath(imageUrl)) {
             imageSyncService.deleteRemoteImage(imageUrl)
             val filename = imageUrl.substringAfterLast("/")
@@ -111,6 +144,24 @@ class ImageDownloadService @Inject constructor(
             }
         } else if (imageUrl.startsWith("file://")) {
             deleteLocalImage(imageUrl)
+        }
+    }
+
+    /** True if another recipe uses [imageUrl], or if that can't be determined (so it is kept). */
+    private suspend fun isReferencedByOtherRecipe(imageUrl: String, recipeId: String?): Boolean {
+        val uid = authService.authState.value.uid ?: return true
+        return try {
+            firestoreService.recipesCollection(uid)
+                .whereEqualTo("imageUrl", imageUrl)
+                .get()
+                .await()
+                .documents
+                .any { it.id != recipeId }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not check whether $imageUrl is still in use; keeping it", e)
+            true
         }
     }
 

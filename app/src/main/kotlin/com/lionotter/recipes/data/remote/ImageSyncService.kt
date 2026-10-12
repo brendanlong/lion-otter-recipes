@@ -8,6 +8,7 @@ import android.util.Log
 import androidx.exifinterface.media.ExifInterface
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
+import com.google.firebase.firestore.Source
 import com.google.firebase.storage.StorageException
 import com.google.firebase.storage.storage
 import com.google.firebase.storage.storageMetadata
@@ -188,35 +189,86 @@ class ImageSyncService @Inject constructor(
      * uploaded `gs://` URI. Idempotent and safe to call repeatedly; runs to
      * completion even if the caller is cancelled.
      *
-     * @return the number of images uploaded
+     * The recipe is only pointed at the upload if its image is still the local file, so a
+     * newer image picked meanwhile is never reverted.
      */
-    suspend fun uploadPendingLocalImages(): Int = withContext(NonCancellable + Dispatchers.IO) {
+    suspend fun uploadPendingLocalImages(): LocalImageUploadResult = withContext(NonCancellable + Dispatchers.IO) {
         pendingUploadMutex.withLock {
-            val uid = Firebase.auth.currentUser?.takeUnless { it.isAnonymous }?.uid
+            val uid = googleUid()
             if (uid == null) {
                 Log.d(TAG, "Not signed in with Google; skipping local image upload")
-                return@withLock 0
+                return@withLock LocalImageUploadResult(uploaded = 0, failed = 0)
             }
 
             val recipes = firestoreService.recipesCollection(uid).get().await().documents
             var uploaded = 0
+            var failed = 0
             for (doc in recipes) {
                 val localUri = doc.getString("imageUrl")?.takeIf { it.startsWith("file://") } ?: continue
+                if (!localFileExists(localUri)) {
+                    Log.w(TAG, "Local image for recipe ${doc.id} no longer exists; nothing to upload")
+                    continue
+                }
                 val gsUri = uploadImage(localUri)
                 if (gsUri == null) {
                     Log.w(TAG, "Could not upload local image for recipe ${doc.id}")
+                    failed++
                     continue
                 }
-                doc.reference.update("imageUrl", gsUri)
-                    .addOnFailureListener { e ->
-                        firestoreService.reportError("Failed to update recipe image: ${e.message}")
+                try {
+                    val applied = doc.reference.firestore.runTransaction { tx ->
+                        val current = tx.get(doc.reference).getString("imageUrl")
+                        if (current == localUri) tx.update(doc.reference, "imageUrl", gsUri)
+                        current == localUri
+                    }.await()
+                    if (applied) {
+                        updateMealPlanImages(uid, localUri, gsUri)
+                        uploaded++
+                    } else {
+                        Log.i(TAG, "Recipe ${doc.id} image changed during upload; discarding the upload")
+                        if (!isStorageObjectReferenced(uid, gsUri)) deleteRemoteImage(gsUri)
                     }
-                updateMealPlanImages(uid, localUri, gsUri)
-                uploaded++
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    Log.w(TAG, "Failed to point recipe ${doc.id} at its uploaded image", e)
+                    failed++
+                }
             }
-            Log.i(TAG, "Uploaded $uploaded local images")
-            uploaded
+            Log.i(TAG, "Uploaded $uploaded local images ($failed failed)")
+            LocalImageUploadResult(uploaded = uploaded, failed = failed)
         }
+    }
+
+    data class LocalImageUploadResult(val uploaded: Int, val failed: Int)
+
+    /**
+     * True if a Google user has recipes whose image is still only on this device
+     * (a `file://` that exists locally), i.e. would be lost by clearing local data.
+     * Returns true if this can't be determined.
+     */
+    suspend fun hasPendingLocalImages(): Boolean = withContext(Dispatchers.IO) {
+        val uid = googleUid() ?: return@withContext false
+        try {
+            firestoreService.recipesCollection(uid).get(Source.CACHE).await().documents.any { doc ->
+                doc.getString("imageUrl")?.takeIf { it.startsWith("file://") }?.let(::localFileExists) == true
+            }
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Log.w(TAG, "Could not check for images pending upload", e)
+            true
+        }
+    }
+
+    private fun googleUid(): String? = Firebase.auth.currentUser?.takeUnless { it.isAnonymous }?.uid
+
+    private fun localFileExists(localUri: String): Boolean = File(localUri.removePrefix("file://")).exists()
+
+    private suspend fun isStorageObjectReferenced(uid: String, gsUri: String): Boolean = try {
+        !firestoreService.recipesCollection(uid).whereEqualTo("imageUrl", gsUri).get().await().isEmpty
+    } catch (e: Exception) {
+        if (e is CancellationException) throw e
+        Log.w(TAG, "Could not check whether $gsUri is in use; keeping it", e)
+        true
     }
 
     private suspend fun updateMealPlanImages(uid: String, localUri: String, gsUri: String) {

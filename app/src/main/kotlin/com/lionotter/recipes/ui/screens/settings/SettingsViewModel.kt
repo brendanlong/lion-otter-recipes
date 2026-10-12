@@ -380,29 +380,22 @@ class SettingsViewModel @Inject constructor(
     private suspend fun performMigration(credential: AuthCredential) {
         var signedIn = false
         try {
-            withContext(NonCancellable) {
-                val guestUid = authService.getGuestUid()
-                    ?: run {
-                        Log.e(TAG, "No guest UID found for migration")
-                        _toastMessage.tryEmit(R.string.sign_in_failed)
-                        return@withContext
-                    }
-                val result = accountMigrationService.migrateGuestData(credential, guestUid)
-                if (result.isFailure) {
-                    Log.e(TAG, "Migration failed", result.exceptionOrNull())
-                    authService.restoreAfterFailedMerge()
-                    _toastMessage.tryEmit(R.string.sign_in_failed)
-                    return@withContext
+            val result = withContext(NonCancellable) {
+                authService.mergeGuestIntoGoogle { guestUid ->
+                    accountMigrationService.migrateGuestData(credential, guestUid)
                 }
-                authService.completeMergeSignIn()
+            }
+            if (result.isSuccess) {
                 signedIn = true
                 _toastMessage.tryEmit(R.string.signed_in_with_google)
+            } else {
+                Log.e(TAG, "Migration failed", result.exceptionOrNull())
+                _toastMessage.tryEmit(R.string.sign_in_failed)
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Error during account migration", e)
-            authService.restoreAfterFailedMerge()
             _toastMessage.tryEmit(R.string.sign_in_migration_warning)
         }
 

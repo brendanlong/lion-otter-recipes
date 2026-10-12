@@ -93,14 +93,15 @@ class RepositoryListenerIntegrationTest : FirestoreIntegrationTest() {
     }
 
     @Test
-    fun `writes while auth is transitioning are rejected without crashing`() {
+    fun `writes while auth is transitioning are applied once it finishes`() {
         authState.value = AuthState.Loading
-        recipeRepository.saveRecipe(recipe("x", "Ignored"))
+        recipeRepository.saveRecipe(recipe("x", "Deferred"))
         mealPlanRepository.saveMealPlan(mealPlan("m-x"))
         pumpLooper()
 
         authState.value = AuthState.Guest(uid = "test-user")
-        assertEquals(null, runSuspending { recipeRepository.getRecipeByIdOnce("x") })
-        assertTrue(runSuspending { mealPlanRepository.getAllMealPlansOnce() }.isEmpty())
+        pumpLooper()
+        assertEquals("Deferred", runSuspending { recipeRepository.getRecipeByIdOnce("x") }?.name)
+        assertEquals(listOf("m-x"), runSuspending { mealPlanRepository.getAllMealPlansOnce() }.map { it.id })
     }
 }

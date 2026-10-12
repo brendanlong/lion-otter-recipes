@@ -26,10 +26,12 @@ import javax.inject.Singleton
  * Deletes (in order):
  * 1. Verifies the server is reachable and re-authenticates if needed (nothing deleted yet)
  * 2. Reads all recipe and meal plan documents from the server
- * 3. Deletes each recipe image from Firebase Storage individually
- * 4. Deletes all recipes, meal plans and the user document from Firestore
- * 5. Clears local image cache, import debug data and the API key
- * 6. Deletes the Firebase Auth account
+ * 3. Deletes all recipes and meal plans from Firestore
+ * 4. Deletes each recipe image from Firebase Storage individually (failures are
+ *    logged and leave orphaned images rather than recipes pointing at deleted images)
+ * 5. Deletes the user document
+ * 6. Clears local image cache, import debug data and the API key
+ * 7. Deletes the Firebase Auth account
  *
  * Image URLs are collected from Firestore recipes before any documents are
  * deleted, then each image is deleted individually from Storage. This avoids
@@ -87,11 +89,12 @@ class AccountDeletionService @Inject constructor(
 
         val imageUrls = recipes.mapNotNull { doc ->
             doc.getString("imageUrl")?.takeIf { imageSyncService.isStoragePath(it) }
-        }
-        deleteStorageImages(imageUrls)
+        }.distinct()
 
+        // Documents first: if a batch fails, the remaining recipes still have their images.
         deleteDocuments(recipes)
         deleteDocuments(mealPlans)
+        deleteStorageImages(imageUrls)
         try {
             serverCall {
                 Firebase.firestore.collection(FirestoreService.USERS_COLLECTION)
