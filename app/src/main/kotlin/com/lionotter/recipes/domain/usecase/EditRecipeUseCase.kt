@@ -41,6 +41,7 @@ class EditRecipeUseCase @Inject constructor(
      * @param recipeId The ID of the recipe being edited
      * @param markdownText The user-edited markdown text to parse
      * @param saveAsCopy If true, saves as a new recipe instead of updating the existing one
+     * @param copyRecipeId ID for the copy when [saveAsCopy] is set (random if null)
      * @param model The AI model to use (null = use current setting)
      * @param thinkingEnabled Whether to use extended thinking (null = use current setting)
      * @param aiInstructions Optional user instructions for the AI (e.g. "Make this recipe vegan")
@@ -50,6 +51,7 @@ class EditRecipeUseCase @Inject constructor(
         recipeId: String,
         markdownText: String,
         saveAsCopy: Boolean = false,
+        copyRecipeId: String? = null,
         model: String? = null,
         thinkingEnabled: Boolean? = null,
         aiInstructions: String? = null,
@@ -97,7 +99,7 @@ class EditRecipeUseCase @Inject constructor(
                 val editedRecipe = if (saveAsCopy) {
                     // Save as a new recipe with new ID and timestamps
                     parseResult.recipe.copy(
-                        id = java.util.UUID.randomUUID().toString(),
+                        id = copyRecipeId ?: java.util.UUID.randomUUID().toString(),
                         createdAt = now,
                         updatedAt = now,
                         isFavorite = false,

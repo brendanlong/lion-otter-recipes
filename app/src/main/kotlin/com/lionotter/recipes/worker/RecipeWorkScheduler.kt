@@ -89,7 +89,9 @@ class RecipeWorkScheduler @Inject constructor(
                     model = model,
                     thinkingEnabled = thinkingEnabled,
                     saveAsCopy = saveAsCopy,
-                    aiInstructions = aiInstructions
+                    aiInstructions = aiInstructions,
+                    // Fixed at enqueue time so a rerun overwrites the copy instead of adding another
+                    copyRecipeId = if (saveAsCopy) UUID.randomUUID().toString() else null
                 )
             )
             .addTag(RecipeEditWorker.TAG_RECIPE_EDIT)

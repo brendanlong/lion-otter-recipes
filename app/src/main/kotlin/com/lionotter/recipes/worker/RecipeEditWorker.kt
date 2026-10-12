@@ -34,6 +34,7 @@ class RecipeEditWorker @AssistedInject constructor(
         const val KEY_EXTENDED_THINKING = "extended_thinking"
         const val KEY_SAVE_AS_COPY = "save_as_copy"
         const val KEY_AI_INSTRUCTIONS = "ai_instructions"
+        const val KEY_COPY_RECIPE_ID = "copy_recipe_id"
         const val KEY_ERROR_MESSAGE = BaseRecipeWorker.KEY_ERROR_MESSAGE
         const val KEY_PROGRESS = "progress"
         const val KEY_RESULT_TYPE = BaseRecipeWorker.KEY_RESULT_TYPE
@@ -53,7 +54,8 @@ class RecipeEditWorker @AssistedInject constructor(
             model: String?,
             thinkingEnabled: Boolean?,
             saveAsCopy: Boolean = false,
-            aiInstructions: String? = null
+            aiInstructions: String? = null,
+            copyRecipeId: String? = null
         ): Data {
             return workDataOf(
                 KEY_RECIPE_ID to recipeId,
@@ -61,6 +63,7 @@ class RecipeEditWorker @AssistedInject constructor(
                 KEY_MODEL to model,
                 KEY_EXTENDED_THINKING to thinkingEnabled,
                 KEY_SAVE_AS_COPY to saveAsCopy,
+                KEY_COPY_RECIPE_ID to copyRecipeId,
                 // Instructions are user-typed; keep them well under the Data size limit.
                 KEY_AI_INSTRUCTIONS to aiInstructions?.take(4000)
             )
@@ -89,6 +92,7 @@ class RecipeEditWorker @AssistedInject constructor(
             recipeId = recipeId,
             markdownText = markdownText,
             saveAsCopy = saveAsCopy,
+            copyRecipeId = inputData.getString(KEY_COPY_RECIPE_ID),
             model = model,
             thinkingEnabled = thinkingEnabled,
             aiInstructions = aiInstructions,
