@@ -329,4 +329,26 @@
     <string name="meal_plan_decrease_servings">Decrease servings</string>
     <string name="meal_plan_increase_servings">Increase servings</string>
     <!-- ===== END secondary screens ===== -->
+
+    <!-- App shell, recipe list and recipe detail improvements -->
+    <string name="no_link_in_shared_text">No link found in shared text</string>
+    <string name="recipe_not_found">Recipe not found</string>
+    <string name="recipe_not_found_description">It may have been deleted.</string>
+    <string name="more_options">More options</string>
+    <string name="reset_cooking_progress">Reset cooking progress</string>
+    <string name="delete_recipe_failed">Couldn\'t delete recipe</string>
+    <string name="export_recipe_failed">Couldn\'t export recipe</string>
+    <string name="save_notes_failed">Couldn\'t save notes</string>
+    <string name="favorite_update_failed">Couldn\'t update favorite</string>
+    <string name="no_app_to_open_link">No app found to open this link</string>
+    <string name="no_app_to_share">No app available to share with</string>
+    <string name="current_step">Current step</string>
+    <string name="mark_current_step">Mark as current step</string>
+    <string name="unmark_current_step">Unmark current step</string>
+    <string name="or_alternate">or %1$s</string>
+    <string name="no_recipes_match">No recipes match</string>
+    <string name="no_recipes_match_hint">Try a different search or tag.</string>
+    <string name="clear_filters">Clear filters</string>
+    <string name="select">Select</string>
+    <string name="clear_search">Clear search</string>
 </resources>

@@ -14,19 +14,13 @@ import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.Recipe
 
+/** Prep/cook/total time. Servings are shown (and adjusted) by [ScaleControl]. */
 @Composable
-internal fun RecipeMetadata(recipe: Recipe, scale: Double) {
+internal fun RecipeMetadata(recipe: Recipe) {
     val items = buildList {
         recipe.prepTime?.let { add(stringResource(R.string.prep_time, it)) }
         recipe.cookTime?.let { add(stringResource(R.string.cook_time, it)) }
         recipe.totalTime?.let { add(stringResource(R.string.total_time, it)) }
-        recipe.servings?.let {
-            val scaled = (it * scale).let { s ->
-                if (s == s.toLong().toDouble()) s.toLong().toString()
-                else "%.1f".format(s)
-            }
-            add(stringResource(R.string.servings_label, scaled))
-        }
     }
 
     if (items.isNotEmpty()) {
@@ -43,7 +37,7 @@ internal fun RecipeMetadata(recipe: Recipe, scale: Double) {
                 items.forEach { item ->
                     Text(
                         text = item,
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }

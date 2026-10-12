@@ -12,9 +12,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.ui.components.SwipeActionBox
 import com.lionotter.recipes.ui.components.SwipeActionBoxState
@@ -30,9 +28,11 @@ fun SwipeableRecipeCard(
     swipeState: SwipeActionBoxState = rememberSwipeActionBoxState(),
     isSelected: Boolean = false,
     isMultiSelectActive: Boolean = false,
-    onLongClick: () -> Unit = {}
+    onLongClick: () -> Unit = {},
+    modifier: Modifier = Modifier
 ) {
     SwipeActionBox(
+        modifier = modifier,
         state = swipeState,
         onEndToStartAction = onDeleteRequest,
         enableStartToEnd = false,
@@ -46,7 +46,7 @@ fun SwipeableRecipeCard(
             ) {
                 Icon(
                     imageVector = Icons.Default.Delete,
-                    contentDescription = stringResource(R.string.delete),
+                    contentDescription = null,
                     tint = MaterialTheme.colorScheme.error
                 )
             }
@@ -57,6 +57,7 @@ fun SwipeableRecipeCard(
             onClick = onClick,
             onLongClick = onLongClick,
             onFavoriteClick = onFavoriteClick,
+            onDeleteRequest = onDeleteRequest,
             isSelected = isSelected,
             isMultiSelectActive = isMultiSelectActive
         )
