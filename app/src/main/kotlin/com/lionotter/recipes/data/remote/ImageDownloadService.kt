@@ -343,7 +343,7 @@ class ImageDownloadService @Inject constructor(
                 context.contentResolver.openInputStream(contentUri)?.use { saveImageFromStream(it, extension) }
             }
             if (saved == null) {
-                Log.w(TAG, "Could not save image from content URI: $contentUri")
+                Log.w(TAG, "Could not open content URI: $contentUri")
             }
             saved
         } catch (e: CancellationException) {

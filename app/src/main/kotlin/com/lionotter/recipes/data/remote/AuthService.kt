@@ -306,7 +306,7 @@ class AuthService @Inject constructor(
         val result = try {
             CredentialManager.create(activityContext).getCredential(activityContext, request)
         } catch (e: NoCredentialException) {
-            throw IllegalStateException("No Google account is available on this device", e)
+            throw IllegalStateException("No matching Google credential is available", e)
         }
         val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(result.credential.data)
         return GoogleAuthProvider.getCredential(googleIdTokenCredential.idToken, null)
