@@ -51,11 +51,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Ensure user has a session (Google or local guest) on startup
-        lifecycleScope.launch {
-            authService.ensureSignedIn()
-        }
-
         val sharedUrl = extractSharedUrl(intent)
         val sharedFileUri = extractFileUri(intent)
         val recipeId = extractRecipeId(intent)
