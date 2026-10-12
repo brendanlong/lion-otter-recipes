@@ -319,6 +319,11 @@
     <string name="meal_plan_delete_failed">Couldn\'t remove the meal. Please try again.</string>
     <string name="meal_plan_limit_reached">Meal plan limit reached (%1$d/%2$d). Delete some meal plans before adding new ones.</string>
     <string name="meal_removed">Removed %1$s</string>
+    <string name="edit_recipe_discard_title">Discard changes?</string>
+    <string name="edit_recipe_discard_message">Your edits to this recipe haven\'t been saved.</string>
+    <string name="edit_recipe_discard">Discard</string>
+    <string name="edit_recipe_keep_editing">Keep editing</string>
+    <string name="edit_recipe_not_found">This recipe no longer exists.</string>
     <string name="meal_plan_undo">Undo</string>
     <string name="day_header_today">%1$s (today)</string>
     <string name="meal_plan_decrease_servings">Decrease servings</string>
