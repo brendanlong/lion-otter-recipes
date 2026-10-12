@@ -167,6 +167,7 @@ class GroceryListViewModel @Inject constructor(
         }
         viewModelScope.launch {
             val saved = loadSavedState()
+            var restored = false
             mealPlanRepository.getMealPlansForDateRange(weekStart, weekEnd)
                 .map { entries ->
                     entries.sortedWith(
@@ -181,9 +182,12 @@ class GroceryListViewModel @Inject constructor(
                     emit(emptyList())
                 }
                 .collect { entries ->
-                    val isFirstLoad = _mealPlanEntries.value == null
                     _mealPlanEntries.value = entries
-                    if (isFirstLoad) {
+                    // An empty first snapshot may just be a cold cache (offline, or right after
+                    // sign-in); restoring then would persist an empty selection or prune
+                    // check-offs, so wait for meal plans to arrive.
+                    if (!restored && entries.isNotEmpty()) {
+                        restored = true
                         restoreState(saved, entries)
                     }
                 }
@@ -267,7 +271,7 @@ class GroceryListViewModel @Inject constructor(
 
     /**
      * Loads the selected meals' recipes in parallel and aggregates their ingredients.
-     * Checked-off state is kept for items that are still on the list.
+     * Checked-off state is pruned to items still on the list, unless a recipe failed to load.
      */
     fun generateGroceryList() {
         if (_isGenerating.value) return
@@ -298,8 +302,12 @@ class GroceryListViewModel @Inject constructor(
                     val itemKey = item.normalizedName.lowercase()
                     item.sources.map { sourceKey(itemKey, it) }
                 }.toSet()
-                _checkedItems.value = _checkedItems.value intersect itemKeys
-                _checkedSources.value = _checkedSources.value intersect sourceKeys
+                // Keep check-offs if any recipe couldn't be loaded: its items are missing from
+                // this list but may come back once it loads.
+                if (recipesById.values.none { it == null }) {
+                    _checkedItems.value = _checkedItems.value intersect itemKeys
+                    _checkedSources.value = _checkedSources.value intersect sourceKeys
+                }
                 _groceryItems.value = items
                 _step.value = GroceryListStep.VIEW_LIST
             } catch (e: CancellationException) {
