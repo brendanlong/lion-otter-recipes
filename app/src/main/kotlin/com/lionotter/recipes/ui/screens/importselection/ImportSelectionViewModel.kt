@@ -1,8 +1,11 @@
 package com.lionotter.recipes.ui.screens.importselection
 
 import android.content.ContentResolver
+import android.content.Context
 import android.net.Uri
 import android.util.Log
+import androidx.core.net.toUri
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.OneTimeWorkRequestBuilder
@@ -15,6 +18,7 @@ import com.lionotter.recipes.ui.state.InProgressRecipeManager
 import com.lionotter.recipes.worker.PaprikaImportWorker
 import com.lionotter.recipes.worker.ZipImportWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,6 +33,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class ImportSelectionViewModel @Inject constructor(
+    private val savedStateHandle: SavedStateHandle,
+    @param:ApplicationContext private val appContext: Context,
     private val recipeRepository: IRecipeRepository,
     private val paprikaParser: PaprikaParser,
     private val recipeSerializer: RecipeSerializer,
@@ -39,6 +45,9 @@ class ImportSelectionViewModel @Inject constructor(
 
     companion object {
         private const val TAG = "ImportSelectionVM"
+        private const val ARG_IMPORT_TYPE = "importType"
+        private const val ARG_URI = "uri"
+        private const val KEY_SELECTED_IDS = "import_selection_selected_ids"
     }
 
     private val _uiState = MutableStateFlow<ImportSelectionUiState>(ImportSelectionUiState.Loading)
@@ -46,6 +55,18 @@ class ImportSelectionViewModel @Inject constructor(
 
     private var currentImportType: ImportType? = null
     private var currentFileUri: Uri? = null
+    private var importStarted = false
+
+    init {
+        val uriArg = savedStateHandle.get<String>(ARG_URI)
+        if (uriArg != null) {
+            val typeHint = when (savedStateHandle.get<String>(ARG_IMPORT_TYPE)) {
+                "paprika" -> ImportType.PAPRIKA
+                else -> ImportType.LORECIPES
+            }
+            parseFile(uriArg.toUri(), typeHint, appContext.contentResolver)
+        }
+    }
 
     /**
      * Result of calling importSelected().
@@ -62,8 +83,13 @@ class ImportSelectionViewModel @Inject constructor(
      * The importType is used as a hint but may be overridden by auto-detection
      * based on the actual ZIP contents (since Android content URIs often
      * have opaque paths that don't reflect the file extension).
+     *
+     * The file is parsed once per ViewModel (normally from the navigation arguments in init);
+     * calling this again for the same URI is a no-op, so screen recreation doesn't reset the
+     * user's selection.
      */
     fun parseFile(uri: Uri, importType: ImportType, contentResolver: ContentResolver) {
+        if (uri == currentFileUri) return
         currentFileUri = uri
         currentImportType = importType
         _uiState.value = ImportSelectionUiState.Loading
@@ -79,7 +105,28 @@ class ImportSelectionViewModel @Inject constructor(
                 ImportType.PAPRIKA -> parsePaprikaFile(uri, contentResolver)
                 ImportType.LORECIPES -> parseZipContents(uri, contentResolver)
             }
+            applySavedSelection()
         }
+    }
+
+    /**
+     * Dedupes parsed items by id (a malformed export could repeat ids, which would crash the
+     * LazyColumn) and restores the user's selection after process death.
+     */
+    private fun applySavedSelection() {
+        val state = _uiState.value as? ImportSelectionUiState.Ready ?: return
+        val savedIds = savedStateHandle.get<ArrayList<String>>(KEY_SELECTED_IDS)?.toSet()
+        val items = state.items
+            .distinctBy { it.id }
+            .map { item ->
+                if (savedIds != null) item.copy(isSelected = item.id in savedIds) else item
+            }
+        updateItems(items)
+    }
+
+    private fun updateItems(items: List<ImportSelectionItem>) {
+        _uiState.value = ImportSelectionUiState.Ready(items)
+        savedStateHandle[KEY_SELECTED_IDS] = ArrayList(items.filter { it.isSelected }.map { it.id })
     }
 
     /**
@@ -125,6 +172,7 @@ class ImportSelectionViewModel @Inject constructor(
                         return@withContext
                     }
             } catch (e: Exception) {
+                Log.e(TAG, "Could not open Paprika export", e)
                 _uiState.value = ImportSelectionUiState.Error("Could not open file: ${e.message}")
                 return@withContext
             }
@@ -166,6 +214,7 @@ class ImportSelectionViewModel @Inject constructor(
                         return@withContext
                     }
             } catch (e: Exception) {
+                Log.e(TAG, "Could not open import file", e)
                 _uiState.value = ImportSelectionUiState.Error("Could not open file: ${e.message}")
                 return@withContext
             }
@@ -235,30 +284,28 @@ class ImportSelectionViewModel @Inject constructor(
         val updatedItems = current.items.map { item ->
             if (item.id == itemId) item.copy(isSelected = !item.isSelected) else item
         }
-        _uiState.value = ImportSelectionUiState.Ready(updatedItems)
+        updateItems(updatedItems)
     }
 
     fun selectAll() {
         val current = _uiState.value
         if (current !is ImportSelectionUiState.Ready) return
-        _uiState.value = ImportSelectionUiState.Ready(
-            current.items.map { it.copy(isSelected = true) }
-        )
+        updateItems(current.items.map { it.copy(isSelected = true) })
     }
 
     fun deselectAll() {
         val current = _uiState.value
         if (current !is ImportSelectionUiState.Ready) return
-        _uiState.value = ImportSelectionUiState.Ready(
-            current.items.map { it.copy(isSelected = false) }
-        )
+        updateItems(current.items.map { it.copy(isSelected = false) })
     }
 
     /**
      * Enqueue the import as a WorkManager job and return immediately.
      * All import types follow the same pattern: enqueue work, register in-progress entry, navigate to RecipeList.
+     * Repeated calls (double taps, auto-import re-running after recreation) are ignored.
      */
     fun importSelected(onResult: (ImportResult) -> Unit) {
+        if (importStarted) return
         val current = _uiState.value
         if (current !is ImportSelectionUiState.Ready) return
 
@@ -269,6 +316,7 @@ class ImportSelectionViewModel @Inject constructor(
             onResult(ImportResult.Error("No file URI available"))
             return
         }
+        importStarted = true
 
         val importId = UUID.randomUUID().toString()
 
@@ -320,7 +368,10 @@ class ImportSelectionViewModel @Inject constructor(
                 workManager.enqueue(workRequest)
                 onResult(ImportResult.ImportStarted)
             }
-            null -> onResult(ImportResult.Error("Unknown import type"))
+            null -> {
+                importStarted = false
+                onResult(ImportResult.Error("Unknown import type"))
+            }
         }
     }
 }

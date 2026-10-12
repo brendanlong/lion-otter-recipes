@@ -1,7 +1,13 @@
 package com.lionotter.recipes.ui.screens.importselection
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.selection.triStateToggleable
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.TriStateCheckbox
+import androidx.compose.runtime.remember
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -118,32 +124,48 @@ private fun SelectionContent(
     onImportClick: () -> Unit,
     onCancelClick: () -> Unit
 ) {
-    val selectedCount = items.count { it.isSelected }
+    val uniqueItems = remember(items) { items.distinctBy { it.id } }
+    val selectedCount = uniqueItems.count { it.isSelected }
     val hasSelection = selectedCount > 0
+    val allSelected = selectedCount == uniqueItems.size
+    val selectAllState = when {
+        allSelected -> ToggleableState.On
+        hasSelection -> ToggleableState.Indeterminate
+        else -> ToggleableState.Off
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // Select All / Deselect All row
+        // Tri-state "select all" row; the count wraps below on narrow screens if needed
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .triStateToggleable(
+                    state = selectAllState,
+                    role = Role.Checkbox,
+                    onClick = { if (allSelected) onDeselectAll() else onSelectAll() }
+                )
+                .padding(horizontal = 16.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            TriStateCheckbox(
+                state = selectAllState,
+                onClick = null,
+                modifier = Modifier.padding(12.dp)
+            )
             Text(
-                text = stringResource(R.string.import_selection_count, selectedCount, items.size),
+                text = stringResource(R.string.select_all),
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier
+                    .padding(start = 8.dp)
+                    .weight(1f)
+            )
+            Text(
+                text = stringResource(R.string.import_selection_count, selectedCount, uniqueItems.size),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onSelectAll) {
-                    Text(stringResource(R.string.select_all))
-                }
-                OutlinedButton(onClick = onDeselectAll) {
-                    Text(stringResource(R.string.deselect_all))
-                }
-            }
         }
+        HorizontalDivider()
 
         // Recipe checklist
         LazyColumn(
@@ -152,7 +174,7 @@ private fun SelectionContent(
                 .fillMaxWidth()
                 .testTag(TestTags.IMPORT_SELECTION_LIST)
         ) {
-            items(items, key = { it.id }) { item ->
+            items(uniqueItems, key = { it.id }) { item ->
                 RecipeChecklistItem(
                     item = item,
                     onToggle = { onToggleItem(item.id) }
@@ -195,14 +217,20 @@ private fun RecipeChecklistItem(
         modifier = Modifier
             .fillMaxWidth()
             .testTag(TestTags.importItem(item.id))
-            .clickable(onClick = onToggle)
+            .toggleable(
+                value = item.isSelected,
+                role = Role.Checkbox,
+                onValueChange = { onToggle() }
+            )
             .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Checkbox(
             checked = item.isSelected,
-            onCheckedChange = { onToggle() },
-            modifier = Modifier.testTag(TestTags.importCheckbox(item.id))
+            onCheckedChange = null,
+            modifier = Modifier
+                .padding(12.dp)
+                .testTag(TestTags.importCheckbox(item.id))
         )
         Column(modifier = Modifier.padding(start = 8.dp)) {
             Text(
