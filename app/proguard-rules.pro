@@ -24,24 +24,11 @@
 }
 
 # Ktor (used by WebScraperService)
--keep class io.ktor.** { *; }
--keepclassmembers class io.ktor.** { *; }
 -dontwarn java.lang.management.ManagementFactory
 -dontwarn java.lang.management.RuntimeMXBean
 
-# Anthropic SDK
--keep class com.anthropic.** { *; }
--keepclassmembers class com.anthropic.** { *; }
-
-# Jackson (used by the Anthropic SDK via jackson-module-kotlin, which reads
-# Kotlin metadata and generic signatures reflectively)
--keep class kotlin.Metadata { *; }
--keepattributes Signature, EnclosingMethod, RuntimeVisibleAnnotations, RuntimeVisibleParameterAnnotations
--keep class com.fasterxml.jackson.annotation.** { *; }
--keep class com.fasterxml.jackson.databind.** { *; }
--keep class com.fasterxml.jackson.module.kotlin.** { *; }
--keep class com.fasterxml.jackson.datatype.jdk8.** { *; }
--keep class com.fasterxml.jackson.datatype.jsr310.** { *; }
+# Anthropic SDK: anthropic-java-core ships its own R8 rules for Jackson and its models
+# (META-INF/proguard/anthropic-java-core.pro), so no blanket keep is needed here.
 -dontwarn com.fasterxml.jackson.databind.ext.**
 
 # OkHttp (used by Anthropic SDK)
@@ -65,6 +52,4 @@
 }
 
 # ojAlgo (ILP solver for tag selection)
--keep class org.ojalgo.** { *; }
--keepclassmembers class org.ojalgo.** { *; }
 -dontwarn org.ojalgo.**

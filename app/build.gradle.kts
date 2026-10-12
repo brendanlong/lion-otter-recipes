@@ -65,6 +65,7 @@ android {
         release {
             signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -101,8 +102,17 @@ android {
         checkReleaseBuilds = false
     }
 
+    androidResources {
+        // The app is English-only; drop translations bundled by libraries
+        localeFilters += "en"
+    }
+
     packaging {
         resources {
+            // Desktop/JVM-only files from transitive dependencies
+            excludes += "win32-x86/**"
+            excludes += "win32-x86-64/**"
+            excludes += "google/**/*.proto"
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             excludes += "META-INF/DEPENDENCIES"
             excludes += "META-INF/INDEX.LIST"
