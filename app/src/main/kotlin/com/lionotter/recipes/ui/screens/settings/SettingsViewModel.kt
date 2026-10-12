@@ -1,7 +1,6 @@
 package com.lionotter.recipes.ui.screens.settings
 
 import android.content.Context
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.AuthCredential
@@ -18,6 +17,7 @@ import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
+import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.worker.LocalImageUploadWorker
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.work.WorkManager
@@ -173,7 +173,7 @@ class SettingsViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to save API key", e)
+                ErrorLog.e(TAG, "Failed to save API key", e)
                 _saveState.value = SaveState.Error("Failed to save: ${e.message}")
             }
         }
@@ -200,7 +200,7 @@ class SettingsViewModel @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to $description", e)
+            ErrorLog.e(TAG, "Failed to $description", e)
             _toastMessage.tryEmit(R.string.settings_save_failed)
             false
         }
@@ -312,7 +312,7 @@ class SettingsViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to delete account", e)
+                ErrorLog.e(TAG, "Failed to delete account", e)
                 _toastMessage.tryEmit(
                     when (e) {
                         is ReauthenticationRequiredException -> R.string.delete_account_reauth_required
@@ -363,7 +363,7 @@ class SettingsViewModel @Inject constructor(
                     },
                     onFailure = { e ->
                         if (e !is GetCredentialCancellationException) {
-                            Log.e(TAG, "Failed to get Google credential", e)
+                            ErrorLog.e(TAG, "Failed to get Google credential", e)
                             _toastMessage.tryEmit(R.string.sign_in_failed)
                         }
                     }
@@ -389,13 +389,13 @@ class SettingsViewModel @Inject constructor(
                 signedIn = true
                 _toastMessage.tryEmit(R.string.signed_in_with_google)
             } else {
-                Log.e(TAG, "Migration failed", result.exceptionOrNull())
+                ErrorLog.e(TAG, "Migration failed", result.exceptionOrNull())
                 _toastMessage.tryEmit(R.string.sign_in_failed)
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Error during account migration", e)
+            ErrorLog.e(TAG, "Error during account migration", e)
             _toastMessage.tryEmit(R.string.sign_in_migration_warning)
         }
 

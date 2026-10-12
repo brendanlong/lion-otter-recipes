@@ -1,6 +1,5 @@
 package com.lionotter.recipes.data.repository
 
-import android.util.Log
 import com.google.firebase.firestore.DocumentChange
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
@@ -8,6 +7,7 @@ import com.google.firebase.firestore.QuerySnapshot
 import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.FirestoreService
 import com.lionotter.recipes.data.remote.uid
+import com.lionotter.recipes.util.ErrorLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
@@ -37,7 +37,7 @@ internal fun Query.snapshots(
 ): Flow<QuerySnapshot> = callbackFlow {
     val listener = addSnapshotListener { snapshot, error ->
         if (error != null) {
-            Log.e(tag, "Error listening to $description", error)
+            ErrorLog.e(tag, "Error listening to $description", error)
             firestoreService.reportError("Failed to load $description: ${error.message}")
             return@addSnapshotListener
         }
@@ -60,7 +60,7 @@ internal fun <T : Any> Flow<QuerySnapshot>.decodeIncrementally(
         decode(doc)
     } catch (e: Exception) {
         if (e is CancellationException) throw e
-        Log.e(tag, "Error deserializing document ${doc.id}", e)
+        ErrorLog.e(tag, "Error deserializing document ${doc.id}", e)
         null
     }
 
@@ -84,7 +84,7 @@ internal inline fun <T> logFailure(tag: String, message: String, block: () -> T)
     try {
         return block()
     } catch (e: Exception) {
-        if (e !is CancellationException) Log.e(tag, message, e)
+        if (e !is CancellationException) ErrorLog.e(tag, message, e)
         throw e
     }
 }
@@ -112,7 +112,7 @@ internal fun AuthService.writeForCurrentUser(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(tag, "Failed to $action after auth transition", e)
+            ErrorLog.e(tag, "Failed to $action after auth transition", e)
             firestoreService.reportError("Failed to $action: ${e.message}")
         }
     }

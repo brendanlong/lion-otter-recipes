@@ -9,6 +9,7 @@ import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.usecase.GetTagsUseCase
 import com.lionotter.recipes.ui.state.InProgressRecipeManager
 import com.lionotter.recipes.ui.state.RecipeListItem
+import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -195,7 +196,7 @@ class RecipeListViewModel @Inject constructor(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to set favorite for $recipeId", e)
+                    ErrorLog.e(TAG, "Failed to set favorite for $recipeId", e)
                     _errors.send(RecipeListError.FAVORITE_FAILED)
                 }
             }
@@ -247,7 +248,7 @@ class RecipeListViewModel @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Error deleting recipe $recipeId", e)
+            ErrorLog.e(TAG, "Error deleting recipe $recipeId", e)
             _errors.send(RecipeListError.DELETE_FAILED)
             false
         }
@@ -264,7 +265,7 @@ class RecipeListViewModel @Inject constructor(
                         recipeRepository.deleteRecipe(id)
                         false
                     } catch (e: Exception) {
-                        Log.e(TAG, "Error deleting recipe $id", e)
+                        ErrorLog.e(TAG, "Error deleting recipe $id", e)
                         true
                     }
                 }

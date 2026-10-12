@@ -9,6 +9,7 @@ import com.google.firebase.auth.AuthCredential
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.firestore
+import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
@@ -174,7 +175,7 @@ class AccountMigrationService @Inject constructor(
             cleanupMigrationApp(migrationApp)
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Migration failed", e)
+            ErrorLog.e(TAG, "Migration failed", e)
             cleanupMigrationApp(migrationApp)
             return Result.failure(e)
         }

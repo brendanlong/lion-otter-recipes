@@ -5,10 +5,12 @@ import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.FirebaseStorageCoilFetcher
 import com.lionotter.recipes.data.remote.FirebaseStorageKeyer
 import com.lionotter.recipes.notification.RecipeNotificationHelper
+import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 
@@ -30,6 +32,10 @@ class LionOtterApp : Application(), Configuration.Provider, SingletonImageLoader
 
     override fun onCreate() {
         super.onCreate()
+        if (BuildConfig.BUILD_TYPE == "release") {
+            val crashlytics = FirebaseCrashlytics.getInstance()
+            ErrorLog.recorder = crashlytics::recordException
+        }
         recipeNotificationHelper.createNotificationChannel()
     }
 

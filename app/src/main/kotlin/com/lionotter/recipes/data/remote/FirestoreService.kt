@@ -8,6 +8,7 @@ import com.google.firebase.firestore.FirebaseFirestoreSettings
 import com.google.firebase.firestore.firestore
 import com.google.firebase.firestore.firestoreSettings
 import com.google.firebase.firestore.persistentCacheSettings
+import com.lionotter.recipes.util.ErrorLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -69,7 +70,7 @@ open class FirestoreService @Inject constructor() {
     }
 
     fun reportError(message: String) {
-        Log.e(TAG, message)
+        ErrorLog.e(TAG, message)
         _errors.tryEmit(message)
     }
 
@@ -121,7 +122,7 @@ open class FirestoreService @Inject constructor() {
                     break
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
-                    Log.e(TAG, "Error clearing Firestore persistence (attempt $attempt)", e)
+                    ErrorLog.e(TAG, "Error clearing Firestore persistence (attempt $attempt)", e)
                     if (attempt < CLEAR_PERSISTENCE_ATTEMPTS) delay(CLEAR_PERSISTENCE_RETRY_DELAY_MS)
                 }
             }
@@ -185,9 +186,9 @@ open class FirestoreService @Inject constructor() {
         try {
             Firebase.firestore.disableNetwork()
                 .addOnSuccessListener { Log.d(TAG, "Firestore network disabled") }
-                .addOnFailureListener { e -> Log.e(TAG, "Failed to disable Firestore network", e) }
+                .addOnFailureListener { e -> ErrorLog.e(TAG, "Failed to disable Firestore network", e) }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to disable Firestore network", e)
+            ErrorLog.e(TAG, "Failed to disable Firestore network", e)
         }
     }
 }

@@ -14,6 +14,7 @@ import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.di.ApplicationScope
 import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
+import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.worker.RecipeEditWorker
 import com.lionotter.recipes.worker.RecipeRegenerateWorker
 import com.lionotter.recipes.worker.RecipeWorkScheduler
@@ -66,7 +67,7 @@ class EditRecipeViewModel @Inject constructor(
     val recipe: StateFlow<Recipe?> = recipeRepository.getRecipeById(recipeId)
         .onEach { _recipeLoaded.value = true }
         .catch { e ->
-            Log.e(TAG, "Failed to load recipe $recipeId", e)
+            ErrorLog.e(TAG, "Failed to load recipe $recipeId", e)
             _recipeLoaded.value = true
             emit(null)
         }
@@ -208,7 +209,7 @@ class EditRecipeViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to save selected image", e)
+                ErrorLog.e(TAG, "Failed to save selected image", e)
                 _editState.value = EditUiState.Error("Failed to save image: ${e.message}")
             }
         }
@@ -300,7 +301,7 @@ class EditRecipeViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to save recipe changes", e)
+                ErrorLog.e(TAG, "Failed to save recipe changes", e)
                 _editState.value = EditUiState.Error("Failed to save: ${e.message}")
                 return@launch
             }
@@ -337,7 +338,7 @@ class EditRecipeViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to start save as copy", e)
+                ErrorLog.e(TAG, "Failed to start save as copy", e)
                 pendingImageOwnedBySave = false
                 _editState.value = EditUiState.Error("Failed to save: ${e.message}")
                 return@launch
@@ -358,7 +359,7 @@ class EditRecipeViewModel @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to observe save-as-copy work", e)
+            ErrorLog.e(TAG, "Failed to observe save-as-copy work", e)
             null
         }
         if (copyId == null) {
@@ -373,7 +374,7 @@ class EditRecipeViewModel @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to apply image to recipe copy $copyId", e)
+            ErrorLog.e(TAG, "Failed to apply image to recipe copy $copyId", e)
             _editState.value = EditUiState.Error("The copy was saved, but its new image could not be: ${e.message}")
         }
     }
@@ -431,7 +432,7 @@ class EditRecipeViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to start regeneration", e)
+                ErrorLog.e(TAG, "Failed to start regeneration", e)
                 _editState.value = EditUiState.Error("Failed to start regeneration: ${e.message}")
             }
         }

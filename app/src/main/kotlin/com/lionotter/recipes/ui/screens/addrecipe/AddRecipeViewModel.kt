@@ -1,6 +1,5 @@
 package com.lionotter.recipes.ui.screens.addrecipe
 
-import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -9,6 +8,7 @@ import androidx.work.WorkManager
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.extractFirstUrl
 import com.lionotter.recipes.ui.state.InProgressRecipeManager
+import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.worker.RecipeImportWorker
 import com.lionotter.recipes.worker.observeWorkByTag
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -147,7 +147,7 @@ class AddRecipeViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to start import of $currentUrl", e)
+                ErrorLog.e(TAG, "Failed to start import of $currentUrl", e)
                 _uiState.value = AddRecipeUiState.Error("Couldn't start the import: ${e.message ?: "unknown error"}")
                 return@launch
             }

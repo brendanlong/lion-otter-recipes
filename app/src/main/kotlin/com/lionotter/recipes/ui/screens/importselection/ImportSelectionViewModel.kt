@@ -10,6 +10,7 @@ import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.util.RecipeSerializer
 import com.lionotter.recipes.domain.util.ZipImportHelper
 import com.lionotter.recipes.ui.state.InProgressRecipeManager
+import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.worker.ImportInputStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -93,7 +94,7 @@ class ImportSelectionViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Could not copy import file", e)
+                ErrorLog.e(TAG, "Could not copy import file", e)
                 _uiState.value = ImportSelectionUiState.Error("Could not open file: ${e.message}")
                 return@launch
             }
@@ -216,7 +217,7 @@ class ImportSelectionViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to parse Paprika export", e)
+                ErrorLog.e(TAG, "Failed to parse Paprika export", e)
                 _uiState.value = ImportSelectionUiState.Error("Failed to read Paprika export: ${e.message}")
             }
         }
@@ -253,7 +254,7 @@ class ImportSelectionViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to read ZIP contents", e)
+                ErrorLog.e(TAG, "Failed to read ZIP contents", e)
                 _uiState.value = ImportSelectionUiState.Error("Failed to read file: ${e.message}")
             }
         }
@@ -337,7 +338,7 @@ class ImportSelectionViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to start import", e)
+                ErrorLog.e(TAG, "Failed to start import", e)
                 importStarted = false
                 _results.send(ImportResult.Error("Couldn't start the import: ${e.message}"))
             }

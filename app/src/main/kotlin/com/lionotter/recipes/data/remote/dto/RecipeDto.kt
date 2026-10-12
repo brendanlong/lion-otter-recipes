@@ -1,11 +1,11 @@
 package com.lionotter.recipes.data.remote.dto
 
-import android.util.Log
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.PropertyName
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.util.ErrorLog
 import kotlin.time.Instant
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -47,7 +47,7 @@ data class RecipeDto(
         val sections = try {
             json.decodeFromString<List<InstructionSection>>(instructionSectionsJson)
         } catch (e: Exception) {
-            Log.e("RecipeDto", "Failed to parse instructionSectionsJson", e)
+            ErrorLog.e("RecipeDto", "Failed to parse instructionSectionsJson", e)
             emptyList()
         }
 

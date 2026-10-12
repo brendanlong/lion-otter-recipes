@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -77,7 +78,7 @@ class SettingsDataStore @Inject constructor(
                 tinkEncryption.decrypt(it)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to load API key", e)
+            ErrorLog.e(TAG, "Failed to load API key", e)
             null
         }
     }

@@ -1,8 +1,8 @@
 package com.lionotter.recipes.domain.usecase
 
-import android.util.Log
 import com.lionotter.recipes.domain.util.ArchiveTooLargeException
 import com.lionotter.recipes.domain.util.ZipImportHelper
+import com.lionotter.recipes.util.ErrorLog
 import kotlinx.coroutines.CancellationException
 import java.io.InputStream
 import javax.inject.Inject
@@ -65,10 +65,10 @@ class ImportFromZipUseCase @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: ArchiveTooLargeException) {
-            Log.e(TAG, "ZIP import rejected: archive too large", e)
+            ErrorLog.e(TAG, "ZIP import rejected: archive too large", e)
             return ImportResult.Error("This file is too large to import (${e.message}).")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to read ZIP file", e)
+            ErrorLog.e(TAG, "Failed to read ZIP file", e)
             return ImportResult.Error("Couldn't read the file. Is it a Lion+Otter export? (${e.message})")
         }
 

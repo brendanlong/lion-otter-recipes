@@ -2,7 +2,6 @@ package com.lionotter.recipes.worker
 
 import android.content.Context
 import android.net.Uri
-import android.util.Log
 import androidx.core.net.toUri
 import androidx.hilt.work.HiltWorker
 import androidx.work.Data
@@ -10,6 +9,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.lionotter.recipes.domain.usecase.ExportToZipUseCase
 import com.lionotter.recipes.notification.RecipeNotificationHelper
+import com.lionotter.recipes.util.ErrorLog
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 
@@ -60,7 +60,7 @@ class ZipExportWorker @AssistedInject constructor(
             context.contentResolver.openOutputStream(fileUri)
                 ?: return errorResult("Could not open file for writing")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to open export file", e)
+            ErrorLog.e(TAG, "Failed to open export file", e)
             return errorResult("Failed to open file: ${e.message}")
         }
 

@@ -187,6 +187,8 @@ jobs:
           fi
 
       - name: Build release APK
+        env:
+          CRASHLYTICS_UPLOAD: ${{ github.event_name == 'push' }}
         run: ./gradlew assembleRelease
 
       - name: Upload release APK
@@ -197,6 +199,8 @@ jobs:
 
       - name: Build release AAB
         if: github.event_name == 'push'
+        env:
+          CRASHLYTICS_UPLOAD: true
         run: ./gradlew bundleRelease
 
       - name: Upload release AAB

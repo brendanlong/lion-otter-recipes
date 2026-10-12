@@ -13,6 +13,7 @@ import com.lionotter.recipes.data.remote.WebScraperService
 import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.ResourceLimits
 import com.lionotter.recipes.domain.util.ArchiveTooLargeException
+import com.lionotter.recipes.util.ErrorLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -221,10 +222,10 @@ class ImportPaprikaUseCase @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: ArchiveTooLargeException) {
-            Log.e(TAG, "Paprika export too large", e)
+            ErrorLog.e(TAG, "Paprika export too large", e)
             return finished(ImportResult.Error("This Paprika export is too large to import (${e.message})."))
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to read Paprika export", e)
+            ErrorLog.e(TAG, "Failed to read Paprika export", e)
             return finished(ImportResult.Error("Couldn't read the Paprika export: ${e.message ?: e.javaClass.simpleName}"))
         }
 
@@ -285,7 +286,7 @@ class ImportPaprikaUseCase @Inject constructor(
                     )
                 )
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to save state for batch $batchId; cancelling it", e)
+                ErrorLog.e(TAG, "Failed to save state for batch $batchId; cancelling it", e)
                 anthropicService.cancelBatch(batchId, apiKey)
                 return@withContext ImportResult.Error("Couldn't save the import's progress: ${e.message}")
             }
@@ -309,7 +310,7 @@ class ImportPaprikaUseCase @Inject constructor(
             val transient = (e as? AnthropicRequestException)?.isTransient == true
             val failures = incrementPollFailures(workDir)
             if (!transient || failures > MAX_POLL_FAILURES) {
-                Log.e(TAG, "Giving up on batch ${state.batchId} after $failures failed polls", e)
+                ErrorLog.e(TAG, "Giving up on batch ${state.batchId} after $failures failed polls", e)
                 return finished(ImportResult.Error(e.message ?: "Lost track of the AI batch", retryable = false))
             }
             return StepResult.PollAgain
@@ -426,7 +427,7 @@ class ImportPaprikaUseCase @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to save batch result for ${recipe.name}", e)
+            ErrorLog.e(TAG, "Failed to save batch result for ${recipe.name}", e)
             "Failed to save recipe: ${e.message}"
         }
         is BatchOutcome.Failed -> {
@@ -512,7 +513,7 @@ class ImportPaprikaUseCase @Inject constructor(
         return try {
             json.decodeFromString<BatchState>(file.readText())
         } catch (e: Exception) {
-            Log.e(TAG, "Corrupt Paprika batch state in $workDir", e)
+            ErrorLog.e(TAG, "Corrupt Paprika batch state in $workDir", e)
             null
         }
     }

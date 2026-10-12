@@ -12,6 +12,7 @@ import com.google.firebase.firestore.Source
 import com.google.firebase.storage.StorageException
 import com.google.firebase.storage.storage
 import com.google.firebase.storage.storageMetadata
+import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -178,7 +179,7 @@ class ImageSyncService @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to upload image: $localUri", e)
+            ErrorLog.e(TAG, "Failed to upload image: $localUri", e)
             null
         }
     }

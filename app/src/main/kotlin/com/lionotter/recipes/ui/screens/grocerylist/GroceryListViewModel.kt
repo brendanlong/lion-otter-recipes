@@ -17,6 +17,7 @@ import com.lionotter.recipes.domain.model.formatIngredientTotal
 import com.lionotter.recipes.domain.usecase.AggregateGroceryListUseCase
 import com.lionotter.recipes.domain.usecase.GroceryIngredientSource
 import com.lionotter.recipes.domain.usecase.GroceryItem
+import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -177,7 +178,7 @@ class GroceryListViewModel @Inject constructor(
                     )
                 }
                 .catch { e ->
-                    Log.e(TAG, "Failed to load meal plans for $weekStart", e)
+                    ErrorLog.e(TAG, "Failed to load meal plans for $weekStart", e)
                     _errorMessage.value = R.string.grocery_list_load_failed
                     emit(emptyList())
                 }
@@ -313,7 +314,7 @@ class GroceryListViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to generate grocery list", e)
+                ErrorLog.e(TAG, "Failed to generate grocery list", e)
                 _errorMessage.value = R.string.grocery_list_generate_failed
                 _step.value = GroceryListStep.SELECT_RECIPES
             } finally {

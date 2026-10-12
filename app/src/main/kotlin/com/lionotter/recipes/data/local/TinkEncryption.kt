@@ -2,11 +2,11 @@ package com.lionotter.recipes.data.local
 
 import android.content.Context
 import android.util.Base64
-import android.util.Log
 import com.google.crypto.tink.Aead
 import com.google.crypto.tink.KeyTemplates
 import com.google.crypto.tink.aead.AeadConfig
 import com.google.crypto.tink.integration.android.AndroidKeysetManager
+import com.lionotter.recipes.util.ErrorLog
 
 /**
  * Provides Tink AEAD encryption/decryption for sensitive data stored in DataStore.
@@ -29,7 +29,7 @@ class TinkEncryption(context: Context) {
                 .keysetHandle
                 .getPrimitive(Aead::class.java)
         } catch (e: java.security.GeneralSecurityException) {
-            Log.e(TAG, "Failed to initialize Tink AEAD", e)
+            ErrorLog.e(TAG, "Failed to initialize Tink AEAD", e)
             throw IllegalStateException("Tink AEAD could not be initialized", e)
         }
     }
@@ -52,7 +52,7 @@ class TinkEncryption(context: Context) {
             val plaintext = aead.decrypt(encrypted, ASSOCIATED_DATA)
             String(plaintext, Charsets.UTF_8)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to decrypt data", e)
+            ErrorLog.e(TAG, "Failed to decrypt data", e)
             null
         }
     }

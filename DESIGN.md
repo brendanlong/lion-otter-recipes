@@ -110,6 +110,11 @@ interface IRecipeRepository {
 - `signOut(force)` returns `SignOutResult.Success` or `SignOutResult.PendingWrites` when changes have not reached the server or recipe images are still only on the device; Settings warns about unsynced changes and the user may sign out anyway (`force = true`).
 - `AccountDeletionService` (depends on `FirestoreService`, `ImageSyncService`, `ImportDebugRepository`, `SettingsDataStore`) first checks the server is reachable and re-authenticates, reads recipes and meal plans from the server (not the cache), deletes Firestore documents, then deletes Storage images individually (failures leave orphaned images, never recipes pointing at deleted images), clears local images, debug data and the API key, and finally deletes the Firebase Auth account.
 
+### Error Reporting
+
+- Errors are logged with `ErrorLog.e(tag, message, throwable)` (in `util/`) rather than `Log.e`. It logs to logcat and, in release builds, records the throwable as a Crashlytics non-fatal (`LionOtterApp` installs the recorder). Only the throwable is sent, not the message, since messages often include recipe names or URLs.
+- Uncaught crashes are reported by Crashlytics automatically. Collection is disabled in debug and benchmark builds via the `firebase_crashlytics_collection_enabled` manifest placeholder, and R8 mapping files are uploaded only when building in CI.
+
 ## Domain Layer
 
 ### Models

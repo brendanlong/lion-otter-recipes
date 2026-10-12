@@ -8,6 +8,7 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.baselineprofile)
     alias(libs.plugins.google.services)
+    alias(libs.plugins.firebase.crashlytics)
 }
 
 val gitVersionCode: Int by lazy {
@@ -109,6 +110,19 @@ android {
     }
 }
 
+// Crash reporting is only for the shipped release variant; benchmark and baseline-profile
+// variants derived from release must not report to the production project.
+androidComponents {
+    onVariants { variant ->
+        variant.manifestPlaceholders.put("crashlyticsEnabled", (variant.name == "release").toString())
+    }
+}
+
+// Mapping files are uploaded only by CI release builds of main (CRASHLYTICS_UPLOAD=true).
+tasks.matching { it.name.startsWith("uploadCrashlyticsMappingFile") }.configureEach {
+    enabled = name == "uploadCrashlyticsMappingFileRelease" && System.getenv("CRASHLYTICS_UPLOAD") == "true"
+}
+
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
@@ -171,6 +185,7 @@ dependencies {
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.storage)
+    implementation(libs.firebase.crashlytics)
 
     // Credentials (Google Sign-In)
     implementation(libs.credentials)
