@@ -6,10 +6,16 @@ import com.lionotter.recipes.domain.model.IngredientSection
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.InstructionStep
 import com.lionotter.recipes.domain.model.Recipe
-import com.lionotter.recipes.domain.model.formatQuantity
+import com.lionotter.recipes.domain.model.formatAmount
 
 /**
  * Converts a Recipe to a human-readable Markdown format.
+ *
+ * Two layouts are produced:
+ * - [format] (sharing/export): an aggregated ingredient list followed by the steps.
+ * - [formatBody] (AI edit screen): no aggregated list; instead every step lists the ingredients
+ *   it uses with their amounts, so re-parsing keeps the per-step assignment, amounts split
+ *   across steps, and step repetitions ("yields").
  */
 object RecipeMarkdownFormatter {
 
@@ -27,14 +33,17 @@ object RecipeMarkdownFormatter {
             appendLine()
         }
 
-        append(formatBody(recipe))
+        append(formatBody(recipe, forEditing = false))
     }
 
     /**
-     * Format a recipe body as Markdown, excluding the title and source URL.
-     * Used by the edit screen where title and URL are edited separately.
+     * Format a recipe body as Markdown for editing, excluding the title and source URL
+     * (which the edit screen edits separately). Ingredients are listed under the step that
+     * uses them rather than in an aggregated list.
      */
-    fun formatBody(recipe: Recipe): String = buildString {
+    fun formatBody(recipe: Recipe): String = formatBody(recipe, forEditing = true)
+
+    private fun formatBody(recipe: Recipe, forEditing: Boolean): String = buildString {
         // Story/Description
         recipe.story?.let { story ->
             appendLine(story)
@@ -62,12 +71,13 @@ object RecipeMarkdownFormatter {
         appendLine("---")
         appendLine()
 
-        // Ingredients section (aggregated from steps)
-        appendLine("## Ingredients")
-        appendLine()
-        val ingredientSections = recipe.aggregateIngredients()
-        formatIngredientSections(ingredientSections)
-        appendLine()
+        if (!forEditing) {
+            // Ingredients section (aggregated from steps)
+            appendLine("## Ingredients")
+            appendLine()
+            formatIngredientSections(recipe.aggregateIngredients())
+            appendLine()
+        }
 
         // Equipment section
         if (recipe.equipment.isNotEmpty()) {
@@ -82,7 +92,7 @@ object RecipeMarkdownFormatter {
         // Instructions section
         appendLine("## Instructions")
         appendLine()
-        formatInstructionSections(recipe.instructionSections)
+        formatInstructionSections(recipe.instructionSections, includeIngredients = forEditing)
 
         // User notes section
         recipe.userNotes?.let { notes ->
@@ -108,18 +118,16 @@ object RecipeMarkdownFormatter {
 
             // Ingredients list
             section.ingredients.forEach { ingredient ->
-                appendLine(formatIngredient(ingredient))
+                appendLine("- ${formatIngredient(ingredient)}")
             }
             appendLine()
         }
     }
 
     private fun formatIngredient(ingredient: Ingredient): String = buildString {
-        append("- ")
-
         // Format amount
         ingredient.amount?.let { amount ->
-            append("${formatAmount(amount)} ")
+            formatAmount(amount)?.let { append("$it ") }
         }
 
         // Ingredient name
@@ -141,7 +149,7 @@ object RecipeMarkdownFormatter {
             append(ingredient.alternates.joinToString(" OR ") { alt ->
                 buildString {
                     alt.amount?.let { amount ->
-                        append("${formatAmount(amount)} ")
+                        formatAmount(amount)?.let { append("$it ") }
                     }
                     append(alt.name)
                     alt.notes?.let { append(", $it") }
@@ -150,17 +158,15 @@ object RecipeMarkdownFormatter {
         }
     }
 
-    private fun formatAmount(amount: Amount): String {
-        val value = amount.value ?: return amount.unit ?: ""
-        val formattedValue = formatQuantity(value)
-        return if (amount.unit != null) {
-            "$formattedValue ${amount.unit}"
-        } else {
-            formattedValue
-        }
+    private fun formatAmount(amount: Amount): String? {
+        val value = amount.value ?: return amount.unit
+        return formatAmount(value, amount.unit)
     }
 
-    private fun StringBuilder.formatInstructionSections(sections: List<InstructionSection>) {
+    private fun StringBuilder.formatInstructionSections(
+        sections: List<InstructionSection>,
+        includeIngredients: Boolean
+    ) {
         if (sections.isEmpty()) {
             appendLine("*No instructions listed*")
             return
@@ -175,15 +181,28 @@ object RecipeMarkdownFormatter {
 
             // Steps
             section.steps.sortedBy { it.stepNumber }.forEach { step ->
-                appendLine(formatStep(step))
+                appendLine(formatStep(step, includeIngredients))
+                if (includeIngredients) {
+                    step.ingredients.forEach { ingredient ->
+                        appendLine("   - ${formatIngredient(ingredient)}")
+                    }
+                }
                 appendLine()
             }
         }
     }
 
-    private fun formatStep(step: InstructionStep): String = buildString {
+    private fun formatStep(step: InstructionStep, includeIngredients: Boolean): String = buildString {
         append("${step.stepNumber}. ")
         append(step.instruction)
+
+        if (step.yields > 1) {
+            if (includeIngredients && step.ingredients.isNotEmpty()) {
+                append(" *(repeat ${step.yields} times; ingredient amounts below are for each time)*")
+            } else {
+                append(" *(repeat ${step.yields} times)*")
+            }
+        }
 
         if (step.optional) {
             append(" *(optional)*")
