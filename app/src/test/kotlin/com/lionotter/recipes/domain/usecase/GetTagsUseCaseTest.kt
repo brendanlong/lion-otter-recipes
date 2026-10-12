@@ -316,4 +316,46 @@ class GetTagsUseCaseTest {
             )
         }
     }
+
+    @Test
+    fun `tags differing only in case are counted together`() {
+        val recipes = listOf(
+            recipe("1", listOf("Dessert")),
+            recipe("2", listOf("dessert")),
+            recipe("3", listOf("Dessert ")),
+            recipe("4", listOf("dinner"))
+        )
+
+        val result = getTagsUseCase.execute(recipes)
+
+        assertEquals(listOf("Dessert", "dinner"), result)
+    }
+
+    @Test
+    fun `buildTagMap merges case variants and uses most common spelling`() {
+        val recipes = listOf(
+            recipe("1", listOf("vegan")),
+            recipe("2", listOf("Vegan")),
+            recipe("3", listOf("vegan")),
+            recipe("4", listOf("  ", ""))
+        )
+
+        val map = getTagsUseCase.buildTagMap(recipes)
+
+        assertEquals(mapOf("vegan" to setOf("1", "2", "3")), map)
+    }
+
+    @Test
+    fun `large libraries use bounded greedy selection`() {
+        val recipes = (1..(GetTagsUseCase.ILP_MAX_RECIPES + 50)).map { i ->
+            recipe("r$i", listOf("tag-${i % 40}", "group-${i % 7}"))
+        }
+
+        val start = System.nanoTime()
+        val result = getTagsUseCase.execute(recipes)
+        val elapsedMs = (System.nanoTime() - start) / 1_000_000
+
+        assertEquals(GetTagsUseCase.MAX_TAGS, result.size)
+        assertTrue("Tag selection took ${elapsedMs}ms", elapsedMs < 2_000)
+    }
 }
