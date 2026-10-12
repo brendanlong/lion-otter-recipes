@@ -381,7 +381,7 @@ private fun ContentActions(
             }) {
                 Icon(
                     imageVector = Icons.Default.ContentCopy,
-                    contentDescription = stringResource(R.string.copy_content)
+                    contentDescription = stringResource(R.string.import_debug_copy_content)
                 )
             }
         }
@@ -410,7 +410,7 @@ private fun ContentActions(
         }) {
             Icon(
                 imageVector = Icons.Default.Share,
-                contentDescription = stringResource(R.string.share_full_content)
+                contentDescription = stringResource(R.string.import_debug_share_full_content)
             )
         }
     }

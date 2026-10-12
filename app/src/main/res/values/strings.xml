@@ -307,11 +307,21 @@
     <string name="import_debug_list_load_failed">Couldn\'t load import debug data.</string>
     <string name="import_debug_truncated">Showing first %1$s of %2$s characters</string>
     <string name="import_debug_share_failed">Couldn\'t share content</string>
-    <string name="copy_content">Copy</string>
-    <string name="share_full_content">Share full content</string>
+    <string name="import_debug_copy_content">Copy</string>
+    <string name="import_debug_share_full_content">Share full content</string>
     <string name="grocery_list_load_failed">Couldn\'t load this week\'s meal plan.</string>
     <string name="grocery_list_generate_failed">Couldn\'t generate the grocery list. Please try again.</string>
     <string name="grocery_list_skipped_recipes">Couldn\'t find these recipes, so their ingredients aren\'t included: %1$s</string>
     <string name="grocery_total_partial_suffix">+ more</string>
+    <string name="meal_plan_load_failed">Couldn\'t load the meal plan.</string>
+    <string name="meal_plan_recipes_load_failed">Couldn\'t load recipes.</string>
+    <string name="meal_plan_save_failed">Couldn\'t save the meal. Please try again.</string>
+    <string name="meal_plan_delete_failed">Couldn\'t remove the meal. Please try again.</string>
+    <string name="meal_plan_limit_reached">Meal plan limit reached (%1$d/%2$d). Delete some meal plans before adding new ones.</string>
+    <string name="meal_removed">Removed %1$s</string>
+    <string name="meal_plan_undo">Undo</string>
+    <string name="day_header_today">%1$s (today)</string>
+    <string name="meal_plan_decrease_servings">Decrease servings</string>
+    <string name="meal_plan_increase_servings">Increase servings</string>
     <!-- ===== END secondary screens ===== -->
 </resources>
