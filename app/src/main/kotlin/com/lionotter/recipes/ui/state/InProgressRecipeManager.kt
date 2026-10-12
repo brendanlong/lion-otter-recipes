@@ -8,6 +8,7 @@ import com.lionotter.recipes.data.local.PendingImportEntity
 import com.lionotter.recipes.data.repository.PendingImportRepository
 import com.lionotter.recipes.di.ApplicationScope
 import com.lionotter.recipes.domain.usecase.ImportPaprikaUseCase
+import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.worker.BaseRecipeWorker
 import com.lionotter.recipes.worker.ImportInputStore
 import com.lionotter.recipes.worker.PaprikaImportWorker
@@ -199,7 +200,7 @@ class InProgressRecipeManager @Inject constructor(
             try {
                 scheduler.enqueueImport(importId, request)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to enqueue $kind import $importId", e)
+                ErrorLog.e(TAG, "Failed to enqueue $kind import $importId", e)
                 pendingImportRepository.deletePendingImport(importId)
                 throw e
             }
@@ -232,7 +233,7 @@ class InProgressRecipeManager @Inject constructor(
                     pendingImportRepository.updateStatusWithError(id, PendingImportEntity.STATUS_PENDING, null)
                     scheduler.enqueueImport(id, request)
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to retry import $id", e)
+                    ErrorLog.e(TAG, "Failed to retry import $id", e)
                     pendingImportRepository.updateStatusWithError(
                         id, PendingImportEntity.STATUS_FAILED, "Couldn't retry: ${e.message}"
                     )
@@ -317,7 +318,7 @@ class InProgressRecipeManager @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to $description", e)
+                ErrorLog.e(TAG, "Failed to $description", e)
             }
         }
     }

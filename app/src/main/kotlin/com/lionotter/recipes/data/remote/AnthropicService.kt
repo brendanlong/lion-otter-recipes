@@ -35,6 +35,7 @@ import com.anthropic.models.messages.batches.MessageBatch
 import com.anthropic.models.messages.batches.MessageBatchIndividualResponse
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
+import com.lionotter.recipes.util.ErrorLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -129,7 +130,7 @@ class AnthropicService @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Recipe parse request failed (model=$resolvedModel)", e)
+            ErrorLog.e(TAG, "Recipe parse request failed (model=$resolvedModel)", e)
             Result.failure(toFriendlyException(e))
         }
     }
@@ -193,7 +194,7 @@ class AnthropicService @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to create batch of ${requests.size} requests", e)
+            ErrorLog.e(TAG, "Failed to create batch of ${requests.size} requests", e)
             Result.failure(toFriendlyException(e))
         }
     }
@@ -265,7 +266,7 @@ class AnthropicService @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to read results for batch $batchId", e)
+            ErrorLog.e(TAG, "Failed to read results for batch $batchId", e)
             Result.failure(toFriendlyException(e))
         }
     }
@@ -370,7 +371,7 @@ class AnthropicService @Inject constructor(
                 aiOutputJson = jsonContent
             ))
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse AI response", e)
+            ErrorLog.e(TAG, "Failed to parse AI response", e)
             Result.failure(RecipeParseException("The AI returned a response that couldn't be read."))
         }
     }

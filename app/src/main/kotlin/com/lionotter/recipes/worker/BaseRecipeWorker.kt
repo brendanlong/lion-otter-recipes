@@ -7,6 +7,7 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.lionotter.recipes.notification.RecipeNotificationHelper
+import com.lionotter.recipes.util.ErrorLog
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -55,7 +56,7 @@ abstract class BaseRecipeWorker(
             notificationHelper.cancelNotification(progressNotificationId)
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "${javaClass.simpleName} failed unexpectedly", e)
+            ErrorLog.e(TAG, "${javaClass.simpleName} failed unexpectedly", e)
             errorResult(
                 errorMessage = "Something went wrong: ${e.message ?: e.javaClass.simpleName}",
                 retryable = false

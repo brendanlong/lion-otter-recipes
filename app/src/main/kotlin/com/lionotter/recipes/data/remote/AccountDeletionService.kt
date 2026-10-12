@@ -12,6 +12,7 @@ import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.firestore
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.repository.ImportDebugRepository
+import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
@@ -145,7 +146,7 @@ class AccountDeletionService @Inject constructor(
             throw e
         } catch (e: Exception) {
             if (e is CancellationException) throw e
-            Log.e(TAG, "Failed to read ${collection.path} from server", e)
+            ErrorLog.e(TAG, "Failed to read ${collection.path} from server", e)
             throw OfflineException(e)
         }
     }

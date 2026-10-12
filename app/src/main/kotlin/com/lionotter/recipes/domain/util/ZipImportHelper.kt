@@ -7,6 +7,7 @@ import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.ResourceLimits
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.util.ErrorLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.ensureActive
@@ -214,7 +215,7 @@ class ZipImportHelper @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to import recipe ${recipe.id} (${recipe.name})", e)
+            ErrorLog.e(TAG, "Failed to import recipe ${recipe.id} (${recipe.name})", e)
             SingleRecipeResult.Failed(e)
         }
     }

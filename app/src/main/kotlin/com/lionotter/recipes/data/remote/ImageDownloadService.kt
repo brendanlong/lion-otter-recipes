@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.util.Base64
 import android.util.Log
 import androidx.work.WorkManager
+import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.worker.LocalImageUploadWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.ktor.client.HttpClient
@@ -120,7 +121,7 @@ class ImageDownloadService @Inject constructor(
         try {
             LocalImageUploadWorker.enqueue(workManager.get())
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to schedule local image upload", e)
+            ErrorLog.e(TAG, "Failed to schedule local image upload", e)
         }
     }
 

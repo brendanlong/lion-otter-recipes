@@ -13,6 +13,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.lionotter.recipes.data.remote.ImageSyncService
+import com.lionotter.recipes.util.ErrorLog
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.CancellationException
@@ -59,14 +60,14 @@ class LocalImageUploadWorker @AssistedInject constructor(
                     Result.retry()
                 }
                 else -> {
-                    Log.e(TAG, "${result.failed} image uploads still failing after $MAX_ATTEMPTS attempts")
+                    ErrorLog.e(TAG, "${result.failed} image uploads still failing after $MAX_ATTEMPTS attempts")
                     Result.failure(workDataOf(KEY_UPLOADED_COUNT to result.uploaded))
                 }
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Local image upload failed (attempt ${runAttemptCount + 1})", e)
+            ErrorLog.e(TAG, "Local image upload failed (attempt ${runAttemptCount + 1})", e)
             if (runAttemptCount + 1 < MAX_ATTEMPTS) Result.retry() else Result.failure()
         }
     }

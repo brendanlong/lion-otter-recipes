@@ -16,6 +16,7 @@ import com.google.firebase.auth.AuthCredential
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.auth
 import com.lionotter.recipes.R
+import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -129,7 +130,7 @@ class AuthService @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Google sign-in failed", e)
+            ErrorLog.e(TAG, "Google sign-in failed", e)
             Result.failure(e)
         }
     }
@@ -210,11 +211,11 @@ class AuthService @Inject constructor(
             try {
                 accountDeletionService.deleteAllUserData(reauthCredential)
             } catch (e: AccountDeletionService.AuthAccountDeletionException) {
-                Log.e(TAG, "User data deleted but auth account deletion failed", e)
+                ErrorLog.e(TAG, "User data deleted but auth account deletion failed", e)
                 resetToFreshGuest()
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to delete account and data", e)
+                ErrorLog.e(TAG, "Failed to delete account and data", e)
                 _authState.value = previousState
                 throw e
             }
@@ -257,7 +258,7 @@ class AuthService @Inject constructor(
         val user = try {
             Firebase.auth.currentUser
         } catch (e: Exception) {
-            Log.e(TAG, "Could not read Firebase Auth user", e)
+            ErrorLog.e(TAG, "Could not read Firebase Auth user", e)
             null
         }
         return if (user != null && !user.isAnonymous) {

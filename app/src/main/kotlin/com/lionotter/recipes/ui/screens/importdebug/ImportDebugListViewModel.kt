@@ -1,10 +1,10 @@
 package com.lionotter.recipes.ui.screens.importdebug
 
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lionotter.recipes.data.local.ImportDebugDao
 import com.lionotter.recipes.data.local.ImportDebugSummary
+import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -25,7 +25,7 @@ class ImportDebugListViewModel @Inject constructor(
     /** Debug entry summaries (without the large content columns), or null while loading. */
     val debugEntries: StateFlow<List<ImportDebugSummary>?> = importDebugDao.getAllDebugSummaries()
         .catch { e ->
-            Log.e(TAG, "Failed to load import debug entries", e)
+            ErrorLog.e(TAG, "Failed to load import debug entries", e)
             _loadFailed.value = true
             emit(emptyList())
         }

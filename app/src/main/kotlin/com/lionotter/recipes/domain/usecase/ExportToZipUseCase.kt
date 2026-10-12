@@ -1,12 +1,12 @@
 package com.lionotter.recipes.domain.usecase
 
-import android.util.Log
 import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.remote.ImageSyncService
 import com.lionotter.recipes.data.repository.IMealPlanRepository
 import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.util.RecipeSerializer
+import com.lionotter.recipes.util.ErrorLog
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -116,7 +116,7 @@ class ExportToZipUseCase @Inject constructor(
                     } catch (e: kotlinx.coroutines.CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        Log.e(TAG, "Failed to export recipe: ${recipe.name}", e)
+                        ErrorLog.e(TAG, "Failed to export recipe: ${recipe.name}", e)
                         failedCount++
                     }
                 }
@@ -132,7 +132,7 @@ class ExportToZipUseCase @Inject constructor(
                             zipOut.write(mealPlanJson.toByteArray(Charsets.UTF_8))
                             zipOut.closeEntry()
                         } catch (e: Exception) {
-                            Log.e(TAG, "Failed to export meal plans for date $date", e)
+                            ErrorLog.e(TAG, "Failed to export meal plans for date $date", e)
                         }
                     }
                 }
@@ -140,7 +140,7 @@ class ExportToZipUseCase @Inject constructor(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to create ZIP file", e)
+            ErrorLog.e(TAG, "Failed to create ZIP file", e)
             return ExportResult.Error("Failed to create ZIP file: ${e.message}")
         }
 

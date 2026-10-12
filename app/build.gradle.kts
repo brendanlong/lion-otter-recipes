@@ -1,3 +1,4 @@
+import com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension
 import java.time.LocalDate
 
 plugins {
@@ -8,6 +9,7 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.baselineprofile)
     alias(libs.plugins.google.services)
+    alias(libs.plugins.firebase.crashlytics)
 }
 
 val gitVersionCode: Int by lazy {
@@ -58,9 +60,15 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
+            manifestPlaceholders["crashlyticsEnabled"] = false
         }
         release {
             signingConfig = signingConfigs.getByName("release")
+            manifestPlaceholders["crashlyticsEnabled"] = true
+            configure<CrashlyticsExtension> {
+                // Only CI uploads R8 mapping files, so local release builds don't need Firebase access
+                mappingFileUploadEnabled = System.getenv("CI") != null
+            }
             isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -72,6 +80,10 @@ android {
             signingConfig = signingConfigs.getByName("release")
             matchingFallbacks += listOf("release")
             isDebuggable = false
+            manifestPlaceholders["crashlyticsEnabled"] = false
+            configure<CrashlyticsExtension> {
+                mappingFileUploadEnabled = false
+            }
         }
     }
 
@@ -171,6 +183,7 @@ dependencies {
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.storage)
+    implementation(libs.firebase.crashlytics)
 
     // Credentials (Google Sign-In)
     implementation(libs.credentials)

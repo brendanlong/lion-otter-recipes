@@ -22,6 +22,7 @@ import com.lionotter.recipes.domain.model.createInstructionIngredientKey
 import com.lionotter.recipes.domain.usecase.CalculateIngredientUsageUseCase
 import com.lionotter.recipes.domain.usecase.ExportSingleRecipeUseCase
 import com.lionotter.recipes.domain.util.RecipeSerializer
+import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
@@ -387,7 +388,7 @@ class RecipeDetailViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to toggle favorite for $recipeId", e)
+                ErrorLog.e(TAG, "Failed to toggle favorite for $recipeId", e)
                 _errors.send(RecipeDetailError.FAVORITE_FAILED)
             }
         }
@@ -423,7 +424,7 @@ class RecipeDetailViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to delete recipe $recipeId", e)
+                ErrorLog.e(TAG, "Failed to delete recipe $recipeId", e)
                 _isDeleting.value = false
                 _errors.send(RecipeDetailError.DELETE_FAILED)
             }
@@ -470,7 +471,7 @@ class RecipeDetailViewModel @Inject constructor(
         try {
             recipeRepository.setUserNotes(recipeId, normalizedNotes)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to save notes for $recipeId", e)
+            ErrorLog.e(TAG, "Failed to save notes for $recipeId", e)
             _errors.trySend(RecipeDetailError.SAVE_NOTES_FAILED)
         }
     }
@@ -515,7 +516,7 @@ class RecipeDetailViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to export recipe $recipeId", e)
+                ErrorLog.e(TAG, "Failed to export recipe $recipeId", e)
                 _errors.send(RecipeDetailError.EXPORT_FAILED)
             }
         }

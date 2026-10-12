@@ -1,12 +1,12 @@
 package com.lionotter.recipes.ui.screens.importdebug
 
 import android.content.Context
-import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lionotter.recipes.data.local.ImportDebugDao
 import com.lionotter.recipes.data.local.ImportDebugSummary
+import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
@@ -63,7 +63,7 @@ class ImportDebugDetailViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to load import debug entry $entryId", e)
+                ErrorLog.e(TAG, "Failed to load import debug entry $entryId", e)
                 ImportDebugDetailState.Error(e.message ?: e.javaClass.simpleName)
             }
         }

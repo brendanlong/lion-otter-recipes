@@ -59,6 +59,7 @@ import com.lionotter.recipes.R
 import com.lionotter.recipes.data.local.ImportDebugSummary
 import com.lionotter.recipes.ui.components.ErrorCard
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
+import com.lionotter.recipes.util.ErrorLog
 import kotlin.time.Instant
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -403,7 +404,7 @@ private fun ContentActions(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to share debug content", e)
+                    ErrorLog.e(TAG, "Failed to share debug content", e)
                     Toast.makeText(context, shareFailedMessage, Toast.LENGTH_LONG).show()
                 }
             }

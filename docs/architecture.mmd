@@ -11,6 +11,7 @@ subgraph external["External Services"]
     anthropic["Anthropic API"]
     web["Recipe Websites"]
     firebase["Firebase"]
+    crashlytics["Firebase Crashlytics"]
 end
 
 %% ============================================================
@@ -388,6 +389,7 @@ subgraph app["Android App"]
     lion_app["LionOtterApp<br/>(injects AuthService eagerly)"]
     lion_app -->|resolve auth state at startup| auth_svc
     lion_app -->|create notification channels| helper
+    lion_app -->|"release builds: ErrorLog.e exceptions as non-fatals"| crashlytics
     auth_svc -->|awaitUid, configure instance, clear local data| firestore_svc
     settings_vm -->|"sign in, sign out (PendingWrites warning), email, delete account"| auth_svc
     auth_svc -->|delete all user data| deletion_svc

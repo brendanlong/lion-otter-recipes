@@ -1,11 +1,11 @@
 package com.lionotter.recipes.domain.usecase
 
-import android.util.Log
 import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.remote.ImageSyncService
 import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.util.RecipeSerializer
+import com.lionotter.recipes.util.ErrorLog
 import java.io.OutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -76,7 +76,7 @@ class ExportSingleRecipeUseCase @Inject constructor(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to export recipe: ${recipe.name}", e)
+            ErrorLog.e(TAG, "Failed to export recipe: ${recipe.name}", e)
             ExportResult.Error("Failed to export recipe: ${e.message}")
         }
     }

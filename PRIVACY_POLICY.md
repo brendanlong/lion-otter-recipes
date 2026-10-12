@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Last updated:** February 26, 2026
+**Last updated:** October 12, 2026
 
 Lion+Otter Recipes ("the app") is an open-source Android application for
 importing, organizing, and cooking with recipes. This privacy policy explains
@@ -10,8 +10,9 @@ data.
 ## No Ads or Tracking
 
 The app contains **no advertisements**, **no analytics**, and **no third-party
-tracking**. We do not collect behavioral data, device identifiers, or location
-information.
+tracking**. We do not collect behavioral data or location information. The only
+diagnostic data the app sends is crash and error reports (see
+[Crash Reporting](#crash-reporting-firebase-crashlytics) below).
 
 ## Offline Use Without an Account
 
@@ -70,6 +71,23 @@ If signed in, the app uses Firebase Firestore and Firebase Storage to sync
 your recipes, meal plans, and recipe images. See Google's privacy policy for
 details on how Firebase handles data:
 https://firebase.google.com/support/privacy
+
+### Crash Reporting (Firebase Crashlytics)
+
+Release builds of the app send crash and error reports to Firebase
+Crashlytics so we can find and fix bugs. A report contains:
+
+- The error type and stack trace, and the error message (which can sometimes
+  include the address of a web page being imported)
+- Device model, Android version, app version, available memory and disk space,
+  and whether the app was in the foreground
+- A random installation identifier created by Firebase, used to count how many
+  installs are affected by a problem
+
+Reports do **not** include your recipes, notes, Anthropic API key, email
+address, or Firebase user ID. Crashlytics retains reports for 90 days. See
+Google's description of the data Crashlytics collects:
+https://firebase.google.com/support/privacy#crash-stored-info
 
 ## Data Retention
 

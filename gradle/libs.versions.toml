@@ -30,6 +30,7 @@ robolectric = "4.16"
 androidxTestCore = "1.6.1"
 firebaseBom = "34.9.0"
 googleServices = "4.4.4"
+firebaseCrashlyticsPlugin = "3.0.8"
 credentials = "1.5.0"
 googleid = "1.2.0"
 exifinterface = "1.4.2"
@@ -91,6 +92,7 @@ firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.r
 firebase-auth = { group = "com.google.firebase", name = "firebase-auth" }
 firebase-firestore = { group = "com.google.firebase", name = "firebase-firestore" }
 firebase-storage = { group = "com.google.firebase", name = "firebase-storage" }
+firebase-crashlytics = { group = "com.google.firebase", name = "firebase-crashlytics" }
 
 # Credentials
 credentials = { group = "androidx.credentials", name = "credentials", version.ref = "credentials" }
@@ -138,4 +140,5 @@ kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", versi
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 google-services = { id = "com.google.gms.google-services", version.ref = "googleServices" }
+firebase-crashlytics = { id = "com.google.firebase.crashlytics", version.ref = "firebaseCrashlyticsPlugin" }
 

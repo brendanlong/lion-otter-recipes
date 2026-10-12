@@ -14,6 +14,7 @@ import com.lionotter.recipes.domain.model.MealType
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.usecase.GetTagsUseCase
+import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -128,7 +129,7 @@ class MealPlanViewModel @Inject constructor(
 
     private val allRecipes: Flow<List<Recipe>> = recipeRepository.getAllRecipes()
         .catch { e ->
-            Log.e(TAG, "Failed to load recipes", e)
+            ErrorLog.e(TAG, "Failed to load recipes", e)
             _errorMessage.value = MealPlanMessage(R.string.meal_plan_recipes_load_failed)
             emit(emptyList())
         }
@@ -140,7 +141,7 @@ class MealPlanViewModel @Inject constructor(
         .map { recipes -> getTagsUseCase.execute(recipes) }
         .flowOn(Dispatchers.Default)
         .catch { e ->
-            Log.e(TAG, "Failed to compute tags", e)
+            ErrorLog.e(TAG, "Failed to compute tags", e)
             emit(emptyList())
         }
         .stateIn(
@@ -188,7 +189,7 @@ class MealPlanViewModel @Inject constructor(
                 }
                 .onStart { emit(null) }
                 .catch { e ->
-                    Log.e(TAG, "Failed to load meal plans for week of $weekStart", e)
+                    ErrorLog.e(TAG, "Failed to load meal plans for week of $weekStart", e)
                     _errorMessage.value = MealPlanMessage(R.string.meal_plan_load_failed)
                     emit(emptyMap())
                 }
@@ -289,7 +290,7 @@ class MealPlanViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to save meal plan", e)
+                ErrorLog.e(TAG, "Failed to save meal plan", e)
                 _errorMessage.value = MealPlanMessage(R.string.meal_plan_save_failed)
             } finally {
                 _isSaving.value = false
@@ -376,7 +377,7 @@ class MealPlanViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to delete meal plan ${entry.id}", e)
+                ErrorLog.e(TAG, "Failed to delete meal plan ${entry.id}", e)
                 _errorMessage.value = MealPlanMessage(R.string.meal_plan_delete_failed)
             }
         }
@@ -397,7 +398,7 @@ class MealPlanViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to restore meal plan ${entry.id}", e)
+                ErrorLog.e(TAG, "Failed to restore meal plan ${entry.id}", e)
                 _errorMessage.value = MealPlanMessage(R.string.meal_plan_save_failed)
             }
         }

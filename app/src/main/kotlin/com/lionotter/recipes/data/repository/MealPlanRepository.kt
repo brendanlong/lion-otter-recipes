@@ -1,6 +1,5 @@
 package com.lionotter.recipes.data.repository
 
-import android.util.Log
 import com.google.firebase.Firebase
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.firestore
@@ -10,6 +9,7 @@ import com.lionotter.recipes.data.remote.dto.MealPlanDto
 import com.lionotter.recipes.data.remote.dto.toDto
 import com.lionotter.recipes.data.remote.uid
 import com.lionotter.recipes.domain.model.MealPlanEntry
+import com.lionotter.recipes.util.ErrorLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -70,7 +70,7 @@ class MealPlanRepository @Inject constructor(
         val dto = entry.toDto()
         firestoreService.mealPlansCollection(uid).document(entry.id).set(dto)
             .addOnFailureListener { e ->
-                Log.e(TAG, "Error saving meal plan ${entry.id}", e)
+                ErrorLog.e(TAG, "Error saving meal plan ${entry.id}", e)
                 firestoreService.reportError("Failed to save meal plan: ${e.message}")
             }
     }
@@ -79,7 +79,7 @@ class MealPlanRepository @Inject constructor(
         val dto = entry.toDto()
         firestoreService.mealPlansCollection(uid).document(entry.id).set(dto)
             .addOnFailureListener { e ->
-                Log.e(TAG, "Error updating meal plan ${entry.id}", e)
+                ErrorLog.e(TAG, "Error updating meal plan ${entry.id}", e)
                 firestoreService.reportError("Failed to update meal plan: ${e.message}")
             }
     }
@@ -87,7 +87,7 @@ class MealPlanRepository @Inject constructor(
     override fun deleteMealPlan(id: String) = write("delete meal plan") { uid ->
         firestoreService.mealPlansCollection(uid).document(id).delete()
             .addOnFailureListener { e ->
-                Log.e(TAG, "Error deleting meal plan $id", e)
+                ErrorLog.e(TAG, "Error deleting meal plan $id", e)
                 firestoreService.reportError("Failed to delete meal plan: ${e.message}")
             }
     }
@@ -114,7 +114,7 @@ class MealPlanRepository @Inject constructor(
             }
             batch.commit()
                 .addOnFailureListener { e ->
-                    Log.e(TAG, "Error batch deleting meal plans for recipe $recipeId", e)
+                    ErrorLog.e(TAG, "Error batch deleting meal plans for recipe $recipeId", e)
                     firestoreService.reportError("Failed to delete meal plans: ${e.message}")
                 }
             Unit
@@ -165,7 +165,7 @@ class MealPlanRepository @Inject constructor(
                     try {
                         decodeMealPlan(doc)
                     } catch (e: Exception) {
-                        Log.e(TAG, "Error deserializing meal plan ${doc.id}", e)
+                        ErrorLog.e(TAG, "Error deserializing meal plan ${doc.id}", e)
                         null
                     }
                 }
