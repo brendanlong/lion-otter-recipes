@@ -1,9 +1,11 @@
 package com.lionotter.recipes.di
 
+import android.util.Log
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -34,6 +36,11 @@ object AppModule {
     @Singleton
     @ApplicationScope
     fun provideApplicationScope(): CoroutineScope {
-        return CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        // Background work launched here outlives any screen, so an uncaught failure is logged
+        // rather than crashing the whole app.
+        val handler = CoroutineExceptionHandler { _, e ->
+            Log.e("ApplicationScope", "Uncaught exception in application scope", e)
+        }
+        return CoroutineScope(SupervisorJob() + Dispatchers.Default + handler)
     }
 }

@@ -5,10 +5,13 @@ import android.net.Uri
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -39,7 +42,16 @@ class ImportInputStore @Inject constructor(
         private const val STALE_WORK_INPUT_EXTRA_MILLIS = 6 * 24 * 60 * 60 * 1000L
     }
 
+    private val importLocks = ConcurrentHashMap<String, Mutex>()
+
     private val importsRoot: File get() = File(context.filesDir, "imports")
+
+    /**
+     * Run [block] while holding this import's in-process lock. Workers hold it while they use
+     * the import's files, and cancellation takes it before deleting them.
+     */
+    suspend fun <T> withImportLock(importId: String, block: suspend () -> T): T =
+        importLocks.getOrPut(importId) { Mutex() }.withLock { block() }
     private val workInputsRoot: File get() = File(context.filesDir, "work-inputs")
 
     fun importDir(importId: String): File {
@@ -51,13 +63,29 @@ class ImportInputStore @Inject constructor(
 
     fun sourceFile(importId: String): File = File(importDir(importId), SOURCE_FILE)
 
-    /** Copy a picked document into app storage so the worker can read it after process death. */
+    /**
+     * Copy a picked or shared document into app storage, so it can still be read after process
+     * death (when the content:// grant is gone). The file only appears at [sourceFile] once the
+     * copy is complete.
+     */
     suspend fun copySource(importId: String, uri: Uri): File = withContext(Dispatchers.IO) {
         val target = sourceFile(importId)
+        val partial = File(target.parentFile, "$SOURCE_FILE.partial")
         val input = context.contentResolver.openInputStream(uri)
             ?: throw IOException("Could not open the selected file")
-        input.use { source -> target.outputStream().use { source.copyTo(it) } }
+        input.use { source -> partial.outputStream().use { source.copyTo(it) } }
+        if (!partial.renameTo(target)) {
+            partial.delete()
+            throw IOException("Could not save a copy of the selected file")
+        }
         target
+    }
+
+    fun hasSource(importId: String): Boolean = sourceFile(importId).exists()
+
+    /** Mark the import's files as in use so orphan cleanup doesn't remove them. */
+    fun touch(importId: String) {
+        importDir(importId).setLastModified(System.currentTimeMillis())
     }
 
     fun writeSelection(importId: String, ids: Set<String>?) {

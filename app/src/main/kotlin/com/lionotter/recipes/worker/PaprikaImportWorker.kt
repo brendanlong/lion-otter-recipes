@@ -70,6 +70,12 @@ class PaprikaImportWorker @AssistedInject constructor(
     override suspend fun doRecipeWork(): Result {
         val importId = inputData.getString(KEY_IMPORT_ID)
             ?: return errorResult("No import ID provided")
+        // Held until this run (including any batch submission) has fully stopped, so
+        // InProgressRecipeManager.cancelImport can wait before cleaning up the batch and files.
+        return inputStore.withImportLock(importId) { runImportStep(importId) }
+    }
+
+    private suspend fun runImportStep(importId: String): Result {
         val workDir = inputStore.importDir(importId)
         val sourceFile = inputStore.sourceFile(importId)
         val selectedUids = inputStore.readSelection(importId)

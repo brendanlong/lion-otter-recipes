@@ -325,21 +325,28 @@ fun NavGraph(
             val importSelectionViewModel: ImportSelectionViewModel = hiltViewModel()
             val selectionState = importSelectionViewModel.uiState.collectAsStateWithLifecycle()
 
+            // Results are collected here (not captured in a callback) so an import that finishes
+            // starting after rotation navigates with the current NavController.
+            LaunchedEffect(importSelectionViewModel) {
+                importSelectionViewModel.results.collect { result ->
+                    when (result) {
+                        is ImportSelectionViewModel.ImportResult.ImportStarted -> {
+                            // All import types: navigate to RecipeList immediately
+                            navController.navigate(Screen.RecipeList.route) {
+                                popUpTo(0) { inclusive = true }
+                            }
+                        }
+                        is ImportSelectionViewModel.ImportResult.Error -> {
+                            Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            }
+
             // Auto-import single new .lorecipes recipes without showing selection screen
             LaunchedEffect(selectionState.value) {
                 if (importSelectionViewModel.shouldAutoImport()) {
-                    importSelectionViewModel.importSelected { result ->
-                        when (result) {
-                            is ImportSelectionViewModel.ImportResult.ImportStarted -> {
-                                navController.navigate(Screen.RecipeList.route) {
-                                    popUpTo(0) { inclusive = true }
-                                }
-                            }
-                            is ImportSelectionViewModel.ImportResult.Error -> {
-                                Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    }
+                    importSelectionViewModel.importSelected()
                 }
             }
 
@@ -349,21 +356,7 @@ fun NavGraph(
                 onToggleItem = importSelectionViewModel::toggleItem,
                 onSelectAll = importSelectionViewModel::selectAll,
                 onDeselectAll = importSelectionViewModel::deselectAll,
-                onImportClick = {
-                    importSelectionViewModel.importSelected { result ->
-                        when (result) {
-                            is ImportSelectionViewModel.ImportResult.ImportStarted -> {
-                                // All import types: navigate to RecipeList immediately
-                                navController.navigate(Screen.RecipeList.route) {
-                                    popUpTo(0) { inclusive = true }
-                                }
-                            }
-                            is ImportSelectionViewModel.ImportResult.Error -> {
-                                Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    }
-                },
+                onImportClick = importSelectionViewModel::importSelected,
                 onCancelClick = { backStackEntry.back() }
             )
         }

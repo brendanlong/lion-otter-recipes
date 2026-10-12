@@ -1,5 +1,6 @@
 package com.lionotter.recipes.ui.screens.addrecipe
 
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -11,6 +12,8 @@ import com.lionotter.recipes.ui.state.InProgressRecipeManager
 import com.lionotter.recipes.worker.RecipeImportWorker
 import com.lionotter.recipes.worker.observeWorkByTag
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -32,12 +35,15 @@ class AddRecipeViewModel @Inject constructor(
     // Track the current import started from this screen
     private var currentImportId: String? = null
     private var currentWorkId: UUID? = null
+    private var startJob: Job? = null
+    private var cancelRequested = false
 
     companion object {
         // "url" is the nav argument pre-filled from a share; edits are saved separately so they
         // survive rotation and process death without being overwritten by the argument.
         private const val KEY_URL_ARG = "url"
         private const val KEY_URL_INPUT = "url_input"
+        private const val TAG = "AddRecipeViewModel"
     }
 
     val url: StateFlow<String> = savedStateHandle.getStateFlow(
@@ -94,7 +100,6 @@ class AddRecipeViewModel @Inject constructor(
                 }
                 currentImportId = null
                 currentWorkId = null
-                workManager.pruneWork()
             }
             WorkInfo.State.FAILED -> {
                 val resultType = workInfo.outputData.getString(RecipeImportWorker.KEY_RESULT_TYPE)
@@ -107,13 +112,11 @@ class AddRecipeViewModel @Inject constructor(
                 }
                 currentImportId = null
                 currentWorkId = null
-                workManager.pruneWork()
             }
             WorkInfo.State.CANCELLED -> {
                 _uiState.value = AddRecipeUiState.Idle
                 currentImportId = null
                 currentWorkId = null
-                workManager.pruneWork()
             }
         }
     }
@@ -137,18 +140,30 @@ class AddRecipeViewModel @Inject constructor(
         }
 
         _uiState.value = AddRecipeUiState.Loading(ImportProgress.Queued)
-        viewModelScope.launch {
-            val started = inProgressRecipeManager.startUrlImport(currentUrl)
+        cancelRequested = false
+        startJob = viewModelScope.launch {
+            val started = try {
+                inProgressRecipeManager.startUrlImport(currentUrl)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start import of $currentUrl", e)
+                _uiState.value = AddRecipeUiState.Error("Couldn't start the import: ${e.message ?: "unknown error"}")
+                return@launch
+            }
+            if (cancelRequested) {
+                inProgressRecipeManager.cancelImport(started.importId)
+                return@launch
+            }
             currentImportId = started.importId
             currentWorkId = started.workId
         }
     }
 
     fun cancelImport() {
-        currentWorkId?.let { workManager.cancelWorkById(it) }
-        if (currentImportId != null) {
-            inProgressRecipeManager.removeInProgressRecipe(currentImportId!!)
-        }
+        // If the import is still being started, cancel it as soon as its ID is known.
+        if (startJob?.isActive == true) cancelRequested = true
+        currentImportId?.let { inProgressRecipeManager.cancelImport(it) }
         currentImportId = null
         currentWorkId = null
         _uiState.value = AddRecipeUiState.Idle
