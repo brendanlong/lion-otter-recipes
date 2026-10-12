@@ -1,13 +1,14 @@
 package com.lionotter.recipes.ui.screens.settings
 
+import org.junit.Assert.assertFalse
+import kotlinx.coroutines.test.advanceUntilIdle
+import com.lionotter.recipes.data.remote.SignOutResult
 import app.cash.turbine.test
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.remote.AccountMigrationService
 import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.AuthState
-import com.lionotter.recipes.data.remote.ImageSyncService
-import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
@@ -37,8 +38,6 @@ class SettingsViewModelTest {
     private lateinit var settingsDataStore: SettingsDataStore
     private lateinit var importDebugRepository: ImportDebugRepository
     private lateinit var authService: AuthService
-    private lateinit var recipeRepository: IRecipeRepository
-    private lateinit var imageSyncService: ImageSyncService
     private lateinit var accountMigrationService: AccountMigrationService
     private lateinit var viewModel: SettingsViewModel
     private val testDispatcher = StandardTestDispatcher()
@@ -62,8 +61,6 @@ class SettingsViewModelTest {
         settingsDataStore = mockk()
         importDebugRepository = mockk()
         authService = mockk()
-        recipeRepository = mockk()
-        imageSyncService = mockk()
         accountMigrationService = mockk()
         every { settingsDataStore.anthropicApiKey } returns apiKeyFlow
         every { settingsDataStore.aiModel } returns aiModelFlow
@@ -78,7 +75,7 @@ class SettingsViewModelTest {
         every { settingsDataStore.groceryWeightUnitSystem } returns groceryWeightUnitSystemFlow
         every { settingsDataStore.startOfWeek } returns startOfWeekFlow
         every { authService.authState } returns MutableStateFlow<AuthState>(AuthState.Guest(uid = "test-guest"))
-        viewModel = SettingsViewModel(settingsDataStore, importDebugRepository, authService, recipeRepository, imageSyncService, accountMigrationService)
+        viewModel = SettingsViewModel(settingsDataStore, importDebugRepository, authService, accountMigrationService, mockk(relaxed = true))
     }
 
     @After
@@ -293,5 +290,20 @@ class SettingsViewModelTest {
             assertEquals("claude-3-opus", awaitItem())
             cancelAndIgnoreRemainingEvents()
         }
+    }
+
+    @Test
+    fun `sign out with unsynced changes asks for confirmation before forcing`() = runTest {
+        coEvery { authService.signOut(false) } returns SignOutResult.PendingWrites
+        coEvery { authService.signOut(true) } returns SignOutResult.Success
+
+        viewModel.signOut()
+        advanceUntilIdle()
+        assertTrue(viewModel.showUnsyncedSignOutWarning.value)
+
+        viewModel.signOut(force = true)
+        advanceUntilIdle()
+        assertFalse(viewModel.showUnsyncedSignOutWarning.value)
+        coVerify { authService.signOut(true) }
     }
 }

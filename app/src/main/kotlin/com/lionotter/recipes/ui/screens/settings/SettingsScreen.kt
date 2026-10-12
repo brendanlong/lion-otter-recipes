@@ -80,6 +80,25 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var showDisableDebuggingDialog by rememberSaveable { mutableStateOf(false) }
+    val showUnsyncedSignOutWarning by viewModel.showUnsyncedSignOutWarning.collectAsStateWithLifecycle()
+
+    if (showUnsyncedSignOutWarning) {
+        AlertDialog(
+            onDismissRequest = viewModel::dismissUnsyncedSignOutWarning,
+            title = { Text(stringResource(R.string.sign_out_unsynced_title)) },
+            text = { Text(stringResource(R.string.sign_out_unsynced_message)) },
+            confirmButton = {
+                TextButton(onClick = { viewModel.signOut(force = true) }) {
+                    Text(stringResource(R.string.sign_out_anyway))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::dismissUnsyncedSignOutWarning) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
 
     if (showDisableDebuggingDialog) {
         AlertDialog(
@@ -200,7 +219,18 @@ fun SettingsScreen(
                     }
                 },
                 onSignOut = { viewModel.signOut() },
-                onDeleteAccount = { viewModel.deleteAccount() },
+                onDeleteAccount = {
+                    viewModel.onDeleteAccountStarted()
+                    scope.launch {
+                        val reauth = try {
+                            viewModel.requestReauthCredential(context)
+                        } catch (e: CancellationException) {
+                            viewModel.deleteAccount(null)
+                            throw e
+                        }
+                        viewModel.deleteAccount(reauth)
+                    }
+                },
                 isSigningIn = isSigningIn,
                 isDeletingAccount = isDeletingAccount
             )

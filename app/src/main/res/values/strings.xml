@@ -351,4 +351,12 @@
     <string name="clear_filters">Clear filters</string>
     <string name="select">Select</string>
     <string name="clear_search">Clear search</string>
+
+    <!-- Account follow-ups -->
+    <string name="sign_out_unsynced_title">Changes not synced yet</string>
+    <string name="sign_out_unsynced_message">Some of your recent changes haven\'t reached the cloud yet. Signing out now will lose them. Connect to the internet and try again, or sign out anyway.</string>
+    <string name="sign_out_anyway">Sign out anyway</string>
+    <string name="delete_account_reauth_required">Please confirm your Google account to delete it</string>
+    <string name="delete_account_offline">You need to be online to delete your account</string>
+    <string name="delete_account_auth_failed">Your data was deleted, but the Google account link couldn\'t be removed. Please try again later.</string>
 </resources>

@@ -665,8 +665,12 @@ private fun estimateCost(model: String, inputTokens: Long, outputTokens: Long, t
     // Pricing per million tokens from https://platform.claude.com/docs/en/about-claude/pricing
     // Batch mode is 50% cheaper than standard API calls
     val (baseInput, baseOutput) = when {
-        model.contains("opus-4-5") || model.contains("opus-4-6") -> 5.0 to 25.0
+        model.contains("fable") -> 10.0 to 50.0
+        model.contains("opus-5-5") -> 4.0 to 20.0
+        model.contains("opus-5") || model.contains("opus-4-5") || model.contains("opus-4-6") ||
+            model.contains("opus-4-7") || model.contains("opus-4-8") -> 5.0 to 25.0
         model.contains("opus") -> 15.0 to 75.0
+        model.contains("sonnet-5") -> 2.0 to 10.0
         model.contains("sonnet") -> 3.0 to 15.0
         model.contains("haiku-4-5") -> 1.0 to 5.0
         model.contains("haiku-3-5") -> 0.80 to 4.0

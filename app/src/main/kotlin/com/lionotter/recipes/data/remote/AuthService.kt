@@ -189,22 +189,21 @@ class AuthService @Inject constructor(
      * Deletes all user data and the Firebase Auth account, then transitions
      * to guest mode.
      *
-     * @param activityContext An Activity context used to request a fresh Google credential
-     *        for re-authentication (Firebase requires a recent login to delete an account).
-     *        If null and the last sign-in is not recent, [ReauthenticationRequiredException]
-     *        is thrown before anything is deleted.
+     * @param reauthCredential A fresh Google credential from [requestReauthCredential]
+     *        (Firebase requires a recent login to delete an account). If null and the last
+     *        sign-in is not recent, [ReauthenticationRequiredException] is thrown before
+     *        anything is deleted.
      * @throws ReauthenticationRequiredException if re-authentication is needed
      * @throws AccountDeletionService.OfflineException if the server can't be reached
      * @throws AccountDeletionService.AuthAccountDeletionException if user data was deleted
      *         but the Firebase Auth account could not be. The app is still signed out.
      */
-    suspend fun deleteAccountAndData(activityContext: Context? = null) {
+    suspend fun deleteAccountAndData(reauthCredential: AuthCredential? = null) {
         transitionMutex.withLock {
-            val credential = activityContext?.let { getReauthCredential(it) }
             val previousState = _authState.value
             _authState.value = AuthState.Loading
             try {
-                accountDeletionService.deleteAllUserData(credential)
+                accountDeletionService.deleteAllUserData(reauthCredential)
             } catch (e: AccountDeletionService.AuthAccountDeletionException) {
                 Log.e(TAG, "User data deleted but auth account deletion failed", e)
                 resetToFreshGuest()
@@ -266,7 +265,12 @@ class AuthService @Inject constructor(
     private fun webClientId(): String = context.getString(R.string.default_web_client_id)
 
     /** Silently (if possible) gets a fresh credential for the already-authorized account. */
-    private suspend fun getReauthCredential(activityContext: Context): AuthCredential {
+    /**
+     * Requests a fresh Google credential for the signed-in account, for re-authentication
+     * before [deleteAccountAndData]. Call from a UI-owned scope; [activityContext] must not
+     * outlive the Activity.
+     */
+    suspend fun requestReauthCredential(activityContext: Context): AuthCredential {
         val option = GetGoogleIdOption.Builder()
             .setFilterByAuthorizedAccounts(true)
             .setAutoSelectEnabled(true)

@@ -11,15 +11,18 @@ import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.remote.AccountMigrationService
 import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.AuthState
-import com.lionotter.recipes.data.remote.ImageSyncService
-import com.lionotter.recipes.data.repository.IRecipeRepository
+import com.lionotter.recipes.data.remote.ReauthenticationRequiredException
+import com.lionotter.recipes.data.remote.SignOutResult
+import com.lionotter.recipes.data.remote.AccountDeletionService
 import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
+import com.lionotter.recipes.worker.LocalImageUploadWorker
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.work.WorkManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -38,9 +41,8 @@ class SettingsViewModel @Inject constructor(
     private val settingsDataStore: SettingsDataStore,
     private val importDebugRepository: ImportDebugRepository,
     private val authService: AuthService,
-    private val recipeRepository: IRecipeRepository,
-    private val imageSyncService: ImageSyncService,
-    private val accountMigrationService: AccountMigrationService
+    private val accountMigrationService: AccountMigrationService,
+    private val workManager: WorkManager
 ) : ViewModel() {
 
     companion object {
@@ -254,26 +256,72 @@ class SettingsViewModel @Inject constructor(
             }
         }
 
-    fun signOut() =
-        launchSettingWrite("sign out") { authService.signOut() }
+    private val _showUnsyncedSignOutWarning = MutableStateFlow(false)
+    val showUnsyncedSignOutWarning: StateFlow<Boolean> = _showUnsyncedSignOutWarning.asStateFlow()
+
+    /**
+     * Signs out unless local changes haven't synced yet, in which case the UI is asked
+     * to confirm via [showUnsyncedSignOutWarning] before [signOut] is called with [force].
+     */
+    fun signOut(force: Boolean = false) {
+        _showUnsyncedSignOutWarning.value = false
+        launchSettingWrite("sign out") {
+            if (authService.signOut(force) is SignOutResult.PendingWrites) {
+                _showUnsyncedSignOutWarning.value = true
+            }
+        }
+    }
+
+    fun dismissUnsyncedSignOutWarning() {
+        _showUnsyncedSignOutWarning.value = false
+    }
+
+    fun onDeleteAccountStarted() {
+        _isDeletingAccount.value = true
+    }
+
+    /**
+     * Requests a fresh Google credential so the account can be deleted. Must be called
+     * from a UI-owned coroutine scope. Returns null if the user cancelled.
+     */
+    suspend fun requestReauthCredential(activityContext: Context): Result<AuthCredential>? = try {
+        Result.success(authService.requestReauthCredential(activityContext))
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: ReauthenticationRequiredException) {
+        if (e.cause is GetCredentialCancellationException) null else Result.failure(e)
+    }
 
     /**
      * Deletes the user's account and all associated data (recipes, meal plans,
      * images) from Firebase, then transitions to guest mode.
+     * A null [reauthResult] means the user cancelled re-authentication.
      */
-    fun deleteAccount() {
+    fun deleteAccount(reauthResult: Result<AuthCredential>?) {
+        if (reauthResult == null) {
+            _isDeletingAccount.value = false
+            return
+        }
         viewModelScope.launch {
             _isDeletingAccount.value = true
             try {
                 withContext(NonCancellable) {
-                    authService.deleteAccountAndData()
+                    authService.deleteAccountAndData(reauthResult.getOrNull())
                 }
                 _toastMessage.tryEmit(R.string.delete_account_success)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to delete account", e)
-                _toastMessage.tryEmit(R.string.delete_account_failed)
+                _toastMessage.tryEmit(
+                    when (e) {
+                        is ReauthenticationRequiredException -> R.string.delete_account_reauth_required
+                        is AccountDeletionService.OfflineException -> R.string.delete_account_offline
+                        is AccountDeletionService.AuthAccountDeletionException ->
+                            R.string.delete_account_auth_failed
+                        else -> R.string.delete_account_failed
+                    }
+                )
             } finally {
                 _isDeletingAccount.value = false
             }
@@ -314,8 +362,10 @@ class SettingsViewModel @Inject constructor(
                         performMigration(credential)
                     },
                     onFailure = { e ->
-                        Log.e(TAG, "Failed to get Google credential", e)
-                        _toastMessage.tryEmit(R.string.sign_in_failed)
+                        if (e !is GetCredentialCancellationException) {
+                            Log.e(TAG, "Failed to get Google credential", e)
+                            _toastMessage.tryEmit(R.string.sign_in_failed)
+                        }
                     }
                 )
             } finally {
@@ -361,34 +411,9 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Uploads all local file:// images to Firebase Storage in the background.
-     * Called after linking/merging a Google account. NonCancellable so leaving
-     * Settings doesn't abandon the upload halfway.
-     */
+    /** Uploads images picked as a guest (still file://) to the newly linked account. */
     private fun uploadLocalImages() {
-        viewModelScope.launch {
-            try {
-                withContext(NonCancellable + Dispatchers.IO) {
-                    val recipes = recipeRepository.getAllRecipeIdsAndNames()
-                    for (idAndName in recipes) {
-                        val recipe = recipeRepository.getRecipeByIdOnce(idAndName.id) ?: continue
-                        val imageUrl = recipe.imageUrl ?: continue
-                        if (imageUrl.startsWith("file://")) {
-                            val gsUri = imageSyncService.uploadImage(imageUrl)
-                            if (gsUri != null) {
-                                recipeRepository.setImageUrl(idAndName.id, gsUri)
-                            }
-                        }
-                    }
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.e(TAG, "Error uploading local images after account link", e)
-                _toastMessage.tryEmit(R.string.upload_local_images_failed)
-            }
-        }
+        LocalImageUploadWorker.enqueue(workManager)
     }
 
     fun resetSaveState() {
