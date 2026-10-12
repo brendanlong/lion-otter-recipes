@@ -119,7 +119,7 @@ class InProgressRecipeManagerTest {
             every { buildUrlImportRequest(any(), any()) } answers {
                 OneTimeWorkRequestBuilder<RecipeImportWorker>().build()
             }
-            every { enqueueImport(any(), any()) } answers {
+            coEvery { enqueueImport(any(), any()) } answers {
                 val request = secondArg<OneTimeWorkRequest>()
                 workInfosById[request.id] = WorkInfo(request.id, WorkInfo.State.ENQUEUED, emptySet())
             }

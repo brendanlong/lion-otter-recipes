@@ -190,10 +190,13 @@ class AccountMigrationService @Inject constructor(
      * ([AuthService.mergeGuestIntoGoogle]) does them while auth is still Loading.
      */
     private suspend fun completeSignIn(credential: AuthCredential): Result<Unit> {
+        val signIn = Firebase.auth.signInWithCredential(credential)
         try {
-            serverCall { Firebase.auth.signInWithCredential(credential).await() }
+            serverCall { signIn.await() }
         } catch (e: Exception) {
             Firebase.auth.signOut()
+            // A timed-out sign-in can still complete later; undo it then too
+            signIn.addOnSuccessListener { Firebase.auth.signOut() }
             throw e
         }
         return Result.success(Unit)

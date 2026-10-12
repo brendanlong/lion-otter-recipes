@@ -139,6 +139,11 @@ class PaprikaImportWorker @AssistedInject constructor(
     private suspend fun scheduleNextPoll(importId: String): Result {
         val next = scheduler.buildPaprikaImportRequest(importId, RecipeWorkScheduler.PAPRIKA_POLL_INTERVAL_SECONDS)
         withContext(NonCancellable) {
+            if (isStopped || pendingImportRepository.getPendingImportById(importId) == null) {
+                // Cancelled between this step and scheduling the next one; don't revive it
+                Log.d(TAG, "Import $importId was cancelled; not scheduling another poll")
+                return@withContext
+            }
             // Point the pending import at the new request before this one finishes, so the UI
             // keeps tracking the import rather than treating this run's success as completion.
             pendingImportRepository.updateWorkManagerId(importId, next.id.toString())

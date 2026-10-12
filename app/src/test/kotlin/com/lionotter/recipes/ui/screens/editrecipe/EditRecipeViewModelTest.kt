@@ -93,7 +93,7 @@ class EditRecipeViewModelTest {
         mockkStatic(Log::class)
         every { Log.e(any(), any(), any()) } returns 0
         val scheduler = mockk<RecipeWorkScheduler>()
-        every { scheduler.enqueueEdit(any(), any(), any(), any(), any(), any()) } throws IOException("disk full")
+        coEvery { scheduler.enqueueEdit(any(), any(), any(), any(), any(), any()) } throws IOException("disk full")
         val viewModel = createViewModel(scheduler = scheduler)
         advanceUntilIdle()
 
@@ -109,7 +109,7 @@ class EditRecipeViewModelTest {
     fun `save as copy applies a pending image to the copy, not the original`() = runTest {
         val workId = UUID.randomUUID()
         val scheduler = mockk<RecipeWorkScheduler>()
-        every { scheduler.enqueueEdit("r1", any(), any(), any(), true, any()) } returns workId
+        coEvery { scheduler.enqueueEdit("r1", any(), any(), any(), true, any()) } returns workId
         val finished = mockk<WorkInfo> {
             every { state } returns WorkInfo.State.SUCCEEDED
             every { outputData } returns workDataOf(RecipeEditWorker.KEY_NEW_RECIPE_ID to "copy1")

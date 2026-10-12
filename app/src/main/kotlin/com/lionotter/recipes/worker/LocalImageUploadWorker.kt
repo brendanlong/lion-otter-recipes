@@ -37,15 +37,15 @@ class LocalImageUploadWorker @AssistedInject constructor(
         const val KEY_UPLOADED_COUNT = "uploaded_count"
 
         /**
-         * Enqueues the upload, replacing any pending run. A running upload is replaced too
-         * (it finishes its current pass first) so that images added after its scan are picked up.
+         * Enqueues an upload pass after any running one, so images added after its scan are
+         * picked up without stacking concurrent passes.
          */
         fun enqueue(workManager: WorkManager) {
             val request = OneTimeWorkRequestBuilder<LocalImageUploadWorker>()
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                 .build()
-            workManager.enqueueUniqueWork(UNIQUE_WORK_NAME, ExistingWorkPolicy.REPLACE, request)
+            workManager.enqueueUniqueWork(UNIQUE_WORK_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
         }
     }
 

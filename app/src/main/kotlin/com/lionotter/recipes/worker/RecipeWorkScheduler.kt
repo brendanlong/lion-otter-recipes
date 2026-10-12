@@ -8,6 +8,7 @@ import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
+import androidx.work.await
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -63,16 +64,16 @@ class RecipeWorkScheduler @Inject constructor(
             .build()
 
     /** Enqueue an import request, replacing any earlier (e.g. failed) run of the same import. */
-    fun enqueueImport(importId: String, request: OneTimeWorkRequest) {
-        workManager.enqueueUniqueWork(importWorkName(importId), ExistingWorkPolicy.REPLACE, request)
+    suspend fun enqueueImport(importId: String, request: OneTimeWorkRequest) {
+        workManager.enqueueUniqueWork(importWorkName(importId), ExistingWorkPolicy.REPLACE, request).await()
     }
 
     /** Called by a running import worker to schedule its own continuation. */
-    fun enqueueImportContinuation(importId: String, request: OneTimeWorkRequest) {
-        workManager.enqueueUniqueWork(importWorkName(importId), ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+    suspend fun enqueueImportContinuation(importId: String, request: OneTimeWorkRequest) {
+        workManager.enqueueUniqueWork(importWorkName(importId), ExistingWorkPolicy.APPEND_OR_REPLACE, request).await()
     }
 
-    fun enqueueEdit(
+    suspend fun enqueueEdit(
         recipeId: String,
         markdownText: String,
         model: String?,
@@ -99,11 +100,11 @@ class RecipeWorkScheduler @Inject constructor(
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, BACKOFF_SECONDS, TimeUnit.SECONDS)
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build()
-        workManager.enqueue(request)
+        workManager.enqueue(request).await()
         return request.id
     }
 
-    fun enqueueRegenerate(recipeId: String, model: String?, thinkingEnabled: Boolean?): UUID {
+    suspend fun enqueueRegenerate(recipeId: String, model: String?, thinkingEnabled: Boolean?): UUID {
         val request = OneTimeWorkRequestBuilder<RecipeRegenerateWorker>()
             .setInputData(RecipeRegenerateWorker.createInputData(recipeId, model, thinkingEnabled))
             .addTag(RecipeRegenerateWorker.TAG_RECIPE_REGENERATE)
@@ -111,7 +112,7 @@ class RecipeWorkScheduler @Inject constructor(
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, BACKOFF_SECONDS, TimeUnit.SECONDS)
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build()
-        workManager.enqueue(request)
+        workManager.enqueue(request).await()
         return request.id
     }
 }
