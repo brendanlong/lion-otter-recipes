@@ -9,7 +9,7 @@ import com.lionotter.recipes.data.paprika.PaprikaParser
 import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.util.RecipeSerializer
 import com.lionotter.recipes.domain.util.ZipImportHelper
-import com.lionotter.recipes.ui.state.InProgressRecipeManager
+import com.lionotter.recipes.imports.ImportQueue
 import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.worker.ImportInputStore
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -36,7 +36,7 @@ class ImportSelectionViewModel @Inject constructor(
     private val paprikaParser: PaprikaParser,
     private val zipImportHelper: ZipImportHelper,
     private val inputStore: ImportInputStore,
-    private val inProgressRecipeManager: InProgressRecipeManager
+    private val importQueue: ImportQueue
 ) : ViewModel() {
 
     companion object {
@@ -330,9 +330,9 @@ class ImportSelectionViewModel @Inject constructor(
             try {
                 when (importType) {
                     ImportType.PAPRIKA ->
-                        inProgressRecipeManager.startPaprikaImport(importId, selectedIds, importName)
+                        importQueue.startPaprikaImport(importId, selectedIds, importName)
                     ImportType.LORECIPES ->
-                        inProgressRecipeManager.startZipImport(importId, selectedIds, importName)
+                        importQueue.startZipImport(importId, selectedIds, importName)
                 }
                 _results.send(ImportResult.ImportStarted)
             } catch (e: CancellationException) {

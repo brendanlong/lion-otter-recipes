@@ -73,6 +73,10 @@ class RecipeDatabaseMigrationTest {
                 "INSERT INTO pending_imports (id, url, name, imageUrl, status, workManagerId, errorMessage, createdAt) " +
                     "VALUES ('import-1', 'https://example.com/pie', 'Pie', NULL, 'pending', NULL, NULL, 1000)"
             )
+            db.execSQL(
+                "INSERT INTO pending_imports (id, url, name, imageUrl, status, workManagerId, errorMessage, createdAt) " +
+                    "VALUES ('import-2', '', 'Paprika', NULL, 'waiting_for_batch', NULL, NULL, 2000)"
+            )
         }
 
         val database = DatabaseModule.provideDatabase(RuntimeEnvironment.getApplication(), TEST_DB)
@@ -80,6 +84,11 @@ class RecipeDatabaseMigrationTest {
             val pending = database.pendingImportDao().getPendingImportById("import-1")
             assertNotNull(pending)
             assertEquals("Pie", pending?.name)
+            assertEquals(PendingImportStatus.PENDING, pending?.status)
+            assertEquals(
+                PendingImportStatus.WAITING_FOR_BATCH,
+                database.pendingImportDao().getPendingImportById("import-2")?.status
+            )
         } finally {
             database.close()
         }

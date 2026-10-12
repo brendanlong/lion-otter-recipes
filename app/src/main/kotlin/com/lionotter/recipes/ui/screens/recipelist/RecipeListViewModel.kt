@@ -9,7 +9,8 @@ import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.hasTag
 import com.lionotter.recipes.domain.model.matchesSearch
 import com.lionotter.recipes.domain.usecase.GetTagsUseCase
-import com.lionotter.recipes.ui.state.InProgressRecipeManager
+import com.lionotter.recipes.imports.ImportMonitor
+import com.lionotter.recipes.imports.ImportQueue
 import com.lionotter.recipes.ui.state.RecipeListItem
 import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -42,7 +43,8 @@ enum class RecipeListError {
 class RecipeListViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     private val getTagsUseCase: GetTagsUseCase,
-    private val inProgressRecipeManager: InProgressRecipeManager,
+    private val importQueue: ImportQueue,
+    private val importMonitor: ImportMonitor,
     private val recipeRepository: IRecipeRepository,
     private val mealPlanRepository: IMealPlanRepository,
 ) : ViewModel() {
@@ -116,7 +118,7 @@ class RecipeListViewModel @Inject constructor(
 
     val recipes: StateFlow<List<RecipeListItem>> = combine(
         recipeRepository.getAllRecipes(),
-        inProgressRecipeManager.inProgressRecipes,
+        importMonitor.inProgressRecipes,
         searchQuery,
         selectedTag,
     ) { allRecipes, inProgressRecipes, query, tag ->
@@ -290,10 +292,10 @@ class RecipeListViewModel @Inject constructor(
     }
 
     fun cancelImport(importId: String) {
-        inProgressRecipeManager.cancelImport(importId)
+        importQueue.cancelImport(importId)
     }
 
     fun retryImport(importId: String) {
-        inProgressRecipeManager.retryImport(importId)
+        importQueue.retryImport(importId)
     }
 }

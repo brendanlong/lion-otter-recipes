@@ -6,7 +6,7 @@ import com.lionotter.recipes.domain.model.Ingredient
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.InstructionStep
 import com.lionotter.recipes.domain.model.Recipe
-import com.lionotter.recipes.ui.state.InProgressRecipe
+import com.lionotter.recipes.imports.InProgressRecipe
 import com.lionotter.recipes.ui.state.RecipeListItem
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine

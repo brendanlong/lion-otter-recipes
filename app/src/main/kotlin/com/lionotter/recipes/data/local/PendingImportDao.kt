@@ -18,13 +18,13 @@ interface PendingImportDao {
     suspend fun insertPendingImport(entity: PendingImportEntity)
 
     @Query("UPDATE pending_imports SET name = :name, imageUrl = :imageUrl, status = :status WHERE id = :id")
-    suspend fun updateMetadata(id: String, name: String?, imageUrl: String?, status: String)
+    suspend fun updateMetadata(id: String, name: String?, imageUrl: String?, status: PendingImportStatus)
 
     @Query("UPDATE pending_imports SET status = :status WHERE id = :id")
-    suspend fun updateStatus(id: String, status: String)
+    suspend fun updateStatus(id: String, status: PendingImportStatus)
 
     @Query("UPDATE pending_imports SET status = :status, errorMessage = :errorMessage WHERE id = :id")
-    suspend fun updateStatusWithError(id: String, status: String, errorMessage: String?)
+    suspend fun updateStatusWithError(id: String, status: PendingImportStatus, errorMessage: String?)
 
     @Query("UPDATE pending_imports SET workManagerId = :workManagerId WHERE id = :id")
     suspend fun updateWorkManagerId(id: String, workManagerId: String)

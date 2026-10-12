@@ -31,7 +31,7 @@ Dependencies point inward: UI → Domain → Data. The goal is a domain layer wi
 
 Recipes and meal plans do **not** live in Room; they are stored in Firestore (see Repository below). Room holds only local, device-specific data in two tables:
 
-- `PendingImportEntity` (`PendingImportDao`): the import queue shown on the recipe list (status, name, URL, WorkManager ID, failure message). Failed imports stay in the table so the list can offer Retry/Dismiss.
+- `PendingImportEntity` (`PendingImportDao`): the import queue shown on the recipe list (status, name, URL, WorkManager ID, failure message). `status` is the `PendingImportStatus` enum, stored through `PendingImportStatusConverter` as the same lowercase strings older versions wrote. Failed imports stay in the table so the list can offer Retry/Dismiss.
 - `ImportDebugEntity` (`ImportDebugDao`): raw HTML, AI input/output and errors captured when import debugging is enabled. The DAO exposes lightweight summary queries (`getAllDebugSummaries`, `getDebugSummaryById`) and chunked content reads (`getContentLength`, `getContentChunk`) so large blobs are never loaded into a single cursor window.
 
 **Design Decision**: Large debug payloads are read in chunks because a single multi-megabyte column exceeds Android's CursorWindow limit.
@@ -50,7 +50,7 @@ Migrations live in `RecipeDatabaseMigrations` (10→11 drops the Firestore-era t
 #### Local files
 
 - Local image cache (`ImageDownloadService`, `ImageSyncService`): images are cached on disk and uploaded to Firebase Storage. Images saved while signed out of Google stay local until `ImageSyncService.uploadPendingLocalImages()` runs.
-- `ImportInputStore`: staged import inputs under `files/imports/<importId>/` (copied source file, selection, import kind, `batch.json` for Paprika batches). Orphans are cleaned up at startup.
+- `ImportInputStore`: staged import inputs under `files/imports/<importId>/` (copied source file, selection, `ImportKind`, `batch.json` for Paprika batches). Orphans are cleaned up at startup.
 
 ### Remote Services
 
@@ -108,8 +108,8 @@ interface IRecipeRepository {
 
 - `AuthService` resolves auth state synchronously at startup. `LionOtterApp` injects it eagerly so state is known (and Firestore network access is disabled for guests) before any Activity or WorkManager job touches Firestore; `MainActivity` does no auth work. There is no login screen: every user starts as a local-only **guest**, and `AuthState` is `Loading`, `Guest(uid)` or `Google(uid, email)`.
 - Code that needs a uid off the main path calls `awaitUid()`, which waits (without timeout) while the state is `Loading`. Fire-and-forget repository writes made while `Loading` likewise wait and then go to the resulting account.
-- `signInWithGoogle` gets a credential; `mergeGuestIntoGoogle { migrate }` then holds the auth transition lock with the state `Loading` while `AccountMigrationService` copies guest data (server calls have timeouts) and signs in, clears the guest cache, and switches to `Google` (or restores the guest on failure). After a successful Google sign-in, `LocalImageUploadWorker` is enqueued and calls `ImageSyncService.uploadPendingLocalImages()`.
-- `ImageDownloadService.storeImage` keeps the local file and enqueues `LocalImageUploadWorker` when a Google user's upload fails (the worker retries while any upload fails, and only replaces a recipe's image if it is still that local file). Images are only deleted from Storage when no other recipe (e.g. a "Save as copy") references them, and changing a recipe's image also updates its meal plans' `recipeImageUrl`.
+- `signInWithGoogle` gets a credential; `mergeGuestIntoGoogle { migrate }` then holds the auth transition lock with the state `Loading` while `AccountMigrationService` copies guest data (server calls have timeouts) and signs in, clears the guest cache, and switches to `Google` (or restores the guest on failure). After a successful Google sign-in, `SettingsViewModel` schedules an upload through `ImageUploadScheduler` (`LocalImageUploadWorker`), which calls `ImageSyncService.uploadPendingLocalImages()`.
+- `ImageDownloadService.storeImage` keeps the local file and schedules `LocalImageUploadWorker` (through the `ImageUploadScheduler` interface, bound in `SchedulerModule`, so the data layer doesn't depend on workers) when a Google user's upload fails (the worker retries while any upload fails, and only replaces a recipe's image if it is still that local file). Images are only deleted from Storage when no other recipe (e.g. a "Save as copy") references them, and changing a recipe's image also updates its meal plans' `recipeImageUrl`.
 - `signOut(force)` returns `SignOutResult.Success` or `SignOutResult.PendingWrites` when changes have not reached the server or recipe images are still only on the device; Settings warns about unsynced changes and the user may sign out anyway (`force = true`).
 - `AccountDeletionService` (depends on `FirestoreService`, `ImageSyncService`, `ImportDebugRepository`, `SettingsDataStore`) first checks the server is reachable and re-authenticates, reads recipes and meal plans from the server (not the cache), deletes Firestore documents, then deletes Storage images individually (failures leave orphaned images, never recipes pointing at deleted images), clears local images, debug data and the API key, and finally deletes the Firebase Auth account.
 
@@ -220,22 +220,30 @@ Simple CRUD operations (get all recipes, get by ID, delete) are handled by injec
 
 Long-running work runs in WorkManager workers extending `BaseRecipeWorker` (foreground notification, progress): `RecipeImportWorker`, `PaprikaImportWorker`, `ZipImportWorker`, `ZipExportWorker`, `RecipeEditWorker`, `RecipeRegenerateWorker`, and `LocalImageUploadWorker`.
 
-Imports flow through `InProgressRecipeManager` (UI state layer):
+### Work contracts
+
+Each worker has a contract object next to it (`RecipeImportWork`, `PaprikaImportWork`, `ZipImportWork`, `ZipExportWork`, `RecipeEditWork`, `RecipeRegenerateWork`) with sealed `Progress` and `Outcome` types. Workers report through `toData()` and observers decode with the same contract (`decodeProgress` / `decodeOutcome`, or `WorkInfo.toWorkStatus(contract)` → `WorkStatus` `Missing | Queued | Running(progress) | Finished(outcome) | Cancelled`), so `when` over progress and outcomes is exhaustive and keys can't drift. Key and value strings are persisted by WorkManager and must not change (`WorkContractTest` pins the values earlier versions wrote). Failures share `result_type` / `error_message` (`BaseRecipeWorker.errorResult(FailureOutcome)`).
+
+Screens follow their own work with `WorkTracker`: the work ID lives in `SavedStateHandle` (so the screen shows the work again after process death; a restored ID whose work no longer exists is dropped) and the status is observed by ID with `getWorkInfoByIdFlow` + `flatMapLatest`, so work that finishes before anyone collects is still seen. `RecipeWorkScheduler.prepareEdit / prepareRegenerate / prepareExport` return a `PendingWork` whose ID is known before it is enqueued; `WorkTracker.start` records the ID first. UI state is derived (`combine` of local state and the tracked status) rather than written from observers. ViewModels see only decoded types, never `WorkInfo` or `WorkManager`.
+
+### Import queue (`imports` package)
 
 ```
-UI (AddRecipe / ImportSelection)
-       │  startUrlImport / startPaprikaImport / startZipImport
+UI (AddRecipe / ImportSelection / RecipeList)
+       │  startUrlImport / startPaprikaImport / startZipImport / retryImport / cancelImport
        ▼
-InProgressRecipeManager ──> PendingImportRepository (queue row)
-       │                 └─> ImportInputStore (files/imports/<importId>/)
+ImportQueue ──> PendingImportRepository (queue row)
+       │    └─> ImportInputStore (files/imports/<importId>/)
        ▼
 RecipeWorkScheduler.enqueueImport(...)  ──> worker
-       ▲
-       └── observes WorkInfo, updates status; retryImport / cancelImport / removeInProgressRecipe
+
+ImportMonitor ── combine(pending rows, import WorkInfos) ──> inProgressRecipes / importState(importId)
+       └── writes durable bits back to the rows (name/image, Paprika waiting state, failures; removes finished rows)
 ```
 
+- `ImportQueue` starts, retries, cancels and dismisses imports. Starts run in `NonCancellable` and are serialized by `startMutex` (URL dedupe is check-then-insert). On startup it reconciles each in-progress row against WorkManager by request ID; rows whose work is missing (pruned, or never enqueued) are marked failed so they can be retried. URL dedupe only reuses an import whose work is still queued/running.
+- `ImportMonitor` derives each import's `ImportState` (`Running(ImportStage)`, `Failed(message, reason)`, `Succeeded(recipeId)`, `Cancelled`) from its row plus its WorkInfo (`ImportWorkDecoder`). Live stages come from WorkInfo progress instead of being written to Room on every tick; the row only gets what must outlive a worker run: the page title / recipe name and image once known, `WAITING_FOR_BATCH` between Paprika polls, and terminal failures. `importState(importId)` follows the import's unique work, so `AddRecipeViewModel` still sees `Succeeded(recipeId)` after the row is removed, and shows a running import again after process death.
 - `ImportSelectionViewModel` copies the picked/shared file into `ImportInputStore` when the screen opens (the import ID is kept in `SavedStateHandle`), so the screen and the workers never depend on a content URI grant surviving process death. The queue row is inserted only after all inputs are written.
-- On startup `InProgressRecipeManager` reconciles each row against WorkManager by request ID; rows whose work is missing (pruned, or never enqueued) are marked failed so they can be retried. URL dedupe only reuses an import whose work is still queued/running, and starts are serialized by a mutex.
 - Cancelling an import cancels its unique work, then waits (up to 30 s) for the worker to release the import's in-process lock before cancelling any Paprika batch and deleting files.
 - Paprika batch submission and `batch.json` are written in one `NonCancellable` block; batch results are saved under IDs derived from import ID + custom_id so a resumed run overwrites rather than duplicates.
 - `PaprikaImportWorker` runs as a chain of short, self-rescheduling steps (`ImportPaprikaUseCase.runStep`). Batch state (custom_id to recipe mapping, batch ID) is saved in `batch.json` so a restarted worker resumes.
@@ -261,7 +269,7 @@ External intents are turned into `AppIntentEvent`s (`ImportUrl`, `ImportFile`, `
 
 #### RecipeListScreen
 
-- Observes recipes plus in-progress/failed imports from `InProgressRecipeManager`
+- Observes recipes plus in-progress/failed imports from `ImportMonitor`; Retry/Dismiss go to `ImportQueue`
 - Search, tag and favorite filters are held in `SavedStateHandle` (survive process death); tag chips on the detail screen filter the list
 - Swipe-to-dismiss for deletion
 
@@ -276,18 +284,19 @@ External intents are turned into `AppIntentEvent`s (`ImportUrl`, `ImportFile`, `
 #### AddRecipeScreen
 
 - URL input with validation
-- Starts the import via `InProgressRecipeManager`; progress states: Fetching → Parsing → Saving
+- Starts the import via `ImportQueue` and shows `ImportMonitor.importState(importId)` (the import ID is kept in `SavedStateHandle`); stages: Queued → Starting → Fetching → Analyzing → Saving
 - Errors surface on the in-progress card (Retry/Dismiss)
 - Redirects to Settings if no API key
 
 #### EditRecipeScreen
 
 - Image, title and URL changes are staged and applied on save without the AI; body edits or AI instructions enqueue `RecipeEditWorker`
+- The edit and regenerate work are followed with `WorkTracker`s and folded into one `editState`; a missing API key shows `EditUiState.NoApiKey`
 - Save preserves metadata, Save as Copy creates a new recipe
 
 #### ImportSelectionScreen
 
-- `ImportSelectionViewModel` copies the file from navigation args into app storage, detects Paprika vs .lorecipes from the ZIP contents (anything else shows "This file isn't a Lion+Otter or Paprika recipe export."), lists recipes (marking duplicates), and starts the import through `InProgressRecipeManager`. Results are delivered as one-shot events collected by the screen, not callbacks.
+- `ImportSelectionViewModel` copies the file from navigation args into app storage, detects Paprika vs .lorecipes from the ZIP contents (anything else shows "This file isn't a Lion+Otter or Paprika recipe export."), lists recipes (marking duplicates), and starts the import through `ImportQueue`. Results are delivered as one-shot events collected by the screen, not callbacks.
 
 #### MealPlanScreen / GroceryListScreen
 
@@ -355,6 +364,9 @@ Hilt modules provide:
 ### WorkerModule
 - `WorkManager` (`HiltWorkerFactory` is wired in `LionOtterApp`)
 
+### SchedulerModule
+- Binds `ImageUploadScheduler` (data layer port) to `WorkManagerImageUploadScheduler`
+
 ## Data Flow
 
 ### Recipe Import Flow
@@ -363,7 +375,7 @@ Hilt modules provide:
 User enters URL
        │
        ▼
-AddRecipeViewModel ──> InProgressRecipeManager.startUrlImport()
+AddRecipeViewModel ──> ImportQueue.startUrlImport()
        │
        ▼
 RecipeWorkScheduler.enqueueImport() ──> RecipeImportWorker
@@ -442,10 +454,11 @@ Static checks and tests that catch whole classes of bugs. All run in `./ci-local
 - **Compiler and lint warnings are errors** (`allWarningsAsErrors` in both modules, lint `warningsAsErrors`; lint's dependency-freshness checks are disabled so new releases don't break the build). Fix the warning; suppress only with a comment saying why.
 - **Compose lint** (`com.slack.lint.compose:compose-lint-checks`): composables take a `modifier` parameter, follow the parameter order, and get ViewModels via default `hiltViewModel()` parameters. `GroceryListScreen` and `MealPlanScreen` still forward their ViewModel (suppressed until their state is hoisted).
 - **detekt** (`./gradlew detektDebug`, with type resolution) runs a targeted rule set in `config/detekt/detekt.yml`: `SuspendFunSwallowedCancellation`, `InjectDispatcher`, `SwallowedException` (logging the exception counts as handling it; `catch (_: ...)` does not), `TooGenericExceptionThrown`, `UnsafeCallOnNullableType`. Existing findings are in `config/detekt/baseline-debug.xml`: hard-coded dispatchers, `!!` in `Units.kt`/`IngredientAggregation.kt`, and catch blocks the cancellation rule flags although they are fine (cleanup then rethrow, or log-and-continue inside `NonCancellable`). Don't add to it; regenerate it with `./gradlew :app:detektBaselineDebug` only after fixing entries. Use `detektDebug`; the plain `detekt` task (part of `check`) runs without type resolution or this baseline.
-- **Layer rules** (`LayerDependencyTest`): scans imports under `app/src/main/kotlin`. Domain may not use `android.*`, `androidx.*` (except `androidx.annotation`), `com.anthropic`, Firebase or `..data..`; UI may not use WorkManager or `..data.local..`; data may not use `..ui..`. `KNOWN_VIOLATIONS` lists today's exceptions; the test fails on new violations and on entries that are no longer needed, so the list only shrinks.
+- **Layer rules** (`LayerDependencyTest`): scans imports under `app/src/main/kotlin`. Domain may not use `android.*`, `androidx.*` (except `androidx.annotation`), `com.anthropic`, Firebase or `..data..`; UI may not use WorkManager or `..data.local..`; data may not use `..ui..`, `..worker..` or `..imports..`; `imports` and `worker` may not use `..ui..` (and `worker` not `..imports..`). `KNOWN_VIOLATIONS` lists today's exceptions; the test fails on new violations and on entries that are no longer needed, so the list only shrinks.
 - **DTO drift** (`DtoFieldDriftTest`, `DomainFixturesTest`, `RecipeDtoRoundTripIntegrationTest`): every `Recipe` / `MealPlanEntry` field needs a DTO field, the `RecipeFields` / `MealPlanFields` constants must be keys Firestore actually writes, and the round-trip fixtures in `testutil/DomainFixtures.kt` must set every field (including nested ones) to a non-default value.
 - **AI schema** (`RecipeResponseSchemaTest`): property names and required fields in `AnthropicService.RECIPE_RESPONSE_SCHEMA` must match the serializers of `RecipeParseResponse` and the classes it contains.
 - **Edit/regenerate preservation** (`RecipeRegeneratedContentTest`): every non-AI field of `Recipe` survives `withRegeneratedContent`.
+- **Persisted work data** (`WorkContractTest`, `PendingImportStatusTest`): every worker Progress/Outcome variant round-trips through its contract, and data and statuses written by earlier versions (pinned as literal strings) still decode.
 - **Room migrations** (`RecipeDatabaseMigrationTest`): `MigrationTestHelper` runs `RecipeDatabaseMigrations` against the exported schemas in `app/schemas`. Add a step for every new migration.
 
 ## Testing Strategy

@@ -24,31 +24,12 @@ class RecipeImportWorker @AssistedInject constructor(
     companion object {
         const val TAG_RECIPE_IMPORT = "recipe_import"
 
-        const val KEY_URL = "url"
-        const val KEY_IMPORT_ID = BaseRecipeWorker.KEY_IMPORT_ID
-        const val KEY_RECIPE_ID = "recipe_id"
-        const val KEY_RECIPE_NAME = "recipe_name"
-        const val KEY_PAGE_TITLE = "page_title"
-        const val KEY_IMAGE_URL = "image_url"
-        const val KEY_ERROR_MESSAGE = BaseRecipeWorker.KEY_ERROR_MESSAGE
-        const val KEY_PROGRESS = "progress"
-        const val KEY_RESULT_TYPE = BaseRecipeWorker.KEY_RESULT_TYPE
+        private const val KEY_URL = "url"
 
-        const val RESULT_SUCCESS = "success"
-        const val RESULT_ERROR = BaseRecipeWorker.RESULT_ERROR
-        const val RESULT_NO_API_KEY = "no_api_key"
-
-        const val PROGRESS_FETCHING = "fetching"
-        const val PROGRESS_METADATA_AVAILABLE = "metadata_available"
-        const val PROGRESS_PARSING = "parsing"
-        const val PROGRESS_SAVING = "saving"
-
-        fun createInputData(url: String, importId: String): Data {
-            return workDataOf(
-                KEY_URL to url,
-                KEY_IMPORT_ID to importId
-            )
-        }
+        fun createInputData(url: String, importId: String): Data = workDataOf(
+            KEY_URL to url,
+            KEY_IMPORT_ID to importId
+        )
     }
 
     override suspend fun doRecipeWork(): Result {
@@ -61,77 +42,124 @@ class RecipeImportWorker @AssistedInject constructor(
         val result = importRecipeUseCase.execute(
             url = url,
             onProgress = { progress ->
-                val progressMessage = when (progress) {
-                    is ImportRecipeUseCase.ImportProgress.FetchingPage -> {
-                        setProgress(workDataOf(
-                            KEY_IMPORT_ID to importId,
-                            KEY_PROGRESS to PROGRESS_FETCHING
-                        ))
-                        "Fetching recipe page..."
-                    }
-                    is ImportRecipeUseCase.ImportProgress.PageMetadataAvailable -> {
-                        setProgress(workDataOf(
-                            KEY_IMPORT_ID to importId,
-                            KEY_PROGRESS to PROGRESS_METADATA_AVAILABLE,
-                            KEY_PAGE_TITLE to progress.title,
-                            KEY_IMAGE_URL to progress.imageUrl
-                        ))
-                        "Analyzing recipe..."
-                    }
-                    is ImportRecipeUseCase.ImportProgress.ParsingRecipe -> {
-                        setProgress(workDataOf(
-                            KEY_IMPORT_ID to importId,
-                            KEY_PROGRESS to PROGRESS_PARSING
-                        ))
-                        "AI is analyzing the recipe..."
-                    }
-                    is ImportRecipeUseCase.ImportProgress.RecipeNameAvailable -> {
-                        setProgress(workDataOf(
-                            KEY_IMPORT_ID to importId,
-                            KEY_PROGRESS to PROGRESS_PARSING,
-                            KEY_RECIPE_NAME to progress.name
-                        ))
-                        "AI is analyzing the recipe..."
-                    }
-                    is ImportRecipeUseCase.ImportProgress.SavingRecipe -> {
-                        setProgress(workDataOf(
-                            KEY_IMPORT_ID to importId,
-                            KEY_PROGRESS to PROGRESS_SAVING
-                        ))
-                        "Saving recipe..."
-                    }
-                    is ImportRecipeUseCase.ImportProgress.Complete -> "Complete!"
+                val (workProgress, message) = when (progress) {
+                    is ImportRecipeUseCase.ImportProgress.FetchingPage ->
+                        RecipeImportWork.Progress.FetchingPage to "Fetching recipe page..."
+                    is ImportRecipeUseCase.ImportProgress.PageMetadataAvailable ->
+                        RecipeImportWork.Progress.MetadataAvailable(progress.title, progress.imageUrl) to
+                            "Analyzing recipe..."
+                    is ImportRecipeUseCase.ImportProgress.ParsingRecipe ->
+                        RecipeImportWork.Progress.Parsing(recipeName = null) to "AI is analyzing the recipe..."
+                    is ImportRecipeUseCase.ImportProgress.RecipeNameAvailable ->
+                        RecipeImportWork.Progress.Parsing(progress.name) to "AI is analyzing the recipe..."
+                    is ImportRecipeUseCase.ImportProgress.SavingRecipe ->
+                        RecipeImportWork.Progress.Saving to "Saving recipe..."
+                    is ImportRecipeUseCase.ImportProgress.Complete -> null to "Complete!"
                 }
-                setForegroundProgress(progressMessage)
+                workProgress?.let { setProgress(it.toData()) }
+                setForegroundProgress(message)
             }
         )
 
         return when (result) {
             is ImportRecipeUseCase.ImportResult.Success -> {
-                cancelProgressNotification()
                 notificationHelper.showSuccessNotification(
                     key = importId,
                     recipeName = result.recipe.name,
                     recipeId = result.recipe.id
                 )
-                Result.success(
-                    workDataOf(
-                        KEY_IMPORT_ID to importId,
-                        KEY_RESULT_TYPE to RESULT_SUCCESS,
-                        KEY_RECIPE_ID to result.recipe.id,
-                        KEY_RECIPE_NAME to result.recipe.name
-                    )
-                )
+                successResult(RecipeImportWork.Outcome.Success(importId, result.recipe.id, result.recipe.name))
             }
             is ImportRecipeUseCase.ImportResult.Error -> errorResult(
-                errorMessage = result.message,
+                RecipeImportWork.Outcome.Failed(result.message, importId),
                 retryable = result.retryable
             )
             ImportRecipeUseCase.ImportResult.NoApiKey -> errorResult(
-                errorMessage = "Add your Anthropic API key in Settings to import recipes.",
-                errorType = RESULT_NO_API_KEY,
+                RecipeImportWork.Outcome.NoApiKey("Add your Anthropic API key in Settings to import recipes.", importId),
                 notify = false
             )
+        }
+    }
+}
+
+object RecipeImportWork : WorkContract<RecipeImportWork.Progress, RecipeImportWork.Outcome> {
+    private const val KEY_PAGE_TITLE = "page_title"
+    private const val KEY_IMAGE_URL = "image_url"
+
+    private const val PROGRESS_FETCHING = "fetching"
+    private const val PROGRESS_METADATA_AVAILABLE = "metadata_available"
+    private const val PROGRESS_PARSING = "parsing"
+    private const val PROGRESS_SAVING = "saving"
+
+    sealed interface Progress {
+        fun toData(): Data
+
+        data object FetchingPage : Progress {
+            override fun toData() = workDataOf(WorkResult.KEY_PROGRESS to PROGRESS_FETCHING)
+        }
+
+        data class MetadataAvailable(val pageTitle: String?, val imageUrl: String?) : Progress {
+            override fun toData() = workDataOf(
+                WorkResult.KEY_PROGRESS to PROGRESS_METADATA_AVAILABLE,
+                KEY_PAGE_TITLE to pageTitle,
+                KEY_IMAGE_URL to imageUrl
+            )
+        }
+
+        data class Parsing(val recipeName: String?) : Progress {
+            override fun toData() = workDataOf(
+                WorkResult.KEY_PROGRESS to PROGRESS_PARSING,
+                WorkResult.KEY_RECIPE_NAME to recipeName
+            )
+        }
+
+        data object Saving : Progress {
+            override fun toData() = workDataOf(WorkResult.KEY_PROGRESS to PROGRESS_SAVING)
+        }
+    }
+
+    sealed interface Outcome {
+        /** [recipeId] is null only if the output is malformed. */
+        data class Success(val importId: String?, val recipeId: String?, val recipeName: String?) :
+            Outcome, SuccessOutcome {
+            override fun toData() = workDataOf(
+                WorkResult.KEY_IMPORT_ID to importId,
+                WorkResult.KEY_RESULT_TYPE to WorkResult.SUCCESS,
+                WorkResult.KEY_RECIPE_ID to recipeId,
+                WorkResult.KEY_RECIPE_NAME to recipeName
+            )
+        }
+
+        data class NoApiKey(override val message: String?, val importId: String?) : Outcome, FailureOutcome {
+            override fun toData() =
+                WorkResult.failure(WorkResult.NO_API_KEY, message, WorkResult.KEY_IMPORT_ID to importId)
+        }
+
+        data class Failed(override val message: String?, val importId: String?) : Outcome, FailureOutcome {
+            override fun toData() =
+                WorkResult.failure(WorkResult.ERROR, message, WorkResult.KEY_IMPORT_ID to importId)
+        }
+    }
+
+    override fun decodeProgress(data: Data): Progress? = when (WorkResult.progress(data)) {
+        PROGRESS_FETCHING -> Progress.FetchingPage
+        PROGRESS_METADATA_AVAILABLE ->
+            Progress.MetadataAvailable(data.getString(KEY_PAGE_TITLE), data.getString(KEY_IMAGE_URL))
+        PROGRESS_PARSING -> Progress.Parsing(data.getString(WorkResult.KEY_RECIPE_NAME))
+        PROGRESS_SAVING -> Progress.Saving
+        else -> null
+    }
+
+    override fun decodeOutcome(succeeded: Boolean, data: Data): Outcome {
+        val importId = data.getString(WorkResult.KEY_IMPORT_ID)
+        return when {
+            succeeded -> Outcome.Success(
+                importId = importId,
+                recipeId = data.getString(WorkResult.KEY_RECIPE_ID),
+                recipeName = data.getString(WorkResult.KEY_RECIPE_NAME)
+            )
+            WorkResult.type(data) == WorkResult.NO_API_KEY -> Outcome.NoApiKey(WorkResult.message(data), importId)
+            else -> Outcome.Failed(WorkResult.message(data), importId)
         }
     }
 }

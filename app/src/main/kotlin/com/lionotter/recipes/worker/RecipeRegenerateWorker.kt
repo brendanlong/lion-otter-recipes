@@ -26,22 +26,9 @@ class RecipeRegenerateWorker @AssistedInject constructor(
     companion object {
         const val TAG_RECIPE_REGENERATE = "recipe_regenerate"
 
-        const val KEY_RECIPE_ID = "recipe_id"
-        const val KEY_MODEL = "model"
-        const val KEY_EXTENDED_THINKING = "extended_thinking"
-        const val KEY_ERROR_MESSAGE = BaseRecipeWorker.KEY_ERROR_MESSAGE
-        const val KEY_PROGRESS = "progress"
-        const val KEY_RESULT_TYPE = BaseRecipeWorker.KEY_RESULT_TYPE
-        const val KEY_RECIPE_NAME = "recipe_name"
-
-        const val RESULT_SUCCESS = "success"
-        const val RESULT_ERROR = BaseRecipeWorker.RESULT_ERROR
-        const val RESULT_NO_API_KEY = "no_api_key"
-        const val RESULT_NO_SOURCE_URL = "no_source_url"
-
-        const val PROGRESS_FETCHING = "fetching"
-        const val PROGRESS_PARSING = "parsing"
-        const val PROGRESS_SAVING = "saving"
+        private const val KEY_RECIPE_ID = WorkResult.KEY_RECIPE_ID
+        private const val KEY_MODEL = "model"
+        private const val KEY_EXTENDED_THINKING = "extended_thinking"
 
         fun createInputData(
             recipeId: String,
@@ -73,75 +60,113 @@ class RecipeRegenerateWorker @AssistedInject constructor(
             model = model,
             thinkingEnabled = thinkingEnabled,
             onProgress = { progress ->
-                val progressMessage = when (progress) {
-                    is RegenerateRecipeUseCase.RegenerateProgress.FetchingFromUrl -> {
-                        setProgress(workDataOf(
-                            KEY_RECIPE_ID to recipeId,
-                            KEY_PROGRESS to PROGRESS_FETCHING
-                        ))
-                        "Fetching recipe page..."
-                    }
-                    is RegenerateRecipeUseCase.RegenerateProgress.ParsingRecipe -> {
-                        setProgress(workDataOf(
-                            KEY_RECIPE_ID to recipeId,
-                            KEY_PROGRESS to PROGRESS_PARSING
-                        ))
-                        "AI is re-analyzing the recipe..."
-                    }
-                    is RegenerateRecipeUseCase.RegenerateProgress.RecipeNameAvailable -> {
-                        setProgress(workDataOf(
-                            KEY_RECIPE_ID to recipeId,
-                            KEY_PROGRESS to PROGRESS_PARSING,
-                            KEY_RECIPE_NAME to progress.name
-                        ))
-                        "AI is re-analyzing the recipe..."
-                    }
-                    is RegenerateRecipeUseCase.RegenerateProgress.SavingRecipe -> {
-                        setProgress(workDataOf(
-                            KEY_RECIPE_ID to recipeId,
-                            KEY_PROGRESS to PROGRESS_SAVING
-                        ))
-                        "Saving recipe..."
-                    }
-                    is RegenerateRecipeUseCase.RegenerateProgress.Complete -> "Complete!"
+                val (workProgress, message) = when (progress) {
+                    is RegenerateRecipeUseCase.RegenerateProgress.FetchingFromUrl ->
+                        RecipeRegenerateWork.Progress.FetchingPage to "Fetching recipe page..."
+                    is RegenerateRecipeUseCase.RegenerateProgress.ParsingRecipe ->
+                        RecipeRegenerateWork.Progress.Parsing(recipeName = null) to "AI is re-analyzing the recipe..."
+                    is RegenerateRecipeUseCase.RegenerateProgress.RecipeNameAvailable ->
+                        RecipeRegenerateWork.Progress.Parsing(progress.name) to "AI is re-analyzing the recipe..."
+                    is RegenerateRecipeUseCase.RegenerateProgress.SavingRecipe ->
+                        RecipeRegenerateWork.Progress.Saving to "Saving recipe..."
+                    is RegenerateRecipeUseCase.RegenerateProgress.Complete -> null to "Complete!"
                 }
-                setForegroundProgress(progressMessage)
+                workProgress?.let { setProgress(it.toData()) }
+                setForegroundProgress(message)
             }
         )
 
         return when (result) {
             is RegenerateRecipeUseCase.RegenerateResult.Success -> {
-                cancelProgressNotification()
                 notificationHelper.showSuccessNotification(
                     key = operationKey,
                     recipeName = result.recipe.name,
                     recipeId = result.recipe.id,
                     title = "Recipe Regenerated"
                 )
-                Result.success(
-                    workDataOf(
-                        KEY_RECIPE_ID to recipeId,
-                        KEY_RESULT_TYPE to RESULT_SUCCESS,
-                        KEY_RECIPE_NAME to result.recipe.name
-                    )
-                )
+                successResult(RecipeRegenerateWork.Outcome.Success(recipeId, result.recipe.name))
             }
             is RegenerateRecipeUseCase.RegenerateResult.Error -> errorResult(
-                errorMessage = result.message,
-                retryable = result.retryable,
-                extraData = mapOf(KEY_RECIPE_ID to recipeId)
+                RecipeRegenerateWork.Outcome.Failed(result.message, recipeId),
+                retryable = result.retryable
             )
             RegenerateRecipeUseCase.RegenerateResult.NoApiKey -> errorResult(
-                errorMessage = "API key not configured",
-                errorType = RESULT_NO_API_KEY,
-                notify = false,
-                extraData = mapOf(KEY_RECIPE_ID to recipeId)
+                RecipeRegenerateWork.Outcome.NoApiKey("API key not configured", recipeId),
+                notify = false
             )
             RegenerateRecipeUseCase.RegenerateResult.NoSourceUrl -> errorResult(
-                errorMessage = "No source URL available for this recipe",
-                errorType = RESULT_NO_SOURCE_URL,
-                extraData = mapOf(KEY_RECIPE_ID to recipeId)
+                RecipeRegenerateWork.Outcome.NoSourceUrl("No source URL available for this recipe", recipeId)
             )
+        }
+    }
+}
+
+object RecipeRegenerateWork : WorkContract<RecipeRegenerateWork.Progress, RecipeRegenerateWork.Outcome> {
+    private const val PROGRESS_FETCHING = "fetching"
+    private const val PROGRESS_PARSING = "parsing"
+    private const val PROGRESS_SAVING = "saving"
+
+    sealed interface Progress {
+        fun toData(): Data
+
+        data object FetchingPage : Progress {
+            override fun toData() = workDataOf(WorkResult.KEY_PROGRESS to PROGRESS_FETCHING)
+        }
+
+        data class Parsing(val recipeName: String?) : Progress {
+            override fun toData() = workDataOf(
+                WorkResult.KEY_PROGRESS to PROGRESS_PARSING,
+                WorkResult.KEY_RECIPE_NAME to recipeName
+            )
+        }
+
+        data object Saving : Progress {
+            override fun toData() = workDataOf(WorkResult.KEY_PROGRESS to PROGRESS_SAVING)
+        }
+    }
+
+    sealed interface Outcome {
+        data class Success(val recipeId: String?, val recipeName: String?) : Outcome, SuccessOutcome {
+            override fun toData() = workDataOf(
+                WorkResult.KEY_RECIPE_ID to recipeId,
+                WorkResult.KEY_RESULT_TYPE to WorkResult.SUCCESS,
+                WorkResult.KEY_RECIPE_NAME to recipeName
+            )
+        }
+
+        data class NoApiKey(override val message: String?, val recipeId: String?) : Outcome, FailureOutcome {
+            override fun toData() =
+                WorkResult.failure(WorkResult.NO_API_KEY, message, WorkResult.KEY_RECIPE_ID to recipeId)
+        }
+
+        data class NoSourceUrl(override val message: String?, val recipeId: String?) : Outcome, FailureOutcome {
+            override fun toData() =
+                WorkResult.failure(WorkResult.NO_SOURCE_URL, message, WorkResult.KEY_RECIPE_ID to recipeId)
+        }
+
+        data class Failed(override val message: String?, val recipeId: String?) : Outcome, FailureOutcome {
+            override fun toData() =
+                WorkResult.failure(WorkResult.ERROR, message, WorkResult.KEY_RECIPE_ID to recipeId)
+        }
+    }
+
+    override fun decodeProgress(data: Data): Progress? = when (WorkResult.progress(data)) {
+        PROGRESS_FETCHING -> Progress.FetchingPage
+        PROGRESS_PARSING -> Progress.Parsing(data.getString(WorkResult.KEY_RECIPE_NAME))
+        PROGRESS_SAVING -> Progress.Saving
+        else -> null
+    }
+
+    override fun decodeOutcome(succeeded: Boolean, data: Data): Outcome {
+        val recipeId = data.getString(WorkResult.KEY_RECIPE_ID)
+        val message = WorkResult.message(data)
+        return when {
+            succeeded -> Outcome.Success(recipeId, data.getString(WorkResult.KEY_RECIPE_NAME))
+            else -> when (WorkResult.type(data)) {
+                WorkResult.NO_API_KEY -> Outcome.NoApiKey(message, recipeId)
+                WorkResult.NO_SOURCE_URL -> Outcome.NoSourceUrl(message, recipeId)
+                else -> Outcome.Failed(message, recipeId)
+            }
         }
     }
 }

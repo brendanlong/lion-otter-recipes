@@ -1,5 +1,6 @@
 package com.lionotter.recipes.worker
 
+import android.net.Uri
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
@@ -9,6 +10,8 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.await
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -73,14 +76,15 @@ class RecipeWorkScheduler @Inject constructor(
         workManager.enqueueUniqueWork(importWorkName(importId), ExistingWorkPolicy.APPEND_OR_REPLACE, request).await()
     }
 
-    suspend fun enqueueEdit(
+    /** Writes the edit's markdown input to disk, so call this off the main thread. */
+    fun prepareEdit(
         recipeId: String,
         markdownText: String,
         model: String?,
         thinkingEnabled: Boolean?,
         saveAsCopy: Boolean = false,
         aiInstructions: String? = null
-    ): UUID {
+    ): PendingWork {
         val markdownPath = inputStore.writeWorkText(markdownText)
         val request = OneTimeWorkRequestBuilder<RecipeEditWorker>()
             .setInputData(
@@ -100,11 +104,18 @@ class RecipeWorkScheduler @Inject constructor(
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, BACKOFF_SECONDS, TimeUnit.SECONDS)
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build()
-        workManager.enqueue(request).await()
-        return request.id
+        return PendingWork(request.id) {
+            var enqueued = false
+            try {
+                workManager.enqueue(request).await()
+                enqueued = true
+            } finally {
+                if (!enqueued) inputStore.deleteWorkText(markdownPath)
+            }
+        }
     }
 
-    suspend fun enqueueRegenerate(recipeId: String, model: String?, thinkingEnabled: Boolean?): UUID {
+    fun prepareRegenerate(recipeId: String, model: String?, thinkingEnabled: Boolean?): PendingWork {
         val request = OneTimeWorkRequestBuilder<RecipeRegenerateWorker>()
             .setInputData(RecipeRegenerateWorker.createInputData(recipeId, model, thinkingEnabled))
             .addTag(RecipeRegenerateWorker.TAG_RECIPE_REGENERATE)
@@ -112,7 +123,32 @@ class RecipeWorkScheduler @Inject constructor(
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, BACKOFF_SECONDS, TimeUnit.SECONDS)
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build()
-        workManager.enqueue(request).await()
-        return request.id
+        return PendingWork(request.id) { workManager.enqueue(request).await() }
     }
+
+    fun prepareExport(fileUri: Uri): PendingWork {
+        val request = OneTimeWorkRequestBuilder<ZipExportWorker>()
+            .setInputData(ZipExportWorker.createInputData(fileUri))
+            .addTag(ZipExportWorker.TAG_ZIP_EXPORT)
+            .build()
+        return PendingWork(request.id) { workManager.enqueue(request).await() }
+    }
+
+    fun cancel(workId: UUID) {
+        workManager.cancelWorkById(workId)
+    }
+
+    fun observeEdit(workId: UUID): Flow<WorkStatus<RecipeEditWork.Progress, RecipeEditWork.Outcome>> =
+        observe(workId, RecipeEditWork)
+
+    fun observeRegenerate(
+        workId: UUID
+    ): Flow<WorkStatus<RecipeRegenerateWork.Progress, RecipeRegenerateWork.Outcome>> =
+        observe(workId, RecipeRegenerateWork)
+
+    fun observeExport(workId: UUID): Flow<WorkStatus<ZipExportWork.Progress, ZipExportWork.Outcome>> =
+        observe(workId, ZipExportWork)
+
+    private fun <P : Any, O : Any> observe(workId: UUID, contract: WorkContract<P, O>): Flow<WorkStatus<P, O>> =
+        workManager.getWorkInfoByIdFlow(workId).map { it.toWorkStatus(contract) }
 }

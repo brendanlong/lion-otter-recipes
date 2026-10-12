@@ -75,7 +75,7 @@ class SettingsViewModelTest {
         every { settingsDataStore.groceryWeightUnitSystem } returns groceryWeightUnitSystemFlow
         every { settingsDataStore.startOfWeek } returns startOfWeekFlow
         every { authService.authState } returns MutableStateFlow<AuthState>(AuthState.Guest(uid = "test-guest"))
-        viewModel = SettingsViewModel(settingsDataStore, importDebugRepository, authService, accountMigrationService, mockk(relaxed = true))
+        viewModel = SettingsViewModel(settingsDataStore, importDebugRepository, authService, accountMigrationService, {})
     }
 
     @After

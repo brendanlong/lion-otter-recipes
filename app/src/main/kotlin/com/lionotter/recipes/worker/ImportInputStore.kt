@@ -32,9 +32,6 @@ class ImportInputStore @Inject constructor(
 ) {
     companion object {
         private const val TAG = "ImportInputStore"
-        const val KIND_URL = "url"
-        const val KIND_PAPRIKA = "paprika"
-        const val KIND_ZIP = "zip"
         private const val SOURCE_FILE = "source"
         private const val SELECTION_FILE = "selection.txt"
         private const val KIND_FILE = "kind"
@@ -104,12 +101,16 @@ class ImportInputStore @Inject constructor(
         return file.readLines().filter { it.isNotBlank() }.toSet()
     }
 
-    fun writeKind(importId: String, kind: String) {
-        File(importDir(importId), KIND_FILE).writeText(kind)
+    fun writeKind(importId: String, kind: ImportKind) {
+        File(importDir(importId), KIND_FILE).writeText(kind.value)
     }
 
-    fun readKind(importId: String): String? =
-        File(importDir(importId), KIND_FILE).takeIf { it.exists() }?.readText()?.trim()
+    /** The kind written by [writeKind], or null if there is none (or it is unknown). */
+    fun readKind(importId: String): ImportKind? {
+        val value = File(importDir(importId), KIND_FILE).takeIf { it.exists() }?.readText()?.trim() ?: return null
+        return ImportKind.entries.firstOrNull { it.value == value }
+            ?: null.also { Log.w(TAG, "Unknown import kind '$value' for $importId") }
+    }
 
     fun hasImport(importId: String): Boolean = File(importsRoot, importId).exists()
 
@@ -162,4 +163,11 @@ class ImportInputStore @Inject constructor(
 
     private fun isWorkInput(file: File): Boolean =
         file.canonicalFile.parentFile == workInputsRoot.canonicalFile
+}
+
+/** What an import reads from; [value] is stored in the import's `kind` file. */
+enum class ImportKind(val value: String) {
+    URL("url"),
+    PAPRIKA("paprika"),
+    ZIP("zip")
 }

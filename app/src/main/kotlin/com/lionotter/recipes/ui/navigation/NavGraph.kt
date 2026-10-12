@@ -232,7 +232,9 @@ fun NavGraph(
                     navController.navigate(Screen.RecipeList.route) {
                         popUpTo(0) { inclusive = true }
                     }
-                    navController.navigate(Screen.RecipeDetail.createRoute(recipeId))
+                    if (recipeId != null) {
+                        navController.navigate(Screen.RecipeDetail.createRoute(recipeId))
+                    }
                 },
                 onNavigateToSettings = {
                     navController.navigateFrom(backStackEntry, Screen.Settings.route)
