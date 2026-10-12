@@ -406,4 +406,47 @@ class PaprikaParserTest {
         assertEquals("Classic Waffles", recipe.name)
         assertEquals("7bf2762d-d6dc-4d56-bdbe-0de4d92df745", recipe.uid)
     }
+
+    @Test
+    fun `parseIndex returns uid and name for each recipe`() {
+        val exportData = createPaprikaExport(
+            mapOf(
+                "Classic Waffles" to sampleRecipeJson,
+                "Simple Toast" to minimalRecipeJson
+            )
+        )
+
+        val index = parser.parseIndex(ByteArrayInputStream(exportData))
+
+        assertEquals(
+            setOf(
+                PaprikaIndexEntry("7bf2762d-d6dc-4d56-bdbe-0de4d92df745", "Classic Waffles"),
+                PaprikaIndexEntry("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "Simple Toast")
+            ),
+            index.toSet()
+        )
+    }
+
+    @Test
+    fun `forEachRecipe reports a malformed entry and keeps going`() {
+        val baos = ByteArrayOutputStream()
+        ZipOutputStream(baos).use { zip ->
+            zip.putNextEntry(ZipEntry("Broken.paprikarecipe"))
+            zip.write("definitely not gzip".toByteArray())
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("Classic Waffles.paprikarecipe"))
+            zip.write(gzipCompress(sampleRecipeJson))
+            zip.closeEntry()
+        }
+
+        val errors = mutableListOf<String>()
+        val names = mutableListOf<String>()
+        parser.forEachRecipe(
+            ByteArrayInputStream(baos.toByteArray()),
+            onError = { entryName, _ -> errors.add(entryName) }
+        ) { names.add(it.name) }
+
+        assertEquals(listOf("Broken.paprikarecipe"), errors)
+        assertEquals(listOf("Classic Waffles"), names)
+    }
 }

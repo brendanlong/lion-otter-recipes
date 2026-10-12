@@ -1,5 +1,10 @@
 package com.lionotter.recipes.data.paprika
 
+import android.util.Log
+import com.lionotter.recipes.domain.util.ArchiveBudget
+import com.lionotter.recipes.domain.util.ArchiveTooLargeException
+import com.lionotter.recipes.domain.util.BoundedInputStream
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.ByteArrayInputStream
 import java.io.InputStream
@@ -7,39 +12,117 @@ import java.util.zip.GZIPInputStream
 import java.util.zip.ZipInputStream
 import javax.inject.Inject
 
+/** A recipe listed in a Paprika export, for the import selection list. */
+@Serializable
+data class PaprikaIndexEntry(val uid: String, val name: String)
+
 /**
  * Parser for Paprika recipe export files (.paprikarecipes).
  *
  * The export format is a ZIP archive containing one gzip-compressed JSON file
- * (.paprikarecipe) per recipe.
- *
- * Parsing steps:
- * 1. Unzip the .paprikarecipes file to get individual .paprikarecipe files
- * 2. Gzip-decompress each .paprikarecipe file
- * 3. Parse the result as JSON
+ * (.paprikarecipe) per recipe. Entries can embed large base64 photos, so the export is
+ * streamed one entry at a time with per-entry and total size limits; a malformed entry is
+ * reported and skipped rather than failing the whole file.
  */
 class PaprikaParser @Inject constructor(
     private val json: Json
 ) {
+    companion object {
+        private const val TAG = "PaprikaParser"
+        private const val MAX_COMPRESSED_ENTRY_BYTES = 30L * 1024 * 1024
+        private const val MAX_RECIPE_JSON_BYTES = 60L * 1024 * 1024
+        private const val MAX_TOTAL_BYTES = 2L * 1024 * 1024 * 1024
+        private const val MAX_ENTRIES = 20_000
+    }
+
     /**
-     * Parse a .paprikarecipes ZIP file from an InputStream.
-     * Returns a list of parsed recipes.
+     * Stream the recipes in a Paprika export. [onRecipe] is called for each parsed recipe
+     * and [onError] for each entry that couldn't be read.
+     *
+     * @throws ArchiveTooLargeException if the archive exceeds the size limits
+     */
+    fun forEachRecipe(
+        inputStream: InputStream,
+        onError: (entryName: String, error: Exception) -> Unit = { _, _ -> },
+        onRecipe: (PaprikaRecipe) -> Unit
+    ) {
+        forEachRecipeJson(inputStream, onError) { entryName, jsonString ->
+            val recipe = try {
+                decodeRecipe(jsonString)
+            } catch (e: Exception) {
+                onError(entryName, e)
+                null
+            }
+            if (recipe != null) onRecipe(recipe)
+        }
+    }
+
+    /** Read only the uid and name of every recipe (photos are not decoded). */
+    fun parseIndex(inputStream: InputStream): List<PaprikaIndexEntry> {
+        val results = mutableListOf<PaprikaIndexEntry>()
+        forEachRecipeJson(
+            inputStream,
+            onError = { name, e -> Log.w(TAG, "Skipping unreadable Paprika entry $name", e) }
+        ) { entryName, jsonString ->
+            try {
+                results.add(json.decodeFromString<PaprikaIndexEntry>(jsonString))
+            } catch (e: Exception) {
+                Log.w(TAG, "Skipping malformed Paprika entry $entryName", e)
+            }
+        }
+        return results
+    }
+
+    /**
+     * Parse a whole export into memory. Only suitable for small exports (tests, previews);
+     * imports use [forEachRecipe].
      */
     fun parseExport(inputStream: InputStream): List<PaprikaRecipe> {
         val recipes = mutableListOf<PaprikaRecipe>()
+        forEachRecipe(
+            inputStream,
+            onError = { name, e -> Log.w(TAG, "Skipping unreadable Paprika entry $name", e) }
+        ) { recipes.add(it) }
+        return recipes
+    }
+
+    fun decodeRecipe(jsonString: String): PaprikaRecipe = json.decodeFromString<PaprikaRecipe>(jsonString)
+
+    private fun forEachRecipeJson(
+        inputStream: InputStream,
+        onError: (entryName: String, error: Exception) -> Unit,
+        onJson: (entryName: String, json: String) -> Unit
+    ) {
+        val budget = ArchiveBudget(MAX_TOTAL_BYTES)
         ZipInputStream(inputStream).use { zipStream ->
+            var entryCount = 0
             var entry = zipStream.nextEntry
             while (entry != null) {
+                if (++entryCount > MAX_ENTRIES) throw ArchiveTooLargeException("Export has too many entries")
                 if (!entry.isDirectory && entry.name.endsWith(".paprikarecipe")) {
-                    val compressedBytes = zipStream.readBytes()
-                    val recipe = parseRecipeEntry(compressedBytes)
-                    recipes.add(recipe)
+                    val jsonString = try {
+                        readEntryJson(zipStream, budget)
+                    } catch (e: ArchiveTooLargeException) {
+                        if (budget.consumed > MAX_TOTAL_BYTES) throw e
+                        onError(entry.name, e)
+                        null
+                    } catch (e: Exception) {
+                        onError(entry.name, e)
+                        null
+                    }
+                    if (jsonString != null) onJson(entry.name, jsonString)
                 }
                 zipStream.closeEntry()
                 entry = zipStream.nextEntry
             }
         }
-        return recipes
+    }
+
+    private fun readEntryJson(zipStream: ZipInputStream, budget: ArchiveBudget): String {
+        val compressed = BoundedInputStream(zipStream, MAX_COMPRESSED_ENTRY_BYTES).readBytes()
+        return GZIPInputStream(ByteArrayInputStream(compressed)).use { gzip ->
+            BoundedInputStream(gzip, MAX_RECIPE_JSON_BYTES, budget).bufferedReader().readText()
+        }
     }
 
     /**
@@ -49,7 +132,7 @@ class PaprikaParser @Inject constructor(
         val jsonString = GZIPInputStream(ByteArrayInputStream(compressedBytes)).use { gzipStream ->
             gzipStream.bufferedReader().readText()
         }
-        return json.decodeFromString<PaprikaRecipe>(jsonString)
+        return decodeRecipe(jsonString)
     }
 
     /**
