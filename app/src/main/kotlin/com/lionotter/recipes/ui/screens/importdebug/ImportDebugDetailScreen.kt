@@ -1,30 +1,36 @@
 package com.lionotter.recipes.ui.screens.importdebug
 
 import android.content.ClipData
+import android.content.Intent
+import android.util.Log
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -40,16 +46,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.FileProvider
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
-import com.lionotter.recipes.data.local.ImportDebugEntity
+import com.lionotter.recipes.data.local.ImportDebugSummary
+import com.lionotter.recipes.ui.components.ErrorCard
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import kotlin.time.Instant
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.number
@@ -61,37 +72,66 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
+private const val TAG = "ImportDebugDetail"
+
+/** JSON larger than this is shown as raw text instead of a composable tree. */
+private const val MAX_JSON_TREE_CHARS = 100_000
+
+/** Max characters per lazily-composed text block when showing raw content. */
+private const val DISPLAY_CHUNK_CHARS = 4_000
+
 @Composable
 fun ImportDebugDetailScreen(
     onBackClick: () -> Unit,
     onNavigateToRecipe: ((String) -> Unit)? = null,
     viewModel: ImportDebugDetailViewModel = hiltViewModel()
 ) {
-    val entry by viewModel.entry.collectAsStateWithLifecycle()
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val summary = (state as? ImportDebugDetailState.Loaded)?.summary
 
     Scaffold(
         topBar = {
             RecipeTopAppBar(
-                title = entry?.recipeName ?: entry?.sourceUrl ?: stringResource(R.string.import_debug_data),
+                title = summary?.recipeName ?: summary?.sourceUrl ?: stringResource(R.string.import_debug_data),
                 onBackClick = onBackClick
             )
         }
     ) { paddingValues ->
-        val currentEntry = entry
-        if (currentEntry == null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
+        when (val currentState = state) {
+            ImportDebugDetailState.Loading -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
+                }
             }
-        } else {
-            SelectionContainer {
+            ImportDebugDetailState.NotFound -> {
+                CenteredMessage(
+                    message = stringResource(R.string.import_debug_entry_not_found),
+                    modifier = Modifier.padding(paddingValues)
+                )
+            }
+            is ImportDebugDetailState.Error -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues)
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    ErrorCard(
+                        message = stringResource(R.string.import_debug_load_failed, currentState.message)
+                    )
+                }
+            }
+            is ImportDebugDetailState.Loaded -> {
                 DebugDetailContent(
-                    entry = currentEntry,
+                    state = currentState,
                     onNavigateToRecipe = onNavigateToRecipe,
+                    onShareFullContent = viewModel::writeFullContentToFile,
                     modifier = Modifier.padding(paddingValues)
                 )
             }
@@ -99,11 +139,28 @@ fun ImportDebugDetailScreen(
     }
 }
 
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun CenteredMessage(message: String, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
 @Composable
 private fun DebugDetailContent(
-    entry: ImportDebugEntity,
+    state: ImportDebugDetailState.Loaded,
     onNavigateToRecipe: ((String) -> Unit)?,
+    onShareFullContent: suspend (DebugContentField) -> java.io.File,
     modifier: Modifier = Modifier
 ) {
     var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -115,7 +172,7 @@ private fun DebugDetailContent(
     )
 
     Column(modifier = modifier.fillMaxSize()) {
-        PrimaryTabRow(selectedTabIndex = selectedTabIndex) {
+        PrimaryScrollableTabRow(selectedTabIndex = selectedTabIndex, edgePadding = 8.dp) {
             tabs.forEachIndexed { index, title ->
                 Tab(
                     selected = selectedTabIndex == index,
@@ -126,17 +183,30 @@ private fun DebugDetailContent(
         }
 
         when (selectedTabIndex) {
-            0 -> SummaryTab(entry = entry, onNavigateToRecipe = onNavigateToRecipe)
-            1 -> HtmlContentTab(content = entry.originalHtml)
-            2 -> HtmlContentTab(content = entry.cleanedContent)
-            3 -> AiOutputTab(jsonString = entry.aiOutputJson)
+            0 -> SelectionContainer {
+                SummaryTab(entry = state.summary, onNavigateToRecipe = onNavigateToRecipe)
+            }
+            1 -> HtmlContentTab(
+                field = DebugContentField.ORIGINAL_HTML,
+                preview = state.contents[DebugContentField.ORIGINAL_HTML],
+                onShareFullContent = onShareFullContent
+            )
+            2 -> HtmlContentTab(
+                field = DebugContentField.CLEANED_CONTENT,
+                preview = state.contents[DebugContentField.CLEANED_CONTENT],
+                onShareFullContent = onShareFullContent
+            )
+            3 -> AiOutputTab(
+                preview = state.contents[DebugContentField.AI_OUTPUT],
+                onShareFullContent = onShareFullContent
+            )
         }
     }
 }
 
 @Composable
 private fun SummaryTab(
-    entry: ImportDebugEntity,
+    entry: ImportDebugSummary,
     onNavigateToRecipe: ((String) -> Unit)?
 ) {
     Column(
@@ -263,48 +333,170 @@ private fun SummaryRow(label: String, value: String) {
     }
 }
 
+/**
+ * Toolbar for a content tab: truncation notice plus copy (displayed text) and share
+ * (full content, written to a file since it can exceed Binder/clipboard limits).
+ */
 @Composable
-private fun HtmlContentTab(content: String?) {
-    if (content.isNullOrBlank()) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = stringResource(R.string.not_available),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+private fun ContentActions(
+    field: DebugContentField,
+    preview: DebugContentPreview,
+    copyText: String,
+    onShareFullContent: suspend (DebugContentField) -> java.io.File,
+    modifier: Modifier = Modifier,
+    extraActions: @Composable () -> Unit = {}
+) {
+    val context = LocalContext.current
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
+    val clipLabel = stringResource(R.string.json_label)
+    val shareFailedMessage = stringResource(R.string.import_debug_share_failed)
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = if (preview.isTruncated) {
+                stringResource(
+                    R.string.import_debug_truncated,
+                    formatNumber(preview.text.length),
+                    formatNumber(preview.totalLength)
+                )
+            } else {
+                stringResource(R.string.characters_count, formatNumber(preview.totalLength))
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
+        )
+        extraActions()
+        if (!preview.isTruncated) {
+            IconButton(onClick = {
+                scope.launch {
+                    clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(clipLabel, copyText)))
+                }
+            }) {
+                Icon(
+                    imageVector = Icons.Default.ContentCopy,
+                    contentDescription = stringResource(R.string.import_debug_copy_content)
+                )
+            }
+        }
+        IconButton(onClick = {
+            scope.launch {
+                try {
+                    val file = onShareFullContent(field)
+                    val uri = FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.fileprovider",
+                        file
+                    )
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(Intent.createChooser(intent, null))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to share debug content", e)
+                    Toast.makeText(context, shareFailedMessage, Toast.LENGTH_LONG).show()
+                }
+            }
+        }) {
+            Icon(
+                imageVector = Icons.Default.Share,
+                contentDescription = stringResource(R.string.import_debug_share_full_content)
             )
         }
+    }
+}
+
+/**
+ * Renders long text as a lazy list of bounded chunks so huge (minified) content doesn't
+ * freeze the UI laying out a single giant Text.
+ */
+@Composable
+private fun ChunkedText(
+    text: String,
+    monospace: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val chunks = remember(text) { splitForDisplay(text, DISPLAY_CHUNK_CHARS) }
+    val style = if (monospace) {
+        MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+    } else {
+        MaterialTheme.typography.bodySmall
+    }
+    SelectionContainer(modifier = modifier) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(16.dp)
+        ) {
+            itemsIndexed(chunks) { _, chunk ->
+                Text(text = chunk, style = style)
+            }
+        }
+    }
+}
+
+/** Splits [text] into pieces of at most [maxChars], preferring to break after newlines. */
+internal fun splitForDisplay(text: String, maxChars: Int): List<String> {
+    if (text.length <= maxChars) return listOf(text)
+    val chunks = mutableListOf<String>()
+    var start = 0
+    while (start < text.length) {
+        var end = minOf(start + maxChars, text.length)
+        if (end < text.length) {
+            val newline = text.lastIndexOf('\n', end - 1)
+            if (newline >= start + maxChars / 2) end = newline + 1
+        }
+        chunks.add(text.substring(start, end).removeSuffix("\n"))
+        start = end
+    }
+    return chunks
+}
+
+@Composable
+private fun NotAvailableContent() {
+    CenteredMessage(message = stringResource(R.string.not_available))
+}
+
+@Composable
+private fun HtmlContentTab(
+    field: DebugContentField,
+    preview: DebugContentPreview?,
+    onShareFullContent: suspend (DebugContentField) -> java.io.File
+) {
+    if (preview == null || preview.text.isBlank()) {
+        NotAvailableContent()
         return
     }
+    val content = preview.text
 
     var showSource by rememberSaveable { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.End
-        ) {
-            TextButton(onClick = { showSource = !showSource }) {
-                Text(
-                    text = if (showSource) stringResource(R.string.show_rendered) else stringResource(R.string.show_source)
-                )
+        ContentActions(
+            field = field,
+            preview = preview,
+            copyText = content,
+            onShareFullContent = onShareFullContent,
+            extraActions = {
+                TextButton(onClick = { showSource = !showSource }) {
+                    Text(
+                        text = if (showSource) stringResource(R.string.show_rendered) else stringResource(R.string.show_source)
+                    )
+                }
             }
-        }
+        )
 
         if (showSource) {
-            Text(
-                text = content,
-                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .horizontalScroll(rememberScrollState())
-                    .padding(16.dp)
-            )
+            ChunkedText(text = content, monospace = true, modifier = Modifier.fillMaxSize())
         } else {
             val isHtml = content.contains("<") && content.contains(">")
             if (isHtml) {
@@ -319,92 +511,67 @@ private fun HtmlContentTab(content: String?) {
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
-                Text(
-                    text = content,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(16.dp)
-                )
+                ChunkedText(text = content, monospace = false, modifier = Modifier.fillMaxSize())
             }
         }
     }
 }
 
 @Composable
-private fun AiOutputTab(jsonString: String?) {
-    if (jsonString.isNullOrBlank()) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = stringResource(R.string.not_available),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+private fun AiOutputTab(
+    preview: DebugContentPreview?,
+    onShareFullContent: suspend (DebugContentField) -> java.io.File
+) {
+    if (preview == null || preview.text.isBlank()) {
+        NotAvailableContent()
         return
     }
+    val jsonString = preview.text
 
     val jsonElement = remember(jsonString) {
-        try {
-            Json.parseToJsonElement(jsonString)
-        } catch (e: Exception) {
+        if (preview.isTruncated || jsonString.length > MAX_JSON_TREE_CHARS) {
             null
-        }
-    }
-
-    val clipboard = LocalClipboard.current
-    val scope = rememberCoroutineScope()
-    val jsonLabel = stringResource(R.string.json_label)
-    val prettyJson = remember(jsonString) {
-        try {
-            val json = Json { prettyPrint = true }
-            val element = json.parseToJsonElement(jsonString)
-            json.encodeToString(JsonElement.serializer(), element)
-        } catch (e: Exception) {
-            jsonString
-        }
-    }
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .horizontalScroll(rememberScrollState())
-                .padding(16.dp)
-        ) {
-            if (jsonElement != null) {
-                JsonTreeView(element = jsonElement, depth = 0)
-            } else {
-                Text(
-                    text = jsonString,
-                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
-                )
+        } else {
+            try {
+                Json.parseToJsonElement(jsonString)
+            } catch (e: Exception) {
+                Log.w(TAG, "AI output is not valid JSON; showing raw text", e)
+                null
             }
         }
+    }
 
-        IconButton(
-            onClick = { scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(jsonLabel, prettyJson))) } },
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(8.dp)
-                .size(40.dp),
-            colors = IconButtonDefaults.iconButtonColors(
-                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-                contentColor = MaterialTheme.colorScheme.onSurface
-            )
-        ) {
-            Icon(
-                imageVector = Icons.Default.ContentCopy,
-                contentDescription = stringResource(R.string.copy_json)
-            )
+    val prettyJson = remember(jsonElement) {
+        jsonElement?.let { prettyJsonFormat.encodeToString(JsonElement.serializer(), it) } ?: jsonString
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        ContentActions(
+            field = DebugContentField.AI_OUTPUT,
+            preview = preview,
+            copyText = prettyJson,
+            onShareFullContent = onShareFullContent
+        )
+        if (jsonElement != null) {
+            SelectionContainer {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .horizontalScroll(rememberScrollState())
+                        .padding(16.dp)
+                ) {
+                    JsonTreeView(element = jsonElement, depth = 0)
+                    Spacer(modifier = Modifier.padding(bottom = 16.dp))
+                }
+            }
+        } else {
+            ChunkedText(text = jsonString, monospace = true, modifier = Modifier.fillMaxSize())
         }
     }
 }
+
+private val prettyJsonFormat = Json { prettyPrint = true }
 
 @Composable
 private fun JsonTreeView(

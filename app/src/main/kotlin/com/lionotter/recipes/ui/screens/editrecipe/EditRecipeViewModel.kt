@@ -18,14 +18,19 @@ import com.lionotter.recipes.worker.RecipeEditWorker
 import com.lionotter.recipes.worker.RecipeRegenerateWorker
 import com.lionotter.recipes.worker.observeWorkByTag
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
@@ -40,7 +45,7 @@ sealed class EditUiState {
 
 @HiltViewModel
 class EditRecipeViewModel @Inject constructor(
-    savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle,
     private val recipeRepository: IRecipeRepository,
     private val settingsDataStore: SettingsDataStore,
     private val workManager: WorkManager,
@@ -50,39 +55,76 @@ class EditRecipeViewModel @Inject constructor(
     private val recipeId: String = savedStateHandle.get<String>("recipeId")
         ?: throw IllegalArgumentException("EditRecipeViewModel requires a 'recipeId' argument in SavedStateHandle")
 
+    /** True once the recipe flow has emitted at least once (so null means "not found"). */
+    private val _recipeLoaded = MutableStateFlow(false)
+    val recipeLoaded: StateFlow<Boolean> = _recipeLoaded.asStateFlow()
+
     val recipe: StateFlow<Recipe?> = recipeRepository.getRecipeById(recipeId)
+        .onEach { _recipeLoaded.value = true }
+        .catch { e ->
+            Log.e(TAG, "Failed to load recipe $recipeId", e)
+            _recipeLoaded.value = true
+            emit(null)
+        }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.Eagerly,
             initialValue = null
         )
 
-    private val _imageUrl = MutableStateFlow<String?>(null)
-    val imageUrl: StateFlow<String?> = _imageUrl.asStateFlow()
+    // Text fields live in SavedStateHandle so they survive process death.
+    val title: StateFlow<String> = savedStateHandle.getStateFlow(KEY_TITLE, "")
+    val sourceUrl: StateFlow<String?> = savedStateHandle.getStateFlow<String?>(KEY_SOURCE_URL, null)
+    val markdownText: StateFlow<String> = savedStateHandle.getStateFlow(KEY_MARKDOWN, "")
+    val aiInstructions: StateFlow<String> = savedStateHandle.getStateFlow(KEY_AI_INSTRUCTIONS, "")
 
-    /** Whether the user has explicitly changed the image (pick or remove). */
-    private var imageChanged = false
+    /**
+     * An image change (pick or remove) is held as pending until the user saves, so that
+     * cancelling the edit leaves the recipe untouched. A pending pick is a local file:// copy.
+     */
+    private val pendingImageChanged: StateFlow<Boolean> =
+        savedStateHandle.getStateFlow(KEY_PENDING_IMAGE_CHANGED, false)
+    private val pendingImageUri: StateFlow<String?> =
+        savedStateHandle.getStateFlow<String?>(KEY_PENDING_IMAGE_URI, null)
 
-    private val _title = MutableStateFlow("")
-    val title: StateFlow<String> = _title.asStateFlow()
+    /** The image to show: the pending change if any, otherwise the recipe's current image. */
+    val imageUrl: StateFlow<String?> = combine(
+        recipe,
+        pendingImageChanged,
+        pendingImageUri
+    ) { recipe, changed, pendingUri ->
+        if (changed) pendingUri else recipe?.imageUrl
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = null
+    )
 
-    private val _sourceUrl = MutableStateFlow<String?>(null)
-    val sourceUrl: StateFlow<String?> = _sourceUrl.asStateFlow()
+    /** The original values loaded from the recipe, used to detect changes. */
+    private val originals = MutableStateFlow<Originals?>(null)
 
-    private val _markdownText = MutableStateFlow("")
-    val markdownText: StateFlow<String> = _markdownText.asStateFlow()
+    private data class Originals(val title: String, val sourceUrl: String?, val markdown: String)
 
-    private val _aiInstructions = MutableStateFlow("")
-    val aiInstructions: StateFlow<String> = _aiInstructions.asStateFlow()
-
-    /** The original title loaded from the recipe, used to detect changes. */
-    private var originalTitle: String = ""
-
-    /** The original source URL loaded from the recipe, used to detect changes. */
-    private var originalSourceUrl: String? = null
-
-    /** The original markdown body loaded from the recipe, used to detect changes. */
-    private var originalMarkdownText: String = ""
+    /** True if the user has made changes that would be lost by leaving. */
+    val hasUnsavedChanges: StateFlow<Boolean> = combine(
+        title,
+        sourceUrl,
+        markdownText,
+        aiInstructions,
+        combine(originals, pendingImageChanged) { original, imageChanged -> original to imageChanged }
+    ) { title, url, markdown, ai, (original, imageChanged) ->
+        original != null && (
+            imageChanged ||
+                title != original.title ||
+                url != original.sourceUrl ||
+                markdown != original.markdown ||
+                ai.isNotBlank()
+            )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = false
+    )
 
     private val _editState = MutableStateFlow<EditUiState>(EditUiState.Idle)
     val editState: StateFlow<EditUiState> = _editState.asStateFlow()
@@ -109,19 +151,19 @@ class EditRecipeViewModel @Inject constructor(
     private var currentRegenerateWorkId: UUID? = null
 
     fun setTitle(title: String) {
-        _title.value = title
+        savedStateHandle[KEY_TITLE] = title
     }
 
     fun setSourceUrl(url: String?) {
-        _sourceUrl.value = url
+        savedStateHandle[KEY_SOURCE_URL] = url
     }
 
     fun setMarkdownText(text: String) {
-        _markdownText.value = text
+        savedStateHandle[KEY_MARKDOWN] = text
     }
 
     fun setAiInstructions(instructions: String) {
-        _aiInstructions.value = instructions
+        savedStateHandle[KEY_AI_INSTRUCTIONS] = instructions
     }
 
     fun setModel(model: String) {
@@ -142,32 +184,25 @@ class EditRecipeViewModel @Inject constructor(
     }
 
     /**
-     * Handle image selection from the image picker.
-     * Copies the image to local storage, uploads to Firebase Storage, and updates the recipe.
-     * Cleans up the previous image from both local cache and remote storage.
+     * Handle image selection from the image picker. The image is copied to local storage
+     * and shown immediately, but only applied to the recipe when the user saves.
      */
     fun onImageSelected(contentUri: Uri) {
         viewModelScope.launch {
             try {
-                val localUri = imageDownloadService.saveImageFromContentUri(contentUri)
+                val localUri = withContext(Dispatchers.IO) {
+                    imageDownloadService.saveImageFromContentUri(contentUri)
+                }
                 if (localUri != null) {
-                    val previousImageUrl = _imageUrl.value
-                    // Show local image immediately for responsiveness
-                    _imageUrl.value = localUri
-                    imageChanged = true
-                    // Upload to Firebase Storage, cleaning up the old image.
-                    // Use NonCancellable so the upload and DB write complete
-                    // even if the user navigates away.
-                    val storedUrl = withContext(NonCancellable) {
-                        val url = imageDownloadService.storeImage(localUri, previousImageUrl)
-                        recipeRepository.setImageUrl(recipeId, url)
-                        url
-                    }
-                    _imageUrl.value = storedUrl
+                    discardPendingImageFile()
+                    savedStateHandle[KEY_PENDING_IMAGE_URI] = localUri
+                    savedStateHandle[KEY_PENDING_IMAGE_CHANGED] = true
                 } else {
                     Log.w(TAG, "Failed to save selected image")
                     _editState.value = EditUiState.Error("Failed to save selected image")
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to save selected image", e)
                 _editState.value = EditUiState.Error("Failed to save image: ${e.message}")
@@ -175,104 +210,112 @@ class EditRecipeViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Remove the recipe image.
-     * Cleans up from both local cache and Firebase Storage.
-     */
+    /** Remove the recipe image (applied when the user saves). */
     fun removeImage() {
-        viewModelScope.launch {
-            try {
-                val currentImageUrl = _imageUrl.value
-                _imageUrl.value = null
-                imageChanged = true
-                withContext(NonCancellable) {
-                    recipeRepository.setImageUrl(recipeId, null)
-                    if (currentImageUrl != null) {
-                        imageDownloadService.cleanupImage(currentImageUrl)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to remove image", e)
-                _editState.value = EditUiState.Error("Failed to remove image: ${e.message}")
-            }
-        }
+        discardPendingImageFile()
+        savedStateHandle[KEY_PENDING_IMAGE_URI] = null
+        savedStateHandle[KEY_PENDING_IMAGE_CHANGED] = true
+    }
+
+    /** Deletes a picked-but-unsaved local image copy, if any. */
+    private fun discardPendingImageFile() {
+        pendingImageUri.value?.let { imageDownloadService.deleteLocalImage(it) }
     }
 
     /**
-     * Save all changes. Only triggers the AI cycle if the recipe body text was actually modified.
-     * Title, URL, and image changes are saved directly without AI.
+     * Applies a pending image change to the recipe: uploads the new image (cleaning up the
+     * previous one) or removes the image. Must be called from a NonCancellable context.
+     */
+    private suspend fun applyPendingImageChange() {
+        if (!pendingImageChanged.value) return
+        val newLocalUri = pendingImageUri.value
+        val previousImageUrl = recipeRepository.getRecipeByIdOnce(recipeId)?.imageUrl
+        val storedUrl = if (newLocalUri != null) {
+            imageDownloadService.storeImage(newLocalUri, previousImageUrl)
+        } else {
+            previousImageUrl?.let { imageDownloadService.cleanupImage(it) }
+            null
+        }
+        recipeRepository.setImageUrl(recipeId, storedUrl)
+        // The local file now belongs to the recipe; don't delete it on clear
+        savedStateHandle[KEY_PENDING_IMAGE_URI] = null
+        savedStateHandle[KEY_PENDING_IMAGE_CHANGED] = false
+    }
+
+    private fun isSaveInProgress(): Boolean = _editState.value is EditUiState.Loading
+
+    /**
+     * Save all changes. Only triggers the AI cycle if the recipe body text was actually modified
+     * or AI instructions were given. Image, title, and URL changes are saved directly first.
      */
     fun saveEdits() {
-        val markdownChanged = _markdownText.value != originalMarkdownText
-        val hasAiInstructions = _aiInstructions.value.isNotBlank()
-        val titleChanged = _title.value != originalTitle
-        val urlChanged = _sourceUrl.value != originalSourceUrl
+        if (isSaveInProgress()) return
+        val original = originals.value
+        val markdownChanged = markdownText.value != original?.markdown
+        val hasAiInstructions = aiInstructions.value.isNotBlank()
+        val titleChanged = title.value != original?.title
+        val urlChanged = sourceUrl.value != original?.sourceUrl
+        val newTitle = title.value
+        val newUrl = sourceUrl.value
 
-        if (!markdownChanged && !hasAiInstructions) {
-            // No recipe body changes — save title/URL directly if changed.
-            if (titleChanged || urlChanged) {
-                viewModelScope.launch {
-                    try {
-                        // Use NonCancellable so the DB write completes even if
-                        // the coroutine scope is cancelled when the UI navigates
-                        // away after observing the Success state.
-                        withContext(NonCancellable) {
-                            recipeRepository.updateTitleAndUrl(
-                                recipeId,
-                                _title.value,
-                                _sourceUrl.value
-                            )
-                        }
-                        _editState.value = EditUiState.Success()
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to save title/URL", e)
-                        _editState.value = EditUiState.Error("Failed to save: ${e.message}")
+        _editState.value = EditUiState.Loading("Saving...")
+        viewModelScope.launch {
+            try {
+                // NonCancellable so the writes complete even if the screen is left
+                withContext(NonCancellable) {
+                    applyPendingImageChange()
+                    // The AI path keeps the stored source URL, so save title/URL directly either way
+                    if (titleChanged || urlChanged) {
+                        recipeRepository.updateTitleAndUrl(recipeId, newTitle, newUrl)
                     }
                 }
-            } else {
-                _editState.value = EditUiState.Success()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to save recipe changes", e)
+                _editState.value = EditUiState.Error("Failed to save: ${e.message}")
+                return@launch
             }
-            return
+
+            if (!markdownChanged && !hasAiInstructions) {
+                _editState.value = EditUiState.Success()
+            } else {
+                enqueueEdit(saveAsCopy = false)
+            }
         }
-
-        // Markdown body changed — reconstruct full markdown with title/URL and send to AI
-        val fullMarkdown = buildFullMarkdown()
-        val instructions = _aiInstructions.value.takeIf { it.isNotBlank() }
-
-        val workRequest = OneTimeWorkRequestBuilder<RecipeEditWorker>()
-            .setInputData(
-                RecipeEditWorker.createInputData(
-                    recipeId = recipeId,
-                    markdownText = fullMarkdown,
-                    model = _model.value,
-                    thinkingEnabled = _thinkingEnabled.value,
-                    aiInstructions = instructions
-                )
-            )
-            .addTag(RecipeEditWorker.TAG_RECIPE_EDIT)
-            .build()
-
-        currentEditWorkId = workRequest.id
-        workManager.enqueue(workRequest)
-        _editState.value = EditUiState.Loading("Preparing...")
     }
 
     /**
      * Save the edited markdown as a new recipe (copy) instead of updating the existing one.
+     * A pending image change is applied to the original first, and the copy uses it too.
      */
     fun saveAsCopy() {
-        val fullMarkdown = buildFullMarkdown()
-        val instructions = _aiInstructions.value.takeIf { it.isNotBlank() }
+        if (isSaveInProgress()) return
+        _editState.value = EditUiState.Loading("Saving...")
+        viewModelScope.launch {
+            try {
+                withContext(NonCancellable) { applyPendingImageChange() }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to save image before copying", e)
+                _editState.value = EditUiState.Error("Failed to save image: ${e.message}")
+                return@launch
+            }
+            enqueueEdit(saveAsCopy = true)
+        }
+    }
 
+    private fun enqueueEdit(saveAsCopy: Boolean) {
         val workRequest = OneTimeWorkRequestBuilder<RecipeEditWorker>()
             .setInputData(
                 RecipeEditWorker.createInputData(
                     recipeId = recipeId,
-                    markdownText = fullMarkdown,
+                    markdownText = buildFullMarkdown(),
                     model = _model.value,
                     thinkingEnabled = _thinkingEnabled.value,
-                    saveAsCopy = true,
-                    aiInstructions = instructions
+                    saveAsCopy = saveAsCopy,
+                    aiInstructions = aiInstructions.value.takeIf { it.isNotBlank() }
                 )
             )
             .addTag(RecipeEditWorker.TAG_RECIPE_EDIT)
@@ -308,47 +351,42 @@ class EditRecipeViewModel @Inject constructor(
      * Used when sending to the AI for re-parsing.
      */
     private fun buildFullMarkdown(): String = buildString {
-        val title = _title.value
+        val title = title.value
         if (title.isNotBlank()) {
             appendLine("# $title")
             appendLine()
         }
-        _sourceUrl.value?.let { url ->
+        sourceUrl.value?.let { url ->
             if (url.isNotBlank()) {
                 appendLine("*Source: [$url]($url)*")
                 appendLine()
             }
         }
-        append(_markdownText.value)
+        append(markdownText.value)
     }
 
     private fun loadInitialData() {
         viewModelScope.launch {
-            // Load settings defaults
-            _model.value = settingsDataStore.editModel.first()
-            _thinkingEnabled.value = settingsDataStore.thinkingEnabled.first()
+            try {
+                // Load settings defaults
+                _model.value = settingsDataStore.editModel.first()
+                _thinkingEnabled.value = settingsDataStore.thinkingEnabled.first()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to load edit model settings; using defaults", e)
+            }
 
-            // Load recipe and populate fields (only if user hasn't started editing)
             val currentRecipe = recipe.first { it != null } ?: return@launch
-            if (!imageChanged) {
-                _imageUrl.value = currentRecipe.imageUrl
+            val markdownBody = RecipeMarkdownFormatter.formatBody(currentRecipe)
+            // Populate fields once; after recreation/process death they come from SavedStateHandle
+            if (savedStateHandle.get<Boolean>(KEY_FIELDS_INITIALIZED) != true) {
+                savedStateHandle[KEY_TITLE] = currentRecipe.name
+                savedStateHandle[KEY_SOURCE_URL] = currentRecipe.sourceUrl
+                savedStateHandle[KEY_MARKDOWN] = markdownBody
+                savedStateHandle[KEY_FIELDS_INITIALIZED] = true
             }
-            // Populate fields from the recipe only if the user hasn't started editing.
-            // Each field is guarded independently so a slow recipe load doesn't
-            // overwrite user input.
-            if (_title.value.isBlank()) {
-                _title.value = currentRecipe.name
-            }
-            originalTitle = currentRecipe.name
-            if (_sourceUrl.value.isNullOrBlank()) {
-                _sourceUrl.value = currentRecipe.sourceUrl
-            }
-            originalSourceUrl = currentRecipe.sourceUrl
-            if (_markdownText.value.isBlank()) {
-                val markdownBody = RecipeMarkdownFormatter.formatBody(currentRecipe)
-                _markdownText.value = markdownBody
-                originalMarkdownText = markdownBody
-            }
+            originals.value = Originals(currentRecipe.name, currentRecipe.sourceUrl, markdownBody)
         }
     }
 
@@ -438,7 +476,22 @@ class EditRecipeViewModel @Inject constructor(
         observeRegenerateWorkStatus()
     }
 
+    override fun onCleared() {
+        // Leaving without saving: drop the unsaved picked image copy
+        if (pendingImageChanged.value) {
+            discardPendingImageFile()
+        }
+        super.onCleared()
+    }
+
     companion object {
         private const val TAG = "EditRecipeViewModel"
+        private const val KEY_TITLE = "edit_title"
+        private const val KEY_SOURCE_URL = "edit_source_url"
+        private const val KEY_MARKDOWN = "edit_markdown"
+        private const val KEY_AI_INSTRUCTIONS = "edit_ai_instructions"
+        private const val KEY_FIELDS_INITIALIZED = "edit_fields_initialized"
+        private const val KEY_PENDING_IMAGE_CHANGED = "edit_pending_image_changed"
+        private const val KEY_PENDING_IMAGE_URI = "edit_pending_image_uri"
     }
 }

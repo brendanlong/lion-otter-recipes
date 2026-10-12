@@ -55,15 +55,14 @@ import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.MealType
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.ui.components.RecipeThumbnail
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.material3.BottomSheetDefaults
 import kotlin.time.Instant
-import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atStartOfDayIn
-import kotlinx.datetime.toJavaDayOfWeek
-import kotlinx.datetime.toJavaMonth
 import kotlinx.datetime.toLocalDateTime
-import java.time.format.TextStyle
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -79,6 +78,7 @@ fun AddMealPlanDialog(
     val selectedMealType by viewModel.selectedMealType.collectAsStateWithLifecycle()
     val selectedServings by viewModel.selectedServings.collectAsStateWithLifecycle()
     val editingEntry by viewModel.editingEntry.collectAsStateWithLifecycle()
+    val isSaving by viewModel.isSaving.collectAsStateWithLifecycle()
     val isEditMode = editingEntry != null
 
     var showDatePicker by remember { mutableStateOf(false) }
@@ -121,178 +121,205 @@ fun AddMealPlanDialog(
         onDismissRequest = onDismiss,
         sheetState = sheetState
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 32.dp)
+        // One lazy list for the whole sheet so it scrolls as a unit when the keyboard
+        // is open; the search field and tags stick to the top while scrolling results.
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(
-                text = stringResource(
-                    if (isEditMode) R.string.edit_meal_plan else R.string.add_to_meal_plan
-                ),
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
-
-            // Date selector
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            item(key = "title") {
                 Text(
-                    text = stringResource(R.string.select_date),
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.width(60.dp)
+                    text = stringResource(
+                        if (isEditMode) R.string.edit_meal_plan else R.string.add_to_meal_plan
+                    ),
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
                 )
-                OutlinedButton(
-                    onClick = { showDatePicker = true },
-                    modifier = Modifier.weight(1f)
+            }
+
+            item(key = "date") {
+                // Date selector
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.DateRange,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
+                    Text(
+                        text = stringResource(R.string.select_date),
+                        style = MaterialTheme.typography.labelLarge
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(formatDate(selectedDate))
+                    Spacer(modifier = Modifier.width(12.dp))
+                    OutlinedButton(
+                        onClick = { showDatePicker = true },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DateRange,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(MealPlanDateFormat.shortDay(selectedDate))
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            item(key = "meal_type") {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text(
+                        text = stringResource(R.string.select_meal_type),
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        MealType.entries.forEachIndexed { index, mealType ->
+                            SegmentedButton(
+                                shape = SegmentedButtonDefaults.itemShape(
+                                    index = index,
+                                    count = MealType.entries.size
+                                ),
+                                onClick = { viewModel.setSelectedMealType(mealType) },
+                                selected = selectedMealType == mealType,
+                                // The checkmark icon leaves too little room for labels on phones
+                                icon = {}
+                            ) {
+                                Text(
+                                    text = mealTypeLabel(mealType),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            }
 
-            // Meal type selector
-            Text(
-                text = stringResource(R.string.select_meal_type),
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.padding(bottom = 4.dp)
-            )
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                MealType.entries.forEachIndexed { index, mealType ->
-                    SegmentedButton(
-                        shape = SegmentedButtonDefaults.itemShape(
-                            index = index,
-                            count = MealType.entries.size
-                        ),
-                        onClick = { viewModel.setSelectedMealType(mealType) },
-                        selected = selectedMealType == mealType
+            item(key = "servings") {
+                // Servings selector
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.servings),
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    IconButton(
+                        onClick = {
+                            if (selectedServings > 0.5) {
+                                viewModel.setSelectedServings(selectedServings - 0.5)
+                            }
+                        },
+                        enabled = selectedServings > 0.5
                     ) {
-                        Text(
-                            text = mealTypeLabel(mealType),
-                            style = MaterialTheme.typography.labelSmall
+                        Icon(
+                            Icons.Default.Remove,
+                            contentDescription = stringResource(R.string.meal_plan_decrease_servings)
+                        )
+                    }
+                    Text(
+                        text = formatServingsDisplay(selectedServings),
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+                    IconButton(
+                        onClick = { viewModel.setSelectedServings(selectedServings + 0.5) }
+                    ) {
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = stringResource(R.string.meal_plan_increase_servings)
                         )
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Servings selector
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = stringResource(R.string.servings),
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.width(60.dp)
-                )
-                IconButton(
-                    onClick = {
-                        if (selectedServings > 0.5) {
-                            viewModel.setSelectedServings(selectedServings - 0.5)
-                        }
-                    }
-                ) {
-                    Icon(Icons.Default.Remove, contentDescription = null)
-                }
-                Text(
-                    text = formatServingsDisplay(selectedServings),
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(horizontal = 8.dp)
-                )
-                IconButton(
-                    onClick = { viewModel.setSelectedServings(selectedServings + 0.5) }
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
 
             // Save button in edit mode (save without changing recipe)
             if (isEditMode) {
-                Button(
-                    onClick = { viewModel.saveEditedMealPlan() },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(stringResource(R.string.save))
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-
-            // Recipe search
-            Text(
-                text = stringResource(R.string.select_recipe),
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.padding(bottom = 4.dp)
-            )
-
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = viewModel::onRecipeSearchQueryChange,
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text(stringResource(R.string.search_recipes_to_add)) },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = stringResource(R.string.search)
-                    )
-                },
-                singleLine = true
-            )
-
-            // Tag filter chips
-            if (availableTags.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    availableTags.forEach { tag ->
-                        FilterChip(
-                            selected = selectedTag == tag,
-                            onClick = { viewModel.onTagFilterSelected(tag) },
-                            label = { Text(tag, style = MaterialTheme.typography.labelSmall) }
-                        )
+                item(key = "save") {
+                    Button(
+                        onClick = { viewModel.saveEditedMealPlan() },
+                        enabled = !isSaving,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Text(stringResource(R.string.save))
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            item(key = "select_recipe_label") {
+                Text(
+                    text = stringResource(R.string.select_recipe),
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)
+                )
+            }
+
+            stickyHeader(key = "search") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(BottomSheetDefaults.ContainerColor)
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                ) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = viewModel::onRecipeSearchQueryChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text(stringResource(R.string.search_recipes_to_add)) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = stringResource(R.string.search)
+                            )
+                        },
+                        singleLine = true
+                    )
+
+                    // Tag filter chips scroll horizontally so many tags don't push results away
+                    if (availableTags.isNotEmpty()) {
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(availableTags, key = { it }) { tag ->
+                                FilterChip(
+                                    selected = selectedTag == tag,
+                                    onClick = { viewModel.onTagFilterSelected(tag) },
+                                    label = { Text(tag, style = MaterialTheme.typography.labelSmall) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
 
             // Recipe list
             if (recipes.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.no_recipes_found),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(16.dp)
-                )
+                item(key = "no_recipes") {
+                    Text(
+                        text = stringResource(R.string.no_recipes_found),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(32.dp)
+                    )
+                }
             } else {
-                LazyColumn(
-                    modifier = Modifier.heightIn(max = 300.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    items(
-                        items = recipes,
-                        key = { it.id }
-                    ) { recipe ->
-                        RecipeSelectionCard(
-                            recipe = recipe,
-                            onClick = { viewModel.addRecipeToMealPlan(recipe) }
-                        )
-                    }
+                items(
+                    items = recipes,
+                    key = { it.id }
+                ) { recipe ->
+                    RecipeSelectionCard(
+                        recipe = recipe,
+                        enabled = !isSaving,
+                        onClick = { viewModel.addRecipeToMealPlan(recipe) },
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
                 }
             }
         }
@@ -302,12 +329,14 @@ fun AddMealPlanDialog(
 @Composable
 private fun RecipeSelectionCard(
     recipe: Recipe,
-    onClick: () -> Unit
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
@@ -357,14 +386,6 @@ private fun mealTypeLabel(mealType: MealType): String {
         MealType.DINNER -> stringResource(R.string.dinner)
         MealType.SNACK -> stringResource(R.string.snack)
     }
-}
-
-private fun formatDate(date: LocalDate): String {
-    val dayName = date.dayOfWeek.toJavaDayOfWeek()
-        .getDisplayName(TextStyle.SHORT, Locale.getDefault())
-    val monthName = date.month.toJavaMonth()
-        .getDisplayName(TextStyle.SHORT, Locale.getDefault())
-    return "$dayName, $monthName ${date.day}"
 }
 
 private fun formatServingsDisplay(servings: Double): String {

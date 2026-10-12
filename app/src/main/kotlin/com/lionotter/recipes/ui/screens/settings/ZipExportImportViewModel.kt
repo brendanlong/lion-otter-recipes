@@ -71,7 +71,12 @@ class ZipExportImportViewModel @Inject constructor(
                 currentWorkId = null
                 workManager.pruneWork()
             }
-            else -> {}
+            WorkInfo.State.CANCELLED -> {
+                _operationState.value = ZipOperationState.Error("Export was cancelled")
+                currentWorkId = null
+                workManager.pruneWork()
+            }
+            WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> {}
         }
     }
 }

@@ -59,14 +59,23 @@ import com.lionotter.recipes.ui.components.SwipeActionDirection
 import com.lionotter.recipes.ui.components.rememberSwipeActionBoxState
 import com.lionotter.recipes.domain.model.MealType
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import kotlinx.coroutines.launch
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.plus
-import kotlinx.datetime.toJavaDayOfWeek
-import kotlinx.datetime.toJavaMonth
-import java.time.format.TextStyle
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -77,18 +86,45 @@ fun MealPlanScreen(
     viewModel: MealPlanViewModel = hiltViewModel()
 ) {
     val weekStart by viewModel.currentWeekStart.collectAsStateWithLifecycle()
-    val weekMealPlans by viewModel.weekMealPlans.collectAsStateWithLifecycle()
+    val loadedWeekMealPlans by viewModel.weekMealPlans.collectAsStateWithLifecycle()
     val showAddDialog by viewModel.showAddDialog.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
+    val recentlyDeleted by viewModel.recentlyDeleted.collectAsStateWithLifecycle()
+    val today by viewModel.today.collectAsStateWithLifecycle()
 
     val scope = rememberCoroutineScope()
-    val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // The screen may stay open across midnight; pick up the new date when it comes back
+    LifecycleResumeEffect(viewModel) {
+        viewModel.refreshToday()
+        onPauseOrDispose { }
+    }
 
     // Show error in snackbar
-    androidx.compose.runtime.LaunchedEffect(errorMessage) {
-        errorMessage?.let {
-            snackbarHostState.showSnackbar(it)
+    val errorText = errorMessage?.let { stringResource(it.resId, *it.args.toTypedArray()) }
+    LaunchedEffect(errorText) {
+        if (errorText != null) {
+            snackbarHostState.showSnackbar(errorText)
             viewModel.clearError()
+        }
+    }
+
+    // Offer undo after removing a meal
+    val removedMessage = recentlyDeleted?.let { stringResource(R.string.meal_removed, it.recipeName) }
+    val undoLabel = stringResource(R.string.meal_plan_undo)
+    LaunchedEffect(recentlyDeleted) {
+        if (recentlyDeleted != null && removedMessage != null) {
+            val result = snackbarHostState.showSnackbar(
+                message = removedMessage,
+                actionLabel = undoLabel,
+                duration = SnackbarDuration.Long
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                viewModel.undoDelete()
+            } else {
+                viewModel.clearRecentlyDeleted()
+            }
         }
     }
 
@@ -101,7 +137,7 @@ fun MealPlanScreen(
     }
 
     Scaffold(
-        snackbarHost = { androidx.compose.material3.SnackbarHost(snackbarHostState) },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             RecipeTopAppBar(
                 title = stringResource(R.string.meal_planner),
@@ -146,17 +182,24 @@ fun MealPlanScreen(
                 onNextWeek = { viewModel.navigateWeek(true) }
             )
 
+            val weekMealPlans = loadedWeekMealPlans
+            if (weekMealPlans == null) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                return@Column
+            }
+
             // Week content
             val days = (0..6).map { weekStart.plus(it, DateTimeUnit.DAY) }
 
             LazyColumn(
-                contentPadding = PaddingValues(16.dp),
+                // Extra bottom padding so the FAB doesn't cover the last card
+                contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 88.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 for (day in days) {
                     val meals = weekMealPlans[day]
                     item(key = "header_$day") {
-                        DayHeader(date = day)
+                        DayHeader(date = day, isToday = day == today)
                     }
                     if (meals != null && meals.isNotEmpty()) {
                         items(
@@ -172,7 +215,7 @@ fun MealPlanScreen(
                                     scope.launch { swipeState.reset() }
                                 },
                                 onDeleteRequest = {
-                                    viewModel.deleteMealPlan(entry.id)
+                                    viewModel.deleteMealPlan(entry)
                                     scope.launch { swipeState.confirm() }
                                 },
                                 swipeState = swipeState
@@ -194,18 +237,9 @@ private fun WeekNavigationHeader(
     onPreviousWeek: () -> Unit,
     onNextWeek: () -> Unit
 ) {
-    val weekEnd = weekStart.plus(6, DateTimeUnit.DAY)
-    val startMonth = weekStart.month.toJavaMonth()
-        .getDisplayName(TextStyle.SHORT, Locale.getDefault())
-    val endMonth = weekEnd.month.toJavaMonth()
-        .getDisplayName(TextStyle.SHORT, Locale.getDefault())
-
-    val dateRangeText = if (weekStart.month == weekEnd.month) {
-        "$startMonth ${weekStart.day} - ${weekEnd.day}, ${weekStart.year}"
-    } else if (weekStart.year == weekEnd.year) {
-        "$startMonth ${weekStart.day} - $endMonth ${weekEnd.day}, ${weekStart.year}"
-    } else {
-        "$startMonth ${weekStart.day}, ${weekStart.year} - $endMonth ${weekEnd.day}, ${weekEnd.year}"
+    val context = LocalContext.current
+    val dateRangeText = remember(weekStart) {
+        MealPlanDateFormat.weekRange(context, weekStart, weekStart.plus(6, DateTimeUnit.DAY))
     }
 
     Row(
@@ -224,7 +258,9 @@ private fun WeekNavigationHeader(
         Text(
             text = dateRangeText,
             style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.weight(1f)
         )
         IconButton(onClick = onNextWeek) {
             Icon(
@@ -236,18 +272,16 @@ private fun WeekNavigationHeader(
 }
 
 @Composable
-private fun DayHeader(date: LocalDate) {
-    val dayName = date.dayOfWeek.toJavaDayOfWeek()
-        .getDisplayName(TextStyle.FULL, Locale.getDefault())
-    val monthName = date.month.toJavaMonth()
-        .getDisplayName(TextStyle.SHORT, Locale.getDefault())
-
+private fun DayHeader(date: LocalDate, isToday: Boolean) {
+    val dayText = MealPlanDateFormat.dayHeader(date)
     Text(
-        text = "$dayName, $monthName ${date.day}",
+        text = if (isToday) stringResource(R.string.day_header_today, dayText) else dayText,
         style = MaterialTheme.typography.titleSmall,
         fontWeight = FontWeight.Bold,
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(vertical = 4.dp)
+        modifier = Modifier
+            .padding(vertical = 4.dp)
+            .semantics { heading() }
     )
 }
 
@@ -324,6 +358,9 @@ private fun MealPlanCard(
         MealType.SNACK -> stringResource(R.string.snack)
     }
 
+    val editLabel = stringResource(R.string.edit)
+    val removeLabel = stringResource(R.string.remove)
+
     Box {
         Card(
             modifier = Modifier
@@ -331,7 +368,14 @@ private fun MealPlanCard(
                 .combinedClickable(
                     onClick = onClick,
                     onLongClick = onLongClick
-                ),
+                )
+                // Swipe and long-press actions aren't discoverable with a screen reader
+                .semantics {
+                    customActions = listOf(
+                        CustomAccessibilityAction(editLabel) { onEditRequest(); true },
+                        CustomAccessibilityAction(removeLabel) { onDeleteRequest(); true }
+                    )
+                },
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
             Row(

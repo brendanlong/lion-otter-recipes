@@ -295,4 +295,38 @@
     <string name="no_ingredients">No ingredients found</string>
     <string name="select_all">Select All</string>
     <string name="deselect_all">Deselect All</string>
+
+    <!-- ===== BEGIN secondary screens (settings, import, edit, meal plan, grocery) ===== -->
+    <string name="settings_save_failed">Couldn\'t save that setting. Please try again.</string>
+    <string name="upload_local_images_failed">Some recipe images couldn\'t be uploaded to your account</string>
+    <string name="disable_import_debugging_title">Turn off import debugging?</string>
+    <string name="disable_import_debugging_message">Turning this off deletes all saved import debug data.</string>
+    <string name="disable_and_delete">Turn off and delete</string>
+    <string name="import_debug_entry_not_found">This debug entry no longer exists.</string>
+    <string name="import_debug_load_failed">Couldn\'t load debug entry: %1$s</string>
+    <string name="import_debug_list_load_failed">Couldn\'t load import debug data.</string>
+    <string name="import_debug_truncated">Showing first %1$s of %2$s characters</string>
+    <string name="import_debug_share_failed">Couldn\'t share content</string>
+    <string name="import_debug_copy_content">Copy</string>
+    <string name="import_debug_share_full_content">Share full content</string>
+    <string name="grocery_list_load_failed">Couldn\'t load this week\'s meal plan.</string>
+    <string name="grocery_list_generate_failed">Couldn\'t generate the grocery list. Please try again.</string>
+    <string name="grocery_list_skipped_recipes">Couldn\'t find these recipes, so their ingredients aren\'t included: %1$s</string>
+    <string name="grocery_total_partial_suffix">+ more</string>
+    <string name="meal_plan_load_failed">Couldn\'t load the meal plan.</string>
+    <string name="meal_plan_recipes_load_failed">Couldn\'t load recipes.</string>
+    <string name="meal_plan_save_failed">Couldn\'t save the meal. Please try again.</string>
+    <string name="meal_plan_delete_failed">Couldn\'t remove the meal. Please try again.</string>
+    <string name="meal_plan_limit_reached">Meal plan limit reached (%1$d/%2$d). Delete some meal plans before adding new ones.</string>
+    <string name="meal_removed">Removed %1$s</string>
+    <string name="edit_recipe_discard_title">Discard changes?</string>
+    <string name="edit_recipe_discard_message">Your edits to this recipe haven\'t been saved.</string>
+    <string name="edit_recipe_discard">Discard</string>
+    <string name="edit_recipe_keep_editing">Keep editing</string>
+    <string name="edit_recipe_not_found">This recipe no longer exists.</string>
+    <string name="meal_plan_undo">Undo</string>
+    <string name="day_header_today">%1$s (today)</string>
+    <string name="meal_plan_decrease_servings">Decrease servings</string>
+    <string name="meal_plan_increase_servings">Increase servings</string>
+    <!-- ===== END secondary screens ===== -->
 </resources>

@@ -315,7 +315,7 @@ class RecipeFlowUiTest {
     }
 
     @Test
-    fun `import selection select all and deselect all buttons work`() {
+    fun `import selection select all toggle selects when not everything is selected`() {
         var selectAllClicked = false
         var deselectAllClicked = false
         val items = listOf(
@@ -335,9 +335,31 @@ class RecipeFlowUiTest {
 
         composeTestRule.onNodeWithText("Select All").performClick()
         assert(selectAllClicked) { "Select All callback was not triggered" }
+        assert(!deselectAllClicked) { "Deselect All callback should not be triggered" }
+    }
 
-        composeTestRule.onNodeWithText("Deselect All").performClick()
+    @Test
+    fun `import selection select all toggle deselects when everything is selected`() {
+        var selectAllClicked = false
+        var deselectAllClicked = false
+        val items = listOf(
+            ImportSelectionItem(
+                id = testRecipeId,
+                name = testRecipeName,
+                isSelected = true,
+                alreadyExists = false
+            )
+        )
+
+        setImportSelectionScreen(
+            state = ImportSelectionUiState.Ready(items),
+            onSelectAll = { selectAllClicked = true },
+            onDeselectAll = { deselectAllClicked = true }
+        )
+
+        composeTestRule.onNodeWithText("Select All").performClick()
         assert(deselectAllClicked) { "Deselect All callback was not triggered" }
+        assert(!selectAllClicked) { "Select All callback should not be triggered" }
     }
 
     // -----------------------------------------------------------------------
