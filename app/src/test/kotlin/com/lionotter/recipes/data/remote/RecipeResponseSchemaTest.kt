@@ -22,8 +22,51 @@ class RecipeResponseSchemaTest {
         assertTrue("RECIPE_RESPONSE_SCHEMA is out of sync:\n" + problems.joinToString("\n"), problems.isEmpty())
     }
 
+    /**
+     * The API rejects schemas whose compiled grammar is too large, without saying exactly where
+     * the limit is. Optional properties grow it fastest, so require every property, and keep the
+     * union-typed (nullable) parameters well under the documented maximum of 16.
+     */
+    @Test
+    fun `schema stays within structured output complexity limits`() {
+        val optional = mutableListOf<String>()
+        var unions = 0
+        fun walk(schema: Map<String, Any>, path: String) {
+            if (schema.containsKey("anyOf") || schema["type"] is List<*>) unions++
+            @Suppress("UNCHECKED_CAST")
+            (schema["anyOf"] as? List<Map<String, Any>>)?.forEach { walk(it, path) }
+            @Suppress("UNCHECKED_CAST")
+            (schema["properties"] as? Map<String, Map<String, Any>>)?.let { properties ->
+                @Suppress("UNCHECKED_CAST")
+                val required = (schema["required"] as List<String>).toSet()
+                properties.forEach { (name, child) ->
+                    if (name !in required) optional += "$path.$name"
+                    walk(child, "$path.$name")
+                }
+            }
+            @Suppress("UNCHECKED_CAST")
+            (schema["items"] as? Map<String, Any>)?.let { walk(it, "$path[]") }
+        }
+        walk(AnthropicService.RECIPE_RESPONSE_SCHEMA, "$")
+        assertTrue("Optional properties make the schema too complex to compile: $optional", optional.isEmpty())
+        assertTrue("$unions union-typed parameters; the API allows 16, keep a margin", unions <= MAX_UNIONS)
+    }
+
     @Suppress("UNCHECKED_CAST")
     private fun check(schema: Map<String, Any>, descriptor: SerialDescriptor, path: String, problems: MutableList<String>) {
+        // Nullable forms: {"anyOf": [schema, {"type": "null"}]} and {"type": [primitive, "null"]}
+        (schema["anyOf"] as? List<Map<String, Any>>)?.let { options ->
+            if (!descriptor.isNullable) problems += "$path: schema allows null but ${descriptor.serialName} is not nullable"
+            options.filter { it["type"] != "null" }.forEach { check(it, descriptor, path, problems) }
+            return
+        }
+        (schema["type"] as? List<String>)?.let { types ->
+            if ("null" in types && !descriptor.isNullable) {
+                problems += "$path: schema allows null but ${descriptor.serialName} is not nullable"
+            }
+            check(schema + ("type" to types.single { it != "null" }), descriptor, path, problems)
+            return
+        }
         when (val type = schema["type"]) {
             "object" -> {
                 if (descriptor.kind != StructureKind.CLASS) {
@@ -70,5 +113,9 @@ class RecipeResponseSchemaTest {
                 }
             }
         }
+    }
+
+    private companion object {
+        const val MAX_UNIONS = 14
     }
 }

@@ -78,4 +78,34 @@ class RecipeHtmlExtractorTest {
         val body = Jsoup.parse("<div>Step one<br>Step two</div><p>Next <b>bold</b> word</p>").body()
         assertEquals("Step one\nStep two\nNext bold word", RecipeHtmlExtractor.htmlToText(body))
     }
+
+    @Test
+    fun `keeps ingredient tables that Readability would drop`() {
+        val html = """
+            <html><head><title>Banana Bread</title></head><body>
+            <nav>Home | Recipes</nav>
+            <article>
+              <h1>Banana Bread</h1>
+              <p>This is a basic, reliable banana bread recipe. The perfect thing to do with over-ripe bananas,
+              and it keeps for days wrapped on the counter. ${"Filler text about bananas. ".repeat(30)}</p>
+              <h2>Ingredients</h2>
+              <table>
+                <tr><th>Ingredient</th><th>Volume</th><th>Weight</th></tr>
+                <tr><td>White sugar</td><td>1 cup</td><td>200 g</td></tr>
+                <tr><td>Butter, softened</td><td>½ cup</td><td>113 g</td></tr>
+              </table>
+              <h2>Procedure</h2>
+              <ol><li>Preheat oven to 350°F.</li><li>Combine all ingredients.</li></ol>
+            </article>
+            <footer>Copyright</footer>
+            </body></html>
+        """.trimIndent()
+
+        val text = RecipeHtmlExtractor.extract(html, "https://example.com/banana-bread").text
+
+        assertTrue(text, text.contains("White sugar | 1 cup | 200 g"))
+        assertTrue(text, text.contains("Butter, softened | ½ cup | 113 g"))
+        assertTrue(text, text.contains("- Preheat oven to 350°F."))
+        assertFalse(text, text.contains("Copyright"))
+    }
 }

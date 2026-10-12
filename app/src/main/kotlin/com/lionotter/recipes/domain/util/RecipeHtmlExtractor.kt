@@ -62,8 +62,6 @@ object RecipeHtmlExtractor {
         val title = doc.selectFirst("meta[property=og:title]")?.attr("content")?.takeIf { it.isNotBlank() }
             ?: doc.title().takeIf { it.isNotBlank() }
 
-        val articleText = extractArticleText(html, sourceUrl, doc)
-
         val text = buildString {
             if (!title.isNullOrBlank()) {
                 appendLine("Title: $title")
@@ -75,7 +73,8 @@ object RecipeHtmlExtractor {
                 appendLine()
                 appendLine("Page text:")
             }
-            append(truncate(articleText, MAX_CONTENT_CHARS - length))
+            val budget = MAX_CONTENT_CHARS - length
+            append(truncate(extractArticleText(html, sourceUrl, doc, budget), budget))
         }
 
         val imageUrl = extractImageUrl(doc) ?: recipes.firstNotNullOfOrNull { jsonLdImage(it) }
@@ -152,7 +151,17 @@ object RecipeHtmlExtractor {
         return fromElement(recipe["image"])
     }
 
-    private fun extractArticleText(html: String, sourceUrl: String?, doc: Document): String {
+    /**
+     * The whole page text (minus scripts, navigation and similar chrome) when it fits in [budget].
+     * Readability is only used to shrink pages that don't fit, because it drops content it treats
+     * as clutter, including ingredient tables and recipe cards.
+     */
+    private fun extractArticleText(html: String, sourceUrl: String?, doc: Document, budget: Int): String {
+        val body = doc.body().clone()
+        body.select("script, style, noscript, nav, footer, header, iframe, svg, form").remove()
+        val fullText = htmlToText(body)
+        if (fullText.length <= budget) return fullText
+
         val readable = try {
             val article = Readability4J(sourceUrl ?: "https://example.com", html).parse()
             article.content?.let { htmlToText(Jsoup.parseBodyFragment(it).body()) }
@@ -160,19 +169,13 @@ object RecipeHtmlExtractor {
             Log.w(TAG, "Readability extraction failed, using full page text", e)
             null
         }
-        if (readable != null && readable.length >= MIN_ARTICLE_CHARS) return readable
-
-        // Readability sometimes drops recipe cards; fall back to the whole body minus chrome.
-        val body = doc.body()
-        val clone = body.clone()
-        clone.select("script, style, noscript, nav, footer, header, iframe, svg, form").remove()
-        val fullText = htmlToText(clone)
-        return if (fullText.length > (readable?.length ?: 0)) fullText else readable.orEmpty()
+        return if (readable != null && readable.length >= MIN_ARTICLE_CHARS) readable else fullText
     }
 
     /**
-     * Convert HTML to plain text, keeping paragraph and list-item boundaries (jsoup's text()
-     * collapses everything onto one line, which merges ingredients together).
+     * Convert HTML to plain text, keeping paragraph, list-item and table-row boundaries, with
+     * table cells separated by " | " (jsoup's text() collapses everything onto one line, which
+     * merges ingredients together).
      */
     fun htmlToText(root: Element): String {
         val sb = StringBuilder()
@@ -195,6 +198,7 @@ object RecipeHtmlExtractor {
                         val tag = node.normalName()
                         if (tag in BLOCK_TAGS) newLine(sb)
                         if (tag == "li") sb.append("- ")
+                        if ((tag == "td" || tag == "th") && sb.isNotEmpty() && sb.last() != '\n') sb.append(" | ")
                     }
                 }
             }

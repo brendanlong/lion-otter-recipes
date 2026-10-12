@@ -29,7 +29,7 @@ private val MODELS
     @Composable get() = listOf(
         AnthropicService.MODEL_OPUS to stringResource(R.string.model_opus_5_5),
         AnthropicService.MODEL_SONNET to stringResource(R.string.model_sonnet_5_5),
-        AnthropicService.MODEL_HAIKU to stringResource(R.string.model_haiku_4_5),
+        AnthropicService.MODEL_HAIKU to stringResource(R.string.model_haiku_5_5),
         AnthropicService.MODEL_FABLE to stringResource(R.string.model_fable_5_1)
     )
 

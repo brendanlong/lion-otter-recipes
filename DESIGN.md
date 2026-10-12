@@ -69,11 +69,11 @@ suspend fun fetchHtml(url: String): Result<String>
 
 Calls the Claude API (official SDK) to parse recipe text into structured data:
 
-- **Models**: `claude-opus-5-5` (default for imports), `claude-sonnet-5-5` (default for edits), `claude-haiku-4-5`, `claude-fable-5-1`. `normalizeModel()` maps legacy or unknown stored IDs to the closest supported family.
+- **Models**: `claude-sonnet-5-5` (default for imports), `claude-haiku-5-5` (default for edits), `claude-opus-5-5`, `claude-fable-5-1`. `normalizeModel()` maps legacy or unknown stored IDs to the closest supported family.
 - **Structured output**: requests use a JSON schema (non-recursive, derived from `RecipeParseResponse`) so the response is valid JSON; `extractJson` remains as a fallback.
 - **Streaming**: single-recipe parses use `createStreaming` so large `max_tokens` values do not hit HTTP timeouts; the stream is closed on coroutine cancellation.
-- **Effort/thinking per model**: Haiku 4.5 uses `budget_tokens` thinking when enabled. Opus 5.5, Sonnet 5.5 and Fable 5.1 cannot disable thinking, so the "thinking" setting maps to effort (medium when on, low when off).
-- **Server-side fallback**: single-recipe parses go through the beta Messages API with `fallbacks: "default"` (Opus 5.5, Sonnet 5.5, Fable 5.1), so a safety-classifier decline is retried on a fallback model in the same stream. `fallback` content blocks mark the switch; text before a mid-stream boundary is continuation context, so the joined text is parsed first, then the text after the last boundary.
+- **Effort/thinking per model**: every supported model takes adaptive thinking plus an effort level, and none accepts a fixed `budget_tokens` budget. The "thinking" setting maps to effort (medium when on, low when off), with adaptive thinking requested when on (except Fable 5.1, which always thinks and rejects an explicit config).
+- **Server-side fallback**: single-recipe parses go through the beta Messages API with `fallbacks: "default"` (all supported models), so a safety-classifier decline is retried on a fallback model in the same stream. `fallback` content blocks mark the switch; text before a mid-stream boundary is continuation context, so the joined text is parsed first, then the text after the last boundary.
 - **Batches**: `createRecipeBatch`, `retrieveBatch`, `cancelBatch`, `forEachBatchResult` (streams results) back the Paprika import.
 
 **Prompt Engineering**: The system prompt instructs Claude to:

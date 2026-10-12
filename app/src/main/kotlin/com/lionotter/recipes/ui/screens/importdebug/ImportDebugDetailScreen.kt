@@ -676,6 +676,7 @@ private fun estimateCost(model: String, inputTokens: Long, outputTokens: Long, t
         model.contains("opus") -> 15.0 to 75.0
         model.contains("sonnet-5") -> 2.0 to 10.0
         model.contains("sonnet") -> 3.0 to 15.0
+        model.contains("haiku-5-5") -> 0.10 to 0.50
         model.contains("haiku-4-5") -> 1.0 to 5.0
         model.contains("haiku-3-5") -> 0.80 to 4.0
         model.contains("haiku") -> 0.25 to 1.25
