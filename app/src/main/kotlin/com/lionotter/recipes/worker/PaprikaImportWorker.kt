@@ -90,8 +90,13 @@ class PaprikaImportWorker @AssistedInject constructor(
             // Below API 31 the stop reason is unavailable; InProgressRecipeManager.cancelImport
             // cancels the batch for user cancellations in that case.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && stopReason == WorkInfo.STOP_REASON_CANCELLED_BY_APP) {
-                // The user cancelled: stop paying for a batch nobody will collect.
-                withContext(NonCancellable) { importPaprikaUseCase.cancelBatch(workDir) }
+                // The user cancelled: stop paying for a batch nobody will collect. A failure here
+                // must not replace the cancellation, or the user would see an error notification.
+                try {
+                    withContext(NonCancellable) { importPaprikaUseCase.cancelBatch(workDir) }
+                } catch (cancelError: Exception) {
+                    Log.w(TAG, "Failed to cancel batch for import $importId", cancelError)
+                }
             }
             throw e
         }
