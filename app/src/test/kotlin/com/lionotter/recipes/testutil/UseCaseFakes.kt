@@ -5,6 +5,7 @@ import com.lionotter.recipes.domain.model.AiModels
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.InstructionStep
 import com.lionotter.recipes.domain.model.Ingredient
+import com.lionotter.recipes.domain.model.TagMapping
 import com.lionotter.recipes.domain.port.AiSettings
 import com.lionotter.recipes.domain.port.BatchItemOutcome
 import com.lionotter.recipes.domain.port.BatchParseRequest
@@ -24,6 +25,8 @@ import com.lionotter.recipes.domain.port.ParsedRecipe
 import com.lionotter.recipes.domain.port.ParsedRecipeWithUsage
 import com.lionotter.recipes.domain.port.RecipeBatchParser
 import com.lionotter.recipes.domain.port.RecipeParser
+import com.lionotter.recipes.domain.port.TagCleanupRequest
+import com.lionotter.recipes.domain.port.TagOrganizer
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.io.File
@@ -138,11 +141,13 @@ class FakeAiSettings(
 ) : AiSettings {
     val apiKeyFlow = MutableStateFlow(apiKey)
     val modelFlow = MutableStateFlow(model)
+    val editModelFlow = MutableStateFlow(AiModels.DEFAULT_EDIT_MODEL)
     val thinkingFlow = MutableStateFlow(thinkingEnabled)
     val debuggingFlow = MutableStateFlow(importDebuggingEnabled)
 
     override val anthropicApiKey: Flow<String?> = apiKeyFlow
     override val aiModel: Flow<String> = modelFlow
+    override val editModel: Flow<String> = editModelFlow
     override val thinkingEnabled: Flow<Boolean> = thinkingFlow
     override val importDebuggingEnabled: Flow<Boolean> = debuggingFlow
 }
@@ -255,3 +260,14 @@ fun parsedRecipe(name: String = "Banana Bread") = ParsedRecipe(
 
 fun parsedWithUsage(recipe: ParsedRecipe = parsedRecipe()) =
     ParsedRecipeWithUsage(recipe = recipe, inputTokens = 100, outputTokens = 200, aiOutputJson = "{\"success\":true}")
+
+class FakeTagOrganizer(
+    var result: Outcome<List<TagMapping>> = Outcome.Success(emptyList())
+) : TagOrganizer {
+    val requests = mutableListOf<TagCleanupRequest>()
+
+    override suspend fun suggestTagChanges(request: TagCleanupRequest): Outcome<List<TagMapping>> {
+        requests += request
+        return result
+    }
+}

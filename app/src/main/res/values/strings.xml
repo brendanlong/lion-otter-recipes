@@ -354,4 +354,40 @@
     <string name="delete_account_reauth_required">Please confirm your Google account to delete it</string>
     <string name="delete_account_offline">You need to be online to delete your account</string>
     <string name="delete_account_auth_failed">Your data was deleted, but the Google account link couldn\'t be removed. Please try again later.</string>
+
+    <!-- Tags -->
+    <string name="tags_section">Tags</string>
+    <string name="tags_section_description">Rename, merge or delete tags, or let AI suggest a cleanup.</string>
+    <string name="manage_tags">Manage tags</string>
+    <string name="no_tags">No tags yet. Tags show up here once your recipes have some.</string>
+    <plurals name="tag_recipe_count">
+        <item quantity="one">%d recipe</item>
+        <item quantity="other">%d recipes</item>
+    </plurals>
+    <string name="edit_tag">Edit tag</string>
+    <string name="tag_name">Tag name</string>
+    <string name="edit_tag_hint">Used by %1$s. Renaming it to the name of another tag merges the two.</string>
+    <string name="delete_tag_title">Delete “%1$s”?</string>
+    <string name="delete_tag_message">The tag will be removed from %1$s. The recipes themselves are kept.</string>
+    <string name="tag_cleanup_description">AI can suggest merging duplicate tags, making names consistent and removing tags that don\'t help you find recipes. You review every change before anything is saved. Or tap a tag to rename or delete it yourself.</string>
+    <string name="tag_cleanup_suggest">Suggest tag cleanup</string>
+    <string name="tag_cleanup_loading">Asking the AI for suggestions…</string>
+    <string name="tag_cleanup_nothing_to_change">The AI didn\'t suggest any changes. Your tags look tidy.</string>
+    <string name="tag_cleanup_review_hint">Suggested changes. Uncheck any you don\'t want, then apply the rest.</string>
+    <string name="tag_cleanup_discard">Discard</string>
+    <plurals name="tag_cleanup_apply">
+        <item quantity="one">Apply %d change</item>
+        <item quantity="other">Apply %d changes</item>
+    </plurals>
+    <string name="tag_change_rename_title">%1$s → %2$s</string>
+    <string name="tag_change_delete_title">Delete %1$s</string>
+    <string name="tag_change_description">%1$s · %2$s</string>
+    <string name="tag_change_rename">Rename</string>
+    <string name="tag_change_merge">Merge</string>
+    <string name="tag_change_delete">Delete</string>
+    <plurals name="tags_updated">
+        <item quantity="one">Updated the tags of %d recipe</item>
+        <item quantity="other">Updated the tags of %d recipes</item>
+    </plurals>
+    <string name="tags_update_failed">Couldn\'t update the tags. Please try again.</string>
 </resources>

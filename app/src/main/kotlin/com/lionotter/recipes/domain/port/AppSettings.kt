@@ -11,8 +11,6 @@ interface AppSettings : AiSettings {
     /** Everything at once; emits once the settings (including the API key) have been read. */
     val settings: Flow<Settings>
 
-    /** The model for edits and regeneration. */
-    val editModel: Flow<String>
     val keepScreenOn: Flow<Boolean>
 
     /** Whether the volume buttons scroll long screens by a page. */

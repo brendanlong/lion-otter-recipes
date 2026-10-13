@@ -34,11 +34,12 @@ Where a use case needs something the data layer provides, the domain owns an int
 
 | Port | Implemented by | Purpose |
 |------|----------------|---------|
-| `RecipeParser` | `AnthropicRecipeParser` | one AI parse: `ParseRequest` (content, key, model, thinking, density overrides, user instructions) → `Outcome<ParsedRecipeWithUsage>` |
+| `RecipeParser` | `AnthropicRecipeParser` | one AI parse: `ParseRequest` (content, key, model, thinking, density overrides, user instructions, the user's existing tags) → `Outcome<ParsedRecipeWithUsage>` |
 | `RecipeBatchParser` | `AnthropicRecipeParser` | Message Batches: `createBatch`, `getBatchStatus` (`BatchStatus`), `forEachResult` (`BatchItemOutcome.Parsed`/`Failed`), `cancelBatch` |
+| `TagOrganizer` | `AnthropicTagOrganizer` | tag cleanup suggestions: `TagCleanupRequest` (every tag with its recipe count, key, model, thinking) → `Outcome<List<TagMapping>>` (old tag → new name, or null to delete) |
 | `PageFetcher` | `WebScraperService` | `fetchPage(url)` → `Outcome<FetchedPage>` (HTML + preview image) |
 | `PageContentExtractor` | `RecipeHtmlExtractor` | page HTML → `PageContent` for the AI, page title, preview image (for pages captured in the in-app browser) |
-| `AiSettings` | `SettingsDataStore` | read-only API key, import model, thinking, import debugging |
+| `AiSettings` | `SettingsDataStore` | read-only API key, import and edit models, thinking, import debugging |
 | `AppSettings` | `SettingsDataStore` | all settings as flows (each one, and `settings: Flow<Settings>` with all of them once read) plus setters (extends `AiSettings`); what ViewModels use |
 | `ImageStore` | `RecipeImageStore` | recipe image lifecycle: `importFromUrl` (web, local or stored URLs only) / `importPickedImage` (`content://` from the picker) / `saveImage` / `copyLocalImage` bring an image onto the device, `attach` makes it a recipe's image (uploading it for Google users), `release` deletes an image no recipe uses any more, `discardLocalImage`, `localImageFile` (export); see Images |
 | `PaprikaExportReader` | `PaprikaParser` | stream a Paprika export as `PaprikaExportRecipe`s (`PaprikaImportSteps`) |
@@ -118,6 +119,7 @@ Calls the Claude API (official SDK) to parse recipe text into structured data. S
 - `AnthropicRecipeParser`: the transport, implementing `RecipeParser` and `RecipeBatchParser`. One SDK client per API key; SDK exceptions are logged and mapped by `AnthropicErrorMapper` to `RecipeError.Ai(AiFailure, httpStatus)`. Returns app types only (`ParsedRecipeWithUsage`, `BatchStatus`, `BatchItemOutcome`).
 - `RecipeResponseParser`: model output → recipe (stop reasons, fallback blocks, `extractJson`, `RecipeParseResponse` decoding); the AI's "not a recipe" answer becomes `RecipeError.NotARecipe(reason)`.
 - `RecipePrompt` (system prompt with the density table, user message) and `RecipeOutputSchema` (the JSON schema): pure data. `RecipeRequests` holds the shared SDK pieces (cached system blocks, output formats, `requestConfigFor`).
+- `AnthropicTagOrganizer` / `TagCleanupPrompt`: the tag cleanup request (the `TagOrganizer` port). One streamed request with its own short system prompt, the tags as `count<TAB>tag` lines and a small structured-output schema (`{"changes": [{"from", "to" | null}]}`, only the tags that change).
 - `ApiKeyValidator`: key format check used by Settings.
 - `AiModels` (domain/model): model IDs, defaults (`DEFAULT_MODEL`, `DEFAULT_EDIT_MODEL`, `DEFAULT_THINKING_ENABLED`) and `normalizeModel()`, shared by settings, the UI and the use cases without depending on the transport.
 
@@ -137,6 +139,8 @@ Behavior:
 4. Generate relevant tags
 5. Prefer schema.org JSON-LD data when present alongside the page text
 
+Imports, edits, regeneration and Paprika batches also pass the user's 100 most used tags (`tagVocabulary`, read with `RecipeRepository.getAllRecipeTags`; a read failure only drops the hint) with an instruction to reuse them and only add a new tag when none fits. They go in the user message, never the system prompt, so the system prompt stays identical for every request and is served from the prompt cache (`RecipePromptTest` pins its hash).
+
 ### Repository
 
 `FirestoreRecipeRepository` and `FirestoreMealPlanRepository` (behind the domain interfaces `RecipeRepository` / `MealPlanRepository`) are the sources of truth, backed by Firestore (`FirestoreService`) at `users/{uid}/recipes/{recipeId}` and `users/{uid}/mealPlans/{id}`. Firestore's offline persistence provides the local copy and write queue.
@@ -153,7 +157,7 @@ interface RecipeRepository {
 }
 ```
 
-- **Write contract.** The non-suspending writes (`saveRecipe`, `deleteRecipe`, `setFavorite`, `setUserNotes`, `setImageUrl`, `updateTitleAndUrl`, `saveMealPlan`, `updateMealPlan`, `deleteMealPlan`) apply to the local cache immediately, so flows show the change at once (also offline), and never throw. They sync in the background; a failure (or a failure to start the write) is reported asynchronously as a typed `DataFailure(op: DataOp, entityId)` through `FirestoreService.failures`. Callers need no try/catch, `NonCancellable` or error state for them. The suspending functions (reads, counts, `deleteMealPlansByRecipeId` and `replaceRecipeImageUrl`, which must query first, and the `replaceImageUrl` transaction) do throw. `deleteRecipe` only deletes the document; `DeleteRecipeUseCase` also deletes the meal plans and releases the image. Writes waiting for an auth transition and the shared listeners run in the injected `@ApplicationScope` (with its logging exception handler); repositories and `SettingsDataStore` don't create scopes of their own.
+- **Write contract.** The non-suspending writes (`saveRecipe`, `deleteRecipe`, `setFavorite`, `setUserNotes`, `setImageUrl`, `updateTitleAndUrl`, `setTags`, `saveMealPlan`, `updateMealPlan`, `deleteMealPlan`) apply to the local cache immediately, so flows show the change at once (also offline), and never throw. They sync in the background; a failure (or a failure to start the write) is reported asynchronously as a typed `DataFailure(op: DataOp, entityId)` through `FirestoreService.failures`. Callers need no try/catch, `NonCancellable` or error state for them. The suspending functions (reads, counts, `deleteMealPlansByRecipeId` and `replaceRecipeImageUrl`, which must query first, and the `replaceImageUrl` transaction) do throw. `deleteRecipe` only deletes the document; `DeleteRecipeUseCase` also deletes the meal plans and releases the image. Writes waiting for an auth transition and the shared listeners run in the injected `@ApplicationScope` (with its logging exception handler); repositories and `SettingsDataStore` don't create scopes of their own.
 - `FirestoreService.failures` is a `Channel` (up to 32 queued, oldest dropped) read with `receiveAsFlow`: each failure is delivered once, and failures while the app is in the background wait until `RecipesActivity` collects again (it collects while STARTED and toasts `DataFailure.toUserMessage()`). Snapshot listener errors arrive the same way (`LOAD_RECIPES` / `LOAD_MEAL_PLANS`), as does a failure to clear the previous account's local data (`CLEAR_PREVIOUS_ACCOUNT`). `deleteMealPlansByRecipeId` commits its batch through `FirestoreService.batch()`.
 - Both repositories re-subscribe when the auth state (`AuthService.authState`) or the Firestore instance generation (`FirestoreService.generation`) changes, so a sign-in, sign-out or local-data clear swaps the listener to the right user.
 - `data/repository/FirestoreFlows.kt` provides the shared helpers: an error-tolerant snapshot `Flow` (errors are reported as a `DataFailure` instead of killing the collector), incremental decoding that only re-decodes changed documents and skips undecodable ones, and `writeForCurrentUser` / `reportFailureTo` for the write contract.
@@ -266,7 +270,11 @@ Orchestrates the full import flow:
 
 #### GetTagsUseCase
 
-Selects the top 10 tags that maximize recipe coverage (an ILP, with a greedy set cover fallback). This is the kind of business logic that justifies a use case class. Tags are compared with `tagKey` (trimmed, lowercase; `domain/model/Tags.kt`), which the recipe list and meal plan filters also use through `Recipe.hasTag` / `Recipe.matchesSearch`.
+Selects the top 10 tags that maximize recipe coverage (an ILP, with a greedy set cover fallback). This is the kind of business logic that justifies a use case class. Tags are compared with `tagKey` (trimmed, lowercase; `domain/model/Tags.kt`), which the recipe list and meal plan filters also use through `Recipe.hasTag` / `Recipe.matchesSearch`. `tagUsage` lists every tag (most common spelling) with its recipe count, most used first; `tagVocabulary` is its top 100 names.
+
+#### TagCleanupUseCase
+
+`suggestChanges()` sends every tag with its count to the `TagOrganizer` using the edit model (Haiku by default) and the thinking setting, and turns the answer into `TagChange`s (`RENAME`, `MERGE` into an existing tag, or `DELETE`, each with its recipe count) with `planTagChanges` (`domain/model/TagChanges.kt`): mappings of unknown tags and no-ops are dropped and chains are followed (a → b, b → c becomes a → c), so any subset the user accepts is consistent. No API key fails with `NoApiKey` before anything is read; no tags means no AI call. `applyChanges(changes)` reads every recipe's tags and calls `setTags` for each recipe that changes (`applyTagChanges`, which also drops duplicates a merge creates), inside `NonCancellable`, so leaving the screen never leaves a batch half applied. The manual rename / merge / delete on the tags screen goes through the same planning and apply.
 
 #### Edit and regenerate
 
@@ -320,10 +328,11 @@ Single-Activity architecture with Compose Navigation. The start destination is a
 RecipeListScreen ──┬──> RecipeDetailScreen ──> EditRecipeScreen ──> ImportBrowserScreen
                    ├──> AddRecipeScreen ──> ImportBrowserScreen / SettingsScreen / ImportSelectionScreen
                    ├──> MealPlanScreen ──> GroceryListScreen
-                   └──> SettingsScreen ──> ImportDebugListScreen ──> ImportDebugDetailScreen
+                   └──> SettingsScreen ──┬──> ImportDebugListScreen ──> ImportDebugDetailScreen
+                                         └──> ManageTagsScreen
 ```
 
-Destinations are type-safe routes (Navigation 2.10): `@Serializable` objects/data classes in `ui/navigation/Routes.kt` under `sealed interface Route` (`RecipeList`, `RecipeDetail(recipeId)`, `EditRecipe(recipeId)`, `AddRecipe(url?)`, `ImportBrowser(url, reimport)`, `Settings`, `MealPlan`, `GroceryList(weekStart)` as an ISO date string with a `weekStartDate` accessor, `ImportDebugList`, `ImportDebugDetail(debugEntryId)`, `ImportSelection(importType: ImportType, uri)`). `NavGraph` registers them with `composable<Route.X>` and navigates with `navigate(Route.X(...))`; ViewModels read their arguments with `savedStateHandle.toRoute<Route.X>()`, and route comparisons use `destination.hasRoute<Route.X>()`. Navigation encodes arguments itself, so shared URLs with `%`, `#`, `?`, `&` or spaces round-trip exactly, and the back stack with its arguments is restored after process death (`RouteTest`). Results handed to a screen lower in the back stack go through typed `NavResult` keys stored in that entry's SavedStateHandle (`NavResult.EditSaved` for the edit confirmation on recipe detail, `NavResult.FilterByTag` for a tag tapped on recipe detail, `NavResult.BrowsedPage` for the page chosen in the in-app browser: a small `java.io.Serializable` `BrowsedPage(url, htmlPath)`, never the HTML itself). A back stack entry's own SavedStateHandle is not the one Hilt gives its ViewModels, so the destination reads the result, passes it to the screen, and the screen hands it to its ViewModel and consumes it. ViewModel tests build handles with navigation-testing's `SavedStateHandle(route = ...)`, which needs Robolectric.
+Destinations are type-safe routes (Navigation 2.10): `@Serializable` objects/data classes in `ui/navigation/Routes.kt` under `sealed interface Route` (`RecipeList`, `RecipeDetail(recipeId)`, `EditRecipe(recipeId)`, `AddRecipe(url?)`, `ImportBrowser(url, reimport)`, `Settings`, `ManageTags`, `MealPlan`, `GroceryList(weekStart)` as an ISO date string with a `weekStartDate` accessor, `ImportDebugList`, `ImportDebugDetail(debugEntryId)`, `ImportSelection(importType: ImportType, uri)`). `NavGraph` registers them with `composable<Route.X>` and navigates with `navigate(Route.X(...))`; ViewModels read their arguments with `savedStateHandle.toRoute<Route.X>()`, and route comparisons use `destination.hasRoute<Route.X>()`. Navigation encodes arguments itself, so shared URLs with `%`, `#`, `?`, `&` or spaces round-trip exactly, and the back stack with its arguments is restored after process death (`RouteTest`). Results handed to a screen lower in the back stack go through typed `NavResult` keys stored in that entry's SavedStateHandle (`NavResult.EditSaved` for the edit confirmation on recipe detail, `NavResult.FilterByTag` for a tag tapped on recipe detail, `NavResult.BrowsedPage` for the page chosen in the in-app browser: a small `java.io.Serializable` `BrowsedPage(url, htmlPath)`, never the HTML itself). A back stack entry's own SavedStateHandle is not the one Hilt gives its ViewModels, so the destination reads the result, passes it to the screen, and the screen hands it to its ViewModel and consumes it. ViewModel tests build handles with navigation-testing's `SavedStateHandle(route = ...)`, which needs Robolectric.
 
 External intents are turned into `AppIntentEvent`s (`ImportUrl`, `ImportFile`, `OpenRecipe`, `NoUrlInSharedText`) sent on a `Channel` in `SharedIntentViewModel` and collected by `NavGraph`, which navigates accordingly (a shared URL opens Add Recipe with the URL filled in and the in-app browser on top, so the user confirms the page; backing out leaves the URL on Add Recipe). Manifest filters: `text/plain` SEND (shared URLs), zip/octet-stream SEND and VIEW (`.lorecipes`, `.paprikarecipes`). Sharing HTML or Markdown files is not a supported import path.
 
@@ -391,6 +400,12 @@ External intents are turned into `AppIntentEvent`s (`ImportUrl`, `ImportFile`, `
 - An invalid or unsaved API key is `apiKeyError: UserMessage?` state under the field; toasts (setting write failures, sign-in/out and deletion outcomes) are events
 - Backup/restore, unit and display preferences (keep screen on, volume buttons scroll), import debugging
 - `SettingsUiState` is `Loading` until `AppSettings.settings` has emitted (including the API key), so the screen shows a progress indicator instead of flashing defaults
+- The Tags section opens `ManageTagsScreen`
+
+#### ManageTagsScreen
+
+- Lists every tag with its recipe count (`tagUsage` over the recipes flow); tapping one opens a dialog to rename it (renaming to an existing tag's name merges them) or delete it (with confirmation)
+- "Suggest tag cleanup" calls `TagCleanupUseCase.suggestChanges()`; `TagSuggestions` is `None | Loading | Review(changes, selected)`. The review lists renames, merges and deletions with their recipe counts, all checked; the user unchecks what they don't want and applies the rest, or discards them. Results, "nothing to change" and errors are `UserMessage` events shown as snackbars
 
 ### ViewModels
 
@@ -450,7 +465,7 @@ Hilt modules provide:
 - Binds `RecipeRepository` / `MealPlanRepository` to their Firestore-backed implementations
 
 ### PortModule
-- Binds the domain ports (`RecipeParser`, `RecipeBatchParser`, `PageFetcher`, `PageContentExtractor`, `AiSettings`, `AppSettings`, `ImageStore`, `ImportDebugLog`, `GroceryListStateStore`, `PaprikaExportReader`) to their data-layer implementations
+- Binds the domain ports (`RecipeParser`, `RecipeBatchParser`, `TagOrganizer`, `PageFetcher`, `PageContentExtractor`, `AiSettings`, `AppSettings`, `ImageStore`, `ImportDebugLog`, `GroceryListStateStore`, `PaprikaExportReader`) to their data-layer implementations
 
 ### NetworkModule
 - `HttpClient` with Ktor Android engine (page and image fetching)
@@ -557,7 +572,7 @@ Static checks and tests that catch whole classes of bugs. All run in `./ci-local
 - **detekt** (`./gradlew detektDebug`, with type resolution) runs a targeted rule set in `config/detekt/detekt.yml`: `SuspendFunSwallowedCancellation`, `InjectDispatcher`, `SwallowedException` (logging the exception counts as handling it; `catch (_: ...)` does not), `TooGenericExceptionThrown`, `UnsafeCallOnNullableType`. Existing findings are in `config/detekt/baseline-debug.xml`: `!!` in `Units.kt`/`IngredientAggregation.kt`, and catch blocks the cancellation rule flags although they are fine (cleanup then rethrow, or log-and-continue inside `NonCancellable`). Don't add to it; regenerate it with `./gradlew :app:detektBaselineDebug` only after fixing entries. Use `detektDebug`; the plain `detekt` task (part of `check`) runs without type resolution or this baseline. detekt excludes generated sources, so `detektDebug` gets the compiled `BuildConfig` on its classpath (`detektBuildConfigClasses` in `app/build.gradle.kts`); its analysis also doesn't run the kotlinx.serialization compiler plugin, so call the reified `json.decodeFromString<T>()`/`encodeToString(value)` rather than the plugin-generated `T.serializer()`, or detekt reports "compiler errors found during analysis" and loses type information there.
 - **Layer rules** (`LayerDependencyTest`): scans imports under `app/src/main/kotlin`. Domain may only use `kotlin`, `kotlinx`, `java`, `javax.inject`, `..domain..`, `..util..` and `org.ojalgo` (see Dependency Rule), and `util` only `kotlin`, `kotlinx`, `java`, `javax.inject` and itself; UI may not use WorkManager or `..data.local..`; data may not use `..ui..`, `..worker..` or `..imports..`; `imports` and `worker` may not use `..ui..` (and `worker` not `..imports..`). `KNOWN_VIOLATIONS` lists today's exceptions; the test fails on new violations and on entries that are no longer needed, so the list only shrinks.
 - **DTO drift** (`DtoFieldDriftTest`, `DomainFixturesTest`, `RecipeDtoRoundTripIntegrationTest`): every `Recipe` / `MealPlanEntry` field needs a DTO field, the `RecipeFields` / `MealPlanFields` constants must be keys Firestore actually writes, and the round-trip fixtures in `testutil/DomainFixtures.kt` must set every field (including nested ones) to a non-default value.
-- **AI schema** (`RecipeResponseSchemaTest`): property names and required fields in `RecipeOutputSchema.RECIPE_RESPONSE_SCHEMA` must match the serializers of `RecipeParseResponse` and the classes it contains.
+- **AI schema** (`RecipeResponseSchemaTest`): property names and required fields in `RecipeOutputSchema.RECIPE_RESPONSE_SCHEMA` and `TagCleanupPrompt.RESPONSE_SCHEMA` must match the serializers of `RecipeParseResponse` / `TagCleanupResponse` and the classes they contain, and both stay within the structured-output complexity limits (every property required, few union types).
 - **Edit/regenerate preservation** (`RecipeRegeneratedContentTest`): every non-AI field of `Recipe` survives `withRegeneratedContent`.
 - **Persisted work data** (`WorkContractTest`, `PendingImportStatusTest`): every worker Progress/Outcome variant round-trips through its contract, and data and statuses written by earlier versions (pinned as literal strings) still decode, including `RecipeEditWorker` input without the copy image keys.
 - **Room migrations** (`RecipeDatabaseMigrationTest`): `MigrationTestHelper` runs `RecipeDatabaseMigrations` against the exported schemas in `app/schemas`. Add a step for every new migration.
@@ -570,7 +585,7 @@ Static checks and tests that catch whole classes of bugs. All run in `./ci-local
 - Ingredient aggregation and unit conversion
 - Use case business logic; the import, edit, regenerate, Paprika batch and ZIP import code runs against in-memory fakes of its ports and repositories (`testutil/UseCaseFakes.kt`, `testutil/RepositoryFakes.kt`)
 - ViewModels against `MutableStateFlow`-backed fakes (`testutil/RepositoryFakes.kt`: `FakeRecipeRepository`, `FakeMealPlanRepository`, `FakeAppSettings`, `FakeGroceryListStateStore`) rather than mocks, with test dispatchers injected for `@IoDispatcher` / `@DefaultDispatcher`
-- AI request pieces (`RecipePromptTest`, `RecipeResponseParserTest`, `RecipeResponseSchemaTest`); `LiveAnthropicTest` calls the real API and only runs when `LIVE_ANTHROPIC_KEY` is set
+- AI request pieces (`RecipePromptTest`, `RecipeResponseParserTest`, `RecipeResponseSchemaTest`, `AnthropicTagOrganizerTest`); `LiveAnthropicTest` calls the real API (recipe parsing, tag reuse, tag cleanup) and only runs when `LIVE_ANTHROPIC_KEY` is set
 
 ### Integration Tests (Future)
 - Room database operations

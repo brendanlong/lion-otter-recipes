@@ -56,7 +56,12 @@ class AnthropicRecipeParser @Inject constructor(
                 .maxTokens(RecipeRequests.MAX_OUTPUT_TOKENS)
                 .systemOfBetaTextBlockParams(RecipeRequests.betaSystemBlocks)
                 .addUserMessage(
-                    RecipePrompt.buildUserMessage(request.content, request.densityOverrides, request.aiInstructions)
+                    RecipePrompt.buildUserMessage(
+                        request.content,
+                        request.densityOverrides,
+                        request.aiInstructions,
+                        request.existingTags
+                    )
                 )
                 .outputConfig(requestConfig.toBetaOutputConfig())
             if (requestConfig.adaptiveThinking) {
@@ -122,7 +127,14 @@ class AnthropicRecipeParser @Inject constructor(
                     .model(resolvedModel)
                     .maxTokens(RecipeRequests.MAX_OUTPUT_TOKENS)
                     .systemOfTextBlockParams(RecipeRequests.systemBlocks)
-                    .addUserMessage(RecipePrompt.buildUserMessage(request.content, request.densityOverrides, null))
+                    .addUserMessage(
+                        RecipePrompt.buildUserMessage(
+                            request.content,
+                            request.densityOverrides,
+                            aiInstructions = null,
+                            existingTags = request.existingTags
+                        )
+                    )
                     .outputConfig(requestConfig.toOutputConfig())
                 if (requestConfig.adaptiveThinking) {
                     paramsBuilder.thinking(ThinkingConfigAdaptive.builder().build())

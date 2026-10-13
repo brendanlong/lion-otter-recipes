@@ -35,6 +35,9 @@ sealed interface Route {
     data object Settings : Route
 
     @Serializable
+    data object ManageTags : Route
+
+    @Serializable
     data object MealPlan : Route
 
     /** [weekStart] is an ISO-8601 date (the first day of the week shown). */

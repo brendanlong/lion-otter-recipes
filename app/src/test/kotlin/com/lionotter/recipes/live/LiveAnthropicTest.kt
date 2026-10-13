@@ -1,9 +1,14 @@
 package com.lionotter.recipes.live
 
 import com.lionotter.recipes.data.ai.AnthropicRecipeParser
+import com.lionotter.recipes.data.ai.AnthropicTagOrganizer
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.model.AiModels
+import com.lionotter.recipes.domain.model.TagChange
+import com.lionotter.recipes.domain.model.TagUsage
+import com.lionotter.recipes.domain.model.planTagChanges
 import com.lionotter.recipes.domain.port.ParseRequest
+import com.lionotter.recipes.domain.port.TagCleanupRequest
 import com.lionotter.recipes.util.AppJson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -45,6 +50,42 @@ class LiveAnthropicTest {
                 assertEquals("Simple Banana Bread", parsed!!.name)
                 assertTrue(parsed.instructionSections.flatMap { it.steps }.flatMap { it.ingredients }.size >= 8)
             }
+        }
+    }
+
+    @Test
+    fun parseReusesExistingTags() = runBlocking {
+        val key = System.getenv("LIVE_ANTHROPIC_KEY")
+        assumeTrue(key != null)
+        val parser = AnthropicRecipeParser(AppJson, Dispatchers.IO)
+        val existingTags = listOf("Baking", "Breakfast", "Quick Bread", "Vegetarian", "Dessert")
+        val result = parser.parse(ParseRequest(html, key!!, AiModels.MODEL_HAIKU, false, existingTags = existingTags))
+        val tags = (result as? Outcome.Success)?.value?.recipe?.tags
+        assertNotNull("$result", tags)
+        println("Tags with existing vocabulary: $tags")
+        assertTrue("Expected an existing tag to be reused: $tags", tags!!.any { it in existingTags })
+    }
+
+    @Test
+    fun tagCleanup() = runBlocking {
+        val key = System.getenv("LIVE_ANTHROPIC_KEY")
+        assumeTrue(key != null)
+        val tags = listOf(
+            TagUsage("Dessert", 12), TagUsage("desserts", 3), TagUsage("Sweets", 1), TagUsage("Baking", 9),
+            TagUsage("baked goods", 2), TagUsage("Recipe", 7), TagUsage("Italian", 4), TagUsage("italian food", 1),
+            TagUsage("Vegetarian", 6), TagUsage("veggie", 2), TagUsage("Quick", 5), TagUsage("Chicken", 4)
+        )
+        val organizer = AnthropicTagOrganizer(AppJson, Dispatchers.IO)
+        for (thinking in listOf(false, true)) {
+            val result = organizer.suggestTagChanges(TagCleanupRequest(tags, key!!, AiModels.MODEL_HAIKU, thinking))
+            val mappings = (result as? Outcome.Success)?.value
+            assertNotNull("thinking=$thinking: $result", mappings)
+            val changes = planTagChanges(tags, mappings!!)
+            println("Tag cleanup (thinking=$thinking): $changes")
+            val byTag = changes.associateBy { it.from }
+            assertEquals("Dessert", byTag["desserts"]?.to)
+            assertEquals(TagChange.Kind.DELETE, byTag["Recipe"]?.kind)
+            assertTrue("Chicken should stay", "Chicken" !in byTag)
         }
     }
 }

@@ -1,6 +1,7 @@
 package com.lionotter.recipes.di
 
 import com.lionotter.recipes.data.ai.AnthropicRecipeParser
+import com.lionotter.recipes.data.ai.AnthropicTagOrganizer
 import com.lionotter.recipes.data.ai.RecipeHtmlExtractor
 import com.lionotter.recipes.data.image.RecipeImageStore
 import com.lionotter.recipes.data.local.DataStoreGroceryListStateStore
@@ -18,6 +19,7 @@ import com.lionotter.recipes.domain.port.PageFetcher
 import com.lionotter.recipes.domain.port.PaprikaExportReader
 import com.lionotter.recipes.domain.port.RecipeBatchParser
 import com.lionotter.recipes.domain.port.RecipeParser
+import com.lionotter.recipes.domain.port.TagOrganizer
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -33,6 +35,9 @@ abstract class PortModule {
 
     @Binds
     abstract fun bindRecipeBatchParser(impl: AnthropicRecipeParser): RecipeBatchParser
+
+    @Binds
+    abstract fun bindTagOrganizer(impl: AnthropicTagOrganizer): TagOrganizer
 
     @Binds
     abstract fun bindPageFetcher(impl: WebScraperService): PageFetcher

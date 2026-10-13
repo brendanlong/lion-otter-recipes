@@ -33,6 +33,13 @@ class FakeRecipeRepository(vararg initial: Recipe) : RecipeRepository {
     val favoriteUpdates = mutableListOf<Pair<String, Boolean>>()
     val notesUpdates = mutableListOf<Pair<String, String?>>()
     val imageUrlUpdates = mutableListOf<Pair<String, String?>>()
+    val tagUpdates = mutableListOf<Pair<String, List<String>>>()
+
+    /** When set, [getAllRecipeTags] fails with it. */
+    var tagsError: Throwable? = null
+
+    /** Runs at the start of [getAllRecipeTags], e.g. to hold it until a test is ready. */
+    var beforeTagsRead: suspend () -> Unit = {}
 
     /** Overrides the count, to test the recipe limit without creating that many recipes. */
     var countOverride: Int? = null
@@ -75,8 +82,19 @@ class FakeRecipeRepository(vararg initial: Recipe) : RecipeRepository {
     override fun updateTitleAndUrl(id: String, name: String, sourceUrl: String?) =
         update(id) { it.copy(name = name, sourceUrl = sourceUrl) }
 
+    override fun setTags(id: String, tags: List<String>) {
+        tagUpdates += id to tags
+        update(id) { it.copy(tags = tags) }
+    }
+
     override suspend fun getAllRecipeIdsAndNames(): List<RecipeIdAndName> =
         recipes.value.values.map { RecipeIdAndName(it.id, it.name) }
+
+    override suspend fun getAllRecipeTags(): Map<String, List<String>> {
+        beforeTagsRead()
+        tagsError?.let { throw it }
+        return recipes.value.mapValues { it.value.tags }
+    }
 
     override suspend fun getRecipeCount(): Int = countOverride ?: recipes.value.size
 

@@ -217,4 +217,31 @@ class ParseHtmlUseCaseTest {
             )
         )
     }
+
+    @Test
+    fun `asks the AI to reuse the user's most used tags`() = runTest {
+        repository.saveRecipe(tagged("a", "Dessert", "Baking"))
+        repository.saveRecipe(tagged("b", " dessert", "Quick"))
+
+        useCase().parseText("recipe text")
+
+        assertEquals(listOf("Dessert", "Baking", "Quick"), parser.requests.single().existingTags)
+    }
+
+    @Test
+    fun `parses without tag hints when the tags can't be read`() = runTest {
+        repository.tagsError = java.io.IOException("offline")
+
+        useCase().parseText("recipe text").value()
+
+        assertEquals(emptyList<String>(), parser.requests.single().existingTags)
+    }
+
+    private fun tagged(id: String, vararg tags: String) = Recipe(
+        id = id,
+        name = id,
+        tags = tags.toList(),
+        createdAt = kotlin.time.Instant.fromEpochMilliseconds(0),
+        updatedAt = kotlin.time.Instant.fromEpochMilliseconds(0)
+    )
 }

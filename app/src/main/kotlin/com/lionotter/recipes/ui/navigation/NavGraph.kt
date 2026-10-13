@@ -33,6 +33,7 @@ import com.lionotter.recipes.ui.screens.mealplan.MealPlanScreen
 import com.lionotter.recipes.ui.screens.recipedetail.RecipeDetailScreen
 import com.lionotter.recipes.ui.screens.recipelist.RecipeListScreen
 import com.lionotter.recipes.ui.screens.settings.SettingsScreen
+import com.lionotter.recipes.ui.screens.tags.ManageTagsScreen
 
 private const val TAG = "NavGraph"
 
@@ -250,10 +251,17 @@ fun NavGraph(
                 onNavigateToImportDebug = {
                     navController.navigateFrom(entry, Route.ImportDebugList)
                 },
+                onNavigateToManageTags = {
+                    navController.navigateFrom(entry, Route.ManageTags)
+                },
                 onNavigateToImportSelection = { importType, uri ->
                     navController.navigate(Route.ImportSelection(importType, uri.toString()))
                 }
             )
+        }
+
+        composable<Route.ManageTags> { entry ->
+            ManageTagsScreen(onBackClick = { entry.back() })
         }
 
         composable<Route.ImportDebugList> { entry ->

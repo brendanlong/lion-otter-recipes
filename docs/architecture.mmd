@@ -36,6 +36,7 @@ subgraph app["Android App"]
             grocery_list["GroceryListScreen"]
             import_selection["ImportSelectionScreen"]
             import_browser["ImportBrowserScreen<br/>(WebView: JS on, no JS interface, no file access,<br/>non-web links blocked or opened externally)"]
+            manage_tags["ManageTagsScreen<br/>(tag list, rename / merge / delete,<br/>review AI cleanup suggestions)"]
 
             list -->|tap recipe| detail
             detail -->|tap edit| edit
@@ -53,6 +54,7 @@ subgraph app["Android App"]
             import_selection -->|import started| list
             add -->|no API key| settings
             settings -->|view debug data| import_debug_list
+            settings -->|manage tags| manage_tags
             import_debug_list -->|tap entry| import_debug_detail
             import_debug_detail -->|view recipe| detail
         end
@@ -88,6 +90,7 @@ subgraph app["Android App"]
             grocery_list_vm["GroceryListViewModel<br/>(list derived from meal plans + selection + recipes)"]
             import_selection_vm["ImportSelectionViewModel"]
             import_browser_vm["ImportBrowserViewModel<br/>(decodes evaluateJavascript outerHTML,<br/>saves it as a work input)"]
+            manage_tags_vm["ManageTagsViewModel<br/>(TagSuggestions None | Loading | Review)"]
             shared_intent_vm["SharedIntentViewModel<br/>(AppIntentEvent Channel)"]
             vm_events["One-off events per ViewModel<br/>(Channel BUFFERED + receiveAsFlow,<br/>messages as UserMessage)"]
         end
@@ -117,6 +120,7 @@ subgraph app["Android App"]
         import_debug_detail --> import_debug_detail_vm
         import_selection --> import_selection_vm
         import_browser --> import_browser_vm
+        manage_tags --> manage_tags_vm
 
         list_vm -->|retry, dismiss, cancel| import_queue
         list_vm -->|in-progress / failed imports| import_monitor
@@ -222,6 +226,7 @@ subgraph app["Android App"]
             delete_recipe["DeleteRecipeUseCase<br/>(meal plans, recipe, release image)"]
             aggregate_grocery["AggregateGroceryListUseCase"]
             tags["GetTagsUseCase"]
+            tag_cleanup["TagCleanupUseCase<br/>(suggest with edit model, apply in NonCancellable)"]
             calc_usage["CalculateIngredientUsageUseCase"]
             outcome["Outcome&lt;T&gt; / RecipeError<br/>(typed failures, RecipeErrorSource exceptions)"]
         end
@@ -242,17 +247,21 @@ subgraph app["Android App"]
             port_app_settings["AppSettings<br/>(all settings, read/write; extends AiSettings)"]
             port_grocery["GroceryListStateStore<br/>(per-week grocery list state)"]
             port_paprika["PaprikaExportReader<br/>(PaprikaExportRecipe)"]
-            port_parser["RecipeParser / RecipeBatchParser<br/>(Outcome&lt;ParsedRecipeWithUsage&gt;, BatchStatus, BatchItemOutcome)"]
+            port_parser["RecipeParser / RecipeBatchParser<br/>(Outcome&lt;ParsedRecipeWithUsage&gt;, BatchStatus, BatchItemOutcome;<br/>requests carry the user's existing tags)"]
+            port_tag_organizer["TagOrganizer<br/>(tags with counts → TagMapping old → new / null)"]
             port_fetch["PageFetcher / PageContentExtractor<br/>(FetchedPage, PageContent)"]
             port_settings["AiSettings<br/>(API key, model, thinking, debugging)"]
             port_images["ImageStore<br/>(importFromUrl, saveImage, attach, release,<br/>local files for export)"]
+            port_settings["AiSettings<br/>(API key, import / edit model, thinking, debugging)"]
+            port_images["ImageStore<br/>(download, save, store, local files for export)"]
             port_debug["ImportDebugLog"]
         end
 
         subgraph models["Domain Models"]
             ai_models["AiModels<br/>(model IDs, defaults, normalizeModel)"]
             recipe["Recipe<br/>(withRegeneratedContent)"]
-            tags_fn["Tags<br/>(tagKey, hasTag, matchesSearch)"]
+            tags_fn["Tags<br/>(tagKey, hasTag, matchesSearch, tagUsage, tagVocabulary)"]
+            tag_changes["TagChanges<br/>(TagMapping, TagChange, planTagChanges, applyTagChanges)"]
             ingredient["Ingredient"]
             instruction["InstructionStep"]
             section["IngredientSection"]
@@ -293,6 +302,10 @@ subgraph app["Android App"]
         regenerate -->|uses| parse_html
         edit_recipe -->|uses| parse_html
         parse_html -->|save debug data| port_debug
+        parse_html -->|existing tags for the AI| tags_fn
+        tag_cleanup -->|suggest| port_tag_organizer
+        tag_cleanup -->|plan / apply| tag_changes
+        tag_cleanup -->|edit model, thinking| port_settings
         export_zip -->|serialize| serializer
         export_zip -->|local image files| port_images
         export_single -->|serialize| serializer
@@ -372,6 +385,8 @@ subgraph app["Android App"]
             prompt_schema["RecipePrompt / RecipeOutputSchema / RecipeRequests<br/>(prompt + density table, JSON schema, cached system blocks,<br/>per-model effort/thinking)"]
             error_mapper["AnthropicErrorMapper<br/>(SDK exception → RecipeError.Ai)"]
             api_key_validator["ApiKeyValidator"]
+            tag_organizer["AnthropicTagOrganizer / TagCleanupPrompt<br/>(streamed request, structured output<br/>{changes: [{from, to | null}]})"]
+            tag_organizer --> error_mapper
             html_extractor["RecipeHtmlExtractor<br/>(JSON-LD + structured text)"]
 
             anthropic_parser --> response_parser
@@ -471,6 +486,8 @@ subgraph app["Android App"]
     image_store -->|"ImageUploadScheduler, upload failed"| image_upload_scheduler
     local_image_upload_worker -->|uploadPendingLocalImages| local_image_uploader
     import_debug_list_vm -->|list entries| import_debug_repo
+    manage_tags_vm -->|recipes for the tag list| repo
+    manage_tags_vm -->|suggest / apply changes| tag_cleanup
     import_debug_detail_vm -->|get entry| import_debug_repo
 
     import_worker -->|execute| uc_import
@@ -494,6 +511,7 @@ subgraph app["Android App"]
     import_paprika -->|fetch source image| port_fetch
 
     anthropic_parser -.->|implements| port_parser
+    tag_organizer -.->|implements| port_tag_organizer
     scraper -.->|implements PageFetcher| port_fetch
     html_extractor -.->|implements PageContentExtractor| port_fetch
     scraper -->|preview image| html_extractor
@@ -536,6 +554,7 @@ remote_image_storage -->|Storage| firebase
 scraper -->|fetch HTML| web
 image_downloader -->|download image| web
 anthropic_parser -->|parse recipe| anthropic
+tag_organizer -->|suggest tag cleanup| anthropic
 
 %% ============================================================
 %% Testing Layer

@@ -21,7 +21,9 @@ data class ParseRequest(
     /** Densities already known for this recipe, preferred over the default table. */
     val densityOverrides: Map<String, Double>? = null,
     /** The user's own instructions, e.g. "Make this recipe vegan". */
-    val aiInstructions: String? = null
+    val aiInstructions: String? = null,
+    /** Tags the user already has (most used first), for the AI to reuse. */
+    val existingTags: List<String> = emptyList()
 )
 
 /** The AI-generated content of a recipe. */

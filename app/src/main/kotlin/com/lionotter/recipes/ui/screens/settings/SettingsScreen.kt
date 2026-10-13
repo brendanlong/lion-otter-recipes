@@ -55,6 +55,7 @@ import com.lionotter.recipes.ui.screens.settings.components.DisplaySection
 import com.lionotter.recipes.ui.screens.settings.components.ImportDebuggingSection
 import com.lionotter.recipes.ui.screens.settings.components.MealPlannerSection
 import com.lionotter.recipes.ui.screens.settings.components.ModelSelectionSection
+import com.lionotter.recipes.ui.screens.settings.components.TagsSection
 import com.lionotter.recipes.ui.screens.settings.components.ThemeSection
 import com.lionotter.recipes.ui.screens.settings.components.UnitPreferencesSection
 
@@ -63,6 +64,7 @@ fun SettingsScreen(
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
     onNavigateToImportDebug: () -> Unit = {},
+    onNavigateToManageTags: () -> Unit = {},
     onNavigateToImportSelection: (importType: ImportType, uri: Uri) -> Unit = { _, _ -> },
     viewModel: SettingsViewModel = hiltViewModel(),
     zipViewModel: ZipExportImportViewModel = hiltViewModel()
@@ -232,6 +234,10 @@ fun SettingsScreen(
                 thinkingEnabled = settings.thinkingEnabled,
                 onThinkingChange = viewModel::setThinkingEnabled
             )
+
+            HorizontalDivider()
+
+            TagsSection(onManageTagsClick = onNavigateToManageTags)
 
             HorizontalDivider()
 

@@ -257,9 +257,10 @@ class PaprikaImportSteps @Inject constructor(
             return importSingle(toImport.single(), preFailed, onProgress)
         }
 
+        val existingTags = parseHtmlUseCase.existingTagVocabulary()
         onProgress(PaprikaImportProgress.SubmittingBatch(toImport.size))
         val submitted = withContext(NonCancellable) {
-            submit(store, toImport, preFailed, apiKey, model, thinkingEnabled)
+            submit(store, toImport, preFailed, apiKey, model, thinkingEnabled, existingTags)
         }
         if (submitted !is PaprikaImportState.Submitted) return submitted
         coroutineContext.ensureActive()
@@ -277,10 +278,11 @@ class PaprikaImportSteps @Inject constructor(
         preFailed: List<String>,
         apiKey: String,
         model: String,
-        thinkingEnabled: Boolean
+        thinkingEnabled: Boolean,
+        existingTags: List<String>
     ): PaprikaImportState {
         val created = recipeBatchParser.createBatch(
-            requests = toImport.map { BatchParseRequest(it.customId, it.contentForAi) },
+            requests = toImport.map { BatchParseRequest(it.customId, it.contentForAi, existingTags = existingTags) },
             apiKey = apiKey,
             model = model,
             thinkingEnabled = thinkingEnabled
