@@ -9,11 +9,13 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.lionotter.recipes.domain.port.AppSettings
 import com.lionotter.recipes.util.ErrorLog
+import com.lionotter.recipes.util.IoDispatcher
 import com.lionotter.recipes.util.enumOrNull
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
@@ -25,7 +27,6 @@ import com.lionotter.recipes.domain.model.AiModels
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
-import com.lionotter.recipes.domain.port.AiSettings
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -35,8 +36,9 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 @Singleton
 class SettingsDataStore @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    @ApplicationScope appScope: CoroutineScope
-) : AiSettings {
+    @ApplicationScope appScope: CoroutineScope,
+    @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
+) : AppSettings {
     private object Keys {
         val AI_MODEL = stringPreferencesKey("ai_model")
         val EDIT_MODEL = stringPreferencesKey("edit_model")
@@ -64,7 +66,7 @@ class SettingsDataStore @Inject constructor(
 
     init {
         // Tink/Keystore initialization and disk reads are slow; keep them off the main thread.
-        appScope.launch(Dispatchers.IO) {
+        appScope.launch(ioDispatcher) {
             cleanUpOldEncryptedSharedPreferences()
             val loaded = LoadedApiKey(loadApiKey())
             // A key set while loading wins over the stored value.
@@ -122,7 +124,7 @@ class SettingsDataStore @Inject constructor(
         preferences[Keys.AI_MODEL] ?: AiModels.DEFAULT_MODEL
     }
 
-    val editModel: Flow<String> = context.dataStore.data.map { preferences ->
+    override val editModel: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[Keys.EDIT_MODEL] ?: AiModels.DEFAULT_EDIT_MODEL
     }
 
@@ -130,11 +132,11 @@ class SettingsDataStore @Inject constructor(
         preferences[Keys.EXTENDED_THINKING_ENABLED] ?: AiModels.DEFAULT_THINKING_ENABLED
     }
 
-    val keepScreenOn: Flow<Boolean> = context.dataStore.data.map { preferences ->
+    override val keepScreenOn: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[Keys.KEEP_SCREEN_ON] ?: true
     }
 
-    val themeMode: Flow<ThemeMode> = context.dataStore.data.map { preferences ->
+    override val themeMode: Flow<ThemeMode> = context.dataStore.data.map { preferences ->
         val value = preferences[Keys.THEME_MODE]
         if (value != null) {
             enumOrNull<ThemeMode>(value) ?: ThemeMode.AUTO
@@ -143,7 +145,7 @@ class SettingsDataStore @Inject constructor(
         }
     }
 
-    val volumeUnitSystem: Flow<UnitSystem> = context.dataStore.data.map { preferences ->
+    override val volumeUnitSystem: Flow<UnitSystem> = context.dataStore.data.map { preferences ->
         val value = preferences[Keys.VOLUME_UNIT_SYSTEM]
         if (value != null) {
             enumOrNull<UnitSystem>(value) ?: UnitSystem.localeDefault()
@@ -152,7 +154,7 @@ class SettingsDataStore @Inject constructor(
         }
     }
 
-    val weightUnitSystem: Flow<UnitSystem> = context.dataStore.data.map { preferences ->
+    override val weightUnitSystem: Flow<UnitSystem> = context.dataStore.data.map { preferences ->
         val value = preferences[Keys.WEIGHT_UNIT_SYSTEM]
         if (value != null) {
             enumOrNull<UnitSystem>(value) ?: UnitSystem.localeDefault()
@@ -165,7 +167,7 @@ class SettingsDataStore @Inject constructor(
      * Grocery list volume unit system. Falls back to the recipe volume unit system
      * when no grocery-specific preference has been set.
      */
-    val groceryVolumeUnitSystem: Flow<UnitSystem> = context.dataStore.data.map { preferences ->
+    override val groceryVolumeUnitSystem: Flow<UnitSystem> = context.dataStore.data.map { preferences ->
         val groceryValue = preferences[Keys.GROCERY_VOLUME_UNIT_SYSTEM]
         if (groceryValue != null) {
             enumOrNull<UnitSystem>(groceryValue)
@@ -185,7 +187,7 @@ class SettingsDataStore @Inject constructor(
      * Grocery list weight unit system. Falls back to the recipe weight unit system
      * when no grocery-specific preference has been set.
      */
-    val groceryWeightUnitSystem: Flow<UnitSystem> = context.dataStore.data.map { preferences ->
+    override val groceryWeightUnitSystem: Flow<UnitSystem> = context.dataStore.data.map { preferences ->
         val groceryValue = preferences[Keys.GROCERY_WEIGHT_UNIT_SYSTEM]
         if (groceryValue != null) {
             enumOrNull<UnitSystem>(groceryValue)
@@ -201,7 +203,7 @@ class SettingsDataStore @Inject constructor(
         }
     }
 
-    val startOfWeek: Flow<StartOfWeek> = context.dataStore.data.map { preferences ->
+    override val startOfWeek: Flow<StartOfWeek> = context.dataStore.data.map { preferences ->
         val value = preferences[Keys.START_OF_WEEK]
         if (value != null) {
             enumOrNull<StartOfWeek>(value) ?: StartOfWeek.LOCALE_DEFAULT
@@ -214,82 +216,82 @@ class SettingsDataStore @Inject constructor(
         preferences[Keys.IMPORT_DEBUGGING_ENABLED] ?: false
     }
 
-    suspend fun setAnthropicApiKey(apiKey: String) {
-        withContext(Dispatchers.IO) {
+    override suspend fun setAnthropicApiKey(apiKey: String) {
+        withContext(ioDispatcher) {
             val encrypted = tinkEncryption.encrypt(apiKey)
             apiKeyPrefs.edit(commit = true) { putString(API_KEY_PREF_KEY, encrypted) }
             _anthropicApiKey.value = LoadedApiKey(apiKey)
         }
     }
 
-    suspend fun clearAnthropicApiKey() {
-        withContext(Dispatchers.IO) {
+    override suspend fun clearAnthropicApiKey() {
+        withContext(ioDispatcher) {
             apiKeyPrefs.edit(commit = true) { remove(API_KEY_PREF_KEY) }
             _anthropicApiKey.value = LoadedApiKey(null)
         }
     }
 
-    suspend fun setAiModel(model: String) {
+    override suspend fun setAiModel(model: String) {
         context.dataStore.edit { preferences ->
             preferences[Keys.AI_MODEL] = model
         }
     }
 
-    suspend fun setEditModel(model: String) {
+    override suspend fun setEditModel(model: String) {
         context.dataStore.edit { preferences ->
             preferences[Keys.EDIT_MODEL] = model
         }
     }
 
-    suspend fun setThinkingEnabled(enabled: Boolean) {
+    override suspend fun setThinkingEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[Keys.EXTENDED_THINKING_ENABLED] = enabled
         }
     }
 
-    suspend fun setKeepScreenOn(enabled: Boolean) {
+    override suspend fun setKeepScreenOn(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[Keys.KEEP_SCREEN_ON] = enabled
         }
     }
 
-    suspend fun setThemeMode(mode: ThemeMode) {
+    override suspend fun setThemeMode(mode: ThemeMode) {
         context.dataStore.edit { preferences ->
             preferences[Keys.THEME_MODE] = mode.name
         }
     }
 
-    suspend fun setVolumeUnitSystem(system: UnitSystem) {
+    override suspend fun setVolumeUnitSystem(system: UnitSystem) {
         context.dataStore.edit { preferences ->
             preferences[Keys.VOLUME_UNIT_SYSTEM] = system.name
         }
     }
 
-    suspend fun setWeightUnitSystem(system: UnitSystem) {
+    override suspend fun setWeightUnitSystem(system: UnitSystem) {
         context.dataStore.edit { preferences ->
             preferences[Keys.WEIGHT_UNIT_SYSTEM] = system.name
         }
     }
 
-    suspend fun setGroceryVolumeUnitSystem(system: UnitSystem) {
+    override suspend fun setGroceryVolumeUnitSystem(system: UnitSystem) {
         context.dataStore.edit { preferences ->
             preferences[Keys.GROCERY_VOLUME_UNIT_SYSTEM] = system.name
         }
     }
 
-    suspend fun setGroceryWeightUnitSystem(system: UnitSystem) {
+    override suspend fun setGroceryWeightUnitSystem(system: UnitSystem) {
         context.dataStore.edit { preferences ->
             preferences[Keys.GROCERY_WEIGHT_UNIT_SYSTEM] = system.name
         }
     }
 
-    suspend fun setStartOfWeek(startOfWeek: StartOfWeek) {
+    override suspend fun setStartOfWeek(startOfWeek: StartOfWeek) {
         context.dataStore.edit { preferences ->
             preferences[Keys.START_OF_WEEK] = startOfWeek.name
         }
     }
 
-    suspend fun setImportDebuggingEnabled(enabled: Boolean) {
+    override suspend fun setImportDebuggingEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[Keys.IMPORT_DEBUGGING_ENABLED] = enabled
         }

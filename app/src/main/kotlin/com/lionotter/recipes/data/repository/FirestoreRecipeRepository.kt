@@ -1,23 +1,25 @@
 package com.lionotter.recipes.data.repository
 
 import android.util.Log
-import com.google.firebase.firestore.FieldPath
-import com.lionotter.recipes.data.local.RecipeIdAndName
 import com.google.android.gms.tasks.Task
+import com.google.firebase.firestore.FieldPath
 import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.DataFailure
 import com.lionotter.recipes.data.remote.DataOp
-import com.lionotter.recipes.di.ApplicationScope
 import com.lionotter.recipes.data.remote.FirestoreService
 import com.lionotter.recipes.data.remote.ImageDownloadService
+import com.lionotter.recipes.data.remote.dto.MealPlanFields
 import com.lionotter.recipes.data.remote.dto.RecipeDto
+import com.lionotter.recipes.data.remote.dto.RecipeFields
 import com.lionotter.recipes.data.remote.dto.toDto
 import com.lionotter.recipes.data.remote.uid
+import com.lionotter.recipes.di.ApplicationScope
 import com.lionotter.recipes.domain.model.Recipe
-import com.lionotter.recipes.data.remote.dto.RecipeFields
-import com.lionotter.recipes.data.remote.dto.MealPlanFields
+import com.lionotter.recipes.domain.model.RecipeIdAndName
+import com.lionotter.recipes.domain.repository.RecipeRepository
+import com.lionotter.recipes.util.DefaultDispatcher
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
@@ -38,12 +40,13 @@ import javax.inject.Singleton
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @Singleton
-class RecipeRepository @Inject constructor(
+class FirestoreRecipeRepository @Inject constructor(
     private val firestoreService: FirestoreService,
     private val imageDownloadService: ImageDownloadService,
     private val authService: AuthService,
-    @param:ApplicationScope private val appScope: CoroutineScope
-) : IRecipeRepository {
+    @param:ApplicationScope private val appScope: CoroutineScope,
+    @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
+) : RecipeRepository {
     companion object {
         private const val TAG = "RecipeRepository"
     }
@@ -80,7 +83,7 @@ class RecipeRepository @Inject constructor(
         firestoreService.recipesCollection(uid)
             .snapshots(firestoreService, DataOp.LOAD_RECIPES)
             .decodeIncrementally(TAG) { doc -> doc.toObject(RecipeDto::class.java)?.toDomain() }
-            .flowOn(Dispatchers.Default)
+            .flowOn(defaultDispatcher)
             .conflate()
 
     private fun write(op: DataOp, id: String, block: (uid: String) -> Unit) =
@@ -112,7 +115,7 @@ class RecipeRepository @Inject constructor(
                 .get()
                 .await()
             val doc = snapshot.documents.firstOrNull() ?: return@logFailure null
-            withContext(Dispatchers.Default) { doc.toObject(RecipeDto::class.java)?.toDomain() }
+            withContext(defaultDispatcher) { doc.toObject(RecipeDto::class.java)?.toDomain() }
         }
 
     override fun saveRecipe(recipe: Recipe) = write(DataOp.SAVE_RECIPE, recipe.id) { uid ->

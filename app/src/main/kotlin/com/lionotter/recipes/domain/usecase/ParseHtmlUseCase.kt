@@ -1,6 +1,5 @@
 package com.lionotter.recipes.domain.usecase
 
-import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.ResourceLimits
@@ -16,6 +15,7 @@ import com.lionotter.recipes.domain.port.ParseRequest
 import com.lionotter.recipes.domain.port.ParsedRecipe
 import com.lionotter.recipes.domain.port.ParsedRecipeWithUsage
 import com.lionotter.recipes.domain.port.RecipeParser
+import com.lionotter.recipes.domain.repository.RecipeRepository
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
@@ -35,7 +35,7 @@ import kotlin.coroutines.coroutineContext
 class ParseHtmlUseCase @Inject constructor(
     private val recipeParser: RecipeParser,
     private val pageContentExtractor: PageContentExtractor,
-    private val recipeRepository: IRecipeRepository,
+    private val recipeRepository: RecipeRepository,
     private val importDebugLog: ImportDebugLog,
     private val aiSettings: AiSettings,
     private val imageStore: ImageStore

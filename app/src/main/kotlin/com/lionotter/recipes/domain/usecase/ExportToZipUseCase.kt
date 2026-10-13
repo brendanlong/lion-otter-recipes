@@ -1,13 +1,12 @@
 package com.lionotter.recipes.domain.usecase
 
-import com.lionotter.recipes.data.remote.ImageDownloadService
-import com.lionotter.recipes.data.remote.ImageSyncService
-import com.lionotter.recipes.data.repository.IMealPlanRepository
-import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.ArchiveFailure
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.model.MealPlanEntry
+import com.lionotter.recipes.domain.port.ImageStore
+import com.lionotter.recipes.domain.repository.MealPlanRepository
+import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.domain.util.RecipeSerializer
 import com.lionotter.recipes.util.ErrorLog
 import kotlinx.coroutines.flow.first
@@ -27,11 +26,10 @@ import javax.inject.Inject
  * - meal-plans/<date>.json
  */
 class ExportToZipUseCase @Inject constructor(
-    private val recipeRepository: IRecipeRepository,
+    private val recipeRepository: RecipeRepository,
     private val recipeSerializer: RecipeSerializer,
-    private val mealPlanRepository: IMealPlanRepository,
-    private val imageDownloadService: ImageDownloadService,
-    private val imageSyncService: ImageSyncService,
+    private val mealPlanRepository: MealPlanRepository,
+    private val imageStore: ImageStore,
     private val json: Json
 ) {
     companion object {
@@ -100,9 +98,7 @@ class ExportToZipUseCase @Inject constructor(
 
                         // Write image file (if available)
                         if (recipe.imageUrl != null) {
-                            // Resolve Firebase Storage paths to local cache first
-                            val localImageUri = imageSyncService.ensureLocalImage(recipe.imageUrl)
-                            val imageFile = localImageUri?.let { imageDownloadService.getLocalImageFile(it) }
+                            val imageFile = imageStore.localImageFile(recipe.imageUrl)
                             if (imageFile != null) {
                                 val imageName = "${RecipeSerializer.IMAGE_FILENAME_PREFIX}${imageFile.extension.let { ".$it" }}"
                                 zipOut.putNextEntry(ZipEntry("$prefix/$imageName"))

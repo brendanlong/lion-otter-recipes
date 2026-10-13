@@ -5,9 +5,6 @@ import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lionotter.recipes.R
-import com.lionotter.recipes.data.local.SettingsDataStore
-import com.lionotter.recipes.data.repository.IMealPlanRepository
-import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.ResourceLimits
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.model.MealType
@@ -15,12 +12,16 @@ import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.hasTag
 import com.lionotter.recipes.domain.model.matchesSearch
+import com.lionotter.recipes.domain.port.AppSettings
+import com.lionotter.recipes.domain.repository.MealPlanRepository
+import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.domain.usecase.GetTagsUseCase
 import com.lionotter.recipes.messages.UserMessage
+import com.lionotter.recipes.util.DefaultDispatcher
 import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -59,10 +60,11 @@ sealed interface MealPlanEvent {
 
 @HiltViewModel
 class MealPlanViewModel @Inject constructor(
-    private val mealPlanRepository: IMealPlanRepository,
-    private val recipeRepository: IRecipeRepository,
+    private val mealPlanRepository: MealPlanRepository,
+    private val recipeRepository: RecipeRepository,
     private val getTagsUseCase: GetTagsUseCase,
-    settingsDataStore: SettingsDataStore
+    settings: AppSettings,
+    @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
 ) : ViewModel() {
 
     private val clock: Clock = Clock.System
@@ -72,7 +74,7 @@ class MealPlanViewModel @Inject constructor(
     private val _today = MutableStateFlow(currentDate())
     val today: StateFlow<LocalDate> = _today.asStateFlow()
 
-    private val startOfWeekSetting: StateFlow<StartOfWeek> = settingsDataStore.startOfWeek
+    private val startOfWeekSetting: StateFlow<StartOfWeek> = settings.startOfWeek
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
@@ -142,7 +144,7 @@ class MealPlanViewModel @Inject constructor(
         // when recipe tags actually change
         .distinctUntilChangedBy { recipes -> recipes.map { it.id to it.tags } }
         .map { recipes -> getTagsUseCase.execute(recipes) }
-        .flowOn(Dispatchers.Default)
+        .flowOn(defaultDispatcher)
         .catch { e ->
             ErrorLog.e(TAG, "Failed to compute tags", e)
             emit(emptyList())

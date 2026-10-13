@@ -12,20 +12,25 @@ The app follows **Clean Architecture** with three distinct layers:
 │   (Compose Screens, ViewModels)          │
 ├─────────────────────────────────────────┤
 │           Domain Layer                   │
-│      (Use Cases, Domain Models)          │
+│ (Use Cases, Models, Ports, Repo APIs)    │
 ├─────────────────────────────────────────┤
 │            Data Layer                    │
-│  (Repository, Database, API Services)    │
+│ (Repository/port impls, DB, services)    │
 └─────────────────────────────────────────┘
 ```
 
 ### Dependency Rule
 
-Dependencies point inward: UI → Domain → Data. The goal is a domain layer with no dependencies on Android frameworks or external libraries (except kotlinx for serialization). This is not true yet: some use cases still use data-layer services and repository interfaces, `android.util.Log` and Compose stability annotations. `LayerDependencyTest` enforces the rules and lists the current exceptions (see Guardrails).
+Dependencies point inward: UI → Domain ← Data. The domain layer (`domain/`) is plain Kotlin: it may only use `kotlin.*`, `kotlinx.*`, `java.*`, `javax.inject`, its own packages, the plain-Kotlin helpers in `util/` (which follow the same rule) and the pure-JVM LP solver `org.ojalgo` (`GetTagsUseCase`). No Android, Compose, Firebase, Anthropic SDK or data-layer types. `LayerDependencyTest` enforces this (see Guardrails) with no exceptions for the domain.
+
+- The domain owns the repository interfaces (`domain/repository`: `RecipeRepository`, `MealPlanRepository`, with `RecipeIdAndName` in `domain/model`); the data layer implements them (`FirestoreRecipeRepository`, `FirestoreMealPlanRepository`) and `RepositoryModule` binds them.
+- Logging goes through `ErrorLog` (`util/`), which writes to a `LogSink`: `LionOtterApp` installs one backed by `android.util.Log` before anything else runs; tests get the default stderr sink, so no test needs `mockkStatic(Log)` for domain code.
+- Compose stability: domain models carry no `@Immutable`; `app/compose-stability.conf` (the Compose compiler's stability configuration file) lists the immutable domain models instead.
+- Dispatchers are injected (`@IoDispatcher` / `@DefaultDispatcher` from `util/DispatcherQualifiers.kt`, provided by `AppModule`) rather than referenced, so tests run everything on a test dispatcher. detekt's `InjectDispatcher` rule enforces this; `AppModule`'s providers are the only place `Dispatchers.IO` / `Default` are named.
 
 #### Ports
 
-Where a use case needs something the data layer provides, the domain owns an interface (`domain/port`) and the data layer implements it; `AiModule` binds them (`@Binds`, or `@Provides` for the `RecipeHtmlExtractor` object). `ParseHtmlUseCase`, `ImportRecipeUseCase`, `EditRecipeUseCase` and `RegenerateRecipeUseCase` depend only on ports plus `IRecipeRepository`, and `ImportPaprikaUseCase` also on `PaprikaParser`; their tests use in-memory fakes (`testutil/UseCaseFakes.kt`):
+Where a use case needs something the data layer provides, the domain owns an interface (`domain/port`) and the data layer implements it; `PortModule` binds them (`@Binds`, or `@Provides` for the `RecipeHtmlExtractor` object). Use cases depend only on ports and the repository interfaces; their tests use in-memory fakes (`testutil/UseCaseFakes.kt`, `testutil/RepositoryFakes.kt`):
 
 | Port | Implemented by | Purpose |
 |------|----------------|---------|
@@ -34,7 +39,10 @@ Where a use case needs something the data layer provides, the domain owns an int
 | `PageFetcher` | `WebScraperService` | `fetchPage(url)` → `Outcome<FetchedPage>` (HTML + preview image) |
 | `PageContentExtractor` | `RecipeHtmlExtractor` | page HTML → `PageContent` for the AI, page title |
 | `AiSettings` | `SettingsDataStore` | read-only API key, import model, thinking, import debugging |
-| `ImageStore` | `ImageDownloadService` | download / save / store recipe images |
+| `AppSettings` | `SettingsDataStore` | all settings as flows plus setters (extends `AiSettings`); what ViewModels use |
+| `ImageStore` | `ImageDownloadService` | download / save / store recipe images, delete unused local ones, a recipe image as a local file (export) |
+| `PaprikaExportReader` | `PaprikaParser` | stream a Paprika export as `PaprikaExportRecipe`s (`ImportPaprikaUseCase`) |
+| `GroceryListStateStore` | `DataStoreGroceryListStateStore` | per-week grocery list selection and checked items |
 | `ImportDebugLog` | `ImportDebugRepository` | record an `ImportDebugRecord` for the import debugging screen |
 
 Ports return `Outcome` with a typed `RecipeError` rather than throwing or returning SDK types; the implementations log the underlying exception.
@@ -56,12 +64,12 @@ Migrations live in `RecipeDatabaseMigrations` (10→11 drops the Firestore-era t
 
 #### DataStore
 
-`SettingsDataStore` stores user preferences:
+`SettingsDataStore` (the `AppSettings` / `AiSettings` ports) stores user preferences:
 - Anthropic API key, encrypted with Tink (`TinkEncryption`) and kept out of the plain DataStore
 - `ai_model` (imports) and `edit_model` (edits), plus a `thinking` toggle
 - Display, theme, keep-screen-on, measurement unit preferences (recipe and grocery), start of week, import debugging
 
-`GroceryListStateStore` is a separate DataStore holding grocery list checked state, keyed per week start date. Old weeks are pruned on save.
+`DataStoreGroceryListStateStore` (the `GroceryListStateStore` port) is a separate DataStore holding grocery list checked state, keyed per week start date. Old weeks are pruned on save.
 
 #### Local files
 
@@ -110,10 +118,10 @@ Behavior:
 
 ### Repository
 
-`RecipeRepository` and `MealPlanRepository` (behind `IRecipeRepository` / `IMealPlanRepository`) are the sources of truth, backed by Firestore (`FirestoreService`) at `users/{uid}/recipes/{recipeId}` and `users/{uid}/mealPlans/{id}`. Firestore's offline persistence provides the local copy and write queue.
+`FirestoreRecipeRepository` and `FirestoreMealPlanRepository` (behind the domain interfaces `RecipeRepository` / `MealPlanRepository`) are the sources of truth, backed by Firestore (`FirestoreService`) at `users/{uid}/recipes/{recipeId}` and `users/{uid}/mealPlans/{id}`. Firestore's offline persistence provides the local copy and write queue.
 
 ```kotlin
-interface IRecipeRepository {
+interface RecipeRepository {
     fun getAllRecipes(): Flow<List<Recipe>>
     fun getRecipeById(id: String): Flow<Recipe?>
     suspend fun getRecipeByIdOnce(id: String): Recipe?
@@ -142,7 +150,7 @@ interface IRecipeRepository {
 
 ### Error Reporting
 
-- Errors are logged with `ErrorLog.e(tag, message, throwable)` (in `util/`) rather than `Log.e`. It logs to logcat and, in release builds, records the throwable as a Crashlytics non-fatal (`LionOtterApp` installs the recorder). Only the throwable is sent, not the message, since messages often include recipe names or URLs.
+- Errors are logged with `ErrorLog.e(tag, message, throwable)` (in `util/`) rather than `Log.e`; domain code also uses `ErrorLog.w` / `i` / `d`. It logs through its `LogSink` (logcat in the app) and, in release builds, records the throwable as a Crashlytics non-fatal (`LionOtterApp` installs the recorder). Only the throwable is sent, not the message, since messages often include recipe names or URLs.
 - **User-facing errors are never exception messages.** Failures of imports, edits, regeneration and archives are a sealed `RecipeError` (domain): `NoApiKey`, `NoSourceUrl`, `RecipeNotFound`, `LimitReached(count, limit)`, `PageFetch(PageFetchFailure, httpStatus)`, `Ai(AiFailure, httpStatus)`, `NotARecipe(reason)`, `Archive(ArchiveFailure)`, `Interrupted`, `CannotRetry`, `Unexpected` and `Legacy(message)` (an English message saved by an older version, shown as-is). `retryable` comes from the failure kind and drives worker retries. Ports (`PageFetcher`, `RecipeParser`, `RecipeBatchParser`) return the `RecipeError` directly in an `Outcome`. Exceptions that know their meaning implement `RecipeErrorSource` (`RecipeErrorException`), so the domain maps them with `Throwable.toRecipeError()`; anything else is `Unexpected` and its details only go to `ErrorLog`. `NotARecipe.reason` is the AI's own explanation and is shown.
 - The `messages` package turns errors into text: `UserMessage` (a string or plural resource plus arguments, resolved with `resolve(resources)` or, in Compose, `text()`), `RecipeError.toUserMessage()` (exhaustive) and `DataFailure.toUserMessage()`. ViewModels and workers (failure notifications) only produce `UserMessage`s; screens resolve them. `UserMessageTest` resolves every error against the real resources.
 - Uncaught crashes are reported by Crashlytics automatically. Collection is disabled in debug and benchmark builds via the `firebase_crashlytics_collection_enabled` manifest placeholder, and R8 mapping files are uploaded only when building in CI.
@@ -355,7 +363,7 @@ Example pattern:
 ```kotlin
 @HiltViewModel
 class RecipeListViewModel @Inject constructor(
-    private val recipeRepository: IRecipeRepository,
+    private val recipeRepository: RecipeRepository,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -383,6 +391,7 @@ Hilt modules provide:
 
 ### AppModule
 - `Json` instance with lenient parsing
+- `@IoDispatcher` / `@DefaultDispatcher` `CoroutineDispatcher`s (the qualifiers live in `util/` so the domain can use them)
 - `@ApplicationScope` `CoroutineScope` (SupervisorJob, Default dispatcher, an exception handler that logs with `ErrorLog`), used for app-lifetime work: repository listeners and pending writes, `SettingsDataStore`'s key loading, the import queue
 
 ### DatabaseModule
@@ -390,10 +399,10 @@ Hilt modules provide:
 - `PendingImportDao`, `ImportDebugDao`
 
 ### RepositoryModule
-- Binds `IRecipeRepository` / `IMealPlanRepository` to their Firestore-backed implementations
+- Binds `RecipeRepository` / `MealPlanRepository` to their Firestore-backed implementations
 
-### AiModule
-- Binds the domain ports (`RecipeParser`, `RecipeBatchParser`, `PageFetcher`, `PageContentExtractor`, `AiSettings`, `ImageStore`, `ImportDebugLog`) to their data-layer implementations
+### PortModule
+- Binds the domain ports (`RecipeParser`, `RecipeBatchParser`, `PageFetcher`, `PageContentExtractor`, `AiSettings`, `AppSettings`, `ImageStore`, `ImportDebugLog`, `GroceryListStateStore`, `PaprikaExportReader`) to their data-layer implementations
 
 ### NetworkModule
 - `HttpClient` with Ktor Android engine (page and image fetching)
@@ -490,8 +499,8 @@ Static checks and tests that catch whole classes of bugs. All run in `./ci-local
 
 - **Compiler and lint warnings are errors** (`allWarningsAsErrors` in both modules, lint `warningsAsErrors`; lint's dependency-freshness checks are disabled so new releases don't break the build). Fix the warning; suppress only with a comment saying why.
 - **Compose lint** (`com.slack.lint.compose:compose-lint-checks`): composables take a `modifier` parameter, follow the parameter order, and get ViewModels via default `hiltViewModel()` parameters. `GroceryListScreen` and `MealPlanScreen` still forward their ViewModel (suppressed until their state is hoisted).
-- **detekt** (`./gradlew detektDebug`, with type resolution) runs a targeted rule set in `config/detekt/detekt.yml`: `SuspendFunSwallowedCancellation`, `InjectDispatcher`, `SwallowedException` (logging the exception counts as handling it; `catch (_: ...)` does not), `TooGenericExceptionThrown`, `UnsafeCallOnNullableType`. Existing findings are in `config/detekt/baseline-debug.xml`: hard-coded dispatchers, `!!` in `Units.kt`/`IngredientAggregation.kt`, and catch blocks the cancellation rule flags although they are fine (cleanup then rethrow, or log-and-continue inside `NonCancellable`). Don't add to it; regenerate it with `./gradlew :app:detektBaselineDebug` only after fixing entries. Use `detektDebug`; the plain `detekt` task (part of `check`) runs without type resolution or this baseline. detekt excludes generated sources, so `detektDebug` gets the compiled `BuildConfig` on its classpath (`detektBuildConfigClasses` in `app/build.gradle.kts`); its analysis also doesn't run the kotlinx.serialization compiler plugin, so call the reified `json.decodeFromString<T>()`/`encodeToString(value)` rather than the plugin-generated `T.serializer()`, or detekt reports "compiler errors found during analysis" and loses type information there.
-- **Layer rules** (`LayerDependencyTest`): scans imports under `app/src/main/kotlin`. Domain may not use `android.*`, `androidx.*` (except `androidx.annotation`), `com.anthropic`, Firebase or `..data..`; UI may not use WorkManager or `..data.local..`; data may not use `..ui..`, `..worker..` or `..imports..`; `imports` and `worker` may not use `..ui..` (and `worker` not `..imports..`). `KNOWN_VIOLATIONS` lists today's exceptions; the test fails on new violations and on entries that are no longer needed, so the list only shrinks.
+- **detekt** (`./gradlew detektDebug`, with type resolution) runs a targeted rule set in `config/detekt/detekt.yml`: `SuspendFunSwallowedCancellation`, `InjectDispatcher`, `SwallowedException` (logging the exception counts as handling it; `catch (_: ...)` does not), `TooGenericExceptionThrown`, `UnsafeCallOnNullableType`. Existing findings are in `config/detekt/baseline-debug.xml`: `!!` in `Units.kt`/`IngredientAggregation.kt`, and catch blocks the cancellation rule flags although they are fine (cleanup then rethrow, or log-and-continue inside `NonCancellable`). Don't add to it; regenerate it with `./gradlew :app:detektBaselineDebug` only after fixing entries. Use `detektDebug`; the plain `detekt` task (part of `check`) runs without type resolution or this baseline. detekt excludes generated sources, so `detektDebug` gets the compiled `BuildConfig` on its classpath (`detektBuildConfigClasses` in `app/build.gradle.kts`); its analysis also doesn't run the kotlinx.serialization compiler plugin, so call the reified `json.decodeFromString<T>()`/`encodeToString(value)` rather than the plugin-generated `T.serializer()`, or detekt reports "compiler errors found during analysis" and loses type information there.
+- **Layer rules** (`LayerDependencyTest`): scans imports under `app/src/main/kotlin`. Domain may only use `kotlin`, `kotlinx`, `java`, `javax.inject`, `..domain..`, `..util..` and `org.ojalgo` (see Dependency Rule), and `util` only `kotlin`, `kotlinx`, `java`, `javax.inject` and itself; UI may not use WorkManager or `..data.local..`; data may not use `..ui..`, `..worker..` or `..imports..`; `imports` and `worker` may not use `..ui..` (and `worker` not `..imports..`). `KNOWN_VIOLATIONS` lists today's exceptions; the test fails on new violations and on entries that are no longer needed, so the list only shrinks.
 - **DTO drift** (`DtoFieldDriftTest`, `DomainFixturesTest`, `RecipeDtoRoundTripIntegrationTest`): every `Recipe` / `MealPlanEntry` field needs a DTO field, the `RecipeFields` / `MealPlanFields` constants must be keys Firestore actually writes, and the round-trip fixtures in `testutil/DomainFixtures.kt` must set every field (including nested ones) to a non-default value.
 - **AI schema** (`RecipeResponseSchemaTest`): property names and required fields in `RecipeOutputSchema.RECIPE_RESPONSE_SCHEMA` must match the serializers of `RecipeParseResponse` and the classes it contains.
 - **Edit/regenerate preservation** (`RecipeRegeneratedContentTest`): every non-AI field of `Recipe` survives `withRegeneratedContent`.
@@ -504,7 +513,8 @@ Static checks and tests that catch whole classes of bugs. All run in `./ci-local
 - `Ingredient.format()` - quantity formatting and scaling
 - Repository mapping logic
 - Ingredient aggregation and unit conversion
-- Use case business logic; the import, edit, regenerate and Paprika batch use cases run against in-memory fakes of their ports (`testutil/UseCaseFakes.kt`)
+- Use case business logic; the import, edit, regenerate, Paprika batch and ZIP import code runs against in-memory fakes of its ports and repositories (`testutil/UseCaseFakes.kt`, `testutil/RepositoryFakes.kt`)
+- ViewModels against `MutableStateFlow`-backed fakes (`testutil/RepositoryFakes.kt`: `FakeRecipeRepository`, `FakeMealPlanRepository`, `FakeAppSettings`, `FakeGroceryListStateStore`) rather than mocks, with test dispatchers injected for `@IoDispatcher` / `@DefaultDispatcher`
 - AI request pieces (`RecipePromptTest`, `RecipeResponseParserTest`, `RecipeResponseSchemaTest`); `LiveAnthropicTest` calls the real API and only runs when `LIVE_ANTHROPIC_KEY` is set
 
 ### Integration Tests (Future)

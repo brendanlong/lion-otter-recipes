@@ -1,6 +1,5 @@
 package com.lionotter.recipes.domain.model
 
-import androidx.compose.runtime.Immutable
 import kotlin.time.Instant
 import kotlinx.datetime.LocalDate
 import kotlinx.serialization.Serializable
@@ -20,7 +19,6 @@ enum class MealType(val displayOrder: Int) {
 /**
  * A single entry in the meal plan: a recipe assigned to a date and meal type.
  */
-@Immutable
 @Serializable
 data class MealPlanEntry(
     val id: String,

@@ -1,6 +1,5 @@
 package com.lionotter.recipes.domain.usecase
 
-import android.util.Log
 import com.lionotter.recipes.data.paprika.PaprikaParser
 import com.lionotter.recipes.domain.AiFailure
 import com.lionotter.recipes.domain.Outcome
@@ -19,15 +18,11 @@ import com.lionotter.recipes.testutil.FakeRecipeRepository
 import com.lionotter.recipes.testutil.parsedRecipe
 import com.lionotter.recipes.testutil.parsedWithUsage
 import com.lionotter.recipes.util.AppJson
-import io.mockk.every
-import io.mockk.mockkStatic
-import io.mockk.unmockkStatic
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -43,7 +38,7 @@ class ImportPaprikaUseCaseTest {
     private val debugLog = FakeImportDebugLog()
 
     private val useCase = ImportPaprikaUseCase(
-        paprikaParser = PaprikaParser(AppJson),
+        paprikaReader = PaprikaParser(AppJson),
         parseHtmlUseCase = ParseHtmlUseCase(
             FakeRecipeParser(), FakePageContentExtractor(), repository, debugLog, settings, FakeImageStore()
         ),
@@ -52,7 +47,8 @@ class ImportPaprikaUseCaseTest {
         pageFetcher = FakePageFetcher(),
         imageStore = FakeImageStore(),
         recipeRepository = repository,
-        json = AppJson
+        json = AppJson,
+        ioDispatcher = Dispatchers.Unconfined
     )
 
     private val recipes = listOf("Scones", "Not food", "Lost").mapIndexed { index, name ->
@@ -62,19 +58,6 @@ class ImportPaprikaUseCaseTest {
             name = name,
             contentForAi = "content $index"
         )
-    }
-
-    @Before
-    fun setUp() {
-        mockkStatic(Log::class)
-        every { Log.i(any(), any()) } returns 0
-        every { Log.w(any(), any<String>()) } returns 0
-        every { Log.e(any(), any()) } returns 0
-    }
-
-    @After
-    fun tearDown() {
-        unmockkStatic(Log::class)
     }
 
     private fun submittedImport(): File = tempFolder.newFolder("import-1").also { dir ->

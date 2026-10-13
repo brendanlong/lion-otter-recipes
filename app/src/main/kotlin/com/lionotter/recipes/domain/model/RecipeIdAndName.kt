@@ -1,4 +1,4 @@
-package com.lionotter.recipes.data.local
+package com.lionotter.recipes.domain.model
 
 data class RecipeIdAndName(
     val id: String,

@@ -232,7 +232,7 @@ class AuthService @Inject constructor(
         clearLocalData(enableNetwork = false)
         Firebase.auth.signOut()
         clearCredentialState()
-        ImageCacheConfig.clearCache(context)
+        imageSyncService.clearLocalCache()
         prefs.edit { remove(KEY_GUEST_UID) }
         _authState.value = AuthState.Guest(uid = getOrCreateGuestUid())
     }

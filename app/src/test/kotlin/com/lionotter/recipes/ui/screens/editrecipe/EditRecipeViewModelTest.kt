@@ -1,33 +1,26 @@
 package com.lionotter.recipes.ui.screens.editrecipe
 
-import org.junit.Assert.assertNull
-import com.lionotter.recipes.messages.UserMessage
-import com.lionotter.recipes.domain.RecipeError
-import com.lionotter.recipes.R
 import android.net.Uri
-import android.util.Log
-import androidx.navigation.testing.invoke
-import com.lionotter.recipes.ui.navigation.Route
-import io.mockk.mockkStatic
-import io.mockk.unmockkStatic
 import androidx.lifecycle.SavedStateHandle
+import androidx.navigation.testing.invoke
+import com.lionotter.recipes.R
+import com.lionotter.recipes.data.remote.ImageDownloadService
+import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.messages.UserMessage
+import com.lionotter.recipes.testutil.FakeAppSettings
+import com.lionotter.recipes.testutil.FakeRecipeRepository
+import com.lionotter.recipes.ui.navigation.Route
 import com.lionotter.recipes.worker.PendingWork
 import com.lionotter.recipes.worker.RecipeEditWork
 import com.lionotter.recipes.worker.RecipeWorkScheduler
 import com.lionotter.recipes.worker.WorkStatus
-import java.io.IOException
-import java.util.UUID
-import com.lionotter.recipes.data.local.SettingsDataStore
-import com.lionotter.recipes.data.remote.ImageDownloadService
-import com.lionotter.recipes.data.repository.IRecipeRepository
-import com.lionotter.recipes.domain.model.Recipe
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.runs
-import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,12 +36,15 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import kotlin.time.Instant
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.io.IOException
+import java.util.UUID
+import kotlin.time.Instant
 
 // Robolectric: building a SavedStateHandle from a typed route encodes it with android.net.Uri.
 @RunWith(RobolectricTestRunner::class)
@@ -56,8 +52,11 @@ import org.robolectric.RobolectricTestRunner
 class EditRecipeViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
-    private lateinit var recipeRepository: IRecipeRepository
-    private lateinit var settingsDataStore: SettingsDataStore
+    private lateinit var recipeRepository: FakeRecipeRepository
+    private val settings = FakeAppSettings().apply {
+        editModelFlow.value = "model"
+        thinkingFlow.value = false
+    }
     private lateinit var imageDownloadService: ImageDownloadService
 
     private val recipe = Recipe(
@@ -72,15 +71,8 @@ class EditRecipeViewModelTest {
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
-        recipeRepository = mockk()
-        settingsDataStore = mockk()
+        recipeRepository = FakeRecipeRepository(recipe)
         imageDownloadService = mockk()
-        every { recipeRepository.getRecipeById("r1") } returns MutableStateFlow(recipe)
-        coEvery { recipeRepository.getRecipeByIdOnce("r1") } returns recipe
-        every { recipeRepository.setImageUrl(any(), any()) } just runs
-        every { recipeRepository.updateTitleAndUrl(any(), any(), any()) } just runs
-        every { settingsDataStore.editModel } returns flowOf("model")
-        every { settingsDataStore.thinkingEnabled } returns flowOf(false)
         coEvery { imageDownloadService.deleteLocalImage(any()) } just runs
     }
 
@@ -92,12 +84,18 @@ class EditRecipeViewModelTest {
     private fun createViewModel(
         handle: SavedStateHandle = SavedStateHandle(route = Route.EditRecipe("r1")),
         scheduler: RecipeWorkScheduler = mockk(relaxed = true)
-    ) = EditRecipeViewModel(handle, recipeRepository, settingsDataStore, imageDownloadService, scheduler, TestScope(UnconfinedTestDispatcher()))
+    ) = EditRecipeViewModel(
+        handle,
+        recipeRepository,
+        settings,
+        imageDownloadService,
+        scheduler,
+        TestScope(UnconfinedTestDispatcher()),
+        testDispatcher
+    )
 
     @Test
     fun `failure to start the AI edit shows an error instead of crashing`() = runTest {
-        mockkStatic(Log::class)
-        every { Log.e(any(), any(), any()) } returns 0
         val scheduler = mockk<RecipeWorkScheduler>()
         every { scheduler.prepareEdit(any(), any(), any(), any(), any(), any()) } throws IOException("disk full")
         val viewModel = createViewModel(scheduler = scheduler)
@@ -109,7 +107,6 @@ class EditRecipeViewModelTest {
         val state = viewModel.editState.first { it is EditUiState.Error }
         // A localized message, not the exception's
         assertEquals(EditUiState.Error(UserMessage(R.string.error_save_changes)), state)
-        unmockkStatic(Log::class)
     }
 
     @Test
@@ -119,7 +116,7 @@ class EditRecipeViewModelTest {
         every { scheduler.prepareEdit("r1", any(), any(), any(), true, any()) } returns PendingWork(workId) {}
         every { scheduler.observeEdit(workId) } returns
             flowOf(WorkStatus.Finished(RecipeEditWork.Outcome.Success("r1", "Pasta", newRecipeId = "copy1")))
-        coEvery { recipeRepository.getRecipeByIdOnce("copy1") } returns recipe.copy(id = "copy1")
+        recipeRepository.recipes.value += "copy1" to recipe.copy(id = "copy1")
         coEvery { imageDownloadService.storeImage("file:///new.jpg", "file:///old.jpg", "copy1") } returns "gs://new"
         val contentUri = mockk<Uri>()
         coEvery { imageDownloadService.saveImageFromContentUri(contentUri) } returns "file:///new.jpg"
@@ -132,8 +129,7 @@ class EditRecipeViewModelTest {
         assertEquals(EditRecipeEvent.Saved(newRecipeId = "copy1"), viewModel.events.first())
         advanceUntilIdle()
 
-        verify { recipeRepository.setImageUrl("copy1", "gs://new") }
-        verify(exactly = 0) { recipeRepository.setImageUrl("r1", any()) }
+        assertEquals(listOf("copy1" to "gs://new"), recipeRepository.imageUrlUpdates)
         coVerify(exactly = 0) { imageDownloadService.deleteLocalImage("file:///new.jpg") }
     }
 
@@ -252,16 +248,15 @@ class EditRecipeViewModelTest {
         advanceUntilIdle()
 
         viewModel.onImageSelected(contentUri)
-        // The copy runs on Dispatchers.IO, so wait for it rather than advancing virtual time
         viewModel.imageUrl.first { it == "file:///new.jpg" }
         advanceUntilIdle()
         assertTrue(viewModel.hasUnsavedChanges.value)
-        verify(exactly = 0) { recipeRepository.setImageUrl(any(), any()) }
+        assertEquals(emptyList<Any>(), recipeRepository.imageUrlUpdates)
 
         viewModel.saveEdits()
         advanceUntilIdle()
 
-        verify { recipeRepository.setImageUrl("r1", "gs://new") }
+        assertEquals(listOf("r1" to "gs://new"), recipeRepository.imageUrlUpdates)
         assertEquals(EditRecipeEvent.Saved(newRecipeId = null), viewModel.events.first())
     }
 
@@ -274,12 +269,12 @@ class EditRecipeViewModelTest {
         viewModel.removeImage()
         advanceUntilIdle()
         assertEquals(null, viewModel.imageUrl.value)
-        verify(exactly = 0) { recipeRepository.setImageUrl(any(), any()) }
+        assertEquals(emptyList<Any>(), recipeRepository.imageUrlUpdates)
 
         viewModel.saveEdits()
         advanceUntilIdle()
 
         coVerify { imageDownloadService.cleanupImage("file:///old.jpg", "r1") }
-        verify { recipeRepository.setImageUrl("r1", null) }
+        assertEquals(listOf("r1" to null), recipeRepository.imageUrlUpdates)
     }
 }

@@ -9,9 +9,9 @@ import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
 import com.lionotter.recipes.R
 import com.lionotter.recipes.data.paprika.PaprikaParser
-import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.ArchiveFailure
 import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.domain.util.RecipeSerializer
 import com.lionotter.recipes.domain.util.ZipImportHelper
 import com.lionotter.recipes.imports.ImportQueue
@@ -19,10 +19,11 @@ import com.lionotter.recipes.messages.UserMessage
 import com.lionotter.recipes.messages.toUserMessage
 import com.lionotter.recipes.ui.navigation.Route
 import com.lionotter.recipes.util.ErrorLog
+import com.lionotter.recipes.util.IoDispatcher
 import com.lionotter.recipes.worker.ImportInputStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,17 +41,21 @@ import javax.inject.Inject
 @HiltViewModel
 class ImportSelectionViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
-    private val recipeRepository: IRecipeRepository,
+    private val recipeRepository: RecipeRepository,
     private val paprikaParser: PaprikaParser,
     private val zipImportHelper: ZipImportHelper,
     private val inputStore: ImportInputStore,
-    private val importQueue: ImportQueue
+    private val importQueue: ImportQueue,
+    @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : ViewModel() {
 
     companion object {
         private const val TAG = "ImportSelectionVM"
         private const val KEY_SELECTED_IDS = "import_selection_selected_ids"
         private const val KEY_STAGED_IMPORT_ID = "import_selection_staged_id"
+
+        /** New recipes first, then by name. */
+        private val SELECTION_ORDER = compareBy<ImportSelectionItem> { it.alreadyExists }.thenBy { it.name.lowercase() }
     }
 
     private val _uiState = MutableStateFlow<ImportSelectionUiState>(ImportSelectionUiState.Loading)
@@ -94,7 +99,7 @@ class ImportSelectionViewModel @Inject constructor(
             stagedImportId = importId
             val file = inputStore.sourceFile(importId)
 
-            val actualType = withContext(Dispatchers.IO) { detectImportType(file) }
+            val actualType = withContext(ioDispatcher) { detectImportType(file) }
             if (actualType == null) {
                 Log.w(TAG, "Not a recipe export (hint was $typeHint)")
                 _uiState.value = archiveError(ArchiveFailure.NOT_AN_EXPORT)
@@ -102,9 +107,11 @@ class ImportSelectionViewModel @Inject constructor(
             }
             currentImportType = actualType
 
-            when (actualType) {
-                ImportType.PAPRIKA -> parsePaprikaFile(file)
-                ImportType.LORECIPES -> parseZipContents(file)
+            _uiState.value = withContext(ioDispatcher) {
+                when (actualType) {
+                    ImportType.PAPRIKA -> parsePaprikaFile(file)
+                    ImportType.LORECIPES -> parseZipContents(file)
+                }
             }
             applySavedSelection()
         }
@@ -187,73 +194,57 @@ class ImportSelectionViewModel @Inject constructor(
         }
     }
 
-    private suspend fun parsePaprikaFile(file: File) {
-        withContext(Dispatchers.IO) {
-            try {
-                val recipes = file.inputStream().use { paprikaParser.parseIndex(BufferedInputStream(it)) }
-                if (recipes.isEmpty()) {
-                    _uiState.value = archiveError(ArchiveFailure.NO_RECIPES)
-                    return@withContext
-                }
-
-                val existingRecipes = recipeRepository.getAllRecipeIdsAndNames()
-                val existingNames = existingRecipes.map { it.name.lowercase() }.toSet()
-
-                val items = recipes.distinctBy { it.uid }.map { recipe ->
-                    val exists = recipe.name.lowercase() in existingNames
-                    ImportSelectionItem(
-                        id = recipe.uid,
-                        name = recipe.name,
-                        isSelected = !exists,
-                        alreadyExists = exists
-                    )
-                }.sortedWith(compareBy<ImportSelectionItem> { it.alreadyExists }.thenBy { it.name.lowercase() })
-
-                _uiState.value = ImportSelectionUiState.Ready(items)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                ErrorLog.e(TAG, "Failed to parse Paprika export", e)
-                _uiState.value = archiveError(ArchiveFailure.UNREADABLE)
+    /** Blocking; call on [ioDispatcher]. */
+    private suspend fun parsePaprikaFile(file: File): ImportSelectionUiState = try {
+        val recipes = file.inputStream().use { paprikaParser.parseIndex(BufferedInputStream(it)) }
+        if (recipes.isEmpty()) {
+            archiveError(ArchiveFailure.NO_RECIPES)
+        } else {
+            val existingNames = recipeRepository.getAllRecipeIdsAndNames().map { it.name.lowercase() }.toSet()
+            val items = recipes.distinctBy { it.uid }.map { recipe ->
+                val exists = recipe.name.lowercase() in existingNames
+                ImportSelectionItem(
+                    id = recipe.uid,
+                    name = recipe.name,
+                    isSelected = !exists,
+                    alreadyExists = exists
+                )
             }
+            ImportSelectionUiState.Ready(items.sortedWith(SELECTION_ORDER))
         }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        ErrorLog.e(TAG, "Failed to parse Paprika export", e)
+        archiveError(ArchiveFailure.UNREADABLE)
     }
 
-    private suspend fun parseZipContents(file: File) {
-        withContext(Dispatchers.IO) {
-            try {
-                val index = file.inputStream().use { zipImportHelper.readRecipeIndex(BufferedInputStream(it)) }
+    /** Blocking; call on [ioDispatcher]. */
+    private suspend fun parseZipContents(file: File): ImportSelectionUiState = try {
+        val index = file.inputStream().use { zipImportHelper.readRecipeIndex(BufferedInputStream(it)) }
+        val existingRecipes = recipeRepository.getAllRecipeIdsAndNames()
+        val existingIds = existingRecipes.map { it.id }.toSet()
+        val existingNames = existingRecipes.map { it.name.lowercase() }.toSet()
 
-                val existingRecipes = recipeRepository.getAllRecipeIdsAndNames()
-                val existingIds = existingRecipes.map { it.id }.toSet()
-                val existingNames = existingRecipes.map { it.name.lowercase() }.toSet()
-
-                val items = index
-                    .distinctBy { it.id }
-                    .map { recipe ->
-                        val exists = recipe.id in existingIds || recipe.name.lowercase() in existingNames
-                        ImportSelectionItem(
-                            id = recipe.id,
-                            name = recipe.name,
-                            isSelected = !exists,
-                            alreadyExists = exists
-                        )
-                    }
-                    .sortedWith(compareBy<ImportSelectionItem> { it.alreadyExists }.thenBy { it.name.lowercase() })
-
-                if (items.isEmpty()) {
-                    _uiState.value = archiveError(ArchiveFailure.NO_RECIPES)
-                    return@withContext
-                }
-
-                _uiState.value = ImportSelectionUiState.Ready(items)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                ErrorLog.e(TAG, "Failed to read ZIP contents", e)
-                _uiState.value = archiveError(ArchiveFailure.UNREADABLE)
+        val items = index
+            .distinctBy { it.id }
+            .map { recipe ->
+                val exists = recipe.id in existingIds || recipe.name.lowercase() in existingNames
+                ImportSelectionItem(
+                    id = recipe.id,
+                    name = recipe.name,
+                    isSelected = !exists,
+                    alreadyExists = exists
+                )
             }
-        }
+            .sortedWith(SELECTION_ORDER)
+
+        if (items.isEmpty()) archiveError(ArchiveFailure.NO_RECIPES) else ImportSelectionUiState.Ready(items)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        ErrorLog.e(TAG, "Failed to read ZIP contents", e)
+        archiveError(ArchiveFailure.UNREADABLE)
     }
 
     /**

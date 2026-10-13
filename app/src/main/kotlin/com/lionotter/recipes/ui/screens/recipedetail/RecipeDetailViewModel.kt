@@ -12,25 +12,26 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
 import com.lionotter.recipes.R
-import com.lionotter.recipes.data.local.SettingsDataStore
-import com.lionotter.recipes.data.repository.IMealPlanRepository
-import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.IngredientUsageStatus
 import com.lionotter.recipes.domain.model.InstructionIngredientKey
 import com.lionotter.recipes.domain.model.MeasurementPreference
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.domain.model.createInstructionIngredientKey
+import com.lionotter.recipes.domain.port.AppSettings
+import com.lionotter.recipes.domain.repository.MealPlanRepository
+import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.domain.usecase.CalculateIngredientUsageUseCase
 import com.lionotter.recipes.domain.usecase.ExportSingleRecipeUseCase
 import com.lionotter.recipes.domain.util.RecipeSerializer
 import com.lionotter.recipes.messages.UserMessage
 import com.lionotter.recipes.ui.navigation.Route
 import com.lionotter.recipes.util.ErrorLog
+import com.lionotter.recipes.util.IoDispatcher
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
@@ -79,13 +80,14 @@ sealed interface RecipeDetailEvent {
 @HiltViewModel
 class RecipeDetailViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
-    private val recipeRepository: IRecipeRepository,
-    private val mealPlanRepository: IMealPlanRepository,
-    private val settingsDataStore: SettingsDataStore,
+    private val recipeRepository: RecipeRepository,
+    private val mealPlanRepository: MealPlanRepository,
+    private val settings: AppSettings,
     private val calculateIngredientUsage: CalculateIngredientUsageUseCase,
     private val exportSingleRecipeUseCase: ExportSingleRecipeUseCase,
     private val recipeSerializer: RecipeSerializer,
-    @param:ApplicationContext private val applicationContext: Context
+    @param:ApplicationContext private val applicationContext: Context,
+    @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : ViewModel() {
 
     companion object {
@@ -134,28 +136,28 @@ class RecipeDetailViewModel @Inject constructor(
         initialValue = RecipeDetailState.Loading
     )
 
-    val keepScreenOn: StateFlow<Boolean> = settingsDataStore.keepScreenOn
+    val keepScreenOn: StateFlow<Boolean> = settings.keepScreenOn
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = true
         )
 
-    val volumeUnitSystem: StateFlow<UnitSystem> = settingsDataStore.volumeUnitSystem
+    val volumeUnitSystem: StateFlow<UnitSystem> = settings.volumeUnitSystem
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = UnitSystem.localeDefault()
         )
 
-    val weightUnitSystem: StateFlow<UnitSystem> = settingsDataStore.weightUnitSystem
+    val weightUnitSystem: StateFlow<UnitSystem> = settings.weightUnitSystem
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = UnitSystem.localeDefault()
         )
 
-    val hasApiKey: StateFlow<Boolean> = settingsDataStore.anthropicApiKey
+    val hasApiKey: StateFlow<Boolean> = settings.anthropicApiKey
         .map { !it.isNullOrBlank() }
         .stateIn(
             scope = viewModelScope,
@@ -482,7 +484,7 @@ class RecipeDetailViewModel @Inject constructor(
         viewModelScope.launch {
             val currentRecipe = recipe.value ?: return@launch
             try {
-                val uri = withContext(Dispatchers.IO) {
+                val uri = withContext(ioDispatcher) {
                     val sharedDir = File(applicationContext.cacheDir, "shared_recipes").apply { mkdirs() }
                     val fileName = "${recipeSerializer.sanitizeFolderName(currentRecipe.name)}.lorecipes"
                     val file = File(sharedDir, fileName)

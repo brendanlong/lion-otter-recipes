@@ -8,6 +8,7 @@ import com.lionotter.recipes.util.AppJson
 import io.mockk.every
 import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
+import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -15,7 +16,7 @@ import org.junit.Before
 import org.junit.Test
 
 class AnthropicRecipeParserTest {
-    private val parser = AnthropicRecipeParser(AppJson)
+    private val parser = AnthropicRecipeParser(AppJson, Dispatchers.Unconfined)
 
     @Before
     fun setUp() {

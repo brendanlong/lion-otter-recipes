@@ -1,21 +1,17 @@
 package com.lionotter.recipes.domain.model
 
-import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.Stable
 import kotlin.time.Instant
 import kotlinx.serialization.Serializable
 
 /**
  * User preference for how measurements should be displayed.
  */
-@Stable
 enum class MeasurementPreference {
     DEFAULT,   // Show the measurement as provided by the recipe
     VOLUME,    // Convert to volume using density
     WEIGHT     // Convert to weight using density
 }
 
-@Immutable
 @Serializable
 data class Recipe(
     val id: String,
@@ -93,7 +89,6 @@ data class Recipe(
         )
 }
 
-@Immutable
 @Serializable
 data class IngredientSection(
     val name: String? = null,
@@ -105,14 +100,12 @@ data class IngredientSection(
  * Unit is one of: mg, g, kg, oz, lb (weight), mL, L, tsp, tbsp, cup, fl_oz, pint, quart, gal (volume),
  * or omitted for count items.
  */
-@Immutable
 @Serializable
 data class Amount(
     val value: Double? = null,
     val unit: String? = null
 )
 
-@Immutable
 @Serializable
 data class Ingredient(
     val name: String,
@@ -194,14 +187,12 @@ data class Ingredient(
 
 }
 
-@Immutable
 @Serializable
 data class InstructionSection(
     val name: String? = null,
     val steps: List<InstructionStep> = emptyList()
 )
 
-@Immutable
 @Serializable
 data class InstructionStep(
     val stepNumber: Int,

@@ -5,19 +5,20 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lionotter.recipes.R
-import com.lionotter.recipes.data.repository.IMealPlanRepository
-import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.hasTag
 import com.lionotter.recipes.domain.model.matchesSearch
+import com.lionotter.recipes.domain.repository.MealPlanRepository
+import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.domain.usecase.GetTagsUseCase
 import com.lionotter.recipes.imports.ImportMonitor
 import com.lionotter.recipes.imports.ImportQueue
 import com.lionotter.recipes.messages.UserMessage
 import com.lionotter.recipes.ui.state.RecipeListItem
+import com.lionotter.recipes.util.DefaultDispatcher
 import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -42,8 +43,9 @@ class RecipeListViewModel @Inject constructor(
     private val getTagsUseCase: GetTagsUseCase,
     private val importQueue: ImportQueue,
     private val importMonitor: ImportMonitor,
-    private val recipeRepository: IRecipeRepository,
-    private val mealPlanRepository: IMealPlanRepository,
+    private val recipeRepository: RecipeRepository,
+    private val mealPlanRepository: MealPlanRepository,
+    @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
 ) : ViewModel() {
 
     companion object {
@@ -90,7 +92,7 @@ class RecipeListViewModel @Inject constructor(
     val availableTags: StateFlow<List<String>> = recipeRepository.getAllRecipes()
         .distinctUntilChangedBy { recipes -> recipes.map { it.id to it.tags } }
         .map { recipes -> getTagsUseCase.execute(recipes) }
-        .flowOn(Dispatchers.Default)
+        .flowOn(defaultDispatcher)
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),

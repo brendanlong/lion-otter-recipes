@@ -1,9 +1,11 @@
 package com.lionotter.recipes.data.paprika
 
-import android.util.Log
+import com.lionotter.recipes.domain.port.PaprikaExportReader
+import com.lionotter.recipes.domain.port.PaprikaExportRecipe
 import com.lionotter.recipes.domain.util.ArchiveBudget
 import com.lionotter.recipes.domain.util.ArchiveTooLargeException
 import com.lionotter.recipes.domain.util.BoundedInputStream
+import com.lionotter.recipes.util.ErrorLog
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.ByteArrayInputStream
@@ -26,7 +28,7 @@ data class PaprikaIndexEntry(val uid: String, val name: String)
  */
 class PaprikaParser @Inject constructor(
     private val json: Json
-) {
+) : PaprikaExportReader {
     companion object {
         private const val TAG = "PaprikaParser"
         private const val MAX_COMPRESSED_ENTRY_BYTES = 30L * 1024 * 1024
@@ -57,17 +59,36 @@ class PaprikaParser @Inject constructor(
         }
     }
 
+    override fun readRecipes(
+        inputStream: InputStream,
+        onError: (entryName: String, error: Exception) -> Unit,
+        onRecipe: (PaprikaExportRecipe) -> Unit
+    ) {
+        forEachRecipe(inputStream, onError) { recipe ->
+            onRecipe(
+                PaprikaExportRecipe(
+                    uid = recipe.uid,
+                    name = recipe.name,
+                    sourceUrl = recipe.sourceUrl,
+                    imageUrl = recipe.imageUrl,
+                    photoData = recipe.photoData,
+                    contentForAi = formatForAi(recipe)
+                )
+            )
+        }
+    }
+
     /** Read only the uid and name of every recipe (photos are not decoded). */
     fun parseIndex(inputStream: InputStream): List<PaprikaIndexEntry> {
         val results = mutableListOf<PaprikaIndexEntry>()
         forEachRecipeJson(
             inputStream,
-            onError = { name, e -> Log.w(TAG, "Skipping unreadable Paprika entry $name", e) }
+            onError = { name, e -> ErrorLog.w(TAG, "Skipping unreadable Paprika entry $name", e) }
         ) { entryName, jsonString ->
             try {
                 results.add(json.decodeFromString<PaprikaIndexEntry>(jsonString))
             } catch (e: Exception) {
-                Log.w(TAG, "Skipping malformed Paprika entry $entryName", e)
+                ErrorLog.w(TAG, "Skipping malformed Paprika entry $entryName", e)
             }
         }
         return results
@@ -81,7 +102,7 @@ class PaprikaParser @Inject constructor(
         val recipes = mutableListOf<PaprikaRecipe>()
         forEachRecipe(
             inputStream,
-            onError = { name, e -> Log.w(TAG, "Skipping unreadable Paprika entry $name", e) }
+            onError = { name, e -> ErrorLog.w(TAG, "Skipping unreadable Paprika entry $name", e) }
         ) { recipes.add(it) }
         return recipes
     }

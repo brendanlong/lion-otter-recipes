@@ -2,24 +2,6 @@
 <SmellBaseline>
   <ManuallySuppressedIssues/>
   <CurrentIssues>
-    <ID>InjectDispatcher:AnthropicRecipeParser.kt:AnthropicRecipeParser$IO</ID>
-    <ID>InjectDispatcher:AppModule.kt:AppModule$Default</ID>
-    <ID>InjectDispatcher:EditRecipeViewModel.kt:EditRecipeViewModel$IO</ID>
-    <ID>InjectDispatcher:ImageDownloadService.kt:ImageDownloadService$Default</ID>
-    <ID>InjectDispatcher:ImageDownloadService.kt:ImageDownloadService$IO</ID>
-    <ID>InjectDispatcher:ImageSyncService.kt:ImageCacheConfig$IO</ID>
-    <ID>InjectDispatcher:ImageSyncService.kt:ImageSyncService$Default</ID>
-    <ID>InjectDispatcher:ImageSyncService.kt:ImageSyncService$IO</ID>
-    <ID>InjectDispatcher:ImportDebugDetailViewModel.kt:ImportDebugDetailViewModel$IO</ID>
-    <ID>InjectDispatcher:ImportInputStore.kt:ImportInputStore$IO</ID>
-    <ID>InjectDispatcher:ImportPaprikaUseCase.kt:ImportPaprikaUseCase$IO</ID>
-    <ID>InjectDispatcher:ImportSelectionViewModel.kt:ImportSelectionViewModel$IO</ID>
-    <ID>InjectDispatcher:MealPlanRepository.kt:MealPlanRepository$Default</ID>
-    <ID>InjectDispatcher:MealPlanViewModel.kt:MealPlanViewModel$Default</ID>
-    <ID>InjectDispatcher:RecipeDetailViewModel.kt:RecipeDetailViewModel$IO</ID>
-    <ID>InjectDispatcher:RecipeListViewModel.kt:RecipeListViewModel$Default</ID>
-    <ID>InjectDispatcher:RecipeRepository.kt:RecipeRepository$Default</ID>
-    <ID>InjectDispatcher:SettingsDataStore.kt:SettingsDataStore$IO</ID>
     <ID>SuspendFunSwallowedCancellation:AccountMigrationService.kt:AccountMigrationService$catch (e: CancellationException) { cleanupMigrationApp(migrationApp) throw e }</ID>
     <ID>SuspendFunSwallowedCancellation:AccountMigrationService.kt:AccountMigrationService$catch (e: Exception) { Firebase.auth.signOut() // A timed-out sign-in can still complete later; undo it then too signIn.addOnSuccessListener { Firebase.auth.signOut() } throw e }</ID>
     <ID>SuspendFunSwallowedCancellation:AccountMigrationService.kt:AccountMigrationService$catch (e: Exception) { Log.w(TAG, "Error during Firestore cleanup for migration app", e) }</ID>

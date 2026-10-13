@@ -1,13 +1,10 @@
 package com.lionotter.recipes.testutil
 
-import com.lionotter.recipes.data.local.RecipeIdAndName
-import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.model.AiModels
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.InstructionStep
 import com.lionotter.recipes.domain.model.Ingredient
-import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.port.AiSettings
 import com.lionotter.recipes.domain.port.BatchItemOutcome
 import com.lionotter.recipes.domain.port.BatchParseRequest
@@ -27,46 +24,10 @@ import com.lionotter.recipes.domain.port.RecipeBatchParser
 import com.lionotter.recipes.domain.port.RecipeParser
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.map
+import java.io.File
 import java.io.InputStream
 
 /** In-memory fakes of the ports the AI use cases depend on. */
-
-class FakeRecipeRepository(vararg initial: Recipe) : IRecipeRepository {
-    val recipes = MutableStateFlow(initial.associateBy { it.id })
-    val saved = mutableListOf<Recipe>()
-
-    /** Overrides the count, to test the recipe limit without creating that many recipes. */
-    var countOverride: Int? = null
-
-    override fun getAllRecipes(): Flow<List<Recipe>> = recipes.map { it.values.toList() }
-    override fun getRecipeById(id: String): Flow<Recipe?> = recipes.map { it[id] }
-    override suspend fun getRecipeByIdOnce(id: String): Recipe? = recipes.value[id]
-
-    override fun saveRecipe(recipe: Recipe) {
-        saved += recipe
-        recipes.value += recipe.id to recipe
-    }
-
-    override fun deleteRecipe(id: String) {
-        recipes.value -= id
-    }
-
-    override fun setFavorite(id: String, isFavorite: Boolean) = update(id) { it.copy(isFavorite = isFavorite) }
-    override fun setUserNotes(id: String, userNotes: String?) = update(id) { it.copy(userNotes = userNotes) }
-    override fun setImageUrl(id: String, imageUrl: String?) = update(id) { it.copy(imageUrl = imageUrl) }
-    override fun updateTitleAndUrl(id: String, name: String, sourceUrl: String?) =
-        update(id) { it.copy(name = name, sourceUrl = sourceUrl) }
-
-    override suspend fun getAllRecipeIdsAndNames(): List<RecipeIdAndName> =
-        recipes.value.values.map { RecipeIdAndName(it.id, it.name) }
-
-    override suspend fun getRecipeCount(): Int = countOverride ?: recipes.value.size
-
-    private fun update(id: String, change: (Recipe) -> Recipe) {
-        recipes.value[id]?.let { recipes.value += id to change(it) }
-    }
-}
 
 class FakeRecipeParser(
     var result: Outcome<ParsedRecipeWithUsage> = Outcome.Success(parsedWithUsage())
@@ -174,10 +135,30 @@ class FakeImageStore(private val failingUrls: Set<String> = emptySet()) : ImageS
         return "gs://bucket/" + localUri.substringAfterLast('/')
     }
 
+    /** Sizes of the images saved with [saveImageFromStream]. */
+    val savedStreams = mutableListOf<Int>()
+
     override suspend fun saveImageFromStream(inputStream: InputStream, extension: String): String? {
-        inputStream.close()
+        savedStreams += inputStream.use { it.readBytes() }.size
         return "file:///images/stream$extension"
     }
+
+    override suspend fun downloadImageIfNeeded(imageUrl: String?): String? = when {
+        imageUrl == null -> null
+        imageUrl.startsWith("file://") || imageUrl.startsWith("gs://") -> imageUrl
+        else -> downloadAndStoreWithResult(imageUrl)?.localUri
+    }
+
+    val deletedLocal = mutableListOf<String>()
+
+    override suspend fun deleteLocalImage(localUri: String) {
+        deletedLocal += localUri
+    }
+
+    /** Files returned by [localImageFile], by image URL. */
+    val localFiles = mutableMapOf<String, File>()
+
+    override suspend fun localImageFile(imageUrl: String): File? = localFiles[imageUrl]
 
     companion object {
         fun localUri(imageUrl: String) = "file:///images/" + imageUrl.substringAfterLast('/')

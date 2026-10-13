@@ -6,14 +6,16 @@ import com.lionotter.recipes.data.remote.DataFailure
 import com.lionotter.recipes.data.remote.DataOp
 import com.lionotter.recipes.data.remote.FirestoreService
 import com.lionotter.recipes.data.remote.dto.MealPlanDto
+import com.lionotter.recipes.data.remote.dto.MealPlanFields
 import com.lionotter.recipes.data.remote.dto.toDto
 import com.lionotter.recipes.data.remote.uid
 import com.lionotter.recipes.di.ApplicationScope
 import com.lionotter.recipes.domain.model.MealPlanEntry
+import com.lionotter.recipes.domain.repository.MealPlanRepository
+import com.lionotter.recipes.util.DefaultDispatcher
 import com.lionotter.recipes.util.ErrorLog
-import com.lionotter.recipes.data.remote.dto.MealPlanFields
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
@@ -30,11 +32,12 @@ import javax.inject.Singleton
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @Singleton
-class MealPlanRepository @Inject constructor(
+class FirestoreMealPlanRepository @Inject constructor(
     private val firestoreService: FirestoreService,
     private val authService: AuthService,
-    @param:ApplicationScope private val appScope: CoroutineScope
-) : IMealPlanRepository {
+    @param:ApplicationScope private val appScope: CoroutineScope,
+    @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
+) : MealPlanRepository {
     companion object {
         private const val TAG = "MealPlanRepository"
     }
@@ -61,7 +64,7 @@ class MealPlanRepository @Inject constructor(
                         .whereLessThanOrEqualTo("date", endDate.toString())
                         .snapshots(firestoreService, DataOp.LOAD_MEAL_PLANS)
                         .decodeIncrementally(TAG, ::decodeMealPlan)
-                        .flowOn(Dispatchers.Default)
+                        .flowOn(defaultDispatcher)
                 }
             }
             .conflate()
@@ -147,7 +150,7 @@ class MealPlanRepository @Inject constructor(
     override suspend fun getAllMealPlansOnce(): List<MealPlanEntry> =
         logFailure(TAG, "Error fetching all meal plans") {
             val snapshot = firestoreService.mealPlansCollection(authService.awaitUid()).get().await()
-            withContext(Dispatchers.Default) {
+            withContext(defaultDispatcher) {
                 snapshot.documents.mapNotNull { doc ->
                     try {
                         decodeMealPlan(doc)

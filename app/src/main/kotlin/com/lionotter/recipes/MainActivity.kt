@@ -26,11 +26,11 @@ import androidx.compose.ui.platform.LocalResources
 import androidx.core.content.IntentCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
-import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.AuthState
 import com.lionotter.recipes.data.remote.FirestoreService
 import com.lionotter.recipes.domain.model.ThemeMode
+import com.lionotter.recipes.domain.port.AppSettings
 import com.lionotter.recipes.messages.resolve
 import com.lionotter.recipes.messages.toUserMessage
 import com.lionotter.recipes.notification.RecipeNotificationHelper
@@ -58,7 +58,7 @@ class MainActivity : ComponentActivity() {
     lateinit var firestoreService: FirestoreService
 
     @Inject
-    lateinit var settingsDataStore: SettingsDataStore
+    lateinit var settings: AppSettings
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -83,7 +83,7 @@ class MainActivity : ComponentActivity() {
                 Toast.makeText(context, failure.toUserMessage().resolve(resources), Toast.LENGTH_SHORT).show()
             }
 
-            val themeMode by settingsDataStore.themeMode
+            val themeMode by settings.themeMode
                 .collectAsStateWithLifecycle(initialValue = ThemeMode.AUTO)
             val darkTheme = themeMode.isDarkTheme()
 

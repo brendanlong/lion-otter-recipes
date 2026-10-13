@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import androidx.exifinterface.media.ExifInterface
 import io.mockk.mockk
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -28,7 +29,7 @@ class ImageSyncServicePrepareTest {
     @get:Rule
     val tempFolder = TemporaryFolder()
 
-    private val service = ImageSyncService(RuntimeEnvironment.getApplication(), mockk(relaxed = true))
+    private val service = ImageSyncService(RuntimeEnvironment.getApplication(), mockk(relaxed = true), Dispatchers.IO, Dispatchers.Default)
 
     private fun writeJpeg(width: Int, height: Int, orientation: Int? = null): File {
         val file = tempFolder.newFile("img-${width}x$height-${orientation ?: 0}.jpg")

@@ -3,8 +3,9 @@ package com.lionotter.recipes.worker
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import com.lionotter.recipes.util.IoDispatcher
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -28,7 +29,8 @@ import javax.inject.Singleton
  */
 @Singleton
 class ImportInputStore @Inject constructor(
-    @param:ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context,
+    @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) {
     companion object {
         private const val TAG = "ImportInputStore"
@@ -65,7 +67,7 @@ class ImportInputStore @Inject constructor(
      * death (when the content:// grant is gone). The file only appears at [sourceFile] once the
      * copy is complete.
      */
-    suspend fun copySource(importId: String, uri: Uri): File = withContext(Dispatchers.IO) {
+    suspend fun copySource(importId: String, uri: Uri): File = withContext(ioDispatcher) {
         val target = sourceFile(importId)
         val partial = File(target.parentFile, "$SOURCE_FILE.partial")
         val input = context.contentResolver.openInputStream(uri)

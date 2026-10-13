@@ -1,9 +1,5 @@
 package com.lionotter.recipes.util
 
-import android.util.Log
-import io.mockk.every
-import io.mockk.mockkStatic
-import io.mockk.unmockkStatic
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
@@ -12,20 +8,32 @@ import org.junit.Test
 
 class ErrorLogTest {
     private val recorded = mutableListOf<Throwable>()
+    private val logged = mutableListOf<Pair<LogLevel, String>>()
+    private val defaultSink = ErrorLog.sink
 
     @Before
     fun setUp() {
-        mockkStatic(Log::class)
-        every { Log.e(any(), any()) } returns 0
-        every { Log.e(any(), any(), any()) } returns 0
-        every { Log.w(any(), any<String>(), any()) } returns 0
+        ErrorLog.sink = LogSink { level, _, message, _ -> logged += level to message }
         ErrorLog.recorder = { recorded.add(it) }
     }
 
     @After
     fun tearDown() {
         ErrorLog.recorder = null
-        unmockkStatic(Log::class)
+        ErrorLog.sink = defaultSink
+    }
+
+    @Test
+    fun `messages go to the sink at their level`() {
+        ErrorLog.w("Tag", "careful")
+        ErrorLog.e("Tag", "failed")
+        assertEquals(listOf(LogLevel.WARN to "careful", LogLevel.ERROR to "failed"), logged)
+    }
+
+    @Test
+    fun `warnings are not recorded`() {
+        ErrorLog.w("Tag", "careful", IllegalStateException("boom"))
+        assertEquals(emptyList<Throwable>(), recorded)
     }
 
     @Test

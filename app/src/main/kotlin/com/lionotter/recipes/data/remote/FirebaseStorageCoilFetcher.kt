@@ -9,6 +9,7 @@ import coil3.fetch.Fetcher
 import coil3.fetch.SourceFetchResult
 import coil3.key.Keyer
 import coil3.request.Options
+import kotlinx.coroutines.CoroutineDispatcher
 import okio.Path.Companion.toOkioPath
 import java.io.IOException
 
@@ -53,11 +54,12 @@ class FirebaseStorageKeyer : Keyer<FirebaseStorageUri> {
  */
 class FirebaseStorageCoilFetcher(
     private val storageUri: String,
-    private val context: Context
+    private val context: Context,
+    private val ioDispatcher: CoroutineDispatcher
 ) : Fetcher {
 
     override suspend fun fetch(): FetchResult {
-        val cacheFile = ImageCacheConfig.resolveToFile(storageUri, context)
+        val cacheFile = ImageCacheConfig.resolveToFile(storageUri, context, ioDispatcher)
             ?: throw IOException("Failed to download image: $storageUri")
 
         return SourceFetchResult(
@@ -73,9 +75,12 @@ class FirebaseStorageCoilFetcher(
     /**
      * Factory that creates [FirebaseStorageCoilFetcher] for [FirebaseStorageUri] data.
      */
-    class Factory(private val context: Context) : Fetcher.Factory<FirebaseStorageUri> {
+    class Factory(
+        private val context: Context,
+        private val ioDispatcher: CoroutineDispatcher
+    ) : Fetcher.Factory<FirebaseStorageUri> {
         override fun create(data: FirebaseStorageUri, options: Options, imageLoader: ImageLoader): Fetcher {
-            return FirebaseStorageCoilFetcher(data.uri, context)
+            return FirebaseStorageCoilFetcher(data.uri, context, ioDispatcher)
         }
     }
 }

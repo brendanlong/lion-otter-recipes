@@ -5,8 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
 import com.lionotter.recipes.R
-import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.port.AiSettings
 import com.lionotter.recipes.extractFirstUrl
 import com.lionotter.recipes.imports.ImportMonitor
 import com.lionotter.recipes.imports.ImportQueue
@@ -41,7 +41,7 @@ class AddRecipeViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     private val importQueue: ImportQueue,
     importMonitor: ImportMonitor,
-    settingsDataStore: SettingsDataStore
+    aiSettings: AiSettings
 ) : ViewModel() {
 
     private var startJob: Job? = null
@@ -91,7 +91,7 @@ class AddRecipeViewModel @Inject constructor(
         initialValue = AddRecipeUiState.Idle
     )
 
-    val hasApiKey: StateFlow<Boolean> = settingsDataStore.anthropicApiKey
+    val hasApiKey: StateFlow<Boolean> = aiSettings.anthropicApiKey
         .map { !it.isNullOrBlank() }
         .stateIn(
             scope = viewModelScope,

@@ -2,15 +2,20 @@ package com.lionotter.recipes.di
 
 import com.lionotter.recipes.data.ai.AnthropicRecipeParser
 import com.lionotter.recipes.data.ai.RecipeHtmlExtractor
+import com.lionotter.recipes.data.local.DataStoreGroceryListStateStore
 import com.lionotter.recipes.data.local.SettingsDataStore
+import com.lionotter.recipes.data.paprika.PaprikaParser
 import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.remote.WebScraperService
 import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.domain.port.AiSettings
+import com.lionotter.recipes.domain.port.AppSettings
+import com.lionotter.recipes.domain.port.GroceryListStateStore
 import com.lionotter.recipes.domain.port.ImageStore
 import com.lionotter.recipes.domain.port.ImportDebugLog
 import com.lionotter.recipes.domain.port.PageContentExtractor
 import com.lionotter.recipes.domain.port.PageFetcher
+import com.lionotter.recipes.domain.port.PaprikaExportReader
 import com.lionotter.recipes.domain.port.RecipeBatchParser
 import com.lionotter.recipes.domain.port.RecipeParser
 import dagger.Binds
@@ -19,10 +24,10 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 
-/** Binds the ports the import, edit and regenerate use cases depend on. */
+/** Binds the domain ports to their data-layer implementations. */
 @Module
 @InstallIn(SingletonComponent::class)
-abstract class AiModule {
+abstract class PortModule {
     @Binds
     abstract fun bindRecipeParser(impl: AnthropicRecipeParser): RecipeParser
 
@@ -34,6 +39,15 @@ abstract class AiModule {
 
     @Binds
     abstract fun bindAiSettings(impl: SettingsDataStore): AiSettings
+
+    @Binds
+    abstract fun bindAppSettings(impl: SettingsDataStore): AppSettings
+
+    @Binds
+    abstract fun bindGroceryListStateStore(impl: DataStoreGroceryListStateStore): GroceryListStateStore
+
+    @Binds
+    abstract fun bindPaprikaExportReader(impl: PaprikaParser): PaprikaExportReader
 
     @Binds
     abstract fun bindImageStore(impl: ImageDownloadService): ImageStore

@@ -218,11 +218,15 @@ subgraph app["Android App"]
             zip_import_helper -->|bounded reads| bounded_stream
         end
 
-        subgraph ports["Ports (domain/port, bound in AiModule)"]
+        subgraph ports["Ports and repository interfaces (domain/port, domain/repository; bound in PortModule / RepositoryModule)"]
+            port_repos["RecipeRepository / MealPlanRepository<br/>(domain/repository)"]
+            port_app_settings["AppSettings<br/>(all settings, read/write; extends AiSettings)"]
+            port_grocery["GroceryListStateStore<br/>(per-week grocery list state)"]
+            port_paprika["PaprikaExportReader<br/>(PaprikaExportRecipe)"]
             port_parser["RecipeParser / RecipeBatchParser<br/>(Outcome&lt;ParsedRecipeWithUsage&gt;, BatchStatus, BatchItemOutcome)"]
             port_fetch["PageFetcher / PageContentExtractor<br/>(FetchedPage, PageContent)"]
             port_settings["AiSettings<br/>(API key, model, thinking, debugging)"]
-            port_images["ImageStore"]
+            port_images["ImageStore<br/>(download, save, store, local files for export)"]
             port_debug["ImportDebugLog"]
         end
 
@@ -270,11 +274,9 @@ subgraph app["Android App"]
         edit_recipe -->|uses| parse_html
         parse_html -->|save debug data| port_debug
         export_zip -->|serialize| serializer
-        export_zip -->|read local images| image_dl
-        export_zip -->|resolve storage images| image_sync
+        export_zip -->|local image files| port_images
         export_single -->|serialize| serializer
-        export_single -->|read local images| image_dl
-        export_single -->|resolve storage images| image_sync
+        export_single -->|local image files| port_images
         import_paprika -->|save photos| port_images
         import_zip -->|import| zip_import_helper
     end
@@ -285,10 +287,10 @@ subgraph app["Android App"]
     subgraph data["Data Layer"]
 
         subgraph repository["Repository"]
-            repo["RecipeRepository"]
+            repo["FirestoreRecipeRepository"]
             import_debug_repo["ImportDebugRepository"]
             pending_import_repo["PendingImportRepository"]
-            meal_plan_repo["MealPlanRepository"]
+            meal_plan_repo["FirestoreMealPlanRepository"]
             firestore_flows["FirestoreFlows<br/>(error-tolerant listener, incremental decoding,<br/>fire-and-forget writes in @ApplicationScope)"]
         end
 
@@ -302,7 +304,7 @@ subgraph app["Android App"]
             import_debug_entity["ImportDebugEntity"]
             image_storage[("Local Image Cache")]
             settings_ds["SettingsDataStore"]
-            grocery_state_store["GroceryListStateStore<br/>(own DataStore, per-week checked state)"]
+            grocery_state_store["DataStoreGroceryListStateStore<br/>(own DataStore, per-week checked state)"]
 
             import_debug_dao --> room
             import_debug_entity --> room
@@ -378,13 +380,13 @@ subgraph app["Android App"]
     %% Hilt DI
     %% --------------------------------------------------------
     subgraph di["Hilt DI"]
-        app_module["AppModule"]
+        app_module["AppModule<br/>(Json, @ApplicationScope, @IoDispatcher / @DefaultDispatcher)"]
         db_module["DatabaseModule"]
         net_module["NetworkModule"]
         worker_module["WorkerModule"]
         scheduler_module["SchedulerModule<br/>(ImageUploadScheduler binding)"]
-        ai_module["AiModule<br/>(domain port bindings)"]
-        ai_module -.->|binds| ports
+        port_module["PortModule<br/>(domain port bindings)"]
+        port_module -.->|binds| ports
     end
 
     %% --------------------------------------------------------
@@ -397,9 +399,9 @@ subgraph app["Android App"]
     detail_vm -->|cascade delete meal plans| meal_plan_repo
     detail_vm -->|ingredient usage| calc_usage
     detail_vm -->|export .lorecipes| export_single
-    detail_vm -->|keep screen on, unit prefs| settings_ds
+    detail_vm -->|keep screen on, unit prefs| port_app_settings
     edit_vm -->|recipe, image| repo
-    edit_vm -->|edit model, thinking prefs| settings_ds
+    edit_vm -->|edit model, thinking prefs| port_app_settings
     edit_vm -->|save picked images| image_dl
     edit_vm -->|delete remote images| image_sync
     edit_vm -->|prepare edit / regenerate| work_scheduler
@@ -415,13 +417,14 @@ subgraph app["Android App"]
     zip_vm -->|track export| work_tracker
     meal_plan_vm -->|CRUD| meal_plan_repo
     meal_plan_vm -->|recipe list| repo
-    meal_plan_vm -->|start of week| settings_ds
+    meal_plan_vm -->|start of week| port_app_settings
     meal_plan_vm -->|top tags| tags
     grocery_list_vm -->|meal plans| meal_plan_repo
     grocery_list_vm -->|recipes| repo
     grocery_list_vm -->|aggregate ingredients| aggregate_grocery
-    grocery_list_vm -->|grocery unit prefs| settings_ds
-    grocery_list_vm -->|checked state per week| grocery_state_store
+    grocery_list_vm -->|grocery unit prefs| port_app_settings
+    grocery_list_vm -->|checked state per week| port_grocery
+    settings_vm -->|read / write settings| port_app_settings
     settings_vm -->|delete debug data| import_debug_repo
     settings_vm -->|"ImageUploadScheduler, after Google sign-in"| image_upload_scheduler
     image_dl -->|"ImageUploadScheduler, upload failed"| image_upload_scheduler
@@ -436,11 +439,11 @@ subgraph app["Android App"]
     zip_export_worker -->|execute| export_zip
     zip_import_worker -->|execute| import_zip
 
-    usecases -->|access data| repository
+    usecases -->|access data| port_repos
     zip_import_helper -->|save recipe, check duplicates| repo
     zip_import_helper -->|import meal plans| meal_plan_repo
-    zip_import_helper -->|download image| image_dl
-    import_paprika -->|parse export| parser
+    zip_import_helper -->|save / download / store images| port_images
+    import_paprika -->|read export| port_paprika
     import_paprika -->|parseText, saveBatchResult| parse_html
     import_paprika -->|batch API| port_parser
     import_paprika -->|API key, model| port_settings
@@ -453,12 +456,17 @@ subgraph app["Android App"]
     html_extractor -.->|implements PageContentExtractor| port_fetch
     scraper -->|preview image| html_extractor
     settings_ds -.->|implements| port_settings
+    settings_ds -.->|implements| port_app_settings
+    grocery_state_store -.->|implements| port_grocery
+    parser -.->|implements| port_paprika
+    repo -.->|implements| port_repos
+    meal_plan_repo -.->|implements| port_repos
     image_dl -.->|implements| port_images
     import_debug_repo -.->|implements| port_debug
     settings_ds -->|defaults| ai_models
     settings_vm -->|validate key| api_key_validator
 
-    lion_app["LionOtterApp<br/>(injects AuthService eagerly)"]
+    lion_app["LionOtterApp<br/>(injects AuthService eagerly, installs ErrorLog Android sink)"]
     lion_app -->|resolve auth state at startup| auth_svc
     lion_app -->|create notification channels| helper
     lion_app -->|"release builds: ErrorLog.e exceptions as non-fatals"| crashlytics
@@ -486,7 +494,7 @@ anthropic_parser -->|parse recipe| anthropic
 %% Testing Layer
 %% ============================================================
 subgraph testing["Testing"]
-    unit_tests["Unit Tests<br/>(AI use cases against in-memory port fakes,<br/>opt-in LiveAnthropicTest)"]
+    unit_tests["Unit Tests<br/>(use cases and ViewModels against in-memory fakes:<br/>testutil UseCaseFakes / RepositoryFakes, injected test dispatchers;<br/>opt-in LiveAnthropicTest)"]
     ui_integration_tests["UI Integration Tests<br/>(Robolectric + Compose)"]
     hilt_integration_tests["Full-Stack Integration Tests<br/>(Hilt + Robolectric + Room)"]
     test_tags["TestTags<br/>(ui.TestTags)"]

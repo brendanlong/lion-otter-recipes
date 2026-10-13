@@ -1,6 +1,5 @@
 package com.lionotter.recipes.data.remote
 
-import android.content.Context
 import android.util.Log
 import com.google.firebase.Firebase
 import com.google.firebase.auth.AuthCredential
@@ -11,10 +10,9 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.firestore
 import com.lionotter.recipes.data.local.SettingsDataStore
+import com.lionotter.recipes.data.remote.dto.RecipeFields
 import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.util.ErrorLog
-import com.lionotter.recipes.data.remote.dto.RecipeFields
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.tasks.await
@@ -41,7 +39,6 @@ import javax.inject.Singleton
  */
 @Singleton
 class AccountDeletionService @Inject constructor(
-    @param:ApplicationContext private val context: Context,
     private val firestoreService: FirestoreService,
     private val imageSyncService: ImageSyncService,
     private val importDebugRepository: ImportDebugRepository,
@@ -199,7 +196,7 @@ class AccountDeletionService @Inject constructor(
     }
 
     private suspend fun clearLocalUserData() {
-        ImageCacheConfig.clearCache(context)
+        imageSyncService.clearLocalCache()
         try {
             importDebugRepository.deleteAllDebugEntries()
         } catch (e: CancellationException) {

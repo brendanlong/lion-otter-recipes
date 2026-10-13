@@ -20,8 +20,9 @@ import com.lionotter.recipes.domain.port.ParsedRecipeWithUsage
 import com.lionotter.recipes.domain.port.RecipeBatchParser
 import com.lionotter.recipes.domain.port.RecipeParser
 import com.lionotter.recipes.util.ErrorLog
+import com.lionotter.recipes.util.IoDispatcher
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
@@ -35,7 +36,8 @@ import com.anthropic.models.beta.messages.MessageCreateParams as BetaMessageCrea
 /** Parses recipes with the Anthropic API (official SDK): single streamed requests and Message Batches. */
 @Singleton
 class AnthropicRecipeParser @Inject constructor(
-    json: Json
+    json: Json,
+    @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : RecipeParser, RecipeBatchParser {
     private val responseParser = RecipeResponseParser(json)
 
@@ -67,7 +69,7 @@ class AnthropicRecipeParser @Inject constructor(
 
             // Stream so large max_tokens values don't hit HTTP timeouts. The SDK is blocking,
             // so run on IO and close the stream if the coroutine is cancelled.
-            val message = withContext(Dispatchers.IO) {
+            val message = withContext(ioDispatcher) {
                 client.beta().messages().createStreaming(params).use { stream ->
                     // The read below blocks, so a sibling closes the stream to unblock it on cancel
                     val closeOnCancel = launch {
@@ -132,7 +134,7 @@ class AnthropicRecipeParser @Inject constructor(
                     .build()
             }
 
-            val batch = withContext(Dispatchers.IO) {
+            val batch = withContext(ioDispatcher) {
                 client.messages().batches().create(
                     BatchCreateParams.builder()
                         .requests(batchRequests)
@@ -152,7 +154,7 @@ class AnthropicRecipeParser @Inject constructor(
     override suspend fun getBatchStatus(batchId: String, apiKey: String): Outcome<BatchStatus> {
         return try {
             val client = clientFor(apiKey)
-            val batch = withContext(Dispatchers.IO) {
+            val batch = withContext(ioDispatcher) {
                 client.messages().batches().retrieve(batchId)
             }
             val counts = batch.requestCounts()
@@ -177,7 +179,7 @@ class AnthropicRecipeParser @Inject constructor(
     override suspend fun cancelBatch(batchId: String, apiKey: String): Outcome<Unit> {
         return try {
             val client = clientFor(apiKey)
-            withContext(Dispatchers.IO) {
+            withContext(ioDispatcher) {
                 client.messages().batches().cancel(batchId)
             }
             Outcome.Success(Unit)
@@ -197,7 +199,7 @@ class AnthropicRecipeParser @Inject constructor(
     ): Outcome<Unit> {
         return try {
             val client = clientFor(apiKey)
-            withContext(Dispatchers.IO) {
+            withContext(ioDispatcher) {
                 client.messages().batches().resultsStreaming(batchId).use { stream ->
                     val iterator = stream.stream().iterator()
                     while (iterator.hasNext()) {
