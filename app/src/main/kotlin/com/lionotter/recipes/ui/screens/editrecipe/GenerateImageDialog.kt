@@ -3,14 +3,8 @@ package com.lionotter.recipes.ui.screens.editrecipe
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -21,16 +15,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
 
-/**
- * Edits the prompt for a recipe's image before generating it. The sparkle button has the AI
- * write a prompt from the recipe.
- */
+/** Edits the prompt for a recipe's image before generating it. */
 @Composable
 fun GenerateImageDialog(
     prompt: String,
-    writingPrompt: Boolean,
     onPromptChange: (String) -> Unit,
-    onWritePrompt: () -> Unit,
     onGenerate: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
@@ -51,26 +40,12 @@ fun GenerateImageDialog(
                     onValueChange = onPromptChange,
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text(stringResource(R.string.image_prompt)) },
-                    placeholder = { Text(stringResource(R.string.image_prompt_placeholder)) },
-                    minLines = 4,
-                    enabled = !writingPrompt,
-                    trailingIcon = {
-                        if (writingPrompt) {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                        } else {
-                            IconButton(onClick = onWritePrompt) {
-                                Icon(
-                                    imageVector = Icons.Default.AutoAwesome,
-                                    contentDescription = stringResource(R.string.write_image_prompt)
-                                )
-                            }
-                        }
-                    }
+                    minLines = 4
                 )
             }
         },
         confirmButton = {
-            Button(onClick = onGenerate, enabled = prompt.isNotBlank() && !writingPrompt) {
+            Button(onClick = onGenerate, enabled = prompt.isNotBlank()) {
                 Text(stringResource(R.string.generate))
             }
         },

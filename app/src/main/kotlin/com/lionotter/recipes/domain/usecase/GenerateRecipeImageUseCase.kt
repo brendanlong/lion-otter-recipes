@@ -3,6 +3,7 @@ package com.lionotter.recipes.domain.usecase
 import com.lionotter.recipes.domain.AiFailure
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.ResourceLimits
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.port.AiSettings
 import com.lionotter.recipes.domain.port.ImageStore
@@ -20,13 +21,12 @@ import kotlin.coroutines.coroutineContext
 
 /**
  * Generates an image for a recipe and makes it the recipe's image. The prompt is the one given,
- * else the recipe's saved prompt, else one written by [WriteImagePromptUseCase] (and saved).
+ * else the recipe's saved prompt, else [fallbackPrompt].
  * If the recipe's image changes (or the recipe is deleted) while this runs, the user's change
  * wins and the generated image is thrown away.
  */
 class GenerateRecipeImageUseCase @Inject constructor(
     private val generator: RecipeImageGenerator,
-    private val writeImagePrompt: WriteImagePromptUseCase,
     private val recipeRepository: RecipeRepository,
     private val imageStore: ImageStore,
     private val aiSettings: AiSettings
@@ -39,9 +39,6 @@ class GenerateRecipeImageUseCase @Inject constructor(
          * missing image) image generation was turned off.
          */
         data object Skipped : Result
-
-        /** The recipe had no prompt, and writing one (with the Anthropic API) failed. */
-        data class PromptFailed(val error: RecipeError) : Result
 
         /** Generating the image (with the OpenAI API) failed. */
         data class ImageFailed(val error: RecipeError) : Result
@@ -59,10 +56,9 @@ class GenerateRecipeImageUseCase @Inject constructor(
         if (!replaceImage && recipe.imageUrl != null) return Result.Skipped
         val previousImageUrl = recipe.imageUrl
 
-        val imagePrompt = when (val resolved = resolvePrompt(recipe, prompt)) {
-            is Outcome.Success -> resolved.value
-            is Outcome.Failure -> return Result.PromptFailed(resolved.error)
-        }
+        val imagePrompt = prompt?.takeIf { it.isNotBlank() }
+            ?: recipe.imagePrompt?.takeIf { it.isNotBlank() }
+            ?: fallbackPrompt(recipe)
         val bytes = when (val generated = generator.generate(imagePrompt, apiKey)) {
             is Outcome.Success -> generated.value
             is Outcome.Failure -> return Result.ImageFailed(generated.error)
@@ -96,21 +92,20 @@ class GenerateRecipeImageUseCase @Inject constructor(
         }
     }
 
-    private suspend fun resolvePrompt(recipe: Recipe, prompt: String?): Outcome<String> {
-        prompt?.takeIf { it.isNotBlank() }?.let { return Outcome.Success(it) }
-        recipe.imagePrompt?.takeIf { it.isNotBlank() }?.let { return Outcome.Success(it) }
-        val written = writeImagePrompt.execute(recipe)
-        if (written is Outcome.Success) recipeRepository.setImagePrompt(recipe.id, written.value)
-        return written
-    }
-
     /** Whether recipe [recipeId] still exists with [imageUrl] as its image. */
     private suspend fun imageUnchanged(recipeId: String, imageUrl: String?): Boolean {
         val recipe = recipeRepository.getRecipeByIdOnce(recipeId) ?: return false
         return recipe.imageUrl == imageUrl
     }
 
-    private companion object {
-        const val TAG = "GenerateRecipeImage"
+    companion object {
+        private const val TAG = "GenerateRecipeImage"
+
+        /** A prompt for a recipe parsed before the AI wrote image prompts. */
+        fun fallbackPrompt(recipe: Recipe): String = buildString {
+            append("An appetizing, realistic photograph of ").append(recipe.name).append(", as it is served")
+            recipe.story?.takeIf { it.isNotBlank() }?.let { append(". ").append(it) }
+            append(". Natural lighting, simple setting, no text or people.")
+        }.take(ResourceLimits.MAX_IMAGE_PROMPT_CHARS)
     }
 }

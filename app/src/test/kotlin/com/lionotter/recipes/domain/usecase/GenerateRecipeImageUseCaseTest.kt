@@ -3,11 +3,9 @@ package com.lionotter.recipes.domain.usecase
 import com.lionotter.recipes.domain.AiFailure
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
-import com.lionotter.recipes.domain.model.AiModels
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.port.ImageStore
 import com.lionotter.recipes.testutil.FakeAiSettings
-import com.lionotter.recipes.testutil.FakeImagePromptWriter
 import com.lionotter.recipes.testutil.FakeImageStore
 import com.lionotter.recipes.testutil.FakeRecipeImageGenerator
 import com.lionotter.recipes.testutil.FakeRecipeRepository
@@ -30,12 +28,10 @@ class GenerateRecipeImageUseCaseTest {
     private val repository = FakeRecipeRepository(recipe)
     private val imageStore = FakeImageStore()
     private val generator = FakeRecipeImageGenerator()
-    private val promptWriter = FakeImagePromptWriter()
     private val settings = FakeAiSettings(openAiApiKey = "sk-openai")
 
     private fun useCase(store: ImageStore = imageStore) = GenerateRecipeImageUseCase(
         generator,
-        WriteImagePromptUseCase(promptWriter, settings),
         repository,
         store,
         settings
@@ -51,7 +47,6 @@ class GenerateRecipeImageUseCaseTest {
         assertEquals(listOf(FakeRecipeImageGenerator.GENERATED_IMAGE_SIZE), imageStore.savedStreams)
         assertEquals("gs://bucket/stream.jpg", imageUrl())
         assertEquals(GenerateRecipeImageUseCase.Result.Generated("gs://bucket/stream.jpg"), result)
-        assertTrue(promptWriter.requests.isEmpty())
     }
 
     @Test
@@ -62,33 +57,19 @@ class GenerateRecipeImageUseCaseTest {
     }
 
     @Test
-    fun `without a saved prompt, the edit model writes one and it is saved`() = runTest {
+    fun `without a saved prompt, one is made from the recipe`() = runTest {
         repository.setImagePrompt("r1", null)
 
         useCase().execute("r1", prompt = null, replaceImage = false)
 
-        val (markdown, apiKey, model) = promptWriter.requests.single()
-        assertTrue(markdown.contains("Banana Bread"))
-        assertEquals("sk-ant-test", apiKey)
-        assertEquals(AiModels.DEFAULT_EDIT_MODEL, model)
-        assertEquals("A written prompt", generator.prompts.single().first)
-        assertEquals("A written prompt", repository.recipes.value.getValue("r1").imagePrompt)
+        assertEquals(GenerateRecipeImageUseCase.fallbackPrompt(recipe), generator.prompts.single().first)
+        assertTrue(generator.prompts.single().first.contains("Banana Bread"))
     }
 
     @Test
-    fun `prompt failures are told apart from image failures`() = runTest {
-        repository.setImagePrompt("r1", null)
-        settings.apiKeyFlow.value = null
-        assertEquals(GenerateRecipeImageUseCase.Result.PromptFailed(RecipeError.NoApiKey), useCase().execute("r1", null, false))
-
-        settings.apiKeyFlow.value = "sk-ant-test"
-        promptWriter.result = Outcome.Failure(RecipeError.Ai(AiFailure.INVALID_API_KEY, 401))
-        assertEquals(
-            GenerateRecipeImageUseCase.Result.PromptFailed(RecipeError.Ai(AiFailure.INVALID_API_KEY, 401)),
-            useCase().execute("r1", null, false)
-        )
-
+    fun `image failures are returned and the recipe is unchanged`() = runTest {
         generator.result = Outcome.Failure(RecipeError.Ai(AiFailure.RATE_LIMITED, 429))
+
         assertEquals(
             GenerateRecipeImageUseCase.Result.ImageFailed(RecipeError.Ai(AiFailure.RATE_LIMITED, 429)),
             useCase().execute("r1", "prompt", false)

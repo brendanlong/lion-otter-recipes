@@ -164,7 +164,9 @@ ADDITIONAL GUIDELINES:
 
 IMAGE PROMPT:
 - Always write "imagePrompt" for a successfully parsed recipe; on an error response it is "".
-${ImagePrompts.GUIDELINES}
+- Write the prompt in English (at most 80 words) for an image generation model to create an appetizing, realistic photograph of the finished dish as it is served.
+- Describe the dish's appearance from its ingredients and steps (colors, textures, garnishes), the serving vessel and a simple setting, the camera angle and natural lighting.
+- Don't ask for text, labels, hands or people in the image.
 """.trimIndent()
 
     /**

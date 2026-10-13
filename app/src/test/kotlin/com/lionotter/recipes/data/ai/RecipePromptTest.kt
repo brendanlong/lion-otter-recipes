@@ -47,12 +47,6 @@ class RecipePromptTest {
     }
 
     @Test
-    fun `the parse and the prompt writer share the image prompt guidelines`() {
-        assertTrue(RecipePrompt.systemPrompt.contains(ImagePrompts.GUIDELINES))
-        assertTrue(ImagePrompts.writerSystemPrompt.contains(ImagePrompts.GUIDELINES))
-    }
-
-    @Test
     fun `user message includes user instructions`() {
         val message = RecipePrompt.buildUserMessage("RECIPE TEXT", aiInstructions = "make it vegan")
         assertTrue(message.contains("make it vegan"))

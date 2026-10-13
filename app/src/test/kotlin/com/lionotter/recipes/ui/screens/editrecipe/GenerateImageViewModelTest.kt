@@ -3,15 +3,10 @@ package com.lionotter.recipes.ui.screens.editrecipe
 import androidx.lifecycle.SavedStateHandle
 import androidx.navigation.testing.invoke
 import com.lionotter.recipes.R
-import com.lionotter.recipes.domain.AiFailure
-import com.lionotter.recipes.domain.Outcome
-import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.model.Recipe
-import com.lionotter.recipes.domain.usecase.WriteImagePromptUseCase
+import com.lionotter.recipes.domain.usecase.GenerateRecipeImageUseCase
 import com.lionotter.recipes.messages.UserMessage
-import com.lionotter.recipes.messages.toUserMessage
 import com.lionotter.recipes.testutil.FakeAiSettings
-import com.lionotter.recipes.testutil.FakeImagePromptWriter
 import com.lionotter.recipes.testutil.FakeRecipeImageScheduler
 import com.lionotter.recipes.testutil.FakeRecipeRepository
 import com.lionotter.recipes.ui.navigation.Route
@@ -46,7 +41,6 @@ class GenerateImageViewModelTest {
             updatedAt = Instant.fromEpochMilliseconds(0)
         )
     )
-    private val promptWriter = FakeImagePromptWriter()
     private val scheduler = FakeRecipeImageScheduler()
     private val settings = FakeAiSettings(openAiApiKey = "sk-openai")
     private lateinit var viewModel: GenerateImageViewModel
@@ -57,7 +51,6 @@ class GenerateImageViewModelTest {
         viewModel = GenerateImageViewModel(
             SavedStateHandle(route = Route.EditRecipe("r1")),
             repository,
-            WriteImagePromptUseCase(promptWriter, settings),
             scheduler,
             settings
         )
@@ -70,7 +63,7 @@ class GenerateImageViewModelTest {
 
     @Test
     fun `opens with the saved prompt and generates from the edited one`() = runTest(testDispatcher) {
-        viewModel.open("A loaf of banana bread")
+        viewModel.open(repository.recipes.value.getValue("r1"))
         assertEquals("A loaf of banana bread", viewModel.promptDraft.value)
 
         viewModel.onPromptChange("  Banana bread on a blue plate ")
@@ -87,44 +80,18 @@ class GenerateImageViewModelTest {
     }
 
     @Test
-    fun `the sparkle button fills in a prompt written by the AI`() = runTest(testDispatcher) {
-        viewModel.open(null)
-        assertEquals("", viewModel.promptDraft.value)
+    fun `a recipe without a saved prompt starts from a simple one`() = runTest(testDispatcher) {
+        val recipe = repository.recipes.value.getValue("r1").copy(imagePrompt = null)
 
-        viewModel.writePrompt()
-        advanceUntilIdle()
+        viewModel.open(recipe)
 
-        assertEquals("A written prompt", viewModel.promptDraft.value)
-        assertEquals(1, promptWriter.requests.size)
-    }
-
-    @Test
-    fun `a failed prompt is reported and the draft is kept`() = runTest(testDispatcher) {
-        val error = RecipeError.Ai(AiFailure.OVERLOADED, 529)
-        promptWriter.result = Outcome.Failure(error)
-        viewModel.open("A loaf of banana bread")
-
-        viewModel.writePrompt()
-        advanceUntilIdle()
-
-        assertEquals("A loaf of banana bread", viewModel.promptDraft.value)
-        assertEquals(error.toUserMessage(), viewModel.events.first())
-    }
-
-    @Test
-    fun `a prompt written after the dialog closed doesn't reopen it`() = runTest(testDispatcher) {
-        viewModel.open("A loaf of banana bread")
-        viewModel.writePrompt()
-        viewModel.dismiss()
-        advanceUntilIdle()
-
-        assertNull(viewModel.promptDraft.value)
+        assertEquals(GenerateRecipeImageUseCase.fallbackPrompt(recipe), viewModel.promptDraft.value)
     }
 
     @Test
     fun `a failure to start is reported`() = runTest(testDispatcher) {
         scheduler.error = IllegalStateException("WorkManager isn't initialized")
-        viewModel.open("A loaf of banana bread")
+        viewModel.open(repository.recipes.value.getValue("r1"))
 
         viewModel.generate()
         advanceUntilIdle()

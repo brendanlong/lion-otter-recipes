@@ -1,7 +1,6 @@
 package com.lionotter.recipes.di
 
 import com.lionotter.recipes.data.ai.AnthropicRecipeParser
-import com.lionotter.recipes.data.ai.AnthropicImagePromptWriter
 import com.lionotter.recipes.data.ai.AnthropicTagOrganizer
 import com.lionotter.recipes.data.ai.OpenAiImageGenerator
 import com.lionotter.recipes.data.ai.RecipeHtmlExtractor
@@ -14,7 +13,6 @@ import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.domain.port.AiSettings
 import com.lionotter.recipes.domain.port.AppSettings
 import com.lionotter.recipes.domain.port.GroceryListStateStore
-import com.lionotter.recipes.domain.port.ImagePromptWriter
 import com.lionotter.recipes.domain.port.ImageStore
 import com.lionotter.recipes.domain.port.ImportDebugLog
 import com.lionotter.recipes.domain.port.PageContentExtractor
@@ -43,9 +41,6 @@ abstract class PortModule {
 
     @Binds
     abstract fun bindRecipeImageGenerator(impl: OpenAiImageGenerator): RecipeImageGenerator
-
-    @Binds
-    abstract fun bindImagePromptWriter(impl: AnthropicImagePromptWriter): ImagePromptWriter
 
     @Binds
     abstract fun bindTagOrganizer(impl: AnthropicTagOrganizer): TagOrganizer

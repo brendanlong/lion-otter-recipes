@@ -91,7 +91,7 @@ class RecipeImageWorker @AssistedInject constructor(
                 Log.d(TAG, "Image generation for recipe $recipeId: $result")
                 Result.success()
             } else {
-                failed(recipeId, result, error)
+                failed(recipeId, error)
             }
         } catch (e: CancellationException) {
             throw e
@@ -101,12 +101,11 @@ class RecipeImageWorker @AssistedInject constructor(
             Result.failure()
         } catch (e: Exception) {
             ErrorLog.e(TAG, "Image generation failed unexpectedly", e)
-            val unexpected = GenerateRecipeImageUseCase.Result.ImageFailed(RecipeError.Unexpected)
-            failed(recipeId, unexpected, RecipeError.Unexpected)
+            failed(recipeId, RecipeError.Unexpected)
         }
     }
 
-    private fun failed(recipeId: String, result: GenerateRecipeImageUseCase.Result, error: RecipeError): Result {
+    private fun failed(recipeId: String, error: RecipeError): Result {
         if (error.retryable && runAttemptCount + 1 < MAX_ATTEMPTS) {
             Log.w(TAG, "Image generation attempt ${runAttemptCount + 1} failed, will retry: ${error.logDescription()}")
             return Result.retry()
@@ -117,7 +116,7 @@ class RecipeImageWorker @AssistedInject constructor(
         notificationHelper.showErrorNotification(
             key = if (accountProblem) ImageGenerationFailures.ACCOUNT_PROBLEM_NOTIFICATION_KEY else "recipe-image-$recipeId",
             title = resources.getString(R.string.image_generation_failed_title),
-            errorMessage = ImageGenerationFailures.message(resources, result)
+            errorMessage = ImageGenerationFailures.message(resources, error)
         )
         return if (accountProblem) Result.failure() else Result.success()
     }

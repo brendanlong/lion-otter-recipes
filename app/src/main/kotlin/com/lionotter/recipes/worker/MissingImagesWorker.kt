@@ -77,7 +77,7 @@ class MissingImagesWorker @AssistedInject constructor(
                 notificationHelper.showErrorNotification(
                     key = ImageGenerationFailures.ACCOUNT_PROBLEM_NOTIFICATION_KEY,
                     title = errorTitle,
-                    errorMessage = ImageGenerationFailures.message(resources, result)
+                    errorMessage = ImageGenerationFailures.message(resources, error)
                 )
                 return Result.success()
             }

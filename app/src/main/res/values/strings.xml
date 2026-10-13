@@ -168,8 +168,8 @@
     <string name="generate_missing_images_description">Create pictures in the background for recipes imported without one. Turning this off also stops images that are waiting to be made.</string>
     <string name="generate_images_for_existing_recipes">Generate images for existing recipes</string>
     <plurals name="generate_missing_images_confirmation">
-        <item quantity="one">Create an image for the %d recipe without one? Each image costs about a cent with OpenAI, plus a small Claude request to write its prompt if the recipe doesn\'t have one yet.</item>
-        <item quantity="other">Create images for the %d recipes without one? Each image costs about a cent with OpenAI, plus a small Claude request to write its prompt if the recipe doesn\'t have one yet. They are made one at a time in the background; turn off \"Generate missing images\" to stop.</item>
+        <item quantity="one">Create an image for the %d recipe without one? Images cost about a cent each with OpenAI.</item>
+        <item quantity="other">Create images for the %d recipes without one? Images cost about a cent each with OpenAI. They are made one at a time in the background; turn off \"Generate missing images\" to stop.</item>
     </plurals>
     <plurals name="generating_missing_images">
         <item quantity="one">Creating %d image in the background</item>
@@ -178,10 +178,8 @@
     <string name="no_missing_images">All your recipes have images</string>
     <string name="missing_images_read_failed">Couldn\'t read your recipes. Please try again.</string>
     <string name="generate_image">Generate Image</string>
-    <string name="generate_image_description">The new image replaces the recipe\'s current one as soon as it\'s ready, even if you don\'t save. Edit the prompt to change what it shows, or tap the sparkles to have Claude write a new one.</string>
+    <string name="generate_image_description">The new image replaces the recipe\'s current one as soon as it\'s ready, even if you don\'t save. Edit the prompt to change what it shows.</string>
     <string name="image_prompt">Image prompt</string>
-    <string name="image_prompt_placeholder">Describe the photo, or tap the sparkles</string>
-    <string name="write_image_prompt">Write a prompt with AI</string>
     <string name="generate">Generate</string>
     <string name="generating_image">Creating the image in the background</string>
     <string name="generate_image_failed">Couldn\'t start creating the image. Please try again.</string>
@@ -191,7 +189,6 @@
         <item quantity="one">Couldn\'t create %d image.</item>
         <item quantity="other">Couldn\'t create %d images.</item>
     </plurals>
-    <string name="image_prompt_write_failed">Couldn\'t write an image prompt. Please try again.</string>
     <string name="ai_models">AI Models</string>
     <string name="ai_model">AI Model</string>
     <string name="ai_model_description">Choose the Claude models to use for recipe operations. Better models may provide more accurate results but cost more.</string>

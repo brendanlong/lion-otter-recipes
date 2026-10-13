@@ -14,10 +14,8 @@ import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.usecase.GenerateRecipeImageUseCase
-import com.lionotter.recipes.domain.usecase.WriteImagePromptUseCase
 import com.lionotter.recipes.notification.RecipeNotificationHelper
 import com.lionotter.recipes.testutil.FakeAiSettings
-import com.lionotter.recipes.testutil.FakeImagePromptWriter
 import com.lionotter.recipes.testutil.FakeImageStore
 import com.lionotter.recipes.testutil.FakeRecipeImageGenerator
 import com.lionotter.recipes.testutil.FakeRecipeRepository
@@ -51,10 +49,8 @@ class RecipeImageWorkerTest {
     )
     private val generator = FakeRecipeImageGenerator()
     private val settings = FakeAiSettings(openAiApiKey = "sk-openai")
-    private val promptWriter = FakeImagePromptWriter()
     private val useCase = GenerateRecipeImageUseCase(
         generator,
-        WriteImagePromptUseCase(promptWriter, settings),
         repository,
         FakeImageStore(),
         settings
@@ -112,16 +108,6 @@ class RecipeImageWorkerTest {
         val last = worker(runAttemptCount = RecipeImageWorker.MAX_ATTEMPTS - 1).doWork()
         assertTrue(last is ListenableWorker.Result.Success)
         assertEquals(1, notifications.allNotifications.size)
-    }
-
-    @Test
-    fun `a rejected Anthropic key while writing a prompt isn't blamed on OpenAI`() = runTest {
-        promptWriter.result = Outcome.Failure(RecipeError.Ai(AiFailure.INVALID_API_KEY, 401))
-
-        worker(prompt = null).doWork()
-
-        val text = notifications.allNotifications.single().extras.getCharSequence("android.text").toString()
-        assertEquals(context.getString(R.string.error_ai_invalid_api_key), text)
     }
 
     @Test

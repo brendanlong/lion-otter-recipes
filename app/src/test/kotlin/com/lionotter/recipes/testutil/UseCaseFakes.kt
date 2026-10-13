@@ -11,7 +11,6 @@ import com.lionotter.recipes.domain.port.BatchItemOutcome
 import com.lionotter.recipes.domain.port.BatchParseRequest
 import com.lionotter.recipes.domain.port.BatchStatus
 import com.lionotter.recipes.domain.port.FetchedPage
-import com.lionotter.recipes.domain.port.ImagePromptWriter
 import com.lionotter.recipes.domain.port.ImageStore
 import com.lionotter.recipes.domain.port.ImportDebugLog
 import com.lionotter.recipes.domain.port.ImportDebugRecord
@@ -180,18 +179,6 @@ class FakeRecipeImageScheduler : RecipeImageScheduler {
     override suspend fun scheduleMissingImages() {
         error?.let { throw it }
         missingImagesScheduled++
-    }
-}
-
-class FakeImagePromptWriter(
-    var result: Outcome<String> = Outcome.Success("A written prompt")
-) : ImagePromptWriter {
-    /** (recipe Markdown, API key, model) of each request. */
-    val requests = mutableListOf<Triple<String, String, String>>()
-
-    override suspend fun writePrompt(recipeMarkdown: String, apiKey: String, model: String): Outcome<String> {
-        requests += Triple(recipeMarkdown, apiKey, model)
-        return result
     }
 }
 

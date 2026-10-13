@@ -207,7 +207,7 @@ Google users). Local files live only in `files/recipe_images/`.
 - **Generated images**: Claude can't draw, so recipe images come from OpenAI's image API with a separate OpenAI key
   (optional; generation for new imports defaults to on once a key is set). Every parse also writes an `imagePrompt`
   (a required schema string, `""` for none), which is saved on the recipe and is AI-owned like its other content.
-  A recipe without a prompt gets one from the edit model when an image is needed. Images run one at a time (OpenAI's
+  Recipes parsed before prompts were kept get a simple prompt from their name and summary (no separate AI request). Images run one at a time (OpenAI's
   image rate limits are low): single images (imports, the user's requests) in a WorkManager chain, and "generate images
   for existing recipes" as one worker that walks the recipes without one, so it can resume and never queues thousands
   of jobs. A key or account failure stops either; other failures don't. Turning image generation off stops both

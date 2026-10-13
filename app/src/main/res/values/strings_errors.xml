@@ -40,7 +40,6 @@
     <string name="image_generation_invalid_key">Your OpenAI API key was rejected. Check it in Settings.</string>
     <string name="image_generation_permission_denied">Your OpenAI account can\'t use image generation. You may need to verify your organization at platform.openai.com.</string>
     <string name="image_generation_out_of_credits">Your OpenAI account is out of credits.</string>
-    <string name="image_generation_no_anthropic_key">Some recipes have no image prompt yet. Add your Anthropic API key in Settings so Claude can write them.</string>
     <string name="image_generation_refused">OpenAI declined to create an image for this recipe.</string>
     <string name="image_generation_failed">Something went wrong while creating the image.</string>
 

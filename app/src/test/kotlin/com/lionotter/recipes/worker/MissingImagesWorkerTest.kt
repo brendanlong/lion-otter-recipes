@@ -14,10 +14,8 @@ import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.usecase.GenerateMissingImagesUseCase
 import com.lionotter.recipes.domain.usecase.GenerateRecipeImageUseCase
-import com.lionotter.recipes.domain.usecase.WriteImagePromptUseCase
 import com.lionotter.recipes.notification.RecipeNotificationHelper
 import com.lionotter.recipes.testutil.FakeAiSettings
-import com.lionotter.recipes.testutil.FakeImagePromptWriter
 import com.lionotter.recipes.testutil.FakeImageStore
 import com.lionotter.recipes.testutil.FakeRecipeImageGenerator
 import com.lionotter.recipes.testutil.FakeRecipeImageScheduler
@@ -65,7 +63,6 @@ class MissingImagesWorkerTest {
                     GenerateMissingImagesUseCase(repository, FakeRecipeImageScheduler()),
                     GenerateRecipeImageUseCase(
                         generator,
-                        WriteImagePromptUseCase(FakeImagePromptWriter(), settings),
                         repository,
                         FakeImageStore(),
                         settings

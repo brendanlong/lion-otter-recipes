@@ -121,7 +121,6 @@ fun EditRecipeScreen(
     val hasOpenAiKey by imageViewModel.hasOpenAiKey.collectAsStateWithLifecycle()
     // Immediate, so the text field never sees a stale value while typing
     val imagePromptDraft by imageViewModel.promptDraft.collectAsStateWithLifecycle(context = Dispatchers.Main.immediate)
-    val writingImagePrompt by imageViewModel.writingPrompt.collectAsStateWithLifecycle()
     val model by viewModel.model.collectAsStateWithLifecycle()
     val thinkingEnabled by viewModel.thinkingEnabled.collectAsStateWithLifecycle()
     val canRegenerate by viewModel.canRegenerate.collectAsStateWithLifecycle()
@@ -179,9 +178,7 @@ fun EditRecipeScreen(
     imagePromptDraft?.let { prompt ->
         GenerateImageDialog(
             prompt = prompt,
-            writingPrompt = writingImagePrompt,
             onPromptChange = imageViewModel::onPromptChange,
-            onWritePrompt = imageViewModel::writePrompt,
             onGenerate = {
                 // The generated image replaces the recipe's image when it's ready, so it wins over an unsaved pick
                 viewModel.discardPendingImageChange()
@@ -310,7 +307,7 @@ fun EditRecipeScreen(
                     },
                     onRemoveImage = viewModel::removeImage,
                     onGenerateImage = if (hasOpenAiKey) {
-                        { imageViewModel.open((loadState as? RecipeLoadState.Loaded)?.recipe?.imagePrompt) }
+                        { (loadState as? RecipeLoadState.Loaded)?.recipe?.let(imageViewModel::open) }
                     } else {
                         null
                     },
