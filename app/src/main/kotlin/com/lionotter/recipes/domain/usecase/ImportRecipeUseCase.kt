@@ -1,9 +1,10 @@
 package com.lionotter.recipes.domain.usecase
 
 import android.util.Log
-import com.lionotter.recipes.data.remote.PageFetchException
 import com.lionotter.recipes.data.remote.WebScraperService
+import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.toRecipeError
 import com.lionotter.recipes.domain.util.RecipeHtmlExtractor
 import kotlinx.coroutines.ensureActive
 import javax.inject.Inject
@@ -13,25 +14,18 @@ class ImportRecipeUseCase @Inject constructor(
     private val webScraperService: WebScraperService,
     private val parseHtmlUseCase: ParseHtmlUseCase
 ) {
-    sealed class ImportResult {
-        data class Success(val recipe: Recipe) : ImportResult()
-        data class Error(val message: String, val retryable: Boolean = false) : ImportResult()
-        object NoApiKey : ImportResult()
-    }
-
     sealed class ImportProgress {
         object FetchingPage : ImportProgress()
         data class PageMetadataAvailable(val title: String?, val imageUrl: String?) : ImportProgress()
         object ParsingRecipe : ImportProgress()
         data class RecipeNameAvailable(val name: String) : ImportProgress()
         object SavingRecipe : ImportProgress()
-        data class Complete(val result: ImportResult) : ImportProgress()
     }
 
     suspend fun execute(
         url: String,
         onProgress: suspend (ImportProgress) -> Unit = {}
-    ): ImportResult {
+    ): Outcome<Recipe> {
         // Fetch page content
         onProgress(ImportProgress.FetchingPage)
         var effectiveUrl = url
@@ -50,10 +44,7 @@ class ImportRecipeUseCase @Inject constructor(
         if (pageResult.isFailure) {
             val error = pageResult.exceptionOrNull()
             Log.w(TAG, "Failed to fetch $url", error)
-            return ImportResult.Error(
-                message = error?.message ?: "Failed to fetch page",
-                retryable = (error as? PageFetchException)?.isTransient == true
-            )
+            return Outcome.Failure(error.toRecipeError())
         }
         val page = pageResult.getOrThrow()
 
@@ -66,8 +57,7 @@ class ImportRecipeUseCase @Inject constructor(
             imageUrl = page.imageUrl
         ))
 
-        // Use ParseHtmlUseCase to parse the HTML content
-        val parseResult = parseHtmlUseCase.parseHtml(
+        return parseHtmlUseCase.parseHtml(
             html = page.originalHtml,
             sourceUrl = effectiveUrl,
             imageUrl = page.imageUrl,
@@ -86,25 +76,9 @@ class ImportRecipeUseCase @Inject constructor(
                     is ParseHtmlUseCase.ParseProgress.SavingRecipe -> {
                         onProgress(ImportProgress.SavingRecipe)
                     }
-                    is ParseHtmlUseCase.ParseProgress.Complete -> {
-                        // Will be handled by the return value
-                    }
                 }
             }
         )
-
-        return when (parseResult) {
-            is ParseHtmlUseCase.ParseResult.Success -> {
-                onProgress(ImportProgress.Complete(ImportResult.Success(parseResult.recipe)))
-                ImportResult.Success(parseResult.recipe)
-            }
-            is ParseHtmlUseCase.ParseResult.Error -> {
-                ImportResult.Error(parseResult.message, parseResult.retryable)
-            }
-            ParseHtmlUseCase.ParseResult.NoApiKey -> {
-                ImportResult.NoApiKey
-            }
-        }
     }
 
     companion object {

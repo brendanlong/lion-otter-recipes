@@ -17,12 +17,12 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.core.content.IntentCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
@@ -31,7 +31,10 @@ import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.AuthState
 import com.lionotter.recipes.data.remote.FirestoreService
 import com.lionotter.recipes.domain.model.ThemeMode
+import com.lionotter.recipes.messages.resolve
+import com.lionotter.recipes.messages.toUserMessage
 import com.lionotter.recipes.notification.RecipeNotificationHelper
+import com.lionotter.recipes.ui.components.CollectEvents
 import com.lionotter.recipes.ui.navigation.NavGraph
 import com.lionotter.recipes.ui.theme.LionOtterTheme
 import com.lionotter.recipes.ui.theme.isDarkTheme
@@ -73,12 +76,11 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val context = LocalContext.current
+            val resources = LocalResources.current
 
-            // Observe Firestore errors and show Toasts
-            LaunchedEffect(Unit) {
-                firestoreService.errors.collect { message ->
-                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-                }
+            // Background sync failures, wherever the user is (queued while the app is stopped)
+            CollectEvents(firestoreService.failures) { failure ->
+                Toast.makeText(context, failure.toUserMessage().resolve(resources), Toast.LENGTH_SHORT).show()
             }
 
             val themeMode by settingsDataStore.themeMode

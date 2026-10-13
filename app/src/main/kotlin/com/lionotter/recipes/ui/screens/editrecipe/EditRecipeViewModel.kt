@@ -2,17 +2,22 @@ package com.lionotter.recipes.ui.screens.editrecipe
 
 import android.net.Uri
 import android.util.Log
+import androidx.annotation.StringRes
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
+import com.lionotter.recipes.R
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.di.ApplicationScope
+import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
+import com.lionotter.recipes.messages.UserMessage
+import com.lionotter.recipes.messages.toUserMessage
 import com.lionotter.recipes.ui.navigation.Route
 import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.worker.RecipeEditWork
@@ -25,6 +30,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -34,6 +41,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -42,10 +50,14 @@ import javax.inject.Inject
 
 sealed class EditUiState {
     object Idle : EditUiState()
-    data class Loading(val progress: String) : EditUiState()
-    data class Success(val newRecipeId: String? = null) : EditUiState()
-    data class Error(val message: String) : EditUiState()
+    data class Loading(@param:StringRes val progress: Int) : EditUiState()
+    data class Error(val message: UserMessage) : EditUiState()
     object NoApiKey : EditUiState()
+}
+
+sealed interface EditRecipeEvent {
+    /** The changes were saved; [newRecipeId] is the copy for "save as copy", otherwise null. */
+    data class Saved(val newRecipeId: String?) : EditRecipeEvent
 }
 
 @HiltViewModel
@@ -138,12 +150,17 @@ class EditRecipeViewModel @Inject constructor(
     private val editWork = WorkTracker(savedStateHandle, KEY_EDIT_WORK_ID, viewModelScope, recipeWorkScheduler::observeEdit)
     private val regenerateWork =
         WorkTracker(savedStateHandle, KEY_REGENERATE_WORK_ID, viewModelScope, recipeWorkScheduler::observeRegenerate)
+    private val editStatus = editWork.status.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    private val regenerateStatus = regenerateWork.status.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    private val _events = Channel<EditRecipeEvent>(Channel.BUFFERED)
+    val events: Flow<EditRecipeEvent> = _events.receiveAsFlow()
 
     /** The tracked work's state once there is one, otherwise the local state. */
     val editState: StateFlow<EditUiState> = combine(
         localEditState,
-        editWork.status,
-        regenerateWork.status
+        editStatus,
+        regenerateStatus
     ) { local, edit, regenerate ->
         edit?.let(::editWorkState) ?: regenerate?.let(::regenerateWorkState) ?: local
     }.stateIn(
@@ -194,10 +211,6 @@ class EditRecipeViewModel @Inject constructor(
         _thinkingEnabled.value = enabled
     }
 
-    fun resetEditState() {
-        showLocalState(EditUiState.Idle)
-    }
-
     /** Show [state], dropping any finished work this screen was showing. */
     private fun showLocalState(state: EditUiState) {
         editWork.clear()
@@ -227,13 +240,13 @@ class EditRecipeViewModel @Inject constructor(
                     savedStateHandle[KEY_PENDING_IMAGE_CHANGED] = true
                 } else {
                     Log.w(TAG, "Failed to save selected image")
-                    showLocalState(EditUiState.Error("Failed to save selected image"))
+                    showLocalState(EditUiState.Error(UserMessage(R.string.error_image_unusable)))
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 ErrorLog.e(TAG, "Failed to save selected image", e)
-                showLocalState(EditUiState.Error("Failed to save image: ${e.message}"))
+                showLocalState(EditUiState.Error(UserMessage(R.string.error_image_unusable)))
             }
         }
     }
@@ -310,7 +323,7 @@ class EditRecipeViewModel @Inject constructor(
         val newUrl = sourceUrl.value
         val editRequest = buildEditRequest(saveAsCopy = false)
 
-        showLocalState(EditUiState.Loading("Saving..."))
+        showLocalState(EditUiState.Loading(R.string.edit_progress_saving))
         viewModelScope.launch {
             val startedAiEdit = try {
                 // NonCancellable so the writes complete even if the screen is left
@@ -327,12 +340,13 @@ class EditRecipeViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 ErrorLog.e(TAG, "Failed to save recipe changes", e)
-                localEditState.value = EditUiState.Error("Failed to save: ${e.message}")
+                localEditState.value = EditUiState.Error(UserMessage(R.string.error_save_changes))
                 return@launch
             }
 
             // Otherwise the tracked edit work's state is shown from here on
-            localEditState.value = if (startedAiEdit) EditUiState.Idle else EditUiState.Success()
+            localEditState.value = EditUiState.Idle
+            if (!startedAiEdit) _events.send(EditRecipeEvent.Saved(newRecipeId = null))
         }
     }
 
@@ -343,7 +357,7 @@ class EditRecipeViewModel @Inject constructor(
      */
     fun saveAsCopy() {
         if (isSaveInProgress()) return
-        showLocalState(EditUiState.Loading("Saving..."))
+        showLocalState(EditUiState.Loading(R.string.edit_progress_saving))
         val hasImageChange = pendingImageChanged.value
         val newLocalUri = pendingImageUri.value
         val editRequest = buildEditRequest(saveAsCopy = true)
@@ -361,7 +375,7 @@ class EditRecipeViewModel @Inject constructor(
             } catch (e: Exception) {
                 ErrorLog.e(TAG, "Failed to start save as copy", e)
                 pendingImageOwnedBySave = false
-                localEditState.value = EditUiState.Error("Failed to save: ${e.message}")
+                localEditState.value = EditUiState.Error(UserMessage(R.string.error_save_changes))
                 return@launch
             }
             localEditState.value = EditUiState.Idle
@@ -396,7 +410,7 @@ class EditRecipeViewModel @Inject constructor(
             throw e
         } catch (e: Exception) {
             ErrorLog.e(TAG, "Failed to apply image to recipe copy $copyId", e)
-            localEditState.value = EditUiState.Error("The copy was saved, but its new image could not be: ${e.message}")
+            localEditState.value = EditUiState.Error(UserMessage(R.string.error_copy_image))
         }
     }
 
@@ -437,7 +451,7 @@ class EditRecipeViewModel @Inject constructor(
      */
     fun regenerateFromOriginal() {
         if (isSaveInProgress()) return
-        showLocalState(EditUiState.Loading("Preparing..."))
+        showLocalState(EditUiState.Loading(R.string.edit_progress_preparing))
         val model = _model.value
         val thinkingEnabled = _thinkingEnabled.value
         viewModelScope.launch {
@@ -449,7 +463,7 @@ class EditRecipeViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 ErrorLog.e(TAG, "Failed to start regeneration", e)
-                localEditState.value = EditUiState.Error("Failed to start regeneration: ${e.message}")
+                localEditState.value = EditUiState.Error(UserMessage(R.string.error_start_regeneration))
                 return@launch
             }
             localEditState.value = EditUiState.Idle
@@ -502,18 +516,18 @@ class EditRecipeViewModel @Inject constructor(
 
     private fun editWorkState(status: WorkStatus<RecipeEditWork.Progress, RecipeEditWork.Outcome>): EditUiState? =
         when (status) {
-            WorkStatus.Missing, WorkStatus.Queued -> EditUiState.Loading("Preparing...")
+            WorkStatus.Missing, WorkStatus.Queued -> EditUiState.Loading(R.string.edit_progress_preparing)
             is WorkStatus.Running -> EditUiState.Loading(
                 when (status.progress) {
-                    null -> "Starting..."
-                    is RecipeEditWork.Progress.Parsing -> "AI is processing your changes..."
-                    RecipeEditWork.Progress.Saving -> "Saving recipe..."
+                    null -> R.string.starting
+                    is RecipeEditWork.Progress.Parsing -> R.string.edit_progress_ai_processing
+                    RecipeEditWork.Progress.Saving -> R.string.saving_recipe
                 }
             )
             is WorkStatus.Finished -> when (val outcome = status.outcome) {
-                is RecipeEditWork.Outcome.Success -> EditUiState.Success(newRecipeId = outcome.newRecipeId)
-                is RecipeEditWork.Outcome.NoApiKey -> EditUiState.NoApiKey
-                is RecipeEditWork.Outcome.Failed -> EditUiState.Error(outcome.message ?: "Unknown error")
+                // Until the Saved event has been sent (see trackFinishedWork)
+                is RecipeEditWork.Outcome.Success -> EditUiState.Loading(R.string.saving_recipe)
+                is RecipeEditWork.Outcome.Failed -> failureState(outcome.error)
             }
             WorkStatus.Cancelled -> null
         }
@@ -521,26 +535,50 @@ class EditRecipeViewModel @Inject constructor(
     private fun regenerateWorkState(
         status: WorkStatus<RecipeRegenerateWork.Progress, RecipeRegenerateWork.Outcome>
     ): EditUiState? = when (status) {
-        WorkStatus.Missing, WorkStatus.Queued -> EditUiState.Loading("Preparing...")
+        WorkStatus.Missing, WorkStatus.Queued -> EditUiState.Loading(R.string.edit_progress_preparing)
         is WorkStatus.Running -> EditUiState.Loading(
             when (status.progress) {
-                null -> "Starting..."
-                RecipeRegenerateWork.Progress.FetchingPage -> "Fetching recipe page..."
-                is RecipeRegenerateWork.Progress.Parsing -> "AI is re-analyzing..."
-                RecipeRegenerateWork.Progress.Saving -> "Saving recipe..."
+                null -> R.string.starting
+                RecipeRegenerateWork.Progress.FetchingPage -> R.string.fetching_recipe_page
+                is RecipeRegenerateWork.Progress.Parsing -> R.string.edit_progress_ai_reanalyzing
+                RecipeRegenerateWork.Progress.Saving -> R.string.saving_recipe
             }
         )
         is WorkStatus.Finished -> when (val outcome = status.outcome) {
-            is RecipeRegenerateWork.Outcome.Success -> EditUiState.Success()
-            is RecipeRegenerateWork.Outcome.NoApiKey -> EditUiState.NoApiKey
-            is RecipeRegenerateWork.Outcome.NoSourceUrl -> EditUiState.Error(outcome.message ?: "Unknown error")
-            is RecipeRegenerateWork.Outcome.Failed -> EditUiState.Error(outcome.message ?: "Unknown error")
+            is RecipeRegenerateWork.Outcome.Success -> EditUiState.Loading(R.string.saving_recipe)
+            is RecipeRegenerateWork.Outcome.Failed -> failureState(outcome.error)
         }
         WorkStatus.Cancelled -> null
     }
 
+    private fun failureState(error: RecipeError): EditUiState =
+        if (error == RecipeError.NoApiKey) EditUiState.NoApiKey else EditUiState.Error(error.toUserMessage())
+
+    /**
+     * Reports successfully finished work once as [EditRecipeEvent.Saved] and stops tracking it,
+     * including work that finished while this screen was gone.
+     */
+    private fun trackFinishedWork() {
+        viewModelScope.launch {
+            editStatus.collect { status ->
+                val outcome = (status as? WorkStatus.Finished)?.outcome as? RecipeEditWork.Outcome.Success
+                    ?: return@collect
+                editWork.clear()
+                _events.send(EditRecipeEvent.Saved(outcome.newRecipeId))
+            }
+        }
+        viewModelScope.launch {
+            regenerateStatus.collect { status ->
+                if ((status as? WorkStatus.Finished)?.outcome !is RecipeRegenerateWork.Outcome.Success) return@collect
+                regenerateWork.clear()
+                _events.send(EditRecipeEvent.Saved(newRecipeId = null))
+            }
+        }
+    }
+
     init {
         loadInitialData()
+        trackFinishedWork()
     }
 
     override fun onCleared() {

@@ -8,6 +8,7 @@ import com.lionotter.recipes.data.local.PendingImportEntity
 import com.lionotter.recipes.data.local.PendingImportStatus
 import com.lionotter.recipes.data.repository.PendingImportRepository
 import com.lionotter.recipes.di.ApplicationScope
+import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.worker.PaprikaImportWorker
 import com.lionotter.recipes.worker.RecipeImportWorker
@@ -45,7 +46,6 @@ class ImportMonitor @Inject constructor(
 ) {
     companion object {
         private const val TAG = "ImportMonitor"
-        internal const val INTERRUPTED_MESSAGE = "This import was interrupted. Retry to start it again."
 
         private val IMPORT_TAGS = listOf(
             RecipeImportWorker.TAG_RECIPE_IMPORT,
@@ -89,7 +89,7 @@ class ImportMonitor @Inject constructor(
         }.distinctUntilChanged()
             .catch { e ->
                 ErrorLog.e(TAG, "Failed to observe import $importId", e)
-                emit(ImportState.Failed("Couldn't follow this import: ${e.message}"))
+                emit(ImportState.Failed(RecipeError.Unexpected))
             }
     }
 
@@ -100,7 +100,7 @@ class ImportMonitor @Inject constructor(
     internal suspend fun reconcile(row: PendingImportEntity, workInfo: WorkInfo?) {
         if (workInfo == null) {
             Log.w(TAG, "Work for import ${row.id} no longer exists; marking it failed")
-            pendingImportRepository.updateStatusWithError(row.id, PendingImportStatus.FAILED, INTERRUPTED_MESSAGE)
+            pendingImportRepository.updateStatusWithError(row.id, PendingImportStatus.FAILED, RecipeError.Interrupted)
         } else if (workInfo.state.isFinished) {
             sync(row, workInfo)
         }
@@ -167,7 +167,7 @@ class ImportMonitor @Inject constructor(
                 pendingImportRepository.updateStatusWithError(
                     row.id,
                     PendingImportStatus.FAILED,
-                    failure?.message ?: ImportWorkDecoder.DEFAULT_FAILURE_MESSAGE
+                    failure?.error ?: RecipeError.Unexpected
                 )
             }
             WorkInfo.State.BLOCKED -> Unit

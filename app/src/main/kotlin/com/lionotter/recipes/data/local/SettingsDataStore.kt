@@ -14,7 +14,6 @@ import com.lionotter.recipes.util.enumOrNull
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
@@ -22,6 +21,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.lionotter.recipes.data.remote.AnthropicService
+import com.lionotter.recipes.di.ApplicationScope
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
@@ -33,7 +33,8 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 
 @Singleton
 class SettingsDataStore @Inject constructor(
-    @param:ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context,
+    @ApplicationScope appScope: CoroutineScope
 ) {
     private object Keys {
         val AI_MODEL = stringPreferencesKey("ai_model")
@@ -62,7 +63,7 @@ class SettingsDataStore @Inject constructor(
 
     init {
         // Tink/Keystore initialization and disk reads are slow; keep them off the main thread.
-        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+        appScope.launch(Dispatchers.IO) {
             cleanUpOldEncryptedSharedPreferences()
             val loaded = LoadedApiKey(loadApiKey())
             // A key set while loading wins over the stored value.

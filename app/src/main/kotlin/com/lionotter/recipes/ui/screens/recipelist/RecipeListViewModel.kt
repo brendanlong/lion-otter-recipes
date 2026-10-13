@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lionotter.recipes.R
 import com.lionotter.recipes.data.repository.IMealPlanRepository
 import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.hasTag
@@ -11,6 +12,7 @@ import com.lionotter.recipes.domain.model.matchesSearch
 import com.lionotter.recipes.domain.usecase.GetTagsUseCase
 import com.lionotter.recipes.imports.ImportMonitor
 import com.lionotter.recipes.imports.ImportQueue
+import com.lionotter.recipes.messages.UserMessage
 import com.lionotter.recipes.ui.state.RecipeListItem
 import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -34,11 +36,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
-enum class RecipeListError {
-    DELETE_FAILED,
-    FAVORITE_FAILED
-}
-
 @HiltViewModel
 class RecipeListViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
@@ -60,8 +57,9 @@ class RecipeListViewModel @Inject constructor(
 
     val selectedTag: StateFlow<String?> = savedStateHandle.getStateFlow<String?>(KEY_SELECTED_TAG, null)
 
-    private val _errors = Channel<RecipeListError>(Channel.BUFFERED)
-    val errors: Flow<RecipeListError> = _errors.receiveAsFlow()
+    /** Errors to show. */
+    private val _events = Channel<UserMessage>(Channel.BUFFERED)
+    val events: Flow<UserMessage> = _events.receiveAsFlow()
 
     // Multi-select state
     private val _selectedRecipeIds = MutableStateFlow<Set<String>>(emptySet())
@@ -189,22 +187,11 @@ class RecipeListViewModel @Inject constructor(
         savedStateHandle[KEY_SELECTED_TAG] = null
     }
 
+    /** Repository writes apply locally at once and report sync failures themselves. */
     fun toggleFavorite(recipeId: String) {
-        viewModelScope.launch {
-            val item = recipes.value.find { it.id == recipeId }
-            if (item is RecipeListItem.Saved) {
-                val newFavorite = !item.recipe.isFavorite
-                try {
-                    withContext(NonCancellable) {
-                        recipeRepository.setFavorite(recipeId, newFavorite)
-                    }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    ErrorLog.e(TAG, "Failed to set favorite for $recipeId", e)
-                    _errors.send(RecipeListError.FAVORITE_FAILED)
-                }
-            }
+        val item = recipes.value.find { it.id == recipeId }
+        if (item is RecipeListItem.Saved) {
+            recipeRepository.setFavorite(recipeId, !item.recipe.isFavorite)
         }
     }
 
@@ -254,7 +241,7 @@ class RecipeListViewModel @Inject constructor(
             throw e
         } catch (e: Exception) {
             ErrorLog.e(TAG, "Error deleting recipe $recipeId", e)
-            _errors.send(RecipeListError.DELETE_FAILED)
+            _events.send(UserMessage(R.string.delete_recipe_failed))
             false
         }
     }
@@ -276,7 +263,7 @@ class RecipeListViewModel @Inject constructor(
                 }
             }
             _selectedRecipeIds.value = emptySet()
-            if (failures > 0) _errors.send(RecipeListError.DELETE_FAILED)
+            if (failures > 0) _events.send(UserMessage(R.string.delete_recipe_failed))
         }
     }
 

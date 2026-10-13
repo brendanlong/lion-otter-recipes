@@ -18,6 +18,7 @@ import com.lionotter.recipes.domain.model.formatIngredientTotal
 import com.lionotter.recipes.domain.usecase.AggregateGroceryListUseCase
 import com.lionotter.recipes.domain.usecase.GroceryIngredientSource
 import com.lionotter.recipes.domain.usecase.GroceryItem
+import com.lionotter.recipes.messages.UserMessage
 import com.lionotter.recipes.ui.navigation.Route
 import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -25,6 +26,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -34,6 +37,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -103,9 +107,9 @@ class GroceryListViewModel @Inject constructor(
     private val _isGenerating = MutableStateFlow(false)
     val isGenerating: StateFlow<Boolean> = _isGenerating.asStateFlow()
 
-    /** String resource id of an error to show, or null. */
-    private val _errorMessage = MutableStateFlow<Int?>(null)
-    val errorMessage: StateFlow<Int?> = _errorMessage.asStateFlow()
+    /** Errors to show. */
+    private val _events = Channel<UserMessage>(Channel.BUFFERED)
+    val events: Flow<UserMessage> = _events.receiveAsFlow()
 
     /** Names of selected meals whose recipe couldn't be found when generating the list. */
     private val _skippedRecipeNames = MutableStateFlow<List<String>>(emptyList())
@@ -181,7 +185,7 @@ class GroceryListViewModel @Inject constructor(
                 }
                 .catch { e ->
                     ErrorLog.e(TAG, "Failed to load meal plans for $weekStart", e)
-                    _errorMessage.value = R.string.grocery_list_load_failed
+                    _events.send(UserMessage(R.string.grocery_list_load_failed))
                     emit(emptyList())
                 }
                 .collect { entries ->
@@ -251,10 +255,6 @@ class GroceryListViewModel @Inject constructor(
         }
     }
 
-    fun clearError() {
-        _errorMessage.value = null
-    }
-
     fun toggleEntrySelection(entryId: String) {
         val current = _selectedEntryIds.value
         _selectedEntryIds.value = if (entryId in current) {
@@ -317,7 +317,7 @@ class GroceryListViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 ErrorLog.e(TAG, "Failed to generate grocery list", e)
-                _errorMessage.value = R.string.grocery_list_generate_failed
+                _events.send(UserMessage(R.string.grocery_list_generate_failed))
                 _step.value = GroceryListStep.SELECT_RECIPES
             } finally {
                 _isGenerating.value = false

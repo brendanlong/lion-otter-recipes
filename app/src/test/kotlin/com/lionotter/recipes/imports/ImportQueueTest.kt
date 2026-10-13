@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
+import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.data.local.PendingImportStatus
 import com.lionotter.recipes.data.repository.PendingImportRepository
 import com.lionotter.recipes.worker.ImportInputStore
@@ -154,7 +155,7 @@ class ImportQueueTest {
         advanceUntilIdle()
 
         assertEquals(PendingImportStatus.FAILED, dao["missing"]!!.status)
-        assertEquals(ImportMonitor.INTERRUPTED_MESSAGE, dao["missing"]!!.errorMessage)
+        assertEquals(RecipeError.Interrupted, dao["missing"]!!.error)
         assertEquals(PendingImportStatus.FAILED, dao["never-enqueued"]!!.status)
         assertNull(dao["succeeded"])
         assertEquals(PendingImportStatus.PENDING, dao["running"]!!.status)
@@ -190,7 +191,7 @@ class ImportQueueTest {
     fun `retryImport re-enqueues a failed URL import under the same ID`() = runTest {
         val oldWork = UUID.randomUUID()
         dao.rows.value = listOf(
-            pendingImport("import-1", oldWork.toString(), status = PendingImportStatus.FAILED, errorMessage = "boom")
+            pendingImport("import-1", oldWork.toString(), status = PendingImportStatus.FAILED, error = RecipeError.Unexpected)
         )
         every { inputStore.hasImport("import-1") } returns false
         val queue = createQueue()
@@ -200,7 +201,7 @@ class ImportQueueTest {
 
         val row = dao["import-1"]!!
         assertEquals(PendingImportStatus.PENDING, row.status)
-        assertNull(row.errorMessage)
+        assertNull(row.error)
         assertNotEquals(oldWork.toString(), row.workManagerId)
         assertEquals(WorkInfo.State.ENQUEUED, work[UUID.fromString(row.workManagerId)]?.state)
     }
@@ -217,7 +218,7 @@ class ImportQueueTest {
         advanceUntilIdle()
 
         assertEquals(PendingImportStatus.FAILED, dao["import-1"]!!.status)
-        assertEquals("This import can't be retried. Please start it again.", dao["import-1"]!!.errorMessage)
+        assertEquals(RecipeError.CannotRetry, dao["import-1"]!!.error)
     }
 
     @Test

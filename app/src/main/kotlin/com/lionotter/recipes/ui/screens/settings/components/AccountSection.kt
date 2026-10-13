@@ -23,6 +23,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
 import com.lionotter.recipes.data.remote.AuthState
+import com.lionotter.recipes.ui.screens.settings.AccountOp
 
 @Composable
 fun AccountSection(
@@ -31,8 +32,7 @@ fun AccountSection(
     onSignOut: () -> Unit,
     onDeleteAccount: () -> Unit,
     modifier: Modifier = Modifier,
-    isSigningIn: Boolean = false,
-    isDeletingAccount: Boolean = false
+    busyOp: AccountOp? = null
 ) {
     var showSignOutDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -60,7 +60,7 @@ fun AccountSection(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                if (isSigningIn) {
+                if (busyOp == AccountOp.SIGNING_IN) {
                     CircularProgressIndicator()
                 } else {
                     Button(onClick = onSignInWithGoogle) {
@@ -84,7 +84,7 @@ fun AccountSection(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                if (isDeletingAccount) {
+                if (busyOp == AccountOp.DELETING_ACCOUNT) {
                     CircularProgressIndicator()
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
@@ -92,6 +92,8 @@ fun AccountSection(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                } else if (busyOp == AccountOp.SIGNING_OUT) {
+                    CircularProgressIndicator()
                 } else {
                     Button(
                         onClick = { showSignOutDialog = true },

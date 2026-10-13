@@ -118,7 +118,7 @@ fun ImportDebugDetailScreen(
                     modifier = Modifier.padding(paddingValues)
                 )
             }
-            is ImportDebugDetailState.Error -> {
+            ImportDebugDetailState.Error -> {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -127,7 +127,7 @@ fun ImportDebugDetailScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     ErrorCard(
-                        message = stringResource(R.string.import_debug_load_failed, currentState.message)
+                        message = stringResource(R.string.import_debug_load_failed)
                     )
                 }
             }

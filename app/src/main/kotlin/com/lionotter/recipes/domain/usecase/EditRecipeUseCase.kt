@@ -1,6 +1,8 @@
 package com.lionotter.recipes.domain.usecase
 
 import com.lionotter.recipes.data.repository.IRecipeRepository
+import com.lionotter.recipes.domain.Outcome
+import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
 import kotlinx.coroutines.NonCancellable
@@ -23,17 +25,10 @@ class EditRecipeUseCase @Inject constructor(
     private val parseHtmlUseCase: ParseHtmlUseCase,
     private val recipeRepository: IRecipeRepository
 ) {
-    sealed class EditResult {
-        data class Success(val recipe: Recipe) : EditResult()
-        data class Error(val message: String, val retryable: Boolean = false) : EditResult()
-        object NoApiKey : EditResult()
-    }
-
     sealed class EditProgress {
         object ParsingRecipe : EditProgress()
         data class RecipeNameAvailable(val name: String) : EditProgress()
         object SavingRecipe : EditProgress()
-        data class Complete(val result: EditResult) : EditProgress()
     }
 
     /**
@@ -57,10 +52,10 @@ class EditRecipeUseCase @Inject constructor(
         thinkingEnabled: Boolean? = null,
         aiInstructions: String? = null,
         onProgress: suspend (EditProgress) -> Unit = {}
-    ): EditResult {
+    ): Outcome<Recipe> {
         // Load existing recipe to preserve metadata
         val existingRecipe = recipeRepository.getRecipeByIdOnce(recipeId)
-            ?: return EditResult.Error("Recipe not found")
+            ?: return Outcome.Failure(RecipeError.RecipeNotFound)
 
         // Collect existing densities to merge with defaults for the AI
         val densityOverrides = RecipeMarkdownFormatter.collectDensities(existingRecipe)
@@ -86,20 +81,20 @@ class EditRecipeUseCase @Inject constructor(
                         onProgress(EditProgress.RecipeNameAvailable(progress.name))
                     is ParseHtmlUseCase.ParseProgress.SavingRecipe ->
                         onProgress(EditProgress.SavingRecipe)
-                    is ParseHtmlUseCase.ParseProgress.Complete -> {}
                 }
             }
         )
 
         return when (parseResult) {
-            is ParseHtmlUseCase.ParseResult.Success -> {
+            is Outcome.Success -> {
+                val parsed = parseResult.value
                 // Re-load existing recipe to pick up any image changes the user
                 // saved directly (without AI) while the worker was queued.
                 val freshRecipe = recipeRepository.getRecipeByIdOnce(recipeId) ?: existingRecipe
                 val now = Clock.System.now()
                 val editedRecipe = if (saveAsCopy) {
                     // Save as a new recipe with new ID and timestamps
-                    parseResult.recipe.copy(
+                    parsed.copy(
                         id = copyRecipeId ?: java.util.UUID.randomUUID().toString(),
                         createdAt = now,
                         updatedAt = now,
@@ -109,7 +104,7 @@ class EditRecipeUseCase @Inject constructor(
                         sourceImageUrl = freshRecipe.sourceImageUrl
                     )
                 } else {
-                    freshRecipe.withRegeneratedContent(parseResult.recipe, now)
+                    freshRecipe.withRegeneratedContent(parsed, now)
                 }
 
                 onProgress(EditProgress.SavingRecipe)
@@ -117,14 +112,9 @@ class EditRecipeUseCase @Inject constructor(
                     recipeRepository.saveRecipe(editedRecipe)
                 }
 
-                val result = EditResult.Success(editedRecipe)
-                onProgress(EditProgress.Complete(result))
-                result
+                Outcome.Success(editedRecipe)
             }
-            is ParseHtmlUseCase.ParseResult.Error ->
-                EditResult.Error(parseResult.message, parseResult.retryable)
-            ParseHtmlUseCase.ParseResult.NoApiKey ->
-                EditResult.NoApiKey
+            is Outcome.Failure -> parseResult
         }
     }
 }

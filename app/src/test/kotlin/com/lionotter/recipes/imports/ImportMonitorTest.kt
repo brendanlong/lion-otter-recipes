@@ -5,6 +5,8 @@ import androidx.work.WorkInfo
 import app.cash.turbine.test
 import com.lionotter.recipes.data.local.PendingImportStatus
 import com.lionotter.recipes.data.repository.PendingImportRepository
+import com.lionotter.recipes.domain.PageFetchFailure
+import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.worker.PaprikaImportWork
 import com.lionotter.recipes.worker.PaprikaImportWorker
 import com.lionotter.recipes.worker.RecipeImportWork
@@ -209,21 +211,41 @@ class ImportMonitorTest {
     }
 
     @Test
-    fun `failed work marks the matching import failed with its error message`() = runTest {
+    fun `failed work marks the matching import failed with its error`() = runTest {
         val monitor = createMonitor()
         val workId = addImport("import-1", WorkInfo.State.RUNNING)
+        val error = RecipeError.PageFetch(PageFetchFailure.BLOCKED, 403)
         work.put(
             workInfo(
                 workId,
                 WorkInfo.State.FAILED,
-                output = RecipeImportWork.Outcome.Failed("The site blocked the request (403).", "import-1").toData()
+                output = RecipeImportWork.Outcome.Failed(error, "import-1").toData()
             )
         )
         advanceUntilIdle()
 
         assertEquals(PendingImportStatus.FAILED, dao["import-1"]!!.status)
-        assertEquals("The site blocked the request (403).", dao["import-1"]!!.errorMessage)
-        assertEquals("The site blocked the request (403).", monitor.inProgressRecipes.value["import-1"]!!.errorMessage)
+        assertEquals(error, dao["import-1"]!!.error)
+        assertEquals(error, monitor.inProgressRecipes.value["import-1"]!!.error)
+    }
+
+    @Test
+    fun `a failure stored by an older version is still shown`() = runTest {
+        val monitor = createMonitor()
+        dao.insertPendingImport(
+            pendingImport(
+                "import-1",
+                workManagerId = null,
+                status = PendingImportStatus.FAILED,
+                error = RecipeError.Legacy("The site blocked the request (403).")
+            )
+        )
+        advanceUntilIdle()
+
+        assertEquals(
+            RecipeError.Legacy("The site blocked the request (403)."),
+            monitor.inProgressRecipes.value["import-1"]!!.error
+        )
     }
 
     @Test
@@ -234,7 +256,7 @@ class ImportMonitorTest {
         advanceUntilIdle()
 
         assertEquals(PendingImportStatus.FAILED, dao["import-1"]!!.status)
-        assertEquals(ImportWorkDecoder.DEFAULT_FAILURE_MESSAGE, dao["import-1"]!!.errorMessage)
+        assertEquals(RecipeError.Unexpected, dao["import-1"]!!.error)
     }
 
     @Test
@@ -308,12 +330,12 @@ class ImportMonitorTest {
             workInfo(
                 workId,
                 WorkInfo.State.FAILED,
-                output = RecipeImportWork.Outcome.NoApiKey("Add a key", "import-1").toData()
+                output = RecipeImportWork.Outcome.Failed(RecipeError.NoApiKey, "import-1").toData()
             )
         )
 
         assertEquals(
-            ImportState.Failed("Add a key", ImportFailure.NO_API_KEY),
+            ImportState.Failed(RecipeError.NoApiKey),
             monitor.importState("import-1").first()
         )
     }

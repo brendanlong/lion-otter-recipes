@@ -3,6 +3,7 @@ package com.lionotter.recipes.worker
 import androidx.work.Data
 import androidx.work.WorkInfo
 import androidx.work.workDataOf
+import com.lionotter.recipes.domain.RecipeError
 import java.util.UUID
 
 /**
@@ -46,7 +47,7 @@ interface SuccessOutcome {
 
 /** A worker outcome that is returned as a failure (see [BaseRecipeWorker.errorResult]). */
 interface FailureOutcome {
-    val message: String?
+    val error: RecipeError
     fun toData(): Data
 }
 
@@ -61,7 +62,10 @@ class PendingWork(val id: UUID, private val enqueueAction: suspend () -> Unit) {
 /** Output keys and result types shared by every recipe worker. */
 internal object WorkResult {
     const val KEY_RESULT_TYPE = "result_type"
+    /** English message written by versions before failures were typed; only read now. */
     const val KEY_ERROR_MESSAGE = "error_message"
+    /** The [RecipeError], encoded with [RecipeError.encode]. */
+    const val KEY_ERROR = "error"
     const val KEY_IMPORT_ID = "import_id"
     const val KEY_RECIPE_ID = "recipe_id"
     const val KEY_RECIPE_NAME = "recipe_name"
@@ -72,15 +76,34 @@ internal object WorkResult {
     const val NO_API_KEY = "no_api_key"
     const val NO_SOURCE_URL = "no_source_url"
 
-    fun failure(type: String, message: String?, vararg ids: Pair<String, String?>): Data =
-        workDataOf(KEY_RESULT_TYPE to type, KEY_ERROR_MESSAGE to message, *ids)
+    /** The result type is still written so it matches what older versions wrote for the same failure. */
+    fun failure(error: RecipeError, vararg ids: Pair<String, String?>): Data {
+        val type = when (error) {
+            RecipeError.NoApiKey -> NO_API_KEY
+            RecipeError.NoSourceUrl -> NO_SOURCE_URL
+            else -> ERROR
+        }
+        return workDataOf(KEY_RESULT_TYPE to type, KEY_ERROR to RecipeError.encode(error), *ids)
+    }
 
-    fun type(data: Data): String? = data.getString(KEY_RESULT_TYPE)
-    fun message(data: Data): String? = data.getString(KEY_ERROR_MESSAGE)
+    /**
+     * The failure recorded in [data]. Output from versions before failures were typed only has a
+     * result type and an English message, which is kept as [RecipeError.Legacy].
+     */
+    fun error(data: Data): RecipeError {
+        data.getString(KEY_ERROR)?.let(RecipeError::decode)?.let { return it }
+        return when (data.getString(KEY_RESULT_TYPE)) {
+            NO_API_KEY -> RecipeError.NoApiKey
+            NO_SOURCE_URL -> RecipeError.NoSourceUrl
+            else -> data.getString(KEY_ERROR_MESSAGE)?.takeIf { it.isNotBlank() }?.let(RecipeError::Legacy)
+                ?: RecipeError.Unexpected
+        }
+    }
+
     fun progress(data: Data): String? = data.getString(KEY_PROGRESS)
 }
 
 /** Fallback failure for workers whose input was invalid or that crashed unexpectedly. */
-internal data class GenericFailure(override val message: String, val importId: String?) : FailureOutcome {
-    override fun toData(): Data = WorkResult.failure(WorkResult.ERROR, message, WorkResult.KEY_IMPORT_ID to importId)
+internal data class GenericFailure(override val error: RecipeError, val importId: String?) : FailureOutcome {
+    override fun toData(): Data = WorkResult.failure(error, WorkResult.KEY_IMPORT_ID to importId)
 }

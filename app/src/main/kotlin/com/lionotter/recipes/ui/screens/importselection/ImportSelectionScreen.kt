@@ -3,8 +3,8 @@ package com.lionotter.recipes.ui.screens.importselection
 import android.widget.Toast
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.Arrangement
@@ -39,8 +39,11 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
+import com.lionotter.recipes.messages.resolve
 import com.lionotter.recipes.ui.TestTags
+import com.lionotter.recipes.ui.components.CollectEvents
 import com.lionotter.recipes.ui.components.ErrorCard
+import com.lionotter.recipes.ui.components.text
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 
 /**
@@ -55,18 +58,16 @@ fun ImportSelectionRoute(
     viewModel: ImportSelectionViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val resources = LocalResources.current
     val selectionState by viewModel.uiState.collectAsStateWithLifecycle()
-    val currentOnImportStarted by rememberUpdatedState(onImportStarted)
 
-    // Results are collected here (not captured in a callback) so an import that finishes
+    // Events are collected here (not captured in a callback) so an import that finishes
     // starting after rotation navigates with the current NavController.
-    LaunchedEffect(viewModel) {
-        viewModel.results.collect { result ->
-            when (result) {
-                is ImportSelectionViewModel.ImportResult.ImportStarted -> currentOnImportStarted()
-                is ImportSelectionViewModel.ImportResult.Error ->
-                    Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
-            }
+    CollectEvents(viewModel.events) { event ->
+        when (event) {
+            ImportSelectionEvent.ImportStarted -> onImportStarted()
+            is ImportSelectionEvent.ShowMessage ->
+                Toast.makeText(context, event.message.resolve(resources), Toast.LENGTH_LONG).show()
         }
     }
 
@@ -143,7 +144,7 @@ fun ImportSelectionScreen(
                 }
                 is ImportSelectionUiState.Error -> {
                     ErrorContent(
-                        message = state.message,
+                        message = state.message.text(),
                         onCancelClick = onCancelClick
                     )
                 }

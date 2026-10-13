@@ -61,6 +61,7 @@ subgraph app["Android App"]
             cancel_import_dialog["CancelImportConfirmationDialog"]
             account_section["AccountSection"]
             scale_format["formatScaleMultiplier<br/>(ui.format)"]
+            collect_events["CollectEvents / UserMessage.text()<br/>(lifecycle-aware one-off events)"]
         end
 
         screens --> components
@@ -78,11 +79,14 @@ subgraph app["Android App"]
             grocery_list_vm["GroceryListViewModel"]
             import_selection_vm["ImportSelectionViewModel"]
             shared_intent_vm["SharedIntentViewModel<br/>(AppIntentEvent Channel)"]
+            vm_events["One-off events per ViewModel<br/>(Channel BUFFERED + receiveAsFlow,<br/>messages as UserMessage)"]
         end
 
         nav_graph["NavGraph<br/>(typed @Serializable Route destinations,<br/>start = Route.RecipeList)"]
         main_activity["MainActivity<br/>(onNewIntent, notification recipe_id)"]
         main_activity -->|AppIntentEvent| shared_intent_vm
+        main_activity -->|"toasts DataFailure (failures channel)"| firestore_svc
+        viewmodels -->|"RecipeError / DataFailure to UserMessage"| messages
         nav_graph -->|collects events| shared_intent_vm
         nav_graph -->|navigates| screens
 
@@ -106,11 +110,21 @@ subgraph app["Android App"]
     end
 
     %% --------------------------------------------------------
+    %% User-facing messages (messages package)
+    %% --------------------------------------------------------
+    subgraph messages["Messages (messages)"]
+        user_message["UserMessage<br/>(string/plural resource + args)"]
+        recipe_error_messages["RecipeError.toUserMessage"]
+        data_failure_messages["DataFailure.toUserMessage"]
+    end
+    base_worker -->|failure notifications| recipe_error_messages
+
+    %% --------------------------------------------------------
     %% Import queue (imports package)
     %% --------------------------------------------------------
     subgraph imports["Import Queue (imports)"]
         import_queue["ImportQueue<br/>(start / retry / cancel / dismiss,<br/>startMutex, startup reconciliation)"]
-        import_monitor["ImportMonitor<br/>(ImportState from rows + WorkInfo,<br/>persists only durable metadata / failures)"]
+        import_monitor["ImportMonitor<br/>(ImportState from rows + WorkInfo,<br/>persists only durable metadata / RecipeError failures)"]
         import_decoder["ImportWorkDecoder"]
         import_queue -->|reconcile| import_monitor
         import_monitor --> import_decoder
@@ -137,7 +151,7 @@ subgraph app["Android App"]
             local_image_upload_worker["LocalImageUploadWorker"]
             work_scheduler["RecipeWorkScheduler"]
             import_input_store["ImportInputStore<br/>(files/imports/&lt;importId&gt;/)"]
-            work_contracts["Work contracts<br/>(sealed Progress / Outcome + codecs per worker)"]
+            work_contracts["Work contracts<br/>(sealed Progress / Outcome + codecs per worker,<br/>failures carry an encoded RecipeError)"]
             work_tracker["WorkTracker<br/>(work ID in SavedStateHandle, getWorkInfoByIdFlow)"]
             image_upload_scheduler["WorkManagerImageUploadScheduler"]
             image_upload_scheduler -->|enqueue| local_image_upload_worker
@@ -190,6 +204,7 @@ subgraph app["Android App"]
             aggregate_grocery["AggregateGroceryListUseCase"]
             tags["GetTagsUseCase"]
             calc_usage["CalculateIngredientUsageUseCase"]
+            outcome["Outcome&lt;T&gt; / RecipeError<br/>(typed failures, RecipeErrorSource exceptions)"]
         end
 
         subgraph util["Utilities"]
@@ -262,7 +277,7 @@ subgraph app["Android App"]
             import_debug_repo["ImportDebugRepository"]
             pending_import_repo["PendingImportRepository"]
             meal_plan_repo["MealPlanRepository"]
-            firestore_flows["FirestoreFlows<br/>(error-tolerant listener, incremental decoding)"]
+            firestore_flows["FirestoreFlows<br/>(error-tolerant listener, incremental decoding,<br/>fire-and-forget writes in @ApplicationScope)"]
         end
 
         subgraph local["Local Storage"]
@@ -271,7 +286,7 @@ subgraph app["Android App"]
             tink_encrypted[("Tink Encrypted Storage")]
             import_debug_dao["ImportDebugDao"]
             pending_import_dao["PendingImportDao"]
-            pending_import_entity["PendingImportEntity"]
+            pending_import_entity["PendingImportEntity<br/>(RecipeErrorConverter)"]
             import_debug_entity["ImportDebugEntity"]
             image_storage[("Local Image Cache")]
             settings_ds["SettingsDataStore"]
@@ -292,7 +307,7 @@ subgraph app["Android App"]
             image_dl["ImageDownloadService"]
             image_sync["ImageSyncService"]
             storage_fetcher["FirebaseStorageCoilFetcher"]
-            firestore_svc["FirestoreService"]
+            firestore_svc["FirestoreService<br/>(failures: DataFailure channel, batch)"]
             auth_svc["AuthService"]
             migration_svc["AccountMigrationService"]
             deletion_svc["AccountDeletionService"]

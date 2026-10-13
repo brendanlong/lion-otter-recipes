@@ -6,6 +6,7 @@ import androidx.work.WorkManager
 import com.lionotter.recipes.data.local.PendingImportDao
 import com.lionotter.recipes.data.local.PendingImportEntity
 import com.lionotter.recipes.data.local.PendingImportStatus
+import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.worker.RecipeImportWorker
 import io.mockk.every
 import io.mockk.mockk
@@ -42,8 +43,8 @@ class FakePendingImportDao : PendingImportDao {
 
     override suspend fun updateStatus(id: String, status: PendingImportStatus) = update(id) { it.copy(status = status) }
 
-    override suspend fun updateStatusWithError(id: String, status: PendingImportStatus, errorMessage: String?) =
-        update(id) { it.copy(status = status, errorMessage = errorMessage) }
+    override suspend fun updateStatusWithError(id: String, status: PendingImportStatus, error: RecipeError?) =
+        update(id) { it.copy(status = status, error = error) }
 
     override suspend fun updateWorkManagerId(id: String, workManagerId: String) =
         update(id) { it.copy(workManagerId = workManagerId) }
@@ -119,7 +120,7 @@ fun pendingImport(
     url: String = "https://example.com/$id",
     name: String? = null,
     status: PendingImportStatus = PendingImportStatus.PENDING,
-    errorMessage: String? = null,
+    error: RecipeError? = null,
     createdAt: Long = 0L
 ) = PendingImportEntity(
     id = id,
@@ -128,7 +129,7 @@ fun pendingImport(
     imageUrl = null,
     status = status,
     workManagerId = workManagerId,
-    errorMessage = errorMessage,
+    error = error,
     createdAt = createdAt
 )
 

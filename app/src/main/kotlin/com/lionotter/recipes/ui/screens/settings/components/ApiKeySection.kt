@@ -22,7 +22,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,7 +36,6 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import com.lionotter.recipes.R
-import com.lionotter.recipes.ui.screens.settings.SettingsViewModel
 
 @Composable
 fun ApiKeySection(
@@ -46,8 +44,7 @@ fun ApiKeySection(
     onApiKeyInputChange: (String) -> Unit,
     onSaveClick: () -> Unit,
     onClearClick: () -> Unit,
-    saveState: SettingsViewModel.SaveState,
-    onResetSaveState: () -> Unit,
+    apiKeyError: String?,
     modifier: Modifier = Modifier
 ) {
     var passwordVisible by remember { mutableStateOf(false) }
@@ -132,21 +129,15 @@ fun ApiKeySection(
                         )
                     }
                 },
-                isError = saveState is SettingsViewModel.SaveState.Error
+                isError = apiKeyError != null
             )
 
-            if (saveState is SettingsViewModel.SaveState.Error) {
+            if (apiKeyError != null) {
                 Text(
-                    text = saveState.message,
+                    text = apiKeyError,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error
                 )
-            }
-
-            if (saveState is SettingsViewModel.SaveState.Success) {
-                LaunchedEffect(Unit) {
-                    onResetSaveState()
-                }
             }
 
             Button(

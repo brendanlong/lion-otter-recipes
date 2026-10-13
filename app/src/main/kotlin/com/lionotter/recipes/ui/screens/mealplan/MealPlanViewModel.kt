@@ -16,12 +16,13 @@ import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.hasTag
 import com.lionotter.recipes.domain.model.matchesSearch
 import com.lionotter.recipes.domain.usecase.GetTagsUseCase
+import com.lionotter.recipes.messages.UserMessage
 import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -34,9 +35,9 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlin.time.Clock
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.DayOfWeek
@@ -49,8 +50,12 @@ import kotlinx.datetime.todayIn
 import java.util.UUID
 import javax.inject.Inject
 
-/** A user-facing message as a string resource plus format arguments. */
-data class MealPlanMessage(@param:StringRes val resId: Int, val args: List<Any> = emptyList())
+sealed interface MealPlanEvent {
+    data class ShowMessage(val message: UserMessage) : MealPlanEvent
+
+    /** [entry] was removed; the UI offers to undo it with [MealPlanViewModel.undoDelete]. */
+    data class MealRemoved(val entry: MealPlanEntry) : MealPlanEvent
+}
 
 @HiltViewModel
 class MealPlanViewModel @Inject constructor(
@@ -118,21 +123,17 @@ class MealPlanViewModel @Inject constructor(
     private val _selectedTagFilter = MutableStateFlow<String?>(null)
     val selectedTagFilter: StateFlow<String?> = _selectedTagFilter.asStateFlow()
 
-    private val _errorMessage = MutableStateFlow<MealPlanMessage?>(null)
-    val errorMessage: StateFlow<MealPlanMessage?> = _errorMessage.asStateFlow()
+    private val _events = Channel<MealPlanEvent>(Channel.BUFFERED)
+    val events: Flow<MealPlanEvent> = _events.receiveAsFlow()
 
-    /** The most recently deleted entry, offered for undo. */
-    private val _recentlyDeleted = MutableStateFlow<MealPlanEntry?>(null)
-    val recentlyDeleted: StateFlow<MealPlanEntry?> = _recentlyDeleted.asStateFlow()
-
-    fun clearError() {
-        _errorMessage.value = null
+    private fun showMessage(@StringRes resId: Int, vararg args: Any) {
+        _events.trySend(MealPlanEvent.ShowMessage(UserMessage(resId, *args)))
     }
 
     private val allRecipes: Flow<List<Recipe>> = recipeRepository.getAllRecipes()
         .catch { e ->
             ErrorLog.e(TAG, "Failed to load recipes", e)
-            _errorMessage.value = MealPlanMessage(R.string.meal_plan_recipes_load_failed)
+            showMessage(R.string.meal_plan_recipes_load_failed)
             emit(emptyList())
         }
 
@@ -187,7 +188,7 @@ class MealPlanViewModel @Inject constructor(
                 .onStart { emit(null) }
                 .catch { e ->
                     ErrorLog.e(TAG, "Failed to load meal plans for week of $weekStart", e)
-                    _errorMessage.value = MealPlanMessage(R.string.meal_plan_load_failed)
+                    showMessage(R.string.meal_plan_load_failed)
                     emit(emptyMap())
                 }
         }.stateIn(
@@ -288,7 +289,7 @@ class MealPlanViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 ErrorLog.e(TAG, "Failed to save meal plan", e)
-                _errorMessage.value = MealPlanMessage(R.string.meal_plan_save_failed)
+                showMessage(R.string.meal_plan_save_failed)
             } finally {
                 _isSaving.value = false
             }
@@ -302,46 +303,39 @@ class MealPlanViewModel @Inject constructor(
         val mealType = _selectedMealType.value
         val servings = _selectedServings.value
         if (existing != null) {
-            withContext(NonCancellable) {
-                mealPlanRepository.updateMealPlan(
-                    existing.copy(
-                        recipeId = recipe.id,
-                        recipeName = recipe.name,
-                        recipeImageUrl = recipe.imageUrl,
-                        date = date,
-                        mealType = mealType,
-                        servings = servings,
-                        updatedAt = now
-                    )
+            mealPlanRepository.updateMealPlan(
+                existing.copy(
+                    recipeId = recipe.id,
+                    recipeName = recipe.name,
+                    recipeImageUrl = recipe.imageUrl,
+                    date = date,
+                    mealType = mealType,
+                    servings = servings,
+                    updatedAt = now
                 )
-            }
+            )
             true
         } else {
             // Check meal plan count limit before creating
             val count = mealPlanRepository.getMealPlanCount()
             if (count >= ResourceLimits.MAX_MEAL_PLANS) {
                 Log.w(TAG, "Meal plan limit reached ($count/${ResourceLimits.MAX_MEAL_PLANS})")
-                _errorMessage.value = MealPlanMessage(
-                    R.string.meal_plan_limit_reached,
-                    listOf(count, ResourceLimits.MAX_MEAL_PLANS)
-                )
+                showMessage(R.string.meal_plan_limit_reached, count, ResourceLimits.MAX_MEAL_PLANS)
                 false
             } else {
-                withContext(NonCancellable) {
-                    mealPlanRepository.saveMealPlan(
-                        MealPlanEntry(
-                            id = UUID.randomUUID().toString(),
-                            recipeId = recipe.id,
-                            recipeName = recipe.name,
-                            recipeImageUrl = recipe.imageUrl,
-                            date = date,
-                            mealType = mealType,
-                            servings = servings,
-                            createdAt = now,
-                            updatedAt = now
-                        )
+                mealPlanRepository.saveMealPlan(
+                    MealPlanEntry(
+                        id = UUID.randomUUID().toString(),
+                        recipeId = recipe.id,
+                        recipeName = recipe.name,
+                        recipeImageUrl = recipe.imageUrl,
+                        date = date,
+                        mealType = mealType,
+                        servings = servings,
+                        createdAt = now,
+                        updatedAt = now
                     )
-                }
+                )
                 true
             }
         }
@@ -358,51 +352,22 @@ class MealPlanViewModel @Inject constructor(
             servings = _selectedServings.value,
             updatedAt = clock.now()
         )
-        withContext(NonCancellable) {
-            mealPlanRepository.updateMealPlan(updated)
-        }
+        mealPlanRepository.updateMealPlan(updated)
         true
     }
 
+    /** Repository writes apply locally at once and report sync failures themselves. */
     fun deleteMealPlan(entry: MealPlanEntry) {
-        viewModelScope.launch {
-            try {
-                withContext(NonCancellable) {
-                    mealPlanRepository.deleteMealPlan(entry.id)
-                }
-                _recentlyDeleted.value = entry
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                ErrorLog.e(TAG, "Failed to delete meal plan ${entry.id}", e)
-                _errorMessage.value = MealPlanMessage(R.string.meal_plan_delete_failed)
-            }
-        }
+        mealPlanRepository.deleteMealPlan(entry.id)
+        _events.trySend(MealPlanEvent.MealRemoved(entry))
     }
 
     /**
-     * Restores the most recently deleted entry. It gets a fresh id so the list doesn't
-     * restore the swiped-away card's saved (dismissed) swipe state for the old key.
+     * Restores a removed entry. It gets a fresh id so the list doesn't restore the
+     * swiped-away card's saved (dismissed) swipe state for the old key.
      */
-    fun undoDelete() {
-        val entry = _recentlyDeleted.value ?: return
-        _recentlyDeleted.value = null
-        viewModelScope.launch {
-            try {
-                withContext(NonCancellable) {
-                    mealPlanRepository.saveMealPlan(entry.copy(id = UUID.randomUUID().toString()))
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                ErrorLog.e(TAG, "Failed to restore meal plan ${entry.id}", e)
-                _errorMessage.value = MealPlanMessage(R.string.meal_plan_save_failed)
-            }
-        }
-    }
-
-    fun clearRecentlyDeleted() {
-        _recentlyDeleted.value = null
+    fun undoDelete(entry: MealPlanEntry) {
+        mealPlanRepository.saveMealPlan(entry.copy(id = UUID.randomUUID().toString()))
     }
 
     private fun getWeekStart(date: LocalDate, firstDayOfWeek: DayOfWeek): LocalDate {

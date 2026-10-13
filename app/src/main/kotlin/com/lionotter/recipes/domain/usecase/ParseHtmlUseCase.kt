@@ -3,14 +3,15 @@ package com.lionotter.recipes.domain.usecase
 import android.util.Log
 import com.lionotter.recipes.data.local.ImportDebugEntity
 import com.lionotter.recipes.data.local.SettingsDataStore
-import com.lionotter.recipes.data.remote.AnthropicRequestException
 import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.remote.ParseResultWithUsage
-import com.lionotter.recipes.data.remote.RecipeParseException
 import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.data.repository.IRecipeRepository
+import com.lionotter.recipes.domain.Outcome
+import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.ResourceLimits
+import com.lionotter.recipes.domain.toRecipeError
 import com.lionotter.recipes.data.remote.RecipeParseResult
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.util.RecipeHtmlExtractor
@@ -40,19 +41,11 @@ class ParseHtmlUseCase @Inject constructor(
     companion object {
         private const val TAG = "ParseHtmlUseCase"
     }
-    sealed class ParseResult {
-        data class Success(val recipe: Recipe) : ParseResult()
-        /** [retryable] is true when the failure is transient (network, rate limit, overload). */
-        data class Error(val message: String, val retryable: Boolean = false) : ParseResult()
-        object NoApiKey : ParseResult()
-    }
-
     sealed class ParseProgress {
         object ExtractingContent : ParseProgress()
         object ParsingRecipe : ParseProgress()
         data class RecipeNameAvailable(val name: String) : ParseProgress()
         object SavingRecipe : ParseProgress()
-        data class Complete(val result: ParseResult) : ParseProgress()
     }
 
     /**
@@ -76,7 +69,7 @@ class ParseHtmlUseCase @Inject constructor(
         model: String? = null,
         thinkingEnabled: Boolean? = null,
         onProgress: suspend (ParseProgress) -> Unit = {}
-    ): ParseResult {
+    ): Outcome<Recipe> {
         onProgress(ParseProgress.ExtractingContent)
         val pageContent = RecipeHtmlExtractor.extract(html, sourceUrl)
         val extractedImageUrl = imageUrl ?: pageContent.imageUrl
@@ -122,18 +115,17 @@ class ParseHtmlUseCase @Inject constructor(
         densityOverrides: Map<String, Double>? = null,
         aiInstructions: String? = null,
         onProgress: suspend (ParseProgress) -> Unit = {}
-    ): ParseResult {
-        // Check for API key
+    ): Outcome<Recipe> {
         val apiKey = settingsDataStore.anthropicApiKey.first()
         if (apiKey.isNullOrBlank()) {
-            return ParseResult.NoApiKey
+            return Outcome.Failure(RecipeError.NoApiKey)
         }
 
         // Check recipe count limit before spending AI credits
         if (saveRecipe) {
             val count = recipeRepository.getRecipeCount()
             if (count >= ResourceLimits.MAX_RECIPES) {
-                return ParseResult.Error(recipeLimitMessage(count))
+                return Outcome.Failure(RecipeError.LimitReached(count, ResourceLimits.MAX_RECIPES))
             }
         }
 
@@ -149,11 +141,6 @@ class ParseHtmlUseCase @Inject constructor(
         if (parseResult.isFailure) {
             val exception = parseResult.exceptionOrNull()
             Log.w(TAG, "AI parse failed for ${sourceUrl ?: "text input"}", exception)
-            val errorMessage = when (exception) {
-                is RecipeParseException -> "Couldn't read a recipe: ${exception.message}"
-                else -> exception?.message ?: "Failed to parse recipe"
-            }
-            val retryable = (exception as? AnthropicRequestException)?.isTransient == true
 
             if (debuggingEnabled) {
                 saveDebugEntry(
@@ -173,7 +160,7 @@ class ParseHtmlUseCase @Inject constructor(
                 )
             }
 
-            return ParseResult.Error(errorMessage, retryable)
+            return Outcome.Failure(exception.toRecipeError())
         }
         val parsedWithUsage = parseResult.getOrThrow()
         val parsed = parsedWithUsage.result
@@ -219,8 +206,7 @@ class ParseHtmlUseCase @Inject constructor(
             )
         }
 
-        onProgress(ParseProgress.Complete(ParseResult.Success(recipe)))
-        return ParseResult.Success(recipe)
+        return Outcome.Success(recipe)
     }
 
     /**
@@ -239,7 +225,7 @@ class ParseHtmlUseCase @Inject constructor(
      * @param model The AI model used
      * @param thinkingEnabled Whether thinking was enabled
      * @param durationMs Time taken for the batch to process (optional)
-     * @return The saved Recipe, or a failure with a user-facing message
+     * @return The saved Recipe, or why it couldn't be saved
      */
     suspend fun saveBatchResult(
         parsedWithUsage: ParseResultWithUsage,
@@ -251,11 +237,11 @@ class ParseHtmlUseCase @Inject constructor(
         model: String,
         thinkingEnabled: Boolean,
         durationMs: Long? = null
-    ): Result<Recipe> {
+    ): Outcome<Recipe> {
         val count = recipeRepository.getRecipeCount()
         if (count >= ResourceLimits.MAX_RECIPES && recipeRepository.getRecipeByIdOnce(recipeId) == null) {
             Log.w(TAG, "Recipe limit reached ($count/${ResourceLimits.MAX_RECIPES}), skipping batch save")
-            return Result.failure(IllegalStateException(recipeLimitMessage(count)))
+            return Outcome.Failure(RecipeError.LimitReached(count, ResourceLimits.MAX_RECIPES))
         }
 
         val parsed = parsedWithUsage.result
@@ -289,7 +275,7 @@ class ParseHtmlUseCase @Inject constructor(
             )
         }
 
-        return Result.success(recipe)
+        return Outcome.Success(recipe)
     }
 
     /**
@@ -392,8 +378,4 @@ class ParseHtmlUseCase @Inject constructor(
             updatedAt = now
         )
     }
-
-    private fun recipeLimitMessage(count: Int): String =
-        "Recipe limit reached ($count/${ResourceLimits.MAX_RECIPES}). " +
-            "Delete some recipes before importing new ones."
 }

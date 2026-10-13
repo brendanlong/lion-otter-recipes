@@ -51,6 +51,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -60,6 +61,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
+import com.lionotter.recipes.messages.resolve
+import com.lionotter.recipes.ui.components.CollectEvents
 import com.lionotter.recipes.ui.TestTags
 import com.lionotter.recipes.ui.components.BulkDeleteConfirmationDialog
 import com.lionotter.recipes.ui.components.CancelImportConfirmationDialog
@@ -106,17 +109,9 @@ fun RecipeListScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    val deleteFailedMessage = stringResource(R.string.delete_recipe_failed)
-    val favoriteFailedMessage = stringResource(R.string.favorite_update_failed)
-    LaunchedEffect(Unit) {
-        viewModel.errors.collect { error ->
-            snackbarHostState.showSnackbar(
-                when (error) {
-                    RecipeListError.DELETE_FAILED -> deleteFailedMessage
-                    RecipeListError.FAVORITE_FAILED -> favoriteFailedMessage
-                }
-            )
-        }
+    val resources = LocalResources.current
+    CollectEvents(viewModel.events) { message ->
+        snackbarHostState.showSnackbar(message.resolve(resources))
     }
 
     // Swipe state of each visible card, so dialogs can slide a card away or back after a

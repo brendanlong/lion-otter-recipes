@@ -11,6 +11,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
+import com.lionotter.recipes.R
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.repository.IMealPlanRepository
 import com.lionotter.recipes.data.repository.IRecipeRepository
@@ -23,6 +24,7 @@ import com.lionotter.recipes.domain.model.createInstructionIngredientKey
 import com.lionotter.recipes.domain.usecase.CalculateIngredientUsageUseCase
 import com.lionotter.recipes.domain.usecase.ExportSingleRecipeUseCase
 import com.lionotter.recipes.domain.util.RecipeSerializer
+import com.lionotter.recipes.messages.UserMessage
 import com.lionotter.recipes.ui.navigation.Route
 import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -63,11 +65,14 @@ sealed interface RecipeDetailState {
     data class Loaded(val recipe: Recipe) : RecipeDetailState
 }
 
-enum class RecipeDetailError {
-    DELETE_FAILED,
-    EXPORT_FAILED,
-    SAVE_NOTES_FAILED,
-    FAVORITE_FAILED
+sealed interface RecipeDetailEvent {
+    /** The recipe was deleted; leave the screen. */
+    data object Deleted : RecipeDetailEvent
+
+    /** The recipe was exported to [uri]; offer to share it. */
+    data class ShareExport(val uri: Uri) : RecipeDetailEvent
+
+    data class ShowMessage(val message: UserMessage) : RecipeDetailEvent
 }
 
 @OptIn(FlowPreview::class)
@@ -101,11 +106,8 @@ class RecipeDetailViewModel @Inject constructor(
 
     private val recipeId: String = savedStateHandle.toRoute<Route.RecipeDetail>().recipeId
 
-    private val _recipeDeleted = Channel<Unit>(Channel.BUFFERED)
-    val recipeDeleted: Flow<Unit> = _recipeDeleted.receiveAsFlow()
-
-    private val _errors = Channel<RecipeDetailError>(Channel.BUFFERED)
-    val errors: Flow<RecipeDetailError> = _errors.receiveAsFlow()
+    private val _events = Channel<RecipeDetailEvent>(Channel.BUFFERED)
+    val events: Flow<RecipeDetailEvent> = _events.receiveAsFlow()
 
     val recipe: StateFlow<Recipe?> = recipeRepository.getRecipeById(recipeId)
         .stateIn(
@@ -377,22 +379,12 @@ class RecipeDetailViewModel @Inject constructor(
     }
 
     /**
-     * Toggles the favorite status of the current recipe.
+     * Toggles the favorite status of the current recipe. Like other repository writes, it
+     * applies locally at once and a sync failure is reported app-wide.
      */
     fun toggleFavorite() {
-        viewModelScope.launch {
-            val currentRecipe = recipe.value ?: return@launch
-            try {
-                withContext(NonCancellable) {
-                    recipeRepository.setFavorite(recipeId, !currentRecipe.isFavorite)
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                ErrorLog.e(TAG, "Failed to toggle favorite for $recipeId", e)
-                _errors.send(RecipeDetailError.FAVORITE_FAILED)
-            }
-        }
+        val currentRecipe = recipe.value ?: return
+        recipeRepository.setFavorite(recipeId, !currentRecipe.isFavorite)
     }
 
     /**
@@ -411,24 +403,27 @@ class RecipeDetailViewModel @Inject constructor(
 
     /**
      * Deletes the current recipe and any meal plan entries that reference it,
-     * then emits an event when complete.
+     * then emits [RecipeDetailEvent.Deleted]. Finding the meal plans can fail; then nothing is
+     * deleted.
      */
     fun deleteRecipe() {
         viewModelScope.launch {
             _isDeleting.value = true
             try {
+                // Both or neither, even if the screen is left in between
                 withContext(NonCancellable) {
                     mealPlanRepository.deleteMealPlansByRecipeId(recipeId)
                     recipeRepository.deleteRecipe(recipeId)
                 }
-                _recipeDeleted.send(Unit)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 ErrorLog.e(TAG, "Failed to delete recipe $recipeId", e)
                 _isDeleting.value = false
-                _errors.send(RecipeDetailError.DELETE_FAILED)
+                _events.send(RecipeDetailEvent.ShowMessage(UserMessage(R.string.delete_recipe_failed)))
+                return@launch
             }
+            _events.send(RecipeDetailEvent.Deleted)
         }
     }
 
@@ -469,12 +464,7 @@ class RecipeDetailViewModel @Inject constructor(
         val currentRecipe = recipe.value ?: return
         val normalizedNotes = text.takeIf { it.isNotBlank() }
         if (normalizedNotes == currentRecipe.userNotes) return
-        try {
-            recipeRepository.setUserNotes(recipeId, normalizedNotes)
-        } catch (e: Exception) {
-            ErrorLog.e(TAG, "Failed to save notes for $recipeId", e)
-            _errors.trySend(RecipeDetailError.SAVE_NOTES_FAILED)
-        }
+        recipeRepository.setUserNotes(recipeId, normalizedNotes)
     }
 
     override fun onCleared() {
@@ -484,12 +474,9 @@ class RecipeDetailViewModel @Inject constructor(
 
     // --- Recipe Export ---
 
-    private val _exportedFileUri = Channel<Uri>(Channel.BUFFERED)
-    val exportedFileUri: Flow<Uri> = _exportedFileUri.receiveAsFlow()
-
     /**
      * Exports the current recipe to a .lorecipes file in the cache directory
-     * and emits the content URI for sharing.
+     * and emits [RecipeDetailEvent.ShareExport] with its content URI.
      */
     fun exportRecipeFile() {
         viewModelScope.launch {
@@ -512,12 +499,12 @@ class RecipeDetailViewModel @Inject constructor(
                         file
                     )
                 }
-                _exportedFileUri.send(uri)
+                _events.send(RecipeDetailEvent.ShareExport(uri))
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 ErrorLog.e(TAG, "Failed to export recipe $recipeId", e)
-                _errors.send(RecipeDetailError.EXPORT_FAILED)
+                _events.send(RecipeDetailEvent.ShowMessage(UserMessage(R.string.export_recipe_failed)))
             }
         }
     }

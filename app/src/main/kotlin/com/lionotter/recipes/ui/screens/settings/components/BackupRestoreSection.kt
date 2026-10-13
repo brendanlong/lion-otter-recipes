@@ -17,11 +17,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
 import com.lionotter.recipes.ui.components.ProgressCard
-import com.lionotter.recipes.ui.screens.settings.ZipOperationState
 
 @Composable
 fun BackupRestoreSection(
-    operationState: ZipOperationState,
+    isExporting: Boolean,
     onExportClick: () -> Unit,
     onImportClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -37,8 +36,6 @@ fun BackupRestoreSection(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-
-        val isExporting = operationState is ZipOperationState.Exporting
 
         if (isExporting) {
             ProgressCard(

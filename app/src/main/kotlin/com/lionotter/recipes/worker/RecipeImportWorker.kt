@@ -5,6 +5,8 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.Data
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.lionotter.recipes.domain.Outcome
+import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.usecase.ImportRecipeUseCase
 import com.lionotter.recipes.notification.RecipeNotificationHelper
 import dagger.assisted.Assisted
@@ -34,7 +36,7 @@ class RecipeImportWorker @AssistedInject constructor(
 
     override suspend fun doRecipeWork(): Result {
         val url = inputData.getString(KEY_URL)
-            ?: return errorResult("No URL provided")
+            ?: return errorResult(RecipeError.Unexpected, "no URL provided")
         val importId = inputData.getString(KEY_IMPORT_ID) ?: id.toString()
 
         setForegroundProgress("Starting import...")
@@ -54,29 +56,25 @@ class RecipeImportWorker @AssistedInject constructor(
                         RecipeImportWork.Progress.Parsing(progress.name) to "AI is analyzing the recipe..."
                     is ImportRecipeUseCase.ImportProgress.SavingRecipe ->
                         RecipeImportWork.Progress.Saving to "Saving recipe..."
-                    is ImportRecipeUseCase.ImportProgress.Complete -> null to "Complete!"
                 }
-                workProgress?.let { setProgress(it.toData()) }
+                setProgress(workProgress.toData())
                 setForegroundProgress(message)
             }
         )
 
         return when (result) {
-            is ImportRecipeUseCase.ImportResult.Success -> {
+            is Outcome.Success -> {
+                val recipe = result.value
                 notificationHelper.showSuccessNotification(
                     key = importId,
-                    recipeName = result.recipe.name,
-                    recipeId = result.recipe.id
+                    recipeName = recipe.name,
+                    recipeId = recipe.id
                 )
-                successResult(RecipeImportWork.Outcome.Success(importId, result.recipe.id, result.recipe.name))
+                successResult(RecipeImportWork.Outcome.Success(importId, recipe.id, recipe.name))
             }
-            is ImportRecipeUseCase.ImportResult.Error -> errorResult(
-                RecipeImportWork.Outcome.Failed(result.message, importId),
-                retryable = result.retryable
-            )
-            ImportRecipeUseCase.ImportResult.NoApiKey -> errorResult(
-                RecipeImportWork.Outcome.NoApiKey("Add your Anthropic API key in Settings to import recipes.", importId),
-                notify = false
+            is Outcome.Failure -> errorResult(
+                RecipeImportWork.Outcome.Failed(result.error, importId),
+                notify = result.error != RecipeError.NoApiKey
             )
         }
     }
@@ -130,14 +128,8 @@ object RecipeImportWork : WorkContract<RecipeImportWork.Progress, RecipeImportWo
             )
         }
 
-        data class NoApiKey(override val message: String?, val importId: String?) : Outcome, FailureOutcome {
-            override fun toData() =
-                WorkResult.failure(WorkResult.NO_API_KEY, message, WorkResult.KEY_IMPORT_ID to importId)
-        }
-
-        data class Failed(override val message: String?, val importId: String?) : Outcome, FailureOutcome {
-            override fun toData() =
-                WorkResult.failure(WorkResult.ERROR, message, WorkResult.KEY_IMPORT_ID to importId)
+        data class Failed(override val error: RecipeError, val importId: String?) : Outcome, FailureOutcome {
+            override fun toData() = WorkResult.failure(error, WorkResult.KEY_IMPORT_ID to importId)
         }
     }
 
@@ -158,8 +150,7 @@ object RecipeImportWork : WorkContract<RecipeImportWork.Progress, RecipeImportWo
                 recipeId = data.getString(WorkResult.KEY_RECIPE_ID),
                 recipeName = data.getString(WorkResult.KEY_RECIPE_NAME)
             )
-            WorkResult.type(data) == WorkResult.NO_API_KEY -> Outcome.NoApiKey(WorkResult.message(data), importId)
-            else -> Outcome.Failed(WorkResult.message(data), importId)
+            else -> Outcome.Failed(WorkResult.error(data), importId)
         }
     }
 }

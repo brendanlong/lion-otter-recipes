@@ -51,6 +51,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
+import com.lionotter.recipes.messages.resolve
+import com.lionotter.recipes.ui.components.CollectEvents
 import com.lionotter.recipes.ui.format.formatScaleMultiplier
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.ui.components.RecipeThumbnail
@@ -65,14 +67,15 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
@@ -93,8 +96,6 @@ fun MealPlanScreen(
     val weekStart by viewModel.currentWeekStart.collectAsStateWithLifecycle()
     val loadedWeekMealPlans by viewModel.weekMealPlans.collectAsStateWithLifecycle()
     val showAddDialog by viewModel.showAddDialog.collectAsStateWithLifecycle()
-    val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
-    val recentlyDeleted by viewModel.recentlyDeleted.collectAsStateWithLifecycle()
     val today by viewModel.today.collectAsStateWithLifecycle()
 
     val scope = rememberCoroutineScope()
@@ -106,29 +107,25 @@ fun MealPlanScreen(
         onPauseOrDispose { }
     }
 
-    // Show error in snackbar
-    val errorText = errorMessage?.let { stringResource(it.resId, *it.args.toTypedArray()) }
-    LaunchedEffect(errorText) {
-        if (errorText != null) {
-            snackbarHostState.showSnackbar(errorText)
-            viewModel.clearError()
-        }
-    }
-
-    // Offer undo after removing a meal
-    val removedMessage = recentlyDeleted?.let { stringResource(R.string.meal_removed, it.recipeName) }
+    val resources = LocalResources.current
     val undoLabel = stringResource(R.string.meal_plan_undo)
-    LaunchedEffect(recentlyDeleted) {
-        if (recentlyDeleted != null && removedMessage != null) {
-            val result = snackbarHostState.showSnackbar(
-                message = removedMessage,
-                actionLabel = undoLabel,
-                duration = SnackbarDuration.Long
-            )
-            if (result == SnackbarResult.ActionPerformed) {
-                viewModel.undoDelete()
-            } else {
-                viewModel.clearRecentlyDeleted()
+    // Only the latest removal can be undone
+    var undoSnackbar by remember { mutableStateOf<Job?>(null) }
+    CollectEvents(viewModel.events) { event ->
+        when (event) {
+            is MealPlanEvent.ShowMessage -> scope.launch {
+                snackbarHostState.showSnackbar(event.message.resolve(resources))
+            }
+            is MealPlanEvent.MealRemoved -> {
+                undoSnackbar?.cancel()
+                undoSnackbar = scope.launch {
+                    val result = snackbarHostState.showSnackbar(
+                        message = resources.getString(R.string.meal_removed, event.entry.recipeName),
+                        actionLabel = undoLabel,
+                        duration = SnackbarDuration.Long
+                    )
+                    if (result == SnackbarResult.ActionPerformed) viewModel.undoDelete(event.entry)
+                }
             }
         }
     }

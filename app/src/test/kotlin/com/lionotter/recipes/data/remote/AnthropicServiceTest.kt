@@ -3,6 +3,9 @@ package com.lionotter.recipes.data.remote
 import android.util.Log
 import com.anthropic.core.jsonMapper
 import com.anthropic.models.beta.messages.BetaMessage
+import com.lionotter.recipes.domain.AiFailure
+import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.toRecipeError
 import io.mockk.every
 import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
@@ -23,18 +26,17 @@ class AnthropicServiceTest {
 
     @Test
     fun `validateApiKey returns error for empty key`() {
-        assertEquals("API key cannot be empty", AnthropicService.validateApiKey(""))
+        assertEquals(ApiKeyProblem.EMPTY, AnthropicService.validateApiKey(""))
     }
 
     @Test
     fun `validateApiKey returns error for blank key`() {
-        assertEquals("API key cannot be empty", AnthropicService.validateApiKey("   "))
+        assertEquals(ApiKeyProblem.EMPTY, AnthropicService.validateApiKey("   "))
     }
 
     @Test
     fun `validateApiKey returns error for invalid prefix`() {
-        val error = AnthropicService.validateApiKey("invalid-key")
-        assertTrue(error?.contains("sk-ant-") == true)
+        assertEquals(ApiKeyProblem.BAD_PREFIX, AnthropicService.validateApiKey("invalid-key"))
     }
 
     @Test
@@ -173,7 +175,7 @@ class AnthropicServiceTest {
     @Test
     fun `refusal after fallback is reported as declined`() = withMockedLog {
         val result = service.parseBetaMessageResult(betaMessage("refusal", fallbackBlock))
-        assertEquals("The AI declined to process this content.", result.exceptionOrNull()?.message)
+        assertEquals(RecipeError.Ai(AiFailure.REFUSED), result.exceptionOrNull().toRecipeError())
     }
 
     private fun withMockedLog(block: () -> Unit) {
@@ -197,6 +199,16 @@ class AnthropicServiceTest {
     fun `friendly exception marks network errors transient`() {
         val e = AnthropicService.toFriendlyException(java.io.IOException("boom"))
         assertTrue(e is AnthropicRequestException && e.isTransient)
+        assertEquals(RecipeError.Ai(AiFailure.NETWORK), e.toRecipeError())
+    }
+
+    @Test
+    fun `parse exceptions carry the AI's explanation or what was wrong with the response`() {
+        assertEquals(RecipeError.NotARecipe("not a recipe"), RecipeParseException("not a recipe").toRecipeError())
+        assertEquals(
+            RecipeError.Ai(AiFailure.TRUNCATED),
+            RecipeParseException(AiFailure.TRUNCATED).toRecipeError()
+        )
     }
 
     @Test

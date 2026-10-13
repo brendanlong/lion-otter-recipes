@@ -39,7 +39,7 @@ data class DebugContentPreview(val text: String, val totalLength: Int) {
 sealed interface ImportDebugDetailState {
     data object Loading : ImportDebugDetailState
     data object NotFound : ImportDebugDetailState
-    data class Error(val message: String) : ImportDebugDetailState
+    data object Error : ImportDebugDetailState
     data class Loaded(
         val summary: ImportDebugSummary,
         val contents: Map<DebugContentField, DebugContentPreview?>
@@ -66,7 +66,7 @@ class ImportDebugDetailViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 ErrorLog.e(TAG, "Failed to load import debug entry $entryId", e)
-                ImportDebugDetailState.Error(e.message ?: e.javaClass.simpleName)
+                ImportDebugDetailState.Error
             }
         }
     }

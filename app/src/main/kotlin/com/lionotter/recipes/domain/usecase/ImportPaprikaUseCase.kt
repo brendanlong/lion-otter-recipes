@@ -5,13 +5,17 @@ import android.util.Log
 import com.anthropic.models.messages.batches.MessageBatch
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.paprika.PaprikaParser
-import com.lionotter.recipes.data.remote.AnthropicRequestException
 import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.remote.ParseResultWithUsage
 import com.lionotter.recipes.data.remote.WebScraperService
 import com.lionotter.recipes.data.repository.IRecipeRepository
+import com.lionotter.recipes.domain.ArchiveFailure
+import com.lionotter.recipes.domain.Outcome
+import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.RecipeErrorException
 import com.lionotter.recipes.domain.ResourceLimits
+import com.lionotter.recipes.domain.toRecipeError
 import com.lionotter.recipes.domain.util.ArchiveTooLargeException
 import com.lionotter.recipes.util.ErrorLog
 import kotlinx.coroutines.CancellationException
@@ -75,16 +79,11 @@ class ImportPaprikaUseCase @Inject constructor(
             UUID.nameUUIDFromBytes("paprika-import:$importId:$customId".toByteArray()).toString()
     }
 
-    sealed class ImportResult {
-        data class Success(
-            val importedCount: Int,
-            val failedCount: Int,
-            val failedRecipes: List<String> = emptyList()
-        ) : ImportResult()
-
-        data class Error(val message: String, val retryable: Boolean = false) : ImportResult()
-        object NoApiKey : ImportResult()
-    }
+    data class ImportSummary(
+        val importedCount: Int,
+        val failedCount: Int,
+        val failedRecipes: List<String> = emptyList()
+    )
 
     sealed class ImportProgress {
         object Parsing : ImportProgress()
@@ -101,12 +100,11 @@ class ImportPaprikaUseCase @Inject constructor(
             val importedSoFar: Int = 0,
             val failedSoFar: Int = 0
         ) : ImportProgress()
-
-        data class Complete(val result: ImportResult) : ImportProgress()
     }
 
     sealed class StepResult {
-        data class Finished(val result: ImportResult) : StepResult()
+        /** [allowRetry] is false when running the step again can't help, even for a transient error. */
+        data class Finished(val result: Outcome<ImportSummary>, val allowRetry: Boolean = true) : StepResult()
 
         /** The batch is still processing; call [runStep] again later. */
         object PollAgain : StepResult()
@@ -152,7 +150,7 @@ class ImportPaprikaUseCase @Inject constructor(
         onProgress: suspend (ImportProgress) -> Unit = {}
     ): StepResult {
         val apiKey = settingsDataStore.anthropicApiKey.first()
-        if (apiKey.isNullOrBlank()) return StepResult.Finished(ImportResult.NoApiKey)
+        if (apiKey.isNullOrBlank()) return failed(RecipeError.NoApiKey)
 
         val state = loadState(workDir)
         return if (state == null) {
@@ -223,30 +221,27 @@ class ImportPaprikaUseCase @Inject constructor(
             throw e
         } catch (e: ArchiveTooLargeException) {
             ErrorLog.e(TAG, "Paprika export too large", e)
-            return finished(ImportResult.Error("This Paprika export is too large to import (${e.message})."))
+            return failed(RecipeError.Archive(ArchiveFailure.TOO_LARGE))
+        } catch (e: RecipeErrorException) {
+            ErrorLog.e(TAG, "Couldn't open Paprika export", e)
+            return failed(e.recipeError)
         } catch (e: Exception) {
             ErrorLog.e(TAG, "Failed to read Paprika export", e)
-            return finished(ImportResult.Error("Couldn't read the Paprika export: ${e.message ?: e.javaClass.simpleName}"))
+            return failed(RecipeError.Archive(ArchiveFailure.UNREADABLE))
         }
 
         if (prepared.isEmpty()) {
-            val message = if (unreadable.isNotEmpty()) {
-                "None of the recipes in this export could be read."
-            } else {
-                "No recipes found in export file"
-            }
-            return finished(ImportResult.Error(message))
+            return failed(
+                RecipeError.Archive(
+                    if (unreadable.isNotEmpty()) ArchiveFailure.NO_READABLE_RECIPES else ArchiveFailure.NO_RECIPES
+                )
+            )
         }
 
         val existingCount = recipeRepository.getRecipeCount()
         val remaining = ResourceLimits.MAX_RECIPES - existingCount
         if (remaining <= 0) {
-            return finished(
-                ImportResult.Error(
-                    "Recipe limit reached ($existingCount/${ResourceLimits.MAX_RECIPES}). " +
-                        "Delete some recipes before importing new ones."
-                )
-            )
+            return failed(RecipeError.LimitReached(existingCount, ResourceLimits.MAX_RECIPES))
         }
         val toImport = prepared.take(remaining)
         val preFailed = unreadable + prepared.drop(remaining).map { it.name }
@@ -268,10 +263,8 @@ class ImportPaprikaUseCase @Inject constructor(
                 model = model,
                 thinkingEnabled = thinkingEnabled
             ).getOrElse { e ->
-                return@withContext ImportResult.Error(
-                    message = e.message ?: "Failed to submit recipes to the AI",
-                    retryable = (e as? AnthropicRequestException)?.isTransient == true
-                )
+                Log.w(TAG, "Failed to submit batch", e)
+                return@withContext e.toRecipeError()
             }
             try {
                 saveState(
@@ -288,12 +281,12 @@ class ImportPaprikaUseCase @Inject constructor(
             } catch (e: Exception) {
                 ErrorLog.e(TAG, "Failed to save state for batch $batchId; cancelling it", e)
                 anthropicService.cancelBatch(batchId, apiKey)
-                return@withContext ImportResult.Error("Couldn't save the import's progress: ${e.message}")
+                return@withContext RecipeError.Unexpected
             }
             Log.i(TAG, "Submitted batch $batchId with ${toImport.size} recipes")
             null
         }
-        if (submitError != null) return finished(submitError)
+        if (submitError != null) return failed(submitError)
         coroutineContext.ensureActive()
         onProgress(ImportProgress.WaitingForBatch(total = toImport.size))
         return StepResult.PollAgain
@@ -307,11 +300,11 @@ class ImportPaprikaUseCase @Inject constructor(
     ): StepResult {
         val total = state.recipes.size
         val batch = anthropicService.retrieveBatch(state.batchId, apiKey).getOrElse { e ->
-            val transient = (e as? AnthropicRequestException)?.isTransient == true
+            val error = e.toRecipeError()
             val failures = incrementPollFailures(workDir)
-            if (!transient || failures > MAX_POLL_FAILURES) {
+            if (!error.retryable || failures > MAX_POLL_FAILURES) {
                 ErrorLog.e(TAG, "Giving up on batch ${state.batchId} after $failures failed polls", e)
-                return finished(ImportResult.Error(e.message ?: "Lost track of the AI batch", retryable = false))
+                return StepResult.Finished(Outcome.Failure(error), allowRetry = false)
             }
             return StepResult.PollAgain
         }
@@ -348,11 +341,12 @@ class ImportPaprikaUseCase @Inject constructor(
             }
         }
         streamResult.onFailure { e ->
-            val transient = (e as? AnthropicRequestException)?.isTransient == true
-            return if (transient) {
+            val error = e.toRecipeError()
+            return if (error.retryable) {
                 StepResult.PollAgain
             } else {
-                finished(ImportResult.Error(e.message ?: "Failed to download AI results"))
+                Log.w(TAG, "Failed to download results for batch ${state.batchId}", e)
+                failed(error)
             }
         }
 
@@ -394,7 +388,7 @@ class ImportPaprikaUseCase @Inject constructor(
             error?.let { state.recipes.firstOrNull { it.customId == customId }?.name }
         } + state.preFailedNames
         return finished(
-            ImportResult.Success(
+            ImportSummary(
                 importedCount = imported,
                 failedCount = failedNames.size,
                 failedRecipes = failedNames
@@ -420,10 +414,12 @@ class ImportPaprikaUseCase @Inject constructor(
                 model = state.model,
                 thinkingEnabled = state.thinkingEnabled,
                 durationMs = durationMs
-            ).fold(
-                onSuccess = { null },
-                onFailure = { it.message ?: "Failed to save recipe" }
-            )
+            ).let { saved ->
+                when (saved) {
+                    is Outcome.Success -> null
+                    is Outcome.Failure -> saved.error.toString()
+                }
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -456,18 +452,16 @@ class ImportPaprikaUseCase @Inject constructor(
             imageUrl = resolveImageUrl(recipe),
             saveRecipe = true
         )
-        val result = when (parseResult) {
-            is ParseHtmlUseCase.ParseResult.Success ->
-                ImportResult.Success(importedCount = 1, failedCount = preFailed.size, failedRecipes = preFailed)
-            is ParseHtmlUseCase.ParseResult.Error -> if (preFailed.isEmpty()) {
-                ImportResult.Error(parseResult.message, parseResult.retryable)
+        return when (parseResult) {
+            is Outcome.Success ->
+                finished(ImportSummary(importedCount = 1, failedCount = preFailed.size, failedRecipes = preFailed))
+            is Outcome.Failure -> if (preFailed.isEmpty() || parseResult.error == RecipeError.NoApiKey) {
+                failed(parseResult.error)
             } else {
-                Log.w(TAG, "Failed to import ${recipe.name}: ${parseResult.message}")
-                ImportResult.Success(0, preFailed.size + 1, preFailed + recipe.name)
+                Log.w(TAG, "Failed to import ${recipe.name}: ${parseResult.error}")
+                finished(ImportSummary(0, preFailed.size + 1, preFailed + recipe.name))
             }
-            ParseHtmlUseCase.ParseResult.NoApiKey -> ImportResult.NoApiKey
         }
-        return finished(result)
     }
 
     /**
@@ -505,7 +499,9 @@ class ImportPaprikaUseCase @Inject constructor(
         null
     }
 
-    private fun finished(result: ImportResult): StepResult = StepResult.Finished(result)
+    private fun finished(summary: ImportSummary): StepResult = StepResult.Finished(Outcome.Success(summary))
+
+    private fun failed(error: RecipeError): StepResult = StepResult.Finished(Outcome.Failure(error))
 
     private fun loadState(workDir: File): BatchState? {
         val file = File(workDir, STATE_FILE)

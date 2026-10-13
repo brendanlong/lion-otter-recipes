@@ -1,10 +1,12 @@
 package com.lionotter.recipes.domain.usecase
 
 import com.lionotter.recipes.data.remote.ImageDownloadService
-import com.lionotter.recipes.data.remote.PageFetchException
 import com.lionotter.recipes.data.remote.WebScraperService
 import com.lionotter.recipes.data.repository.IRecipeRepository
+import com.lionotter.recipes.domain.Outcome
+import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.toRecipeError
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlin.time.Clock
@@ -16,19 +18,11 @@ class RegenerateRecipeUseCase @Inject constructor(
     private val webScraperService: WebScraperService,
     private val imageDownloadService: ImageDownloadService
 ) {
-    sealed class RegenerateResult {
-        data class Success(val recipe: Recipe) : RegenerateResult()
-        data class Error(val message: String, val retryable: Boolean = false) : RegenerateResult()
-        object NoApiKey : RegenerateResult()
-        object NoSourceUrl : RegenerateResult()
-    }
-
     sealed class RegenerateProgress {
         object FetchingFromUrl : RegenerateProgress()
         object ParsingRecipe : RegenerateProgress()
         data class RecipeNameAvailable(val name: String) : RegenerateProgress()
         object SavingRecipe : RegenerateProgress()
-        data class Complete(val result: RegenerateResult) : RegenerateProgress()
     }
 
     /**
@@ -47,25 +41,20 @@ class RegenerateRecipeUseCase @Inject constructor(
         model: String? = null,
         thinkingEnabled: Boolean? = null,
         onProgress: suspend (RegenerateProgress) -> Unit = {}
-    ): RegenerateResult {
-        // Load existing recipe
+    ): Outcome<Recipe> {
         val existingRecipe = recipeRepository.getRecipeByIdOnce(recipeId)
-            ?: return RegenerateResult.Error("Recipe not found")
+            ?: return Outcome.Failure(RecipeError.RecipeNotFound)
 
         val sourceUrl = existingRecipe.sourceUrl
         if (sourceUrl.isNullOrBlank()) {
-            return RegenerateResult.NoSourceUrl
+            return Outcome.Failure(RecipeError.NoSourceUrl)
         }
 
         // Fetch fresh HTML from the source URL
         onProgress(RegenerateProgress.FetchingFromUrl)
         val pageResult = webScraperService.fetchPage(sourceUrl)
         if (pageResult.isFailure) {
-            val error = pageResult.exceptionOrNull()
-            return RegenerateResult.Error(
-                error?.message ?: "Failed to fetch page",
-                (error as? PageFetchException)?.isTransient == true
-            )
+            return Outcome.Failure(pageResult.exceptionOrNull().toRecipeError())
         }
         val page = pageResult.getOrThrow()
 
@@ -86,16 +75,16 @@ class RegenerateRecipeUseCase @Inject constructor(
                         onProgress(RegenerateProgress.RecipeNameAvailable(progress.name))
                     is ParseHtmlUseCase.ParseProgress.SavingRecipe ->
                         onProgress(RegenerateProgress.SavingRecipe)
-                    is ParseHtmlUseCase.ParseProgress.Complete -> {}
                 }
             }
         )
 
         return when (parseResult) {
-            is ParseHtmlUseCase.ParseResult.Success -> {
+            is Outcome.Success -> {
+                val parsed = parseResult.value
                 // Re-read in case the user changed the image while this was running.
                 val freshRecipe = recipeRepository.getRecipeByIdOnce(recipeId) ?: existingRecipe
-                val pageImageUrl = parseResult.recipe.sourceImageUrl
+                val pageImageUrl = parsed.sourceImageUrl
                 val downloadedImage = if (freshRecipe.imageUrl == null && pageImageUrl != null) {
                     imageDownloadService.downloadAndStoreWithResult(pageImageUrl)
                 } else {
@@ -105,20 +94,15 @@ class RegenerateRecipeUseCase @Inject constructor(
                 onProgress(RegenerateProgress.SavingRecipe)
                 val regeneratedRecipe = withContext(NonCancellable) {
                     val newImageUrl = downloadedImage?.localUri?.let { imageDownloadService.storeImage(it) }
-                    freshRecipe.withRegeneratedContent(parseResult.recipe, Clock.System.now()).copy(
+                    freshRecipe.withRegeneratedContent(parsed, Clock.System.now()).copy(
                         imageUrl = freshRecipe.imageUrl ?: newImageUrl,
                         sourceImageUrl = downloadedImage?.effectiveUrl ?: pageImageUrl ?: freshRecipe.sourceImageUrl
                     ).also { recipeRepository.saveRecipe(it) }
                 }
 
-                val result = RegenerateResult.Success(regeneratedRecipe)
-                onProgress(RegenerateProgress.Complete(result))
-                result
+                Outcome.Success(regeneratedRecipe)
             }
-            is ParseHtmlUseCase.ParseResult.Error ->
-                RegenerateResult.Error(parseResult.message, parseResult.retryable)
-            ParseHtmlUseCase.ParseResult.NoApiKey ->
-                RegenerateResult.NoApiKey
+            is Outcome.Failure -> parseResult
         }
     }
 }

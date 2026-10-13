@@ -1,5 +1,6 @@
 package com.lionotter.recipes.ui.screens.mealplan
 
+import kotlinx.coroutines.flow.first
 import app.cash.turbine.test
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.repository.IMealPlanRepository
@@ -143,15 +144,14 @@ class MealPlanViewModelTest {
 
         viewModel.deleteMealPlan(entry)
         advanceUntilIdle()
-        assertEquals(entry, viewModel.recentlyDeleted.value)
+        assertEquals(MealPlanEvent.MealRemoved(entry), viewModel.events.first())
 
         val saved = slot<MealPlanEntry>()
         every { mealPlanRepository.saveMealPlan(capture(saved)) } just runs
-        viewModel.undoDelete()
+        viewModel.undoDelete(entry)
         advanceUntilIdle()
 
         verify { mealPlanRepository.deleteMealPlan("e1") }
-        assertNull(viewModel.recentlyDeleted.value)
         assertEquals(entry.copy(id = saved.captured.id), saved.captured)
         assertNotEquals("e1", saved.captured.id)
         coVerify(exactly = 0) { mealPlanRepository.getMealPlanCount() }

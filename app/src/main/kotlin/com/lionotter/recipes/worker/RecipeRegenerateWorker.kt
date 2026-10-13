@@ -6,6 +6,8 @@ import androidx.work.Data
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.lionotter.recipes.data.local.SettingsDataStore
+import com.lionotter.recipes.domain.Outcome
+import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.usecase.RegenerateRecipeUseCase
 import com.lionotter.recipes.notification.RecipeNotificationHelper
 import dagger.assisted.Assisted
@@ -45,7 +47,7 @@ class RecipeRegenerateWorker @AssistedInject constructor(
 
     override suspend fun doRecipeWork(): Result {
         val recipeId = inputData.getString(KEY_RECIPE_ID)
-            ?: return errorResult("No recipe ID provided")
+            ?: return errorResult(RecipeError.Unexpected, "no recipe ID provided")
         val model = inputData.getString(KEY_MODEL)
         val thinkingEnabled = if (inputData.keyValueMap.containsKey(KEY_EXTENDED_THINKING)) {
             inputData.getBoolean(KEY_EXTENDED_THINKING, SettingsDataStore.DEFAULT_THINKING_ENABLED)
@@ -69,33 +71,26 @@ class RecipeRegenerateWorker @AssistedInject constructor(
                         RecipeRegenerateWork.Progress.Parsing(progress.name) to "AI is re-analyzing the recipe..."
                     is RegenerateRecipeUseCase.RegenerateProgress.SavingRecipe ->
                         RecipeRegenerateWork.Progress.Saving to "Saving recipe..."
-                    is RegenerateRecipeUseCase.RegenerateProgress.Complete -> null to "Complete!"
                 }
-                workProgress?.let { setProgress(it.toData()) }
+                setProgress(workProgress.toData())
                 setForegroundProgress(message)
             }
         )
 
         return when (result) {
-            is RegenerateRecipeUseCase.RegenerateResult.Success -> {
+            is Outcome.Success -> {
+                val recipe = result.value
                 notificationHelper.showSuccessNotification(
                     key = operationKey,
-                    recipeName = result.recipe.name,
-                    recipeId = result.recipe.id,
+                    recipeName = recipe.name,
+                    recipeId = recipe.id,
                     title = "Recipe Regenerated"
                 )
-                successResult(RecipeRegenerateWork.Outcome.Success(recipeId, result.recipe.name))
+                successResult(RecipeRegenerateWork.Outcome.Success(recipeId, recipe.name))
             }
-            is RegenerateRecipeUseCase.RegenerateResult.Error -> errorResult(
-                RecipeRegenerateWork.Outcome.Failed(result.message, recipeId),
-                retryable = result.retryable
-            )
-            RegenerateRecipeUseCase.RegenerateResult.NoApiKey -> errorResult(
-                RecipeRegenerateWork.Outcome.NoApiKey("API key not configured", recipeId),
-                notify = false
-            )
-            RegenerateRecipeUseCase.RegenerateResult.NoSourceUrl -> errorResult(
-                RecipeRegenerateWork.Outcome.NoSourceUrl("No source URL available for this recipe", recipeId)
+            is Outcome.Failure -> errorResult(
+                RecipeRegenerateWork.Outcome.Failed(result.error, recipeId),
+                notify = result.error != RecipeError.NoApiKey
             )
         }
     }
@@ -134,19 +129,8 @@ object RecipeRegenerateWork : WorkContract<RecipeRegenerateWork.Progress, Recipe
             )
         }
 
-        data class NoApiKey(override val message: String?, val recipeId: String?) : Outcome, FailureOutcome {
-            override fun toData() =
-                WorkResult.failure(WorkResult.NO_API_KEY, message, WorkResult.KEY_RECIPE_ID to recipeId)
-        }
-
-        data class NoSourceUrl(override val message: String?, val recipeId: String?) : Outcome, FailureOutcome {
-            override fun toData() =
-                WorkResult.failure(WorkResult.NO_SOURCE_URL, message, WorkResult.KEY_RECIPE_ID to recipeId)
-        }
-
-        data class Failed(override val message: String?, val recipeId: String?) : Outcome, FailureOutcome {
-            override fun toData() =
-                WorkResult.failure(WorkResult.ERROR, message, WorkResult.KEY_RECIPE_ID to recipeId)
+        data class Failed(override val error: RecipeError, val recipeId: String?) : Outcome, FailureOutcome {
+            override fun toData() = WorkResult.failure(error, WorkResult.KEY_RECIPE_ID to recipeId)
         }
     }
 
@@ -159,14 +143,10 @@ object RecipeRegenerateWork : WorkContract<RecipeRegenerateWork.Progress, Recipe
 
     override fun decodeOutcome(succeeded: Boolean, data: Data): Outcome {
         val recipeId = data.getString(WorkResult.KEY_RECIPE_ID)
-        val message = WorkResult.message(data)
-        return when {
-            succeeded -> Outcome.Success(recipeId, data.getString(WorkResult.KEY_RECIPE_NAME))
-            else -> when (WorkResult.type(data)) {
-                WorkResult.NO_API_KEY -> Outcome.NoApiKey(message, recipeId)
-                WorkResult.NO_SOURCE_URL -> Outcome.NoSourceUrl(message, recipeId)
-                else -> Outcome.Failed(message, recipeId)
-            }
+        return if (succeeded) {
+            Outcome.Success(recipeId, data.getString(WorkResult.KEY_RECIPE_NAME))
+        } else {
+            Outcome.Failed(WorkResult.error(data), recipeId)
         }
     }
 }

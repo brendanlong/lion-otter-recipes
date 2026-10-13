@@ -1,5 +1,8 @@
 package com.lionotter.recipes.ui.integration
 
+import com.lionotter.recipes.messages.toUserMessage
+import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.ArchiveFailure
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -315,10 +318,10 @@ class RecipeFlowUiTest {
     @Test
     fun `import selection shows error state`() {
         setImportSelectionScreen(
-            state = ImportSelectionUiState.Error("Failed to read file: corrupt ZIP")
+            state = ImportSelectionUiState.Error(RecipeError.Archive(ArchiveFailure.UNREADABLE).toUserMessage())
         )
 
-        composeTestRule.onNodeWithText("Failed to read file: corrupt ZIP").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Couldn't read the file. Is it a Lion+Otter or Paprika export?").assertIsDisplayed()
     }
 
     @Test

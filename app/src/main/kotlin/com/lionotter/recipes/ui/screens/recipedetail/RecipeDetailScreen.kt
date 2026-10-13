@@ -43,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -50,6 +51,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
+import com.lionotter.recipes.messages.resolve
+import com.lionotter.recipes.ui.components.CollectEvents
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
 import com.lionotter.recipes.ui.TestTags
@@ -129,10 +132,6 @@ fun RecipeDetailScreen(
     val editSuccessMessage = stringResource(R.string.edit_save_success)
     val noShareAppMessage = stringResource(R.string.no_app_to_share)
     val noLinkAppMessage = stringResource(R.string.no_app_to_open_link)
-    val deleteFailedMessage = stringResource(R.string.delete_recipe_failed)
-    val exportFailedMessage = stringResource(R.string.export_recipe_failed)
-    val saveNotesFailedMessage = stringResource(R.string.save_notes_failed)
-    val favoriteFailedMessage = stringResource(R.string.favorite_update_failed)
 
     // Show snackbar when returning from a successful edit
     LaunchedEffect(editSuccess) {
@@ -142,39 +141,24 @@ fun RecipeDetailScreen(
         }
     }
 
-    // Navigate back after recipe is deleted
-    LaunchedEffect(Unit) {
-        viewModel.recipeDeleted.collect {
-            onBackClick()
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        viewModel.errors.collect { error ->
-            val message = when (error) {
-                RecipeDetailError.DELETE_FAILED -> deleteFailedMessage
-                RecipeDetailError.EXPORT_FAILED -> exportFailedMessage
-                RecipeDetailError.SAVE_NOTES_FAILED -> saveNotesFailedMessage
-                RecipeDetailError.FAVORITE_FAILED -> favoriteFailedMessage
-            }
-            snackbarHostState.showSnackbar(message)
-        }
-    }
-
     val context = LocalContext.current
+    val resources = LocalResources.current
 
-    // Handle exported file URI for sharing
-    LaunchedEffect(Unit) {
-        viewModel.exportedFileUri.collect { uri ->
-            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "application/zip"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                putExtra(Intent.EXTRA_SUBJECT, viewModel.recipe.value?.name ?: "Recipe")
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    CollectEvents(viewModel.events) { event ->
+        when (event) {
+            RecipeDetailEvent.Deleted -> onBackClick()
+            is RecipeDetailEvent.ShareExport -> {
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/zip"
+                    putExtra(Intent.EXTRA_STREAM, event.uri)
+                    putExtra(Intent.EXTRA_SUBJECT, viewModel.recipe.value?.name ?: "Recipe")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                if (!context.startShareChooser(shareIntent)) {
+                    snackbarHostState.showSnackbar(noShareAppMessage)
+                }
             }
-            if (!context.startShareChooser(shareIntent)) {
-                snackbarHostState.showSnackbar(noShareAppMessage)
-            }
+            is RecipeDetailEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message.resolve(resources))
         }
     }
 
