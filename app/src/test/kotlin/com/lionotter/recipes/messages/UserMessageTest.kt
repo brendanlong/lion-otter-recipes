@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.lionotter.recipes.R
 import com.lionotter.recipes.data.remote.DataFailure
 import com.lionotter.recipes.data.remote.DataOp
+import com.lionotter.recipes.domain.ImportFileFailure
 import com.lionotter.recipes.domain.PageFetchFailure
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.RecipeErrorTest
@@ -50,6 +51,14 @@ class UserMessageTest {
             RecipeError.NotARecipe("It's a blog post.").toUserMessage().resolve(resources)
         )
         assertEquals("Old message", RecipeError.Legacy("Old message").toUserMessage().resolve(resources))
+        assertEquals(
+            "This file is too large to import. Recipe files can be up to 200 KB.",
+            RecipeError.ImportFile(ImportFileFailure.TOO_LARGE, 200 * 1024L).toUserMessage().resolve(resources)
+        )
+        assertEquals(
+            "This file is too large to import. Recipe files can be up to 5 MB.",
+            RecipeError.ImportFile(ImportFileFailure.TOO_LARGE, 5 * 1024 * 1024L).toUserMessage().resolve(resources)
+        )
     }
 
     @Test

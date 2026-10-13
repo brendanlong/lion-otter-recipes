@@ -8,8 +8,10 @@ import com.lionotter.recipes.data.local.PendingImportStatus
 import com.lionotter.recipes.data.repository.PendingImportRepository
 import com.lionotter.recipes.di.ApplicationScope
 import com.lionotter.recipes.domain.ArchiveFailure
+import com.lionotter.recipes.domain.ImportFileFailure
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.RecipeErrorException
+import com.lionotter.recipes.domain.RecipeErrorSource
 import com.lionotter.recipes.domain.usecase.paprika.PaprikaImportSteps
 import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.worker.ImportInputStore
@@ -178,6 +180,47 @@ class ImportQueue @Inject constructor(
         ImportKind.URL -> scheduler.buildUrlImportRequest(url, importId)
         ImportKind.PAPRIKA -> scheduler.buildPaprikaImportRequest(importId)
         ImportKind.ZIP -> scheduler.buildZipImportRequest(importId)
+        ImportKind.TEXT_FILE, ImportKind.HTML_FILE -> scheduler.buildRecipeFileImportRequest(importId)
+    }
+
+    /**
+     * Start importing the recipe in a Markdown, text or HTML file. The file is copied into
+     * [ImportInputStore] first, since the permission to read [RecipeFile.uri] doesn't survive
+     * process death.
+     *
+     * @throws com.lionotter.recipes.domain.RecipeErrorException ([RecipeError.ImportFile]) if
+     *   the file can't be read, is empty or is too large
+     */
+    suspend fun startRecipeFileImport(file: RecipeFile): StartedImport = withContext(NonCancellable) {
+        val importId = UUID.randomUUID().toString()
+        try {
+            val copy = inputStore.copySource(importId, file.uri, maxBytes = file.format.maxBytes)
+            if (copy.length() == 0L) throw RecipeErrorException(RecipeError.ImportFile(ImportFileFailure.EMPTY))
+            inputStore.writeKind(importId, ImportKind.forRecipeFile(file.format))
+        } catch (e: CancellationException) {
+            // Can't happen in NonCancellable
+            throw e
+        } catch (e: Exception) {
+            inputStore.deleteImport(importId)
+            if (e is RecipeErrorSource) throw e
+            Log.w(TAG, "Couldn't copy the recipe file ${file.uri}", e)
+            throw RecipeErrorException(RecipeError.ImportFile(ImportFileFailure.UNREADABLE), e)
+        }
+        startMutex.withLock {
+            val request = scheduler.buildRecipeFileImportRequest(importId)
+            var inserted = false
+            try {
+                insertPendingImport(importId, file.displayName, url = "", workManagerId = request.id.toString())
+                inserted = true
+                scheduler.enqueueImport(importId, request)
+            } catch (e: Exception) {
+                ErrorLog.e(TAG, "Failed to start recipe file import $importId", e)
+                if (inserted) pendingImportRepository.deletePendingImport(importId)
+                inputStore.deleteImport(importId)
+                throw e
+            }
+            StartedImport(importId, request.id)
+        }
     }
 
     /** Re-run a failed import with the same inputs. */

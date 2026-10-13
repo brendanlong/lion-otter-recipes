@@ -1,5 +1,6 @@
 package com.lionotter.recipes.ui.screens.addrecipe
 
+import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.work.OneTimeWorkRequest
@@ -7,18 +8,24 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import com.lionotter.recipes.R
 import com.lionotter.recipes.data.repository.PendingImportRepository
+import com.lionotter.recipes.domain.ImportFileFailure
 import com.lionotter.recipes.domain.PageFetchFailure
 import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.RecipeErrorException
+import com.lionotter.recipes.domain.model.RecipeFileFormat
 import com.lionotter.recipes.imports.FakeImportWork
 import com.lionotter.recipes.imports.FakePendingImportDao
+import com.lionotter.recipes.imports.ImportFileInspector
 import com.lionotter.recipes.imports.ImportMonitor
 import com.lionotter.recipes.imports.ImportQueue
 import com.lionotter.recipes.imports.ImportStage
+import com.lionotter.recipes.imports.RecipeFile
 import com.lionotter.recipes.imports.pendingImport
 import com.lionotter.recipes.imports.testAppScope
 import com.lionotter.recipes.imports.workInfo
 import com.lionotter.recipes.messages.UserMessage
 import com.lionotter.recipes.ui.screens.importbrowser.BrowsedPage
+import com.lionotter.recipes.ui.screens.importselection.ImportType
 import com.lionotter.recipes.testutil.FakeAiSettings
 import com.lionotter.recipes.worker.ImportInputStore
 import com.lionotter.recipes.worker.ImportKind
@@ -45,18 +52,32 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import java.io.File
 import java.util.UUID
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(RobolectricTestRunner::class) // Uri and route arguments
 class AddRecipeViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
     private val dao = FakePendingImportDao()
     private val work = FakeImportWork()
     private val aiSettings = FakeAiSettings()
+
+    /** Picked files the inspector recognizes as recipe files; anything else is an archive. */
+    private val recipeFiles = mutableMapOf<Uri, RecipeFile>()
+    private val inspectedTypes = mutableListOf<String?>()
+    private val inspector = ImportFileInspector { uri, mimeType ->
+        inspectedTypes += mimeType
+        recipeFiles[uri]
+    }
+    private val pickedUri: Uri = Uri.parse("content://files/bread.md")
     private val inputStore: ImportInputStore = mockk(relaxed = true)
     private val scheduler: RecipeWorkScheduler = mockk {
         every { buildUrlImportRequest(any(), any()) } answers { OneTimeWorkRequestBuilder<RecipeImportWorker>().build() }
+        every { buildRecipeFileImportRequest(any()) } answers { OneTimeWorkRequestBuilder<RecipeImportWorker>().build() }
         coEvery { enqueueImport(any(), any()) } answers {
             val request = secondArg<OneTimeWorkRequest>()
             work.assignUniqueName(RecipeWorkScheduler.importWorkName(firstArg()), request.id)
@@ -91,7 +112,7 @@ class AddRecipeViewModelTest {
             paprikaImportSteps = mockk(),
             monitor = monitor
         )
-        return AddRecipeViewModel(handle, queue, monitor, aiSettings)
+        return AddRecipeViewModel(handle, queue, monitor, aiSettings, inspector)
     }
 
     private fun startedWorkId(): UUID = UUID.fromString(dao.rows.value.single().workManagerId)
@@ -104,7 +125,7 @@ class AddRecipeViewModelTest {
         viewModel.onImportClick()
         advanceUntilIdle()
 
-        assertEquals(AddRecipeUiState.Error(UserMessage(R.string.error_url_scheme)), viewModel.uiState.value)
+        assertEquals(AddRecipeUiState.Error(UserMessage(R.string.error_url_scheme), isUrlError = true), viewModel.uiState.value)
         assertEquals(emptyList<Any>(), dao.rows.value)
     }
 
@@ -248,5 +269,114 @@ class AddRecipeViewModelTest {
         verify { inputStore.adoptPageHtml(row.id, "/work-inputs/page.txt") }
         verify { inputStore.writeKind(row.id, ImportKind.URL) }
         assertEquals(AddRecipeUiState.Loading(ImportStage.QUEUED), viewModel.uiState.value)
+    }
+
+    private fun pickMarkdown(content: String = "# Bread") {
+        recipeFiles[pickedUri] = RecipeFile(pickedUri, "Bread.md", RecipeFileFormat.TEXT)
+        coEvery { inputStore.copySource(any(), pickedUri, any()) } returns
+            File.createTempFile("picked", ".md").apply {
+                deleteOnExit()
+                writeText(content)
+            }
+    }
+
+    @Test
+    fun `a picked recipe file is imported and its progress shown`() = runTest {
+        pickMarkdown()
+        val viewModel = createViewModel(testAppScope())
+
+        viewModel.onFilePicked(pickedUri)
+        advanceUntilIdle()
+
+        val row = dao.rows.value.single()
+        assertEquals("Bread.md", row.name)
+        verify { inputStore.writeKind(row.id, ImportKind.TEXT_FILE) }
+        assertEquals(AddRecipeUiState.Loading(ImportStage.QUEUED), viewModel.uiState.value)
+
+        work.put(
+            workInfo(
+                startedWorkId(),
+                WorkInfo.State.SUCCEEDED,
+                output = RecipeImportWork.Outcome.Success(row.id, "recipe-1", "Bread").toData()
+            )
+        )
+        advanceUntilIdle()
+        assertEquals(AddRecipeEvent.RecipeAdded("recipe-1"), viewModel.events.first())
+    }
+
+    @Test
+    fun `a picked archive goes to the selection screen`() = runTest {
+        val export = Uri.parse("content://downloads/export.paprikarecipes")
+        val viewModel = createViewModel(testAppScope())
+
+        viewModel.onFilePicked(export)
+        advanceUntilIdle()
+
+        assertEquals(AddRecipeEvent.OpenImportSelection(ImportType.PAPRIKA, export), viewModel.events.first())
+        assertEquals(AddRecipeUiState.Idle, viewModel.uiState.value)
+        assertEquals(emptyList<Any>(), dao.rows.value)
+    }
+
+    @Test
+    fun `a recipe file that is too large is reported with the limit`() = runTest {
+        pickMarkdown()
+        val tooLarge = RecipeError.ImportFile(ImportFileFailure.TOO_LARGE, 200 * 1024L)
+        coEvery { inputStore.copySource(any(), pickedUri, any()) } throws RecipeErrorException(tooLarge)
+        val viewModel = createViewModel(testAppScope())
+
+        viewModel.onFilePicked(pickedUri)
+        advanceUntilIdle()
+
+        assertEquals(
+            AddRecipeUiState.Error(
+                UserMessage(R.string.error_import_file_too_large_limit, UserMessage(R.string.file_size_kb, 200L))
+            ),
+            viewModel.uiState.value
+        )
+        assertEquals(emptyList<Any>(), dao.rows.value)
+    }
+
+    @Test
+    fun `a recipe file shared with the app is imported once`() = runTest {
+        pickMarkdown()
+        val handle = SavedStateHandle(mapOf("fileUri" to pickedUri.toString(), "fileMimeType" to "text/markdown"))
+
+        createViewModel(testAppScope(), handle)
+        advanceUntilIdle()
+        // Recreated, e.g. after rotation: the file isn't imported again
+        createViewModel(testAppScope(), handle)
+        advanceUntilIdle()
+
+        assertEquals("Bread.md", dao.rows.value.single().name)
+        // The sharing app's type is used again, so the file is recognized the same way
+        assertEquals(listOf<String?>("text/markdown"), inspectedTypes)
+    }
+
+    @Test
+    fun `cancelling one start doesn't leak into the next`() = runTest {
+        pickMarkdown()
+        val viewModel = createViewModel(testAppScope())
+
+        viewModel.onFilePicked(pickedUri)
+        viewModel.cancelImport()
+        viewModel.importPage(BrowsedPage("https://example.com/r", htmlPath = null))
+        advanceUntilIdle()
+
+        // The cancelled file import is removed; the page import keeps running
+        assertEquals("https://example.com/r", dao.rows.value.single().url)
+        assertEquals(AddRecipeUiState.Loading(ImportStage.QUEUED), viewModel.uiState.value)
+    }
+
+    @Test
+    fun `cancelling while a picked file is being checked starts nothing`() = runTest {
+        pickMarkdown()
+        val viewModel = createViewModel(testAppScope())
+
+        viewModel.onFilePicked(pickedUri)
+        viewModel.cancelImport()
+        advanceUntilIdle()
+
+        assertEquals(AddRecipeUiState.Idle, viewModel.uiState.value)
+        assertEquals(emptyList<Any>(), dao.rows.value)
     }
 }

@@ -59,6 +59,11 @@ sealed interface RecipeError {
     @SerialName("archive")
     data class Archive(val reason: ArchiveFailure) : RecipeError
 
+    /** A file to import a recipe from couldn't be used; [maxBytes] is the size limit it exceeded. */
+    @Serializable
+    @SerialName("import_file")
+    data class ImportFile(val reason: ImportFileFailure, val maxBytes: Long? = null) : RecipeError
+
     /** The work was stopped before it finished (e.g. its input was lost) and must be started again. */
     @Serializable
     @SerialName("interrupted")
@@ -157,6 +162,13 @@ enum class ArchiveFailure {
     MISSING,
     NOTHING_TO_EXPORT,
     WRITE_FAILED
+}
+
+@Serializable
+enum class ImportFileFailure {
+    TOO_LARGE,
+    EMPTY,
+    UNREADABLE
 }
 
 /** A short English description for logs and the import debugging screen (never shown as an error message). */

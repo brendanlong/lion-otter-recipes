@@ -51,6 +51,16 @@ class RecipeWorkScheduler @Inject constructor(
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build()
 
+    /** Import of a recipe file already copied into [ImportInputStore] under [importId]. */
+    fun buildRecipeFileImportRequest(importId: String): OneTimeWorkRequest =
+        OneTimeWorkRequestBuilder<RecipeImportWorker>()
+            .setInputData(RecipeImportWorker.createInputData(url = null, importId = importId))
+            .addTag(RecipeImportWorker.TAG_RECIPE_IMPORT)
+            .setConstraints(NETWORK_CONSTRAINTS)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, BACKOFF_SECONDS, TimeUnit.SECONDS)
+            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            .build()
+
     fun buildPaprikaImportRequest(importId: String, initialDelaySeconds: Long = 0): OneTimeWorkRequest =
         OneTimeWorkRequestBuilder<PaprikaImportWorker>()
             .setInputData(PaprikaImportWorker.createInputData(importId))

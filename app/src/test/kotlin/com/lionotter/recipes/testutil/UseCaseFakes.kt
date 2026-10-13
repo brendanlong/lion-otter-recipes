@@ -126,11 +126,13 @@ class FakePageFetcher(private val pages: Map<String, Outcome<FetchedPage>> = emp
 /** "Extracts" a page by tagging its HTML, so tests can see what reached the AI. */
 class FakePageContentExtractor(
     private val imageUrl: String? = null,
-    private val title: String? = "Page title"
+    private val title: String? = "Page title",
+    private val canonicalUrl: String? = null
 ) : PageContentExtractor {
     override fun extract(html: String, sourceUrl: String?) = PageContent("extracted($html)", imageUrl)
     override fun extractTitle(html: String): String? = title
     override fun extractImageUrl(html: String): String? = imageUrl
+    override fun extractCanonicalUrl(html: String): String? = canonicalUrl
 }
 
 class FakeAiSettings(

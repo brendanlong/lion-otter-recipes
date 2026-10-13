@@ -27,11 +27,26 @@
             android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.LionOtterRecipes">
-            <!-- Handle shared text containing a recipe URL -->
+            <!-- Handle shared text containing a recipe URL (EXTRA_TEXT), and shared Markdown,
+                 text and HTML files with a recipe (EXTRA_STREAM) -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
+                <data android:mimeType="text/markdown" />
+                <data android:mimeType="text/x-markdown" />
+                <data android:mimeType="text/html" />
+            </intent-filter>
+
+            <!-- Handle Markdown, text and HTML files with a recipe opened from a file manager -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="text/markdown" />
+                <data android:mimeType="text/x-markdown" />
+                <data android:mimeType="text/html" />
             </intent-filter>
 
             <!-- Handle .lorecipes / .paprikarecipes files shared from other apps.

@@ -1,10 +1,14 @@
 package com.lionotter.recipes.imports
 
+import android.net.Uri
 import android.util.Log
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
+import com.lionotter.recipes.domain.ImportFileFailure
 import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.RecipeErrorException
+import com.lionotter.recipes.domain.model.RecipeFileFormat
 import com.lionotter.recipes.data.local.PendingImportStatus
 import com.lionotter.recipes.data.repository.PendingImportRepository
 import com.lionotter.recipes.domain.usecase.ParseHtmlUseCase
@@ -25,6 +29,7 @@ import com.lionotter.recipes.worker.ImportKind
 import com.lionotter.recipes.worker.RecipeImportWorker
 import com.lionotter.recipes.worker.RecipeWorkScheduler
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
@@ -329,5 +334,91 @@ class ImportQueueTest {
         verify { inputStore.writeSelection("zip-1", setOf("a")) }
         assertEquals("Importing 1 recipe", dao["zip-1"]!!.name)
         assertEquals(started.workId.toString(), dao["zip-1"]!!.workManagerId)
+    }
+
+    private val pickedUri: Uri = mockk()
+    private val markdownFile = RecipeFile(pickedUri, "Bread.md", RecipeFileFormat.TEXT)
+
+    private fun stubCopiedFile(content: String) {
+        val copy = tempFolder.newFile().apply { writeText(content) }
+        coEvery { inputStore.copySource(any(), pickedUri, any()) } returns copy
+        every { scheduler.buildRecipeFileImportRequest(any()) } answers
+            { OneTimeWorkRequestBuilder<RecipeImportWorker>().build() }
+    }
+
+    @Test
+    fun `startRecipeFileImport copies the file within its limit before inserting the row`() = runTest {
+        stubCopiedFile("# Bread")
+        val queue = createQueue()
+
+        val started = queue.startRecipeFileImport(markdownFile)
+
+        coVerify { inputStore.copySource(started.importId, pickedUri, RecipeFileFormat.TEXT.maxBytes) }
+        verify { inputStore.writeKind(started.importId, ImportKind.TEXT_FILE) }
+        val row = dao[started.importId]!!
+        assertEquals("Bread.md", row.name)
+        assertEquals("", row.url)
+        assertEquals(started.workId.toString(), row.workManagerId)
+        assertEquals(WorkInfo.State.ENQUEUED, work[started.workId]?.state)
+    }
+
+    @Test
+    fun `an empty recipe file is rejected and leaves nothing behind`() = runTest {
+        stubCopiedFile("")
+        val queue = createQueue()
+
+        val error = assertRecipeError { queue.startRecipeFileImport(markdownFile) }
+
+        assertEquals(RecipeError.ImportFile(ImportFileFailure.EMPTY), error)
+        assertTrue(dao.rows.value.isEmpty())
+        verify { inputStore.deleteImport(any()) }
+    }
+
+    @Test
+    fun `a recipe file over its limit is rejected with the limit`() = runTest {
+        val tooLarge = RecipeError.ImportFile(ImportFileFailure.TOO_LARGE, RecipeFileFormat.TEXT.maxBytes)
+        coEvery { inputStore.copySource(any(), pickedUri, any()) } throws RecipeErrorException(tooLarge)
+        val queue = createQueue()
+
+        assertEquals(tooLarge, assertRecipeError { queue.startRecipeFileImport(markdownFile) })
+        assertTrue(dao.rows.value.isEmpty())
+    }
+
+    @Test
+    fun `a recipe file that can't be read is reported as unreadable`() = runTest {
+        coEvery { inputStore.copySource(any(), pickedUri, any()) } throws SecurityException("no permission")
+        val queue = createQueue()
+
+        val error = assertRecipeError { queue.startRecipeFileImport(markdownFile) }
+
+        assertEquals(RecipeError.ImportFile(ImportFileFailure.UNREADABLE), error)
+        verify { inputStore.deleteImport(any()) }
+    }
+
+    @Test
+    fun `retryImport of a recipe file import re-enqueues it from its copied file`() = runTest {
+        dao.rows.value = listOf(
+            pendingImport("file-1", UUID.randomUUID().toString(), url = "", status = PendingImportStatus.FAILED)
+        )
+        every { inputStore.hasImport("file-1") } returns true
+        every { inputStore.readKind("file-1") } returns ImportKind.HTML_FILE
+        every { scheduler.buildRecipeFileImportRequest("file-1") } returns
+            OneTimeWorkRequestBuilder<RecipeImportWorker>().build()
+        val queue = createQueue()
+
+        queue.retryImport("file-1")
+        advanceUntilIdle()
+
+        verify { scheduler.buildRecipeFileImportRequest("file-1") }
+        assertEquals(PendingImportStatus.PENDING, dao["file-1"]!!.status)
+    }
+
+    private suspend fun assertRecipeError(block: suspend () -> Unit): RecipeError {
+        try {
+            block()
+        } catch (e: RecipeErrorException) {
+            return e.recipeError
+        }
+        throw AssertionError("Expected a RecipeErrorException")
     }
 }

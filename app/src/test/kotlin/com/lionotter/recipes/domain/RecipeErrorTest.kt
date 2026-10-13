@@ -78,7 +78,12 @@ class RecipeErrorTest {
             RecipeError.Legacy("Old message")
         ) + PageFetchFailure.entries.flatMap { listOf(RecipeError.PageFetch(it, 503), RecipeError.PageFetch(it)) } +
             AiFailure.entries.flatMap { listOf(RecipeError.Ai(it, 500), RecipeError.Ai(it)) } +
-            ArchiveFailure.entries.map { RecipeError.Archive(it) }
+            ArchiveFailure.entries.map { RecipeError.Archive(it) } +
+            ImportFileFailure.entries.map { RecipeError.ImportFile(it) } +
+            listOf(
+                RecipeError.ImportFile(ImportFileFailure.TOO_LARGE, 200 * 1024L),
+                RecipeError.ImportFile(ImportFileFailure.TOO_LARGE, 5 * 1024 * 1024L)
+            )
     }
 
     @Test

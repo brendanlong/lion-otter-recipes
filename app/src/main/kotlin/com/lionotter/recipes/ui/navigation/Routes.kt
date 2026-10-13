@@ -19,9 +19,17 @@ sealed interface Route {
     @Serializable
     data class EditRecipe(val recipeId: String) : Route
 
-    /** [url] pre-fills the URL field, e.g. from a share intent. */
+    /**
+     * [url] pre-fills the URL field, e.g. from a share intent; [fileUri] is a recipe file
+     * (Markdown, text or HTML) shared with the app, imported as soon as the screen opens, and
+     * [fileMimeType] the type the sharing app gave it.
+     */
     @Serializable
-    data class AddRecipe(val url: String? = null) : Route
+    data class AddRecipe(
+        val url: String? = null,
+        val fileUri: String? = null,
+        val fileMimeType: String? = null
+    ) : Route
 
     /**
      * The in-app browser showing [url] so the user can confirm the page before it is imported

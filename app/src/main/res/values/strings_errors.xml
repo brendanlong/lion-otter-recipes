@@ -59,6 +59,11 @@
     <string name="error_url_scheme">URL must start with http:// or https://</string>
     <string name="error_start_import">Couldn\'t start the import. Please try again.</string>
     <string name="error_open_import_file">Couldn\'t open the file.</string>
+    <string name="error_import_file_too_large">This file is too large to import.</string>
+    <string name="error_import_file_too_large_limit">This file is too large to import. Recipe files can be up to %1$s.</string>
+    <string name="error_import_file_empty">This file is empty.</string>
+    <string name="file_size_kb">%1$d KB</string>
+    <string name="file_size_mb">%1$d MB</string>
     <string name="error_image_unusable">Couldn\'t use that image.</string>
     <string name="error_save_changes">Couldn\'t save your changes. Please try again.</string>
     <string name="error_start_regeneration">Couldn\'t start regenerating the recipe.</string>

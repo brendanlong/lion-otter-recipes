@@ -32,49 +32,56 @@ class RecipeImportWorker @AssistedInject constructor(
         /**
          * A page captured in the in-app browser is not part of the input: it is stored in
          * [ImportInputStore] under [importId] (see [ImportInputStore.adoptPageHtml]). Without
-         * one the worker downloads [url].
+         * one the worker downloads [url]. A recipe file import has no [url]; its file is stored
+         * under [importId] too.
          */
-        fun createInputData(url: String, importId: String): Data = workDataOf(
+        fun createInputData(url: String?, importId: String): Data = workDataOf(
             KEY_URL to url,
             KEY_IMPORT_ID to importId
         )
     }
 
     override suspend fun doRecipeWork(): Result {
-        val url = inputData.getString(KEY_URL)
-            ?: return errorResult(RecipeError.Unexpected, "no URL provided")
         val importId = inputData.getString(KEY_IMPORT_ID) ?: id.toString()
 
         setForegroundProgress("Starting import...")
 
-        val pageHtml = inputStore.withImportLock(importId) { inputStore.readPageHtml(importId) }
-
-        val result = importRecipeUseCase.execute(
-            url = url,
-            pageHtml = pageHtml,
-            onProgress = { progress ->
-                val (workProgress, message) = when (progress) {
-                    is ImportRecipeUseCase.ImportProgress.FetchingPage ->
-                        RecipeImportWork.Progress.FetchingPage to "Fetching recipe page..."
-                    is ImportRecipeUseCase.ImportProgress.PageMetadataAvailable ->
-                        RecipeImportWork.Progress.MetadataAvailable(progress.title, progress.imageUrl) to
-                            "Analyzing recipe..."
-                    is ImportRecipeUseCase.ImportProgress.ParsingRecipe ->
-                        RecipeImportWork.Progress.Parsing(recipeName = null) to "AI is analyzing the recipe..."
-                    is ImportRecipeUseCase.ImportProgress.RecipeNameAvailable ->
-                        RecipeImportWork.Progress.Parsing(progress.name) to "AI is analyzing the recipe..."
-                    is ImportRecipeUseCase.ImportProgress.SavingRecipe ->
-                        RecipeImportWork.Progress.Saving to "Saving recipe..."
-                }
-                setProgress(workProgress.toData())
-                setForegroundProgress(message)
+        val (recipeFile, pageHtml) = inputStore.withImportLock(importId) {
+            val file = inputStore.readRecipeFile(importId)
+            file to (if (file == null) inputStore.readPageHtml(importId) else null)
+        }
+        val onProgress: suspend (ImportRecipeUseCase.ImportProgress) -> Unit = { progress ->
+            val (workProgress, message) = when (progress) {
+                is ImportRecipeUseCase.ImportProgress.FetchingPage ->
+                    RecipeImportWork.Progress.FetchingPage to "Fetching recipe page..."
+                is ImportRecipeUseCase.ImportProgress.PageMetadataAvailable ->
+                    RecipeImportWork.Progress.MetadataAvailable(progress.title, progress.imageUrl) to
+                        "Analyzing recipe..."
+                is ImportRecipeUseCase.ImportProgress.ParsingRecipe ->
+                    RecipeImportWork.Progress.Parsing(recipeName = null) to "AI is analyzing the recipe..."
+                is ImportRecipeUseCase.ImportProgress.RecipeNameAvailable ->
+                    RecipeImportWork.Progress.Parsing(progress.name) to "AI is analyzing the recipe..."
+                is ImportRecipeUseCase.ImportProgress.SavingRecipe ->
+                    RecipeImportWork.Progress.Saving to "Saving recipe..."
             }
-        )
+            setProgress(workProgress.toData())
+            setForegroundProgress(message)
+        }
+
+        val result = if (recipeFile != null) {
+            val content = recipeFile.content
+                ?: return errorResult(RecipeError.CannotRetry, "the recipe file to import is gone")
+            importRecipeUseCase.importFile(content, recipeFile.format, onProgress)
+        } else {
+            val url = inputData.getString(KEY_URL)?.takeIf { it.isNotBlank() }
+                ?: return errorResult(RecipeError.CannotRetry, "no URL and no recipe file to import")
+            importRecipeUseCase.execute(url = url, pageHtml = pageHtml, onProgress = onProgress)
+        }
 
         return when (result) {
             is Outcome.Success -> {
                 val recipe = result.value
-                if (pageHtml != null) inputStore.deleteImport(importId)
+                if (recipeFile != null || pageHtml != null) inputStore.deleteImport(importId)
                 notificationHelper.showSuccessNotification(
                     key = importId,
                     recipeName = recipe.name,

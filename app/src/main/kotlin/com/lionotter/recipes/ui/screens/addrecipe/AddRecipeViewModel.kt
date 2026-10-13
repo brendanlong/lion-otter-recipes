@@ -1,13 +1,18 @@
 package com.lionotter.recipes.ui.screens.addrecipe
 
+import android.net.Uri
+import android.util.Log
+import androidx.core.net.toUri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
 import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.RecipeErrorSource
 import com.lionotter.recipes.domain.port.AiSettings
 import com.lionotter.recipes.extractFirstUrl
+import com.lionotter.recipes.imports.ImportFileInspector
 import com.lionotter.recipes.imports.ImportMonitor
 import com.lionotter.recipes.imports.ImportQueue
 import com.lionotter.recipes.imports.ImportStage
@@ -16,11 +21,11 @@ import com.lionotter.recipes.messages.UserMessage
 import com.lionotter.recipes.messages.toUserMessage
 import com.lionotter.recipes.ui.navigation.Route
 import com.lionotter.recipes.ui.screens.importbrowser.BrowsedPage
+import com.lionotter.recipes.ui.screens.importselection.ImportType
 import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,11 +47,16 @@ class AddRecipeViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     private val importQueue: ImportQueue,
     importMonitor: ImportMonitor,
-    aiSettings: AiSettings
+    aiSettings: AiSettings,
+    private val importFileInspector: ImportFileInspector
 ) : ViewModel() {
 
-    private var startJob: Job? = null
-    private var cancelRequested = false
+    /** An import being started; [cancelled] once the user cancels it before its ID is known. */
+    private class PendingStart {
+        var cancelled = false
+    }
+
+    private var pendingStart: PendingStart? = null
 
     companion object {
         // The route's url pre-fills the field (e.g. from a share); edits are saved separately so
@@ -54,6 +64,8 @@ class AddRecipeViewModel @Inject constructor(
         private const val KEY_URL_INPUT = "url_input"
         /** The import started from this screen, kept so its progress is shown again after process death. */
         private const val KEY_IMPORT_ID = "import_id"
+        /** Whether the route's recipe file was handled, so it isn't imported again after recreation. */
+        private const val KEY_FILE_HANDLED = "file_handled"
         private const val TAG = "AddRecipeViewModel"
     }
 
@@ -110,6 +122,11 @@ class AddRecipeViewModel @Inject constructor(
                 _events.send(AddRecipeEvent.RecipeAdded(succeeded.recipeId))
             }
         }
+        val route = savedStateHandle.toRoute<Route.AddRecipe>()
+        if (route.fileUri != null && savedStateHandle.get<Boolean>(KEY_FILE_HANDLED) != true) {
+            savedStateHandle[KEY_FILE_HANDLED] = true
+            onFilePicked(route.fileUri.toUri(), route.fileMimeType)
+        }
     }
 
     fun onUrlChange(url: String) {
@@ -121,14 +138,14 @@ class AddRecipeViewModel @Inject constructor(
         savedStateHandle[KEY_IMPORT_ID] = null
         val input = url.value.trim()
         if (input.isBlank()) {
-            localState.value = AddRecipeUiState.Error(UserMessage(R.string.error_enter_url))
+            localState.value = AddRecipeUiState.Error(UserMessage(R.string.error_enter_url), isUrlError = true)
             return
         }
 
         // Accept pasted text like "Recipe title https://example.com/recipe"
         val currentUrl = extractFirstUrl(input) ?: input
         if (!currentUrl.startsWith("http://", ignoreCase = true) && !currentUrl.startsWith("https://", ignoreCase = true)) {
-            localState.value = AddRecipeUiState.Error(UserMessage(R.string.error_url_scheme))
+            localState.value = AddRecipeUiState.Error(UserMessage(R.string.error_url_scheme), isUrlError = true)
             return
         }
 
@@ -141,20 +158,56 @@ class AddRecipeViewModel @Inject constructor(
      * The captured file is handed to the import.
      */
     fun importPage(page: BrowsedPage) {
+        launchImport("Failed to start import of ${page.url}") { importQueue.startUrlImport(page.url, page.htmlPath) }
+    }
+
+    /**
+     * Import the recipe in a picked or shared Markdown, text or HTML file, or send a recipe
+     * archive to the selection screen ([AddRecipeEvent.OpenImportSelection]).
+     *
+     * @param mimeTypeHint the type the app that shared the file gave, if any
+     */
+    fun onFilePicked(uri: Uri, mimeTypeHint: String? = null) {
+        launchImport("Failed to start import of file $uri") { pending ->
+            val recipeFile = importFileInspector.recipeFile(uri, mimeTypeHint)
+            when {
+                recipeFile != null -> importQueue.startRecipeFileImport(recipeFile)
+                pending.cancelled -> null
+                else -> {
+                    _events.send(AddRecipeEvent.OpenImportSelection(ImportType.guessFromUri(uri.toString()), uri))
+                    null
+                }
+            }
+        }
+    }
+
+    /** Runs [start], then shows the started import's progress (null: nothing was started). */
+    private fun launchImport(failureLog: String, start: suspend (PendingStart) -> ImportQueue.StartedImport?) {
         savedStateHandle[KEY_IMPORT_ID] = null
         localState.value = AddRecipeUiState.Loading(ImportStage.QUEUED)
-        cancelRequested = false
-        startJob = viewModelScope.launch {
+        val pending = PendingStart()
+        pendingStart = pending
+        viewModelScope.launch {
             val started = try {
-                importQueue.startUrlImport(page.url, page.htmlPath)
+                start(pending)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                ErrorLog.e(TAG, "Failed to start import of ${page.url}", e)
-                localState.value = AddRecipeUiState.Error(UserMessage(R.string.error_start_import))
+                val error = (e as? RecipeErrorSource)?.recipeError
+                // A known error is about the input (e.g. a file that is too large), not a bug
+                if (error != null) Log.w(TAG, failureLog, e) else ErrorLog.e(TAG, failureLog, e)
+                if (!pending.cancelled) {
+                    localState.value = AddRecipeUiState.Error(error?.toUserMessage() ?: UserMessage(R.string.error_start_import))
+                }
+                return@launch
+            } finally {
+                if (pendingStart === pending) pendingStart = null
+            }
+            if (started == null) {
+                if (!pending.cancelled) localState.value = AddRecipeUiState.Idle
                 return@launch
             }
-            if (cancelRequested) {
+            if (pending.cancelled) {
                 importQueue.cancelImport(started.importId)
                 return@launch
             }
@@ -166,7 +219,7 @@ class AddRecipeViewModel @Inject constructor(
 
     fun cancelImport() {
         // If the import is still being started, cancel it as soon as its ID is known.
-        if (startJob?.isActive == true) cancelRequested = true
+        pendingStart?.cancelled = true
         importId.value?.let { importQueue.cancelImport(it) }
         resetState()
     }
@@ -180,13 +233,17 @@ class AddRecipeViewModel @Inject constructor(
 sealed class AddRecipeUiState {
     object Idle : AddRecipeUiState()
     data class Loading(val stage: ImportStage) : AddRecipeUiState()
-    data class Error(val message: UserMessage) : AddRecipeUiState()
+    /** [isUrlError]: the message is about the URL field (marked as invalid). */
+    data class Error(val message: UserMessage, val isUrlError: Boolean = false) : AddRecipeUiState()
     object NoApiKey : AddRecipeUiState()
 }
 
 sealed interface AddRecipeEvent {
     /** Show [url] in the in-app browser so the user can confirm it. */
     data class OpenBrowser(val url: String) : AddRecipeEvent
+
+    /** [uri] is a recipe archive (.lorecipes or Paprika export) to choose recipes from. */
+    data class OpenImportSelection(val importType: ImportType, val uri: Uri) : AddRecipeEvent
 
     /** [recipeId] is null if the import succeeded without reporting the new recipe. */
     data class RecipeAdded(val recipeId: String?) : AddRecipeEvent

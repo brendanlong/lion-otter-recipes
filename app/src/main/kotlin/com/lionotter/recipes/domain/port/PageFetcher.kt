@@ -23,6 +23,9 @@ interface PageContentExtractor {
 
     /** The page's preview image (og:image and similar), as [PageFetcher] reports it. */
     fun extractImageUrl(html: String): String?
+
+    /** The page's own address (canonical link or og:url) if it states one, e.g. for a saved page. */
+    fun extractCanonicalUrl(html: String): String?
 }
 
 data class PageContent(val text: String, val imageUrl: String?)

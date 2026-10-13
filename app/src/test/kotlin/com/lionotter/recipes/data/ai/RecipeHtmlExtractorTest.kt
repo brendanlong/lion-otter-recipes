@@ -171,4 +171,30 @@ class RecipeHtmlExtractorTest {
         assertTrue(text, text.contains("- 1 cup lemon juice"))
         assertFalse(text, text.contains("[content truncated]"))
     }
+
+    @Test
+    fun `canonical URL comes from the canonical link, then og url`() {
+        assertEquals(
+            "https://example.com/bread",
+            RecipeHtmlExtractor.extractCanonicalUrl(
+                """<html><head><link rel="canonical" href=" https://example.com/bread ">
+                <meta property="og:url" content="https://example.com/other"></head></html>"""
+            )
+        )
+        assertEquals(
+            "https://example.com/other",
+            RecipeHtmlExtractor.extractCanonicalUrl(
+                """<html><head><meta property="og:url" content="https://example.com/other"></head></html>"""
+            )
+        )
+    }
+
+    @Test
+    fun `relative or missing canonical URLs are ignored`() {
+        assertEquals(
+            null,
+            RecipeHtmlExtractor.extractCanonicalUrl("""<html><head><link rel="canonical" href="/bread"></head></html>""")
+        )
+        assertEquals(null, RecipeHtmlExtractor.extractCanonicalUrl("<html><body>Bread</body></html>"))
+    }
 }

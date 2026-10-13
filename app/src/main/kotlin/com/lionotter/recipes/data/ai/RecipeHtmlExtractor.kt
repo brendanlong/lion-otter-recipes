@@ -94,6 +94,19 @@ object RecipeHtmlExtractor : PageContentExtractor {
                 doc.selectFirst(selector)?.attr("content")?.takeIf { it.isNotBlank() }
             }
 
+    override fun extractCanonicalUrl(html: String): String? = try {
+        val doc = Jsoup.parse(html)
+        listOf(
+            doc.selectFirst("link[rel=canonical]")?.attr("href"),
+            doc.selectFirst("meta[property=og:url]")?.attr("content")
+        ).firstNotNullOfOrNull { url ->
+            url?.trim()?.takeIf { it.startsWith("https://", ignoreCase = true) || it.startsWith("http://", ignoreCase = true) }
+        }
+    } catch (e: Exception) {
+        Log.w(TAG, "Failed to extract canonical URL from HTML", e)
+        null
+    }
+
     override fun extractTitle(html: String): String? = try {
         val doc = Jsoup.parse(html)
         doc.selectFirst("meta[property=og:title]")?.attr("content")?.takeIf { it.isNotBlank() }
