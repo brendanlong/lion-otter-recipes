@@ -1,6 +1,9 @@
 package com.lionotter.recipes.live
 
-import com.lionotter.recipes.data.remote.AnthropicService
+import com.lionotter.recipes.data.ai.AnthropicRecipeParser
+import com.lionotter.recipes.domain.Outcome
+import com.lionotter.recipes.domain.model.AiModels
+import com.lionotter.recipes.domain.port.ParseRequest
 import com.lionotter.recipes.util.AppJson
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -32,12 +35,12 @@ class LiveAnthropicTest {
     fun parse() = runBlocking {
         val key = System.getenv("LIVE_ANTHROPIC_KEY")
         assumeTrue(key != null)
-        val service = AnthropicService(AppJson)
-        for (model in listOf(AnthropicService.MODEL_SONNET, AnthropicService.MODEL_HAIKU)) {
+        val parser = AnthropicRecipeParser(AppJson)
+        for (model in listOf(AiModels.MODEL_SONNET, AiModels.MODEL_HAIKU)) {
             for (thinking in listOf(false, true)) {
-                val result = service.parseRecipe(html, key!!, model, thinking)
-                val parsed = result.getOrNull()?.result
-                assertNotNull("$model (thinking=$thinking): ${result.exceptionOrNull()?.message}", parsed)
+                val result = parser.parse(ParseRequest(html, key!!, model, thinking))
+                val parsed = (result as? Outcome.Success)?.value?.recipe
+                assertNotNull("$model (thinking=$thinking): $result", parsed)
                 assertEquals("Simple Banana Bread", parsed!!.name)
                 assertTrue(parsed.instructionSections.flatMap { it.steps }.flatMap { it.ingredients }.size >= 8)
             }

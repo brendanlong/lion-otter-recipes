@@ -2,7 +2,7 @@
 <SmellBaseline>
   <ManuallySuppressedIssues/>
   <CurrentIssues>
-    <ID>InjectDispatcher:AnthropicService.kt:AnthropicService$IO</ID>
+    <ID>InjectDispatcher:AnthropicRecipeParser.kt:AnthropicRecipeParser$IO</ID>
     <ID>InjectDispatcher:AppModule.kt:AppModule$Default</ID>
     <ID>InjectDispatcher:EditRecipeViewModel.kt:EditRecipeViewModel$IO</ID>
     <ID>InjectDispatcher:ImageDownloadService.kt:ImageDownloadService$Default</ID>

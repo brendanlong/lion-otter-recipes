@@ -204,10 +204,12 @@ Client-side limits are defined in `ResourceLimits.kt`. Exceeding a limit shows a
 app/src/main/kotlin/com/lionotter/recipes/
 ├── data/           # Data layer
 │   ├── local/      # Room database, DataStore
-│   ├── remote/     # Anthropic API, web scraping
+│   ├── ai/         # Anthropic API (transport, prompt, schema), page extraction
+│   ├── remote/     # Web scraping, Firebase, images
 │   └── repository/ # Repository implementations
 ├── domain/         # Business logic
 │   ├── model/      # Data models
+│   ├── port/       # Interfaces the data layer implements
 │   └── usecase/    # Use cases
 ├── ui/             # Presentation layer
 │   ├── screens/    # Compose screens

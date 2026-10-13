@@ -211,7 +211,6 @@ subgraph app["Android App"]
             markdown["RecipeMarkdownFormatter"]
             serializer["RecipeSerializer"]
             zip_import_helper["ZipImportHelper<br/>(streaming readRecipeIndex)"]
-            html_extractor["RecipeHtmlExtractor<br/>(JSON-LD + structured text)"]
             bounded_stream["BoundedInputStream / ArchiveBudget"]
 
             serializer -->|format| markdown
@@ -219,7 +218,16 @@ subgraph app["Android App"]
             zip_import_helper -->|bounded reads| bounded_stream
         end
 
+        subgraph ports["Ports (domain/port, bound in AiModule)"]
+            port_parser["RecipeParser / RecipeBatchParser<br/>(Outcome&lt;ParsedRecipeWithUsage&gt;, BatchStatus, BatchItemOutcome)"]
+            port_fetch["PageFetcher / PageContentExtractor<br/>(FetchedPage, PageContent)"]
+            port_settings["AiSettings<br/>(API key, model, thinking, debugging)"]
+            port_images["ImageStore"]
+            port_debug["ImportDebugLog"]
+        end
+
         subgraph models["Domain Models"]
+            ai_models["AiModels<br/>(model IDs, defaults, normalizeModel)"]
             recipe["Recipe<br/>(withRegeneratedContent)"]
             tags_fn["Tags<br/>(tagKey, hasTag, matchesSearch)"]
             ingredient["Ingredient"]
@@ -252,18 +260,22 @@ subgraph app["Android App"]
         end
 
         uc_import -->|uses| parse_html
-        parse_html -->|extract page content| html_extractor
+        uc_import -->|fetch page, title| port_fetch
+        parse_html -->|extract page content| port_fetch
+        parse_html -->|parse| port_parser
+        parse_html -->|API key, model, thinking| port_settings
+        parse_html -->|download, store image| port_images
         import_paprika -->|runStep, persists batch.json| import_input_store
         regenerate -->|uses| parse_html
         edit_recipe -->|uses| parse_html
-        parse_html -->|save debug data| import_debug_repo
+        parse_html -->|save debug data| port_debug
         export_zip -->|serialize| serializer
         export_zip -->|read local images| image_dl
         export_zip -->|resolve storage images| image_sync
         export_single -->|serialize| serializer
         export_single -->|read local images| image_dl
         export_single -->|resolve storage images| image_sync
-        import_paprika -->|save base64 images| image_dl
+        import_paprika -->|save photos| port_images
         import_zip -->|import| zip_import_helper
     end
 
@@ -302,7 +314,6 @@ subgraph app["Android App"]
         end
 
         subgraph remote["Remote Services"]
-            anthropic_svc["AnthropicService<br/>(structured output schema, streaming, per-model effort/thinking,<br/>server-side fallback, normalizeModel)"]
             scraper["WebScraperService"]
             image_dl["ImageDownloadService"]
             image_sync["ImageSyncService"]
@@ -311,6 +322,19 @@ subgraph app["Android App"]
             auth_svc["AuthService"]
             migration_svc["AccountMigrationService"]
             deletion_svc["AccountDeletionService"]
+        end
+
+        subgraph ai["AI (data/ai)"]
+            anthropic_parser["AnthropicRecipeParser<br/>(transport: streaming parse with server-side fallback,<br/>batches create/poll/results/cancel)"]
+            response_parser["RecipeResponseParser<br/>(stop reasons, fallback blocks, RecipeParseResponse)"]
+            prompt_schema["RecipePrompt / RecipeOutputSchema / RecipeRequests<br/>(prompt + density table, JSON schema, cached system blocks,<br/>per-model effort/thinking)"]
+            error_mapper["AnthropicErrorMapper<br/>(SDK exception → RecipeError.Ai)"]
+            api_key_validator["ApiKeyValidator"]
+            html_extractor["RecipeHtmlExtractor<br/>(JSON-LD + structured text)"]
+
+            anthropic_parser --> response_parser
+            anthropic_parser --> prompt_schema
+            anthropic_parser --> error_mapper
         end
 
         subgraph dto["DTOs"]
@@ -359,6 +383,8 @@ subgraph app["Android App"]
         net_module["NetworkModule"]
         worker_module["WorkerModule"]
         scheduler_module["SchedulerModule<br/>(ImageUploadScheduler binding)"]
+        ai_module["AiModule<br/>(domain port bindings)"]
+        ai_module -.->|binds| ports
     end
 
     %% --------------------------------------------------------
@@ -416,10 +442,21 @@ subgraph app["Android App"]
     zip_import_helper -->|download image| image_dl
     import_paprika -->|parse export| parser
     import_paprika -->|parseText, saveBatchResult| parse_html
-    import_paprika -->|batch API| anthropic_svc
-    regenerate -->|fetch HTML if not cached| scraper
-    import_paprika -->|fetch source image| scraper
-    parse_html -->|download image| image_dl
+    import_paprika -->|batch API| port_parser
+    import_paprika -->|API key, model| port_settings
+    regenerate -->|fetch source page| port_fetch
+    regenerate -->|download image if missing| port_images
+    import_paprika -->|fetch source image| port_fetch
+
+    anthropic_parser -.->|implements| port_parser
+    scraper -.->|implements PageFetcher| port_fetch
+    html_extractor -.->|implements PageContentExtractor| port_fetch
+    scraper -->|preview image| html_extractor
+    settings_ds -.->|implements| port_settings
+    image_dl -.->|implements| port_images
+    import_debug_repo -.->|implements| port_debug
+    settings_ds -->|defaults| ai_models
+    settings_vm -->|validate key| api_key_validator
 
     lion_app["LionOtterApp<br/>(injects AuthService eagerly)"]
     lion_app -->|resolve auth state at startup| auth_svc
@@ -443,13 +480,13 @@ auth_svc -->|Auth| firebase
 image_sync -->|Storage| firebase
 scraper -->|fetch HTML| web
 image_dl -->|download image| web
-anthropic_svc -->|parse recipe| anthropic
+anthropic_parser -->|parse recipe| anthropic
 
 %% ============================================================
 %% Testing Layer
 %% ============================================================
 subgraph testing["Testing"]
-    unit_tests["Unit Tests"]
+    unit_tests["Unit Tests<br/>(AI use cases against in-memory port fakes,<br/>opt-in LiveAnthropicTest)"]
     ui_integration_tests["UI Integration Tests<br/>(Robolectric + Compose)"]
     hilt_integration_tests["Full-Stack Integration Tests<br/>(Hilt + Robolectric + Room)"]
     test_tags["TestTags<br/>(ui.TestTags)"]
@@ -472,7 +509,7 @@ subgraph legend["Data Flow"]
         f2["2. ImportQueue.startUrlImport enqueues job via RecipeWorkScheduler"]
         f3["3. RecipeImportWorker runs as foreground service"]
         f4["4. Scraper fetches HTML, AI parses recipe"]
-        f4a["RecipeHtmlExtractor pulls JSON-LD + structured text before the AI call"]
+        f4a["RecipeHtmlExtractor pulls JSON-LD + structured text before the AI call (through the PageContentExtractor port)"]
         f5["5. Repository saves to Firestore"]
         f6["Failed imports stay in the list with Retry / Dismiss; result notification on recipe_import_results"]
         f1 --> f2 --> f3 --> f4 --> f4a --> f5 --> f6

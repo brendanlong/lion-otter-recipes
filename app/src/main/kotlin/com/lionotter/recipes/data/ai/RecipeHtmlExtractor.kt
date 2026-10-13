@@ -1,6 +1,8 @@
-package com.lionotter.recipes.domain.util
+package com.lionotter.recipes.data.ai
 
 import android.util.Log
+import com.lionotter.recipes.domain.port.PageContent
+import com.lionotter.recipes.domain.port.PageContentExtractor
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -21,7 +23,7 @@ import org.jsoup.select.NodeTraversor
  * Turns a recipe web page into compact text for the AI: schema.org Recipe JSON-LD (when the page
  * has it) plus the readable article text with line and list boundaries preserved.
  */
-object RecipeHtmlExtractor {
+object RecipeHtmlExtractor : PageContentExtractor {
     private const val TAG = "RecipeHtmlExtractor"
 
     /** Upper bound on characters sent to the AI for one page. */
@@ -44,9 +46,7 @@ object RecipeHtmlExtractor {
 
     private val lenientJson = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    data class PageContent(val text: String, val imageUrl: String?)
-
-    fun extract(html: String, sourceUrl: String?): PageContent {
+    override fun extract(html: String, sourceUrl: String?): PageContent {
         val doc = try {
             Jsoup.parse(html, sourceUrl ?: "")
         } catch (e: Exception) {
@@ -94,7 +94,7 @@ object RecipeHtmlExtractor {
                 doc.selectFirst(selector)?.attr("content")?.takeIf { it.isNotBlank() }
             }
 
-    fun extractTitle(html: String): String? = try {
+    override fun extractTitle(html: String): String? = try {
         val doc = Jsoup.parse(html)
         doc.selectFirst("meta[property=og:title]")?.attr("content")?.takeIf { it.isNotBlank() }
             ?: doc.title().takeIf { it.isNotBlank() }

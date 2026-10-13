@@ -23,14 +23,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
-import com.lionotter.recipes.data.remote.AnthropicService
+import com.lionotter.recipes.domain.model.AiModels
 
 private val MODELS
     @Composable get() = listOf(
-        AnthropicService.MODEL_OPUS to stringResource(R.string.model_opus_5_5),
-        AnthropicService.MODEL_SONNET to stringResource(R.string.model_sonnet_5_5),
-        AnthropicService.MODEL_HAIKU to stringResource(R.string.model_haiku_5_5),
-        AnthropicService.MODEL_FABLE to stringResource(R.string.model_fable_5_1)
+        AiModels.MODEL_OPUS to stringResource(R.string.model_opus_5_5),
+        AiModels.MODEL_SONNET to stringResource(R.string.model_sonnet_5_5),
+        AiModels.MODEL_HAIKU to stringResource(R.string.model_haiku_5_5),
+        AiModels.MODEL_FABLE to stringResource(R.string.model_fable_5_1)
     )
 
 /**
@@ -126,7 +126,7 @@ private fun ModelDropdown(
 ) {
     var expanded by remember { mutableStateOf(false) }
     // Settings saved by older app versions may hold retired model IDs; show what will actually be used.
-    val effectiveModel = AnthropicService.normalizeModel(currentModel)
+    val effectiveModel = AiModels.normalizeModel(currentModel)
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (label != null) {

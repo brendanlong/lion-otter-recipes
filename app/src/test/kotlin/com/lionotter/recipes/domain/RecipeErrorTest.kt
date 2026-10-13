@@ -80,4 +80,15 @@ class RecipeErrorTest {
             AiFailure.entries.flatMap { listOf(RecipeError.Ai(it, 500), RecipeError.Ai(it)) } +
             ArchiveFailure.entries.map { RecipeError.Archive(it) }
     }
+
+    @Test
+    fun `log descriptions say what failed`() {
+        assertEquals("Not a recipe: a poem", RecipeError.NotARecipe("a poem").logDescription())
+        assertEquals("AI request failed: RATE_LIMITED (HTTP 429)", RecipeError.Ai(AiFailure.RATE_LIMITED, 429).logDescription())
+        assertEquals("AI request failed: TRUNCATED", RecipeError.Ai(AiFailure.TRUNCATED).logDescription())
+        assertEquals(
+            "Page fetch failed: BLOCKED (HTTP 403)",
+            RecipeError.PageFetch(PageFetchFailure.BLOCKED, 403).logDescription()
+        )
+    }
 }

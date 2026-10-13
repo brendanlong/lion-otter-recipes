@@ -6,8 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.AuthCredential
 import com.lionotter.recipes.R
 import com.lionotter.recipes.data.local.SettingsDataStore
-import com.lionotter.recipes.data.remote.AnthropicService
-import com.lionotter.recipes.data.remote.ApiKeyProblem
+import com.lionotter.recipes.data.ai.ApiKeyProblem
+import com.lionotter.recipes.data.ai.ApiKeyValidator
 import com.lionotter.recipes.data.remote.AccountMigrationService
 import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.AuthState
@@ -16,6 +16,7 @@ import com.lionotter.recipes.data.remote.SignOutResult
 import com.lionotter.recipes.data.remote.AccountDeletionService
 import com.lionotter.recipes.data.remote.ImageUploadScheduler
 import com.lionotter.recipes.data.repository.ImportDebugRepository
+import com.lionotter.recipes.domain.model.AiModels
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
@@ -48,7 +49,6 @@ class SettingsViewModel @Inject constructor(
 
     companion object {
         private const val TAG = "SettingsViewModel"
-        private const val API_KEY_PREFIX = "sk-ant-"
     }
 
     val authState: StateFlow<AuthState> = authService.authState
@@ -64,21 +64,21 @@ class SettingsViewModel @Inject constructor(
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = AnthropicService.DEFAULT_MODEL
+            initialValue = AiModels.DEFAULT_MODEL
         )
 
     val editModel: StateFlow<String> = settingsDataStore.editModel
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = AnthropicService.DEFAULT_EDIT_MODEL
+            initialValue = AiModels.DEFAULT_EDIT_MODEL
         )
 
     val thinkingEnabled: StateFlow<Boolean> = settingsDataStore.thinkingEnabled
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = SettingsDataStore.DEFAULT_THINKING_ENABLED
+            initialValue = AiModels.DEFAULT_THINKING_ENABLED
         )
 
     val keepScreenOn: StateFlow<Boolean> = settingsDataStore.keepScreenOn
@@ -160,9 +160,9 @@ class SettingsViewModel @Inject constructor(
     fun saveApiKey() {
         val key = _apiKeyInput.value.trim()
 
-        when (AnthropicService.validateApiKey(key)) {
+        when (ApiKeyValidator.validate(key)) {
             ApiKeyProblem.EMPTY -> _apiKeyError.value = UserMessage(R.string.error_api_key_empty)
-            ApiKeyProblem.BAD_PREFIX -> _apiKeyError.value = UserMessage(R.string.error_api_key_prefix, API_KEY_PREFIX)
+            ApiKeyProblem.BAD_PREFIX -> _apiKeyError.value = UserMessage(R.string.error_api_key_prefix, ApiKeyValidator.API_KEY_PREFIX)
             null -> viewModelScope.launch {
                 try {
                     withContext(NonCancellable) {

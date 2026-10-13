@@ -2,20 +2,20 @@ package com.lionotter.recipes.domain.usecase
 
 import android.util.Base64
 import android.util.Log
-import com.anthropic.models.messages.batches.MessageBatch
-import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.paprika.PaprikaParser
-import com.lionotter.recipes.data.remote.AnthropicService
-import com.lionotter.recipes.data.remote.ImageDownloadService
-import com.lionotter.recipes.data.remote.ParseResultWithUsage
-import com.lionotter.recipes.data.remote.WebScraperService
 import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.ArchiveFailure
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.RecipeErrorException
 import com.lionotter.recipes.domain.ResourceLimits
-import com.lionotter.recipes.domain.toRecipeError
+import com.lionotter.recipes.domain.model.AiModels
+import com.lionotter.recipes.domain.port.AiSettings
+import com.lionotter.recipes.domain.port.BatchItemOutcome
+import com.lionotter.recipes.domain.port.BatchParseRequest
+import com.lionotter.recipes.domain.port.ImageStore
+import com.lionotter.recipes.domain.port.PageFetcher
+import com.lionotter.recipes.domain.port.RecipeBatchParser
 import com.lionotter.recipes.domain.util.ArchiveTooLargeException
 import com.lionotter.recipes.util.ErrorLog
 import kotlinx.coroutines.CancellationException
@@ -55,10 +55,10 @@ import kotlin.coroutines.coroutineContext
 class ImportPaprikaUseCase @Inject constructor(
     private val paprikaParser: PaprikaParser,
     private val parseHtmlUseCase: ParseHtmlUseCase,
-    private val anthropicService: AnthropicService,
-    private val settingsDataStore: SettingsDataStore,
-    private val webScraperService: WebScraperService,
-    private val imageDownloadService: ImageDownloadService,
+    private val recipeBatchParser: RecipeBatchParser,
+    private val aiSettings: AiSettings,
+    private val pageFetcher: PageFetcher,
+    private val imageStore: ImageStore,
     private val recipeRepository: IRecipeRepository,
     private val json: Json
 ) {
@@ -132,11 +132,6 @@ class ImportPaprikaUseCase @Inject constructor(
         val preFailedNames: List<String> = emptyList()
     )
 
-    private sealed class BatchOutcome {
-        data class Parsed(val result: ParseResultWithUsage) : BatchOutcome()
-        data class Failed(val message: String) : BatchOutcome()
-    }
-
     /**
      * Run the next step of the import whose state lives in [workDir].
      *
@@ -149,7 +144,7 @@ class ImportPaprikaUseCase @Inject constructor(
         selectedUids: Set<String>?,
         onProgress: suspend (ImportProgress) -> Unit = {}
     ): StepResult {
-        val apiKey = settingsDataStore.anthropicApiKey.first()
+        val apiKey = aiSettings.anthropicApiKey.first()
         if (apiKey.isNullOrBlank()) return failed(RecipeError.NoApiKey)
 
         val state = loadState(workDir)
@@ -165,13 +160,14 @@ class ImportPaprikaUseCase @Inject constructor(
      */
     suspend fun cancelBatch(workDir: File) {
         val state = loadState(workDir) ?: return
-        val apiKey = settingsDataStore.anthropicApiKey.first()
+        val apiKey = aiSettings.anthropicApiKey.first()
         if (apiKey.isNullOrBlank()) {
             Log.w(TAG, "Can't cancel batch ${state.batchId}: no API key")
             return
         }
-        anthropicService.cancelBatch(state.batchId, apiKey)
-            .onSuccess { Log.i(TAG, "Cancelled batch ${state.batchId}") }
+        if (recipeBatchParser.cancelBatch(state.batchId, apiKey) is Outcome.Success) {
+            Log.i(TAG, "Cancelled batch ${state.batchId}")
+        }
     }
 
     private suspend fun prepareAndSubmit(
@@ -181,8 +177,8 @@ class ImportPaprikaUseCase @Inject constructor(
         apiKey: String,
         onProgress: suspend (ImportProgress) -> Unit
     ): StepResult {
-        val model = AnthropicService.normalizeModel(settingsDataStore.aiModel.first())
-        val thinkingEnabled = settingsDataStore.thinkingEnabled.first()
+        val model = AiModels.normalizeModel(aiSettings.aiModel.first())
+        val thinkingEnabled = aiSettings.thinkingEnabled.first()
 
         onProgress(ImportProgress.Parsing)
         val prepared = mutableListOf<PreparedRecipe>()
@@ -257,14 +253,18 @@ class ImportPaprikaUseCase @Inject constructor(
         // Once the batch exists it's billed, so its ID must reach batch.json even if the worker
         // is stopped mid-way; otherwise a rerun would submit (and pay for) a second batch.
         val submitError = withContext(NonCancellable) {
-            val batchId = anthropicService.createRecipeBatch(
-                requests = toImport.map { AnthropicService.BatchRequest(it.customId, it.contentForAi) },
+            val created = recipeBatchParser.createBatch(
+                requests = toImport.map { BatchParseRequest(it.customId, it.contentForAi) },
                 apiKey = apiKey,
                 model = model,
                 thinkingEnabled = thinkingEnabled
-            ).getOrElse { e ->
-                Log.w(TAG, "Failed to submit batch", e)
-                return@withContext e.toRecipeError()
+            )
+            val batchId = when (created) {
+                is Outcome.Success -> created.value
+                is Outcome.Failure -> {
+                    Log.w(TAG, "Failed to submit batch: ${created.error}")
+                    return@withContext created.error
+                }
             }
             try {
                 saveState(
@@ -280,7 +280,7 @@ class ImportPaprikaUseCase @Inject constructor(
                 )
             } catch (e: Exception) {
                 ErrorLog.e(TAG, "Failed to save state for batch $batchId; cancelling it", e)
-                anthropicService.cancelBatch(batchId, apiKey)
+                recipeBatchParser.cancelBatch(batchId, apiKey)
                 return@withContext RecipeError.Unexpected
             }
             Log.i(TAG, "Submitted batch $batchId with ${toImport.size} recipes")
@@ -299,53 +299,42 @@ class ImportPaprikaUseCase @Inject constructor(
         onProgress: suspend (ImportProgress) -> Unit
     ): StepResult {
         val total = state.recipes.size
-        val batch = anthropicService.retrieveBatch(state.batchId, apiKey).getOrElse { e ->
-            val error = e.toRecipeError()
-            val failures = incrementPollFailures(workDir)
-            if (!error.retryable || failures > MAX_POLL_FAILURES) {
-                ErrorLog.e(TAG, "Giving up on batch ${state.batchId} after $failures failed polls", e)
-                return StepResult.Finished(Outcome.Failure(error), allowRetry = false)
+        val batch = when (val polled = recipeBatchParser.getBatchStatus(state.batchId, apiKey)) {
+            is Outcome.Success -> polled.value
+            is Outcome.Failure -> {
+                val failures = incrementPollFailures(workDir)
+                if (!polled.error.retryable || failures > MAX_POLL_FAILURES) {
+                    ErrorLog.e(TAG, "Giving up on batch ${state.batchId} after $failures failed polls: ${polled.error}")
+                    return StepResult.Finished(polled, allowRetry = false)
+                }
+                return StepResult.PollAgain
             }
-            return StepResult.PollAgain
         }
         File(workDir, POLL_FAILURES_FILE).delete()
 
-        val counts = batch.requestCounts()
         onProgress(
             ImportProgress.WaitingForBatch(
                 total = total,
-                succeeded = counts.succeeded().toInt(),
-                processing = counts.processing().toInt()
+                succeeded = batch.succeeded,
+                processing = batch.processing
             )
         )
-        if (batch.processingStatus() != MessageBatch.ProcessingStatus.ENDED) {
+        if (!batch.ended) {
             return StepResult.PollAgain
         }
 
         val durationMs = System.currentTimeMillis() - state.submittedAtMillis
         val processed = readProcessed(workDir)
-        val outcomes = mutableMapOf<String, BatchOutcome>()
-        val streamResult = anthropicService.forEachBatchResult(state.batchId, apiKey) { response ->
-            val customId = response.customId()
-            if (customId in processed) return@forEachBatchResult
-            val result = response.result()
-            outcomes[customId] = when {
-                result.isSucceeded() -> anthropicService.parseMessageResult(result.asSucceeded().message()).fold(
-                    onSuccess = { BatchOutcome.Parsed(it) },
-                    onFailure = { BatchOutcome.Failed(it.message ?: "Couldn't read the AI response") }
-                )
-                result.isErrored() -> BatchOutcome.Failed("The AI request for this recipe failed")
-                result.isExpired() -> BatchOutcome.Failed("The AI batch expired before this recipe was processed")
-                result.isCanceled() -> BatchOutcome.Failed("The AI batch was canceled")
-                else -> BatchOutcome.Failed("Unknown batch result")
-            }
+        val outcomes = mutableMapOf<String, BatchItemOutcome>()
+        val streamResult = recipeBatchParser.forEachResult(state.batchId, apiKey, processed.keys) { outcome ->
+            outcomes[outcome.customId] = outcome
         }
-        streamResult.onFailure { e ->
-            val error = e.toRecipeError()
+        if (streamResult is Outcome.Failure) {
+            val error = streamResult.error
             return if (error.retryable) {
                 StepResult.PollAgain
             } else {
-                Log.w(TAG, "Failed to download results for batch ${state.batchId}", e)
+                Log.w(TAG, "Failed to download results for batch ${state.batchId}: $error")
                 failed(error)
             }
         }
@@ -362,7 +351,7 @@ class ImportPaprikaUseCase @Inject constructor(
                 chunk.map { recipe ->
                     async {
                         val outcome = outcomes[recipe.customId]
-                            ?: BatchOutcome.Failed("No AI result was returned for this recipe")
+                            ?: BatchItemOutcome.Failed(recipe.customId, "No AI result was returned for this recipe")
                         val error = saveOutcome(workDir, recipe, outcome, state, durationMs)
                         val progress = withContext(NonCancellable) {
                             logMutex.withLock {
@@ -400,11 +389,11 @@ class ImportPaprikaUseCase @Inject constructor(
     private suspend fun saveOutcome(
         workDir: File,
         recipe: PreparedRecipe,
-        outcome: BatchOutcome,
+        outcome: BatchItemOutcome,
         state: BatchState,
         durationMs: Long
     ): String? = when (outcome) {
-        is BatchOutcome.Parsed -> try {
+        is BatchItemOutcome.Parsed -> try {
             parseHtmlUseCase.saveBatchResult(
                 parsedWithUsage = outcome.result,
                 recipeId = batchRecipeId(workDir.name, recipe.customId),
@@ -417,7 +406,10 @@ class ImportPaprikaUseCase @Inject constructor(
             ).let { saved ->
                 when (saved) {
                     is Outcome.Success -> null
-                    is Outcome.Failure -> saved.error.toString()
+                    is Outcome.Failure -> {
+                        Log.w(TAG, "Couldn't save ${recipe.name}: ${saved.error}")
+                        saved.error.toString()
+                    }
                 }
             }
         } catch (e: CancellationException) {
@@ -426,7 +418,7 @@ class ImportPaprikaUseCase @Inject constructor(
             ErrorLog.e(TAG, "Failed to save batch result for ${recipe.name}", e)
             "Failed to save recipe: ${e.message}"
         }
-        is BatchOutcome.Failed -> {
+        is BatchItemOutcome.Failed -> {
             Log.w(TAG, "Batch result failed for ${recipe.name}: ${outcome.message}")
             parseHtmlUseCase.saveBatchErrorDebugEntry(
                 sourceUrl = recipe.sourceUrl,
@@ -472,17 +464,20 @@ class ImportPaprikaUseCase @Inject constructor(
             val file = File(path)
             if (file.exists()) {
                 val localUri = withContext(Dispatchers.IO) {
-                    imageDownloadService.saveImageFromStream(file.inputStream(), ".jpg")
+                    imageStore.saveImageFromStream(file.inputStream(), ".jpg")
                 }
                 if (localUri != null) return localUri
             }
         }
         recipe.imageUrl?.let { return it }
         val sourceUrl = recipe.sourceUrl ?: return null
-        return webScraperService.fetchPage(sourceUrl)
-            .onFailure { Log.w(TAG, "Couldn't fetch image from $sourceUrl", it) }
-            .getOrNull()
-            ?.imageUrl
+        return when (val page = pageFetcher.fetchPage(sourceUrl)) {
+            is Outcome.Success -> page.value.imageUrl
+            is Outcome.Failure -> {
+                Log.w(TAG, "Couldn't fetch image from $sourceUrl: ${page.error}")
+                null
+            }
+        }
     }
 
     private fun writePhoto(base64: String, target: File): String? = try {
