@@ -1,4 +1,4 @@
-package com.lionotter.recipes.ui.screens.recipedetail
+package com.lionotter.recipes.ui.screens.editrecipe
 
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -33,7 +33,7 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
- * The recipe screen's "Generate image" dialog: the prompt to use (the recipe's saved prompt,
+ * The edit screen's "Generate image" dialog: the prompt to use (the recipe's saved prompt,
  * which the user can edit or have the AI write), and starting the image generation.
  */
 @HiltViewModel
@@ -50,7 +50,7 @@ class GenerateImageViewModel @Inject constructor(
         internal const val KEY_PROMPT_DRAFT = "image_prompt_draft"
     }
 
-    private val recipeId: String = savedStateHandle.toRoute<Route.RecipeDetail>().recipeId
+    private val recipeId: String = savedStateHandle.toRoute<Route.EditRecipe>().recipeId
 
     val hasOpenAiKey: StateFlow<Boolean> = aiSettings.openAiApiKey
         .map { !it.isNullOrBlank() }

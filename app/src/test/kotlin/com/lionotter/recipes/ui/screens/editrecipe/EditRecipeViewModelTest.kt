@@ -151,6 +151,21 @@ class EditRecipeViewModelTest {
     }
 
     @Test
+    fun `an unsaved picked image is dropped when an image is generated instead`() = runTest {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        val recipeImage = viewModel.imageUrl.value
+        viewModel.onImageSelected(contentUri)
+        viewModel.imageUrl.first { it == "file:///new.jpg" }
+
+        viewModel.discardPendingImageChange()
+        advanceUntilIdle()
+
+        assertEquals(recipeImage, viewModel.imageUrl.value)
+        assertEquals(listOf("file:///new.jpg"), imageStore.deletedLocal)
+    }
+
+    @Test
     fun `the image copy is deleted if the copy work can't be started`() = runTest {
         val scheduler = mockk<RecipeWorkScheduler>()
         every { scheduler.prepareEdit(any(), any(), any(), any(), any(), any(), any(), any()) } throws IOException("disk full")

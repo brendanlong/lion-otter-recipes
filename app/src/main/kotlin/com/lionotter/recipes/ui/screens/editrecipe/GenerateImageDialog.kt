@@ -1,4 +1,4 @@
-package com.lionotter.recipes.ui.screens.recipedetail.components
+package com.lionotter.recipes.ui.screens.editrecipe
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column

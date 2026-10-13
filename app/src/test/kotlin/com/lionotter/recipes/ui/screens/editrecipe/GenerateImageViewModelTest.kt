@@ -1,4 +1,4 @@
-package com.lionotter.recipes.ui.screens.recipedetail
+package com.lionotter.recipes.ui.screens.editrecipe
 
 import androidx.lifecycle.SavedStateHandle
 import androidx.navigation.testing.invoke
@@ -55,7 +55,7 @@ class GenerateImageViewModelTest {
     fun setup() {
         Dispatchers.setMain(testDispatcher)
         viewModel = GenerateImageViewModel(
-            SavedStateHandle(route = Route.RecipeDetail("r1")),
+            SavedStateHandle(route = Route.EditRecipe("r1")),
             repository,
             WriteImagePromptUseCase(promptWriter, settings),
             scheduler,
