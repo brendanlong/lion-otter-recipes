@@ -30,11 +30,13 @@ data class Recipe(
     val createdAt: Instant,
     val updatedAt: Instant,
     val isFavorite: Boolean = false,
-    val userNotes: String? = null
+    val userNotes: String? = null,
+    /** The AI's prompt for generating a picture of the dish; null for recipes parsed before prompts were kept. */
+    val imagePrompt: String? = null
 ) {
     /**
      * This recipe with the AI-generated content of [parsed] (name, story, servings, times,
-     * instructions, equipment, tags) and [updatedAt] = [now]. Everything else (identity, image,
+     * instructions, equipment, tags, image prompt) and [updatedAt] = [now]. Everything else (identity, image,
      * source, favorite, notes, creation time) is kept, so adding a field to [Recipe] keeps it
      * by default when a recipe is edited or regenerated.
      */
@@ -48,6 +50,7 @@ data class Recipe(
         instructionSections = parsed.instructionSections,
         equipment = parsed.equipment,
         tags = parsed.tags,
+        imagePrompt = parsed.imagePrompt ?: imagePrompt,
         updatedAt = now
     )
 

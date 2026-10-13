@@ -35,11 +35,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
+import com.lionotter.recipes.data.ai.ApiKeyValidator
 import com.lionotter.recipes.messages.resolve
 import com.lionotter.recipes.ui.components.CollectEvents
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
@@ -52,6 +54,7 @@ import com.lionotter.recipes.ui.screens.settings.components.AccountSection
 import com.lionotter.recipes.ui.screens.settings.components.ApiKeySection
 import com.lionotter.recipes.ui.screens.settings.components.BackupRestoreSection
 import com.lionotter.recipes.ui.screens.settings.components.DisplaySection
+import com.lionotter.recipes.ui.screens.settings.components.ImageGenerationSection
 import com.lionotter.recipes.ui.screens.settings.components.ImportDebuggingSection
 import com.lionotter.recipes.ui.screens.settings.components.MealPlannerSection
 import com.lionotter.recipes.ui.screens.settings.components.ModelSelectionSection
@@ -67,11 +70,15 @@ fun SettingsScreen(
     onNavigateToManageTags: () -> Unit = {},
     onNavigateToImportSelection: (importType: ImportType, uri: Uri) -> Unit = { _, _ -> },
     viewModel: SettingsViewModel = hiltViewModel(),
-    zipViewModel: ZipExportImportViewModel = hiltViewModel()
+    zipViewModel: ZipExportImportViewModel = hiltViewModel(),
+    missingImagesViewModel: MissingImagesViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val apiKeyInput by viewModel.apiKeyInput.collectAsStateWithLifecycle()
-    val apiKeyError by viewModel.apiKeyError.collectAsStateWithLifecycle()
+    val apiKeyInput by viewModel.anthropicKey.input.collectAsStateWithLifecycle()
+    val apiKeyError by viewModel.anthropicKey.error.collectAsStateWithLifecycle()
+    val openAiKeyInput by viewModel.openAiKey.input.collectAsStateWithLifecycle()
+    val openAiKeyError by viewModel.openAiKey.error.collectAsStateWithLifecycle()
+    val missingImages by missingImagesViewModel.pendingConfirmation.collectAsStateWithLifecycle()
     val isExporting by zipViewModel.isExporting.collectAsStateWithLifecycle()
     val authState by viewModel.authState.collectAsStateWithLifecycle()
     val busyOp by viewModel.busyOp.collectAsStateWithLifecycle()
@@ -95,6 +102,26 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = viewModel::dismissUnsyncedSignOutWarning) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    missingImages?.let { count ->
+        AlertDialog(
+            onDismissRequest = missingImagesViewModel::dismiss,
+            title = { Text(stringResource(R.string.generate_images_for_existing_recipes)) },
+            text = {
+                Text(pluralStringResource(R.plurals.generate_missing_images_confirmation, count, count))
+            },
+            confirmButton = {
+                TextButton(onClick = missingImagesViewModel::confirm) {
+                    Text(stringResource(R.string.generate))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = missingImagesViewModel::dismiss) {
                     Text(stringResource(R.string.cancel))
                 }
             }
@@ -147,6 +174,10 @@ fun SettingsScreen(
         snackbarHostState.showSnackbar(message.resolve(resources))
     }
 
+    CollectEvents(missingImagesViewModel.events) { message ->
+        snackbarHostState.showSnackbar(message.resolve(resources))
+    }
+
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -181,11 +212,16 @@ fun SettingsScreen(
         ) {
             // API Key Section
             ApiKeySection(
+                title = stringResource(R.string.anthropic_api_key),
+                description = stringResource(R.string.api_key_storage_info),
+                keyPrefix = ApiKeyValidator.ANTHROPIC_API_KEY_PREFIX,
+                getKeyLabel = stringResource(R.string.get_api_key),
+                getKeyUrl = "https://platform.claude.com/settings/keys",
                 currentApiKey = settings.anthropicApiKey,
                 apiKeyInput = apiKeyInput,
-                onApiKeyInputChange = viewModel::onApiKeyInputChange,
-                onSaveClick = viewModel::saveApiKey,
-                onClearClick = viewModel::clearApiKey,
+                onApiKeyInputChange = viewModel.anthropicKey::onInputChange,
+                onSaveClick = viewModel.anthropicKey::save,
+                onClearClick = viewModel::clearAnthropicApiKey,
                 apiKeyError = apiKeyError?.text()
             )
 
@@ -233,6 +269,20 @@ fun SettingsScreen(
                 onEditModelChange = viewModel::setEditModel,
                 thinkingEnabled = settings.thinkingEnabled,
                 onThinkingChange = viewModel::setThinkingEnabled
+            )
+
+            HorizontalDivider()
+
+            ImageGenerationSection(
+                currentApiKey = settings.openAiApiKey,
+                apiKeyInput = openAiKeyInput,
+                onApiKeyInputChange = viewModel.openAiKey::onInputChange,
+                onSaveClick = viewModel.openAiKey::save,
+                onClearClick = viewModel::clearOpenAiApiKey,
+                apiKeyError = openAiKeyError?.text(),
+                imageGenerationEnabled = settings.imageGenerationEnabled,
+                onImageGenerationChange = viewModel::setImageGenerationEnabled,
+                onGenerateMissingImagesClick = missingImagesViewModel::findMissingImages
             )
 
             HorizontalDivider()

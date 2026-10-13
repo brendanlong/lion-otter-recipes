@@ -13,7 +13,9 @@ import kotlinx.serialization.Serializable
 data class RecipeParseResponse(
     val success: Boolean,
     val error: String? = null,
-    val recipe: RecipeParseResult? = null
+    val recipe: RecipeParseResult? = null,
+    /** A prompt for a picture of the dish; "" on failure. */
+    val imagePrompt: String = ""
 )
 
 @Serializable

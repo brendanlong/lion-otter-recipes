@@ -136,7 +136,7 @@ throughout each one.
   on the device. Deletion deletes server data (read from the server, not the cache) first, so a failure leaves the user
   signed in with data intact; Storage images go after documents (orphaned images, never dangling references).
 - **Per-user local data registry**: every store of a user's data on the device implements `PerUserLocalData` with a
-  scope (`ACCOUNT`: cleared on sign-out and deletion; `DEVICE`, e.g. the API key and import debug data: deletion only)
+  scope (`ACCOUNT`: cleared on sign-out and deletion; `DEVICE`, e.g. the API keys and import debug data: deletion only)
   and is bound in `LocalUserDataModule`. `LocalUserDataRegistryTest` fails when a source file uses a persistence API
   without being registered or listed with a reason. Device preferences (settings, theme, favorite tags) survive
   sign-out and are cleared by account deletion. A store that fails to clear is logged and reported; the rest still clear.
@@ -204,6 +204,15 @@ Google users). Local files live only in `files/recipe_images/`.
   The grocery list merges by name and ignores the modifier; the recipe's "all ingredients" view keeps modifiers apart.
   Recipes parsed before modifiers existed keep preparation in `name`/`notes` and are not migrated.
 - Regeneration and AI edits copy only AI-owned fields (`Recipe.withRegeneratedContent`); every other field is preserved.
+- **Generated images**: Claude can't draw, so recipe images come from OpenAI's image API with a separate OpenAI key
+  (optional; generation for new imports defaults to on once a key is set). Every parse also writes an `imagePrompt`
+  (a required schema string, `""` for none), which is saved on the recipe and is AI-owned like its other content.
+  Recipes parsed before prompts were kept get a simple prompt from their name and summary (no separate AI request). Images run one at a time (OpenAI's
+  image rate limits are low): single images (imports, the user's requests) in a WorkManager chain, and "generate images
+  for existing recipes" as one worker that walks the recipes without one, so it can resume and never queues thousands
+  of jobs. A key or account failure stops either; other failures don't. Turning image generation off stops both
+  (except images the user asked for). A generated image is attached only if the recipe's image hasn't changed
+  meanwhile (checked before and after the upload). Paprika imports never generate images automatically.
 - **Edit screen**: title, source URL and tags are edited outside the Markdown and saved directly; only a Markdown
   change or AI instructions run the AI. The AI still gets all three in the Markdown it is sent, but an AI edit
   saves the screen's tags, not the AI's (also for "Save as copy"): only the tag editor changes them, so the AI

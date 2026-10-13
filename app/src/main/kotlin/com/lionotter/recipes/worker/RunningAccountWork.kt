@@ -10,8 +10,8 @@ import javax.inject.Provider
 import javax.inject.Singleton
 
 /**
- * Tracks the [BaseRecipeWorker]s running in this process, so an account transition can cancel
- * them and wait until they have really stopped (WorkManager reports cancelled work as finished
+ * Tracks the [BaseRecipeWorker]s and [RecipeImageWorker]s running in this process, so an account
+ * transition can cancel them and wait until they have really stopped (WorkManager reports cancelled work as finished
  * while the worker may still be saving under `NonCancellable`).
  */
 @Singleton
@@ -27,6 +27,8 @@ class RunningAccountWork @Inject constructor(
             RecipeEditWorker.TAG_RECIPE_EDIT,
             RecipeRegenerateWorker.TAG_RECIPE_REGENERATE,
             ZipExportWorker.TAG_ZIP_EXPORT,
+            RecipeImageWorker.TAG_RECIPE_IMAGE,
+            MissingImagesWorker.TAG_MISSING_IMAGES,
         )
     }
 

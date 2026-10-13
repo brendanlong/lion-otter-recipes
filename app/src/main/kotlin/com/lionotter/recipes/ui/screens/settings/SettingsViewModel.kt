@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.AuthCredential
 import com.lionotter.recipes.R
-import com.lionotter.recipes.data.ai.ApiKeyProblem
 import com.lionotter.recipes.data.ai.ApiKeyValidator
 import com.lionotter.recipes.data.account.AccountLifecycle
 import com.lionotter.recipes.data.image.ImageUploadScheduler
@@ -70,12 +69,13 @@ class SettingsViewModel @Inject constructor(
             initialValue = SettingsUiState.Loading
         )
 
-    private val _apiKeyInput = MutableStateFlow("")
-    val apiKeyInput: StateFlow<String> = _apiKeyInput.asStateFlow()
+    val anthropicKey = ApiKeyField(viewModelScope, ApiKeyValidator.ANTHROPIC_API_KEY_PREFIX) {
+        settings.setAnthropicApiKey(it)
+    }
 
-    /** Why the entered API key couldn't be saved, shown under the field until it is edited. */
-    private val _apiKeyError = MutableStateFlow<UserMessage?>(null)
-    val apiKeyError: StateFlow<UserMessage?> = _apiKeyError.asStateFlow()
+    val openAiKey = ApiKeyField(viewModelScope, ApiKeyValidator.OPENAI_API_KEY_PREFIX) {
+        settings.setOpenAiApiKey(it)
+    }
 
     /** The account operation in progress, if any; only one runs at a time. */
     private val _busyOp = MutableStateFlow<AccountOp?>(null)
@@ -85,37 +85,16 @@ class SettingsViewModel @Inject constructor(
     private val _events = Channel<UserMessage>(Channel.BUFFERED)
     val events: Flow<UserMessage> = _events.receiveAsFlow()
 
-    fun onApiKeyInputChange(input: String) {
-        _apiKeyInput.value = input
-        _apiKeyError.value = null
-    }
-
-    fun saveApiKey() {
-        val key = _apiKeyInput.value.trim()
-
-        when (ApiKeyValidator.validate(key)) {
-            ApiKeyProblem.EMPTY -> _apiKeyError.value = UserMessage(R.string.error_api_key_empty)
-            ApiKeyProblem.BAD_PREFIX -> _apiKeyError.value = UserMessage(R.string.error_api_key_prefix, ApiKeyValidator.API_KEY_PREFIX)
-            null -> viewModelScope.launch {
-                try {
-                    withContext(NonCancellable) {
-                        settings.setAnthropicApiKey(key)
-                    }
-                    _apiKeyInput.value = ""
-                    _apiKeyError.value = null
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    ErrorLog.e(TAG, "Failed to save API key", e)
-                    _apiKeyError.value = UserMessage(R.string.error_api_key_save)
-                }
-            }
-        }
-    }
-
-    fun clearApiKey() {
+    fun clearAnthropicApiKey() {
         launchSettingWrite("clear API key") { settings.clearAnthropicApiKey() }
     }
+
+    fun clearOpenAiApiKey() {
+        launchSettingWrite("clear OpenAI API key") { settings.clearOpenAiApiKey() }
+    }
+
+    fun setImageGenerationEnabled(enabled: Boolean) =
+        launchSettingWrite("set image generation") { settings.setImageGenerationEnabled(enabled) }
 
     /**
      * Runs a settings write that survives viewModelScope cancellation. On failure, logs and

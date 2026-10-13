@@ -10,6 +10,7 @@ import com.lionotter.recipes.testutil.FakeImageStore
 import com.lionotter.recipes.testutil.FakeImportDebugLog
 import com.lionotter.recipes.testutil.FakePageContentExtractor
 import com.lionotter.recipes.testutil.FakePageFetcher
+import com.lionotter.recipes.testutil.FakeRecipeImageScheduler
 import com.lionotter.recipes.testutil.FakeRecipeParser
 import com.lionotter.recipes.testutil.FakeRecipeRepository
 import com.lionotter.recipes.testutil.parsedRecipe
@@ -45,7 +46,7 @@ class RegenerateRecipeUseCaseTest {
     private val fetcher = FakePageFetcher(mapOf(sourceUrl to Outcome.Success(page)))
 
     private fun useCase(pageResult: Outcome<FetchedPage> = Outcome.Success(page)) = RegenerateRecipeUseCase(
-        ParseHtmlUseCase(parser, FakePageContentExtractor(), repository, FakeImportDebugLog(), settings, imageStore),
+        ParseHtmlUseCase(parser, FakePageContentExtractor(), repository, FakeImportDebugLog(), settings, imageStore, FakeRecipeImageScheduler()),
         repository,
         if (pageResult == Outcome.Success(page)) fetcher else FakePageFetcher(mapOf(sourceUrl to pageResult)),
         FakePageContentExtractor(imageUrl = "https://example.com/captured.jpg"),

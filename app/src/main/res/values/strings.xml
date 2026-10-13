@@ -99,7 +99,7 @@
     <string name="regenerate_from_original">Regenerate from original</string>
     <string name="regenerate_from_original_description">Re-parse this recipe from the original page using AI. The page opens first so you can check it. This will discard any edits you\'ve made and replace the recipe with a fresh parse from the original source.</string>
     <string name="recipe_image">Recipe image</string>
-    <string name="change_image">Change Image</string>
+    <string name="select_image">Select Image</string>
     <string name="remove_image">Remove Image</string>
     <string name="no_image">No image</string>
     <string name="recipe_title">Title</string>
@@ -153,14 +153,42 @@
     <string name="api_key_storage_info">Your API key is stored locally on your device and used to parse recipes with Claude.</string>
     <string name="api_key_configured">API key configured</string>
     <string name="api_key_configured_label">API Key configured</string>
-    <string name="api_key_masked">sk-ant-****%1$s</string>
+    <string name="api_key_masked">%1$s****%2$s</string>
     <string name="api_key">API Key</string>
-    <string name="api_key_placeholder">sk-ant-\u2026</string>
+    <string name="api_key_placeholder">%1$s\u2026</string>
     <string name="show">Show</string>
     <string name="hide">Hide</string>
     <string name="save_api_key">Save API Key</string>
     <string name="remove_api_key">Remove API key</string>
     <string name="get_api_key">Get an API Key from Anthropic</string>
+    <string name="recipe_images">Recipe Images</string>
+    <string name="openai_api_key_storage_info">Claude can\'t draw, so recipe images are made with OpenAI\'s image model (about a cent each). Your OpenAI API key is stored locally on your device and used only for this.</string>
+    <string name="get_openai_api_key">Get an API Key from OpenAI</string>
+    <string name="generate_missing_images">Generate missing images</string>
+    <string name="generate_missing_images_description">Create pictures in the background for recipes imported without one. Turning this off also stops images that are waiting to be made.</string>
+    <string name="generate_images_for_existing_recipes">Generate images for existing recipes</string>
+    <plurals name="generate_missing_images_confirmation">
+        <item quantity="one">Create an image for the %d recipe without one? Images cost about a cent each with OpenAI.</item>
+        <item quantity="other">Create images for the %d recipes without one? Images cost about a cent each with OpenAI. They are made one at a time in the background; turn off \"Generate missing images\" to stop.</item>
+    </plurals>
+    <plurals name="generating_missing_images">
+        <item quantity="one">Creating %d image in the background</item>
+        <item quantity="other">Creating %d images in the background</item>
+    </plurals>
+    <string name="no_missing_images">All your recipes have images</string>
+    <string name="missing_images_read_failed">Couldn\'t read your recipes. Please try again.</string>
+    <string name="generate_image">Generate Image</string>
+    <string name="generate_image_description">The new image replaces the recipe\'s current one as soon as it\'s ready, even if you don\'t save. Edit the prompt to change what it shows.</string>
+    <string name="image_prompt">Image prompt</string>
+    <string name="generate">Generate</string>
+    <string name="generating_image">Creating the image in the background</string>
+    <string name="generate_image_failed">Couldn\'t start creating the image. Please try again.</string>
+    <string name="creating_recipe_images">Creating recipe images</string>
+    <string name="creating_recipe_image_progress">Image %1$d of %2$d</string>
+    <plurals name="missing_images_failed">
+        <item quantity="one">Couldn\'t create %d image.</item>
+        <item quantity="other">Couldn\'t create %d images.</item>
+    </plurals>
     <string name="ai_models">AI Models</string>
     <string name="ai_model">AI Model</string>
     <string name="ai_model_description">Choose the Claude models to use for recipe operations. Better models may provide more accurate results but cost more.</string>

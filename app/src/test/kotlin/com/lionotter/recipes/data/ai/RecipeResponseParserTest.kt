@@ -60,6 +60,15 @@ class RecipeResponseParserTest {
         (this as? Outcome.Failure)?.error ?: throw AssertionError("Expected failure, got $this")
 
     @Test
+    fun `the image prompt is returned, and none when it is blank`() {
+        val withPrompt = recipeJson.dropLast(1) + ""","imagePrompt":" Banana bread on a board "}"""
+        assertEquals("Banana bread on a board", parser.parseMessage(message("end_turn", textBlock(withPrompt))).value().recipe.imagePrompt)
+        val blank = recipeJson.dropLast(1) + ""","imagePrompt":""}"""
+        assertEquals(null, parser.parseMessage(message("end_turn", textBlock(blank))).value().recipe.imagePrompt)
+        assertEquals(null, parser.parseMessage(message("end_turn", textBlock(recipeJson))).value().recipe.imagePrompt)
+    }
+
+    @Test
     fun `batch message is parsed with usage and the raw JSON`() {
         val result = parser.parseMessage(message("end_turn", textBlock(recipeJson))).value()
         assertEquals("Toast", result.recipe.name)

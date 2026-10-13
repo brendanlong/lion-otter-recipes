@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -34,6 +35,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.HideImage
 import androidx.compose.material.icons.filled.Image
@@ -85,12 +87,14 @@ import coil3.compose.SubcomposeAsyncImage
 import coil3.compose.SubcomposeAsyncImageContent
 import com.lionotter.recipes.R
 import com.lionotter.recipes.data.image.imageModel
+import com.lionotter.recipes.messages.resolve
 import com.lionotter.recipes.ui.components.CollectEvents
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.components.text
 import com.lionotter.recipes.ui.screens.importbrowser.BrowsedPage
 import com.lionotter.recipes.ui.screens.settings.components.SingleModelSelectionSection
 import com.lionotter.recipes.ui.theme.einkBorder
+import kotlinx.coroutines.Dispatchers
 
 @Composable
 fun EditRecipeScreen(
@@ -101,7 +105,8 @@ fun EditRecipeScreen(
     modifier: Modifier = Modifier,
     browsedPage: BrowsedPage? = null,
     onBrowsedPageConsumed: () -> Unit = {},
-    viewModel: EditRecipeViewModel = hiltViewModel()
+    viewModel: EditRecipeViewModel = hiltViewModel(),
+    imageViewModel: GenerateImageViewModel = hiltViewModel()
 ) {
     val loadState by viewModel.loadState.collectAsStateWithLifecycle()
     val imageUrl by viewModel.imageUrl.collectAsStateWithLifecycle()
@@ -113,6 +118,9 @@ fun EditRecipeScreen(
     val tagQuery by viewModel.tagQuery.collectAsStateWithLifecycle()
     val tagSearch by viewModel.tagSearch.collectAsStateWithLifecycle()
     val editState by viewModel.editState.collectAsStateWithLifecycle()
+    val hasOpenAiKey by imageViewModel.hasOpenAiKey.collectAsStateWithLifecycle()
+    // Immediate, so the text field never sees a stale value while typing
+    val imagePromptDraft by imageViewModel.promptDraft.collectAsStateWithLifecycle(context = Dispatchers.Main.immediate)
     val model by viewModel.model.collectAsStateWithLifecycle()
     val thinkingEnabled by viewModel.thinkingEnabled.collectAsStateWithLifecycle()
     val canRegenerate by viewModel.canRegenerate.collectAsStateWithLifecycle()
@@ -160,6 +168,24 @@ fun EditRecipeScreen(
         if (uri != null) {
             viewModel.onImageSelected(uri)
         }
+    }
+
+    val resources = LocalResources.current
+    CollectEvents(imageViewModel.events) { message ->
+        snackbarHostState.showSnackbar(message.resolve(resources))
+    }
+
+    imagePromptDraft?.let { prompt ->
+        GenerateImageDialog(
+            prompt = prompt,
+            onPromptChange = imageViewModel::onPromptChange,
+            onGenerate = {
+                // The generated image replaces the recipe's image when it's ready, so it wins over an unsaved pick
+                viewModel.discardPendingImageChange()
+                imageViewModel.generate()
+            },
+            onDismiss = imageViewModel::dismiss
+        )
     }
 
     // Navigate back as soon as the changes are saved
@@ -280,6 +306,11 @@ fun EditRecipeScreen(
                         )
                     },
                     onRemoveImage = viewModel::removeImage,
+                    onGenerateImage = if (hasOpenAiKey) {
+                        { (loadState as? RecipeLoadState.Loaded)?.recipe?.let(imageViewModel::open) }
+                    } else {
+                        null
+                    },
                     title = title,
                     onTitleChange = viewModel::setTitle,
                     sourceUrl = sourceUrl,
@@ -382,6 +413,7 @@ private fun EditContent(
     imageUrl: String?,
     onChangeImage: () -> Unit,
     onRemoveImage: () -> Unit,
+    onGenerateImage: (() -> Unit)?,
     title: String,
     onTitleChange: (String) -> Unit,
     sourceUrl: String?,
@@ -424,7 +456,8 @@ private fun EditContent(
             ImageEditSection(
                 imageUrl = imageUrl,
                 onChangeImage = onChangeImage,
-                onRemoveImage = onRemoveImage
+                onRemoveImage = onRemoveImage,
+                onGenerateImage = onGenerateImage
             )
 
             HorizontalDivider()
@@ -678,11 +711,13 @@ private fun TagsEditSection(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ImageEditSection(
     imageUrl: String?,
     onChangeImage: () -> Unit,
     onRemoveImage: () -> Unit,
+    onGenerateImage: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -716,7 +751,7 @@ private fun ImageEditSection(
         }
 
         // Image action buttons
-        Row(
+        FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             OutlinedButton(onClick = onChangeImage) {
@@ -726,9 +761,22 @@ private fun ImageEditSection(
                     modifier = Modifier.size(18.dp)
                 )
                 Text(
-                    text = stringResource(R.string.change_image),
+                    text = stringResource(R.string.select_image),
                     modifier = Modifier.padding(start = 8.dp)
                 )
+            }
+            if (onGenerateImage != null) {
+                OutlinedButton(onClick = onGenerateImage) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = stringResource(R.string.generate_image),
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
             }
             if (imageUrl != null) {
                 OutlinedButton(onClick = onRemoveImage) {

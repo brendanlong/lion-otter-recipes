@@ -361,6 +361,12 @@ class EditRecipeViewModel @Inject constructor(
         savedStateHandle[KEY_PENDING_IMAGE_CHANGED] = true
     }
 
+    /** Drops a picked or removed image that hasn't been saved, e.g. because an image is being generated instead. */
+    fun discardPendingImageChange() {
+        discardPendingImageFile()
+        setPendingImageChange(null)
+    }
+
     /** Deletes a picked-but-unsaved local image copy, if any. */
     private fun discardPendingImageFile() {
         pendingImageUri.value?.let(::discardImageFile)

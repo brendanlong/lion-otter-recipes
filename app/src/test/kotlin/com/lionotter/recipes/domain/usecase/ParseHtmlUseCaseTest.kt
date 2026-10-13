@@ -10,6 +10,8 @@ import com.lionotter.recipes.testutil.FakeAiSettings
 import com.lionotter.recipes.testutil.FakeImageStore
 import com.lionotter.recipes.testutil.FakeImportDebugLog
 import com.lionotter.recipes.testutil.FakePageContentExtractor
+import com.lionotter.recipes.domain.port.ParseAttachment
+import com.lionotter.recipes.testutil.FakeRecipeImageScheduler
 import com.lionotter.recipes.testutil.FakeRecipeParser
 import com.lionotter.recipes.testutil.FakeRecipeRepository
 import com.lionotter.recipes.testutil.parsedRecipe
@@ -27,9 +29,10 @@ class ParseHtmlUseCaseTest {
     private val debugLog = FakeImportDebugLog()
     private val settings = FakeAiSettings()
     private val imageStore = FakeImageStore(failingUrls = setOf("https://example.com/broken.jpg"))
+    private val imageScheduler = FakeRecipeImageScheduler()
 
     private fun useCase(extractor: FakePageContentExtractor = FakePageContentExtractor()) =
-        ParseHtmlUseCase(parser, extractor, repository, debugLog, settings, imageStore)
+        ParseHtmlUseCase(parser, extractor, repository, debugLog, settings, imageStore, imageScheduler)
 
     private fun Outcome<Recipe>.value(): Recipe =
         (this as? Outcome.Success)?.value ?: throw AssertionError("Expected success, got $this")
@@ -235,6 +238,76 @@ class ParseHtmlUseCaseTest {
         useCase().parseText("recipe text").value()
 
         assertEquals(emptyList<String>(), parser.requests.single().existingTags)
+    }
+
+    private fun enableImageGeneration() {
+        settings.openAiApiKeyFlow.value = "sk-openai"
+    }
+
+    @Test
+    fun `the AI's image prompt is saved with the recipe`() = runTest {
+        parser.result = Outcome.Success(parsedWithUsage(parsedRecipe().copy(imagePrompt = "A loaf of banana bread")))
+
+        val recipe = useCase().parseText("recipe text").value()
+
+        assertEquals("A loaf of banana bread", recipe.imagePrompt)
+        assertEquals("A loaf of banana bread", repository.saved.single().imagePrompt)
+    }
+
+    @Test
+    fun `a recipe saved without an image gets one generated`() = runTest {
+        enableImageGeneration()
+
+        val recipe = useCase().parseText("recipe text").value()
+
+        assertEquals(listOf(FakeRecipeImageScheduler.Scheduled(recipe.id)), imageScheduler.scheduled)
+    }
+
+    @Test
+    fun `an image is generated when the page image can't be downloaded`() = runTest {
+        enableImageGeneration()
+
+        val recipe = useCase().parseText("text", imageUrl = "https://example.com/broken.jpg").value()
+
+        assertEquals(listOf(FakeRecipeImageScheduler.Scheduled(recipe.id)), imageScheduler.scheduled)
+    }
+
+    @Test
+    fun `no image is generated for a recipe with an image, an unsaved parse, or without generation`() = runTest {
+        enableImageGeneration()
+        useCase().parseText("text", imageUrl = "https://example.com/bread.jpg").value()
+        useCase().parseAttachments(
+            listOf(ParseAttachment.Image(byteArrayOf(1), "image/jpeg")),
+            recipePhoto = ParseAttachment.Image(byteArrayOf(1), "image/jpeg")
+        ).value()
+        useCase().parseText("text", saveRecipe = false).value()
+        useCase().parseText("text", generateMissingImage = false).value()
+        settings.imageGenerationFlow.value = false
+        useCase().parseText("text").value()
+        settings.imageGenerationFlow.value = true
+        settings.openAiApiKeyFlow.value = null
+        useCase().parseText("text").value()
+
+        assertTrue(imageScheduler.scheduled.isEmpty())
+    }
+
+    @Test
+    fun `a PDF import gets a generated image`() = runTest {
+        enableImageGeneration()
+
+        useCase().parseAttachments(listOf(ParseAttachment.Pdf(byteArrayOf(1)))).value()
+
+        assertEquals(1, imageScheduler.scheduled.size)
+    }
+
+    @Test
+    fun `a recipe that can't be scheduled for an image is still imported`() = runTest {
+        enableImageGeneration()
+        imageScheduler.error = IllegalStateException("WorkManager isn't initialized")
+
+        val recipe = useCase().parseText("recipe text").value()
+
+        assertEquals(listOf(recipe), repository.saved)
     }
 
     private fun tagged(id: String, vararg tags: String) = Recipe(

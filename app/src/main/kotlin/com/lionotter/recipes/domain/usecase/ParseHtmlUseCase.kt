@@ -16,12 +16,14 @@ import com.lionotter.recipes.domain.port.ParseAttachment
 import com.lionotter.recipes.domain.port.ParseRequest
 import com.lionotter.recipes.domain.port.ParsedRecipe
 import com.lionotter.recipes.domain.port.ParsedRecipeWithUsage
+import com.lionotter.recipes.domain.port.RecipeImageScheduler
 import com.lionotter.recipes.domain.port.RecipeParser
 import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.util.ErrorLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlin.time.Clock
@@ -43,7 +45,8 @@ class ParseHtmlUseCase @Inject constructor(
     private val recipeRepository: RecipeRepository,
     private val importDebugLog: ImportDebugLog,
     private val aiSettings: AiSettings,
-    private val imageStore: ImageStore
+    private val imageStore: ImageStore,
+    private val imageScheduler: RecipeImageScheduler
 ) {
     sealed class ParseProgress {
         object ExtractingContent : ParseProgress()
@@ -105,6 +108,8 @@ class ParseHtmlUseCase @Inject constructor(
      * @param thinkingEnabled Extended thinking override (null = use current setting)
      * @param densityOverrides Optional density overrides from existing recipe (merged with defaults for cheaper editing)
      * @param aiInstructions Optional user instructions for the AI (e.g. "Make this recipe vegan")
+     * @param generateMissingImage Whether a saved recipe without an image gets a generated one
+     *   (if image generation is on)
      * @param onProgress Callback for progress updates
      * @return The parsed recipe or error
      */
@@ -118,6 +123,7 @@ class ParseHtmlUseCase @Inject constructor(
         thinkingEnabled: Boolean? = null,
         densityOverrides: Map<String, Double>? = null,
         aiInstructions: String? = null,
+        generateMissingImage: Boolean = true,
         onProgress: suspend (ParseProgress) -> Unit = {}
     ): Outcome<Recipe> = parse(
         text = text,
@@ -126,6 +132,7 @@ class ParseHtmlUseCase @Inject constructor(
         imageUrl = imageUrl,
         recipePhoto = null,
         saveRecipe = saveRecipe,
+        generateMissingImage = generateMissingImage,
         originalHtml = originalHtml,
         model = model,
         thinkingEnabled = thinkingEnabled,
@@ -150,6 +157,7 @@ class ParseHtmlUseCase @Inject constructor(
         imageUrl = null,
         recipePhoto = recipePhoto,
         saveRecipe = true,
+        generateMissingImage = true,
         originalHtml = null,
         model = null,
         thinkingEnabled = null,
@@ -165,6 +173,7 @@ class ParseHtmlUseCase @Inject constructor(
         imageUrl: String?,
         recipePhoto: ParseAttachment.Image?,
         saveRecipe: Boolean,
+        generateMissingImage: Boolean,
         originalHtml: String?,
         model: String?,
         thinkingEnabled: Boolean?,
@@ -188,7 +197,6 @@ class ParseHtmlUseCase @Inject constructor(
         val model = AiModels.normalizeModel(model ?: aiSettings.aiModel.first())
         val thinkingEnabled = thinkingEnabled ?: aiSettings.thinkingEnabled.first()
         val debuggingEnabled = aiSettings.importDebuggingEnabled.first()
-
         // Parse with AI
         onProgress(ParseProgress.ParsingRecipe)
         val existingTags = existingTagVocabulary()
@@ -247,6 +255,11 @@ class ParseHtmlUseCase @Inject constructor(
             // download or upload anything here (that would orphan a copy on every edit).
             buildRecipe(parsed, sourceUrl, storedImageUrl = null, sourceImageUrl = imageUrl)
         }
+        if (saveRecipe && generateMissingImage && recipe.imageUrl == null && coroutineContext.isActive &&
+            imageGenerationAvailable()
+        ) {
+            scheduleImageGeneration(recipe.id)
+        }
 
         // Save debug data on success if debugging is enabled
         if (debuggingEnabled) {
@@ -269,6 +282,20 @@ class ParseHtmlUseCase @Inject constructor(
 
         return Outcome.Success(recipe)
     }
+
+    /** The recipe is already saved, so failing to schedule only costs the image. */
+    private suspend fun scheduleImageGeneration(recipeId: String) {
+        try {
+            imageScheduler.scheduleImageGeneration(recipeId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ErrorLog.e(TAG, "Failed to schedule image generation", e)
+        }
+    }
+
+    private suspend fun imageGenerationAvailable(): Boolean =
+        aiSettings.imageGenerationEnabled.first() && !aiSettings.openAiApiKey.first().isNullOrBlank()
 
     /**
      * The user's most used tags, for the AI to reuse. Only a hint, so if the recipes can't be
@@ -482,6 +509,7 @@ class ParseHtmlUseCase @Inject constructor(
             instructionSections = parsed.instructionSections,
             equipment = parsed.equipment,
             tags = parsed.tags,
+            imagePrompt = parsed.imagePrompt,
             imageUrl = storedImageUrl,
             sourceImageUrl = sourceImageUrl,
             createdAt = now,

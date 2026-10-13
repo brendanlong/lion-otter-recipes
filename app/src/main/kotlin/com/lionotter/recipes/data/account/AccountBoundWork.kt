@@ -1,7 +1,7 @@
 package com.lionotter.recipes.data.account
 
 /**
- * Background work for the signed-in account (imports, edits, regeneration, export), which
+ * Background work for the signed-in account (imports, edits, regeneration, image generation, export), which
  * [AccountLifecycle] stops before the account leaves the device. Implemented by
  * `RunningAccountWork` (worker).
  */

@@ -22,6 +22,7 @@ import com.lionotter.recipes.testutil.FakePageContentExtractor
 import com.lionotter.recipes.testutil.FakePageFetcher
 import com.lionotter.recipes.testutil.FakePaprikaExportReader
 import com.lionotter.recipes.testutil.FakeRecipeBatchParser
+import com.lionotter.recipes.testutil.FakeRecipeImageScheduler
 import com.lionotter.recipes.testutil.FakeRecipeParser
 import com.lionotter.recipes.testutil.FakeRecipeRepository
 import com.lionotter.recipes.util.AppJson
@@ -68,7 +69,7 @@ class ImportQueueTest {
     private val paprikaSteps = PaprikaImportSteps(
         paprikaReader = FakePaprikaExportReader(emptyList()),
         parseHtmlUseCase = ParseHtmlUseCase(
-            FakeRecipeParser(), FakePageContentExtractor(), repository, FakeImportDebugLog(), settings, FakeImageStore()
+            FakeRecipeParser(), FakePageContentExtractor(), repository, FakeImportDebugLog(), settings, FakeImageStore(), FakeRecipeImageScheduler()
         ),
         recipeBatchParser = batchParser,
         aiSettings = settings,

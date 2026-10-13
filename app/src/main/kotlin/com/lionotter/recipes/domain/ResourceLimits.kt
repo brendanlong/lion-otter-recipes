@@ -22,6 +22,9 @@ object ResourceLimits {
     /** Maximum size of a single meal plan document in bytes (10 KB). */
     const val MAX_MEAL_PLAN_SIZE_BYTES = 10 * 1024L
 
+    /** Longest image prompt kept on a recipe or sent for an image (the AI writes about 80 words). */
+    const val MAX_IMAGE_PROMPT_CHARS = 2000
+
     /** Maximum size of a single image file in bytes (5 MB). */
     const val MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024L
 

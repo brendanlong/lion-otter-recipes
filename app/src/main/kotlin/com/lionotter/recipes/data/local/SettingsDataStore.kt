@@ -42,7 +42,7 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 
 /**
  * The app settings. They are device preferences, kept across sign-out, except that account
- * deletion also removes the API key (the user's credential) and the favorite tags (the user's
+ * deletion also removes the API keys (the user's credentials) and the favorite tags (the user's
  * content); see [clearUserData].
  */
 @Singleton
@@ -53,25 +53,24 @@ class SettingsDataStore @Inject constructor(
 ) : AppSettings, PerUserLocalData {
     override val scope = LocalDataScope.DEVICE
 
-    /** Removes the API key and the favorite tags; the other settings are kept. */
+    /** Removes the API keys and the favorite tags; the other settings are kept. */
     override suspend fun clearUserData() {
-        val apiKeyFailure = try {
-            clearAnthropicApiKey()
-            null
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            e
+        var failure: Exception? = null
+        // Each store is cleared even if another fails
+        suspend fun attempt(clear: suspend () -> Unit) {
+            try {
+                clear()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failure?.let(e::addSuppressed)
+                failure = e
+            }
         }
-        try {
-            context.dataStore.edit { it.remove(Keys.FAVORITE_TAGS) }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            apiKeyFailure?.let(e::addSuppressed)
-            throw e
-        }
-        apiKeyFailure?.let { throw it }
+        attempt { clearAnthropicApiKey() }
+        attempt { clearOpenAiApiKey() }
+        attempt { context.dataStore.edit { it.remove(Keys.FAVORITE_TAGS) } }
+        failure?.let { throw it }
     }
 
     private object Keys {
@@ -89,6 +88,7 @@ class SettingsDataStore @Inject constructor(
         val START_OF_WEEK = stringPreferencesKey("start_of_week")
         val FAVORITE_TAGS = stringSetPreferencesKey("favorite_tags")
         val TAG_BAR_SIZE = intPreferencesKey("tag_bar_size")
+        val IMAGE_GENERATION_ENABLED = booleanPreferencesKey("image_generation_enabled")
     }
 
     private val tinkEncryption: TinkEncryption by lazy { TinkEncryption(context) }
@@ -100,30 +100,50 @@ class SettingsDataStore @Inject constructor(
     /** Wrapper so "not loaded yet" (null) is distinct from "no key stored". */
     private class LoadedApiKey(val value: String?)
 
-    private val _anthropicApiKey = MutableStateFlow<LoadedApiKey?>(null)
+    /** An API key stored Tink-encrypted under [prefKey] in [apiKeyPrefs]. */
+    private inner class StoredApiKey(private val prefKey: String) {
+        private val loaded = MutableStateFlow<LoadedApiKey?>(null)
+
+        /** Does not emit until the key has been loaded from disk. */
+        val value: Flow<String?> = loaded.filterNotNull().map { it.value }
+
+        /** Reads the key from disk; null (logged) if decryption fails. */
+        fun load() {
+            val stored = try {
+                apiKeyPrefs.getString(prefKey, null)?.let { tinkEncryption.decrypt(it) }
+            } catch (e: Exception) {
+                ErrorLog.e(TAG, "Failed to load API key", e)
+                null
+            }
+            // A key set while loading wins over the stored value.
+            loaded.compareAndSet(null, LoadedApiKey(stored))
+        }
+
+        suspend fun set(apiKey: String) {
+            withContext(ioDispatcher) {
+                val encrypted = tinkEncryption.encrypt(apiKey)
+                apiKeyPrefs.edit(commit = true) { putString(prefKey, encrypted) }
+                loaded.value = LoadedApiKey(apiKey)
+            }
+        }
+
+        suspend fun clear() {
+            withContext(ioDispatcher) {
+                apiKeyPrefs.edit(commit = true) { remove(prefKey) }
+                loaded.value = LoadedApiKey(null)
+            }
+        }
+    }
+
+    private val storedAnthropicApiKey = StoredApiKey(API_KEY_PREF_KEY)
+    private val storedOpenAiApiKey = StoredApiKey(OPENAI_API_KEY_PREF_KEY)
 
     init {
         // Tink/Keystore initialization and disk reads are slow; keep them off the main thread.
         appScope.launch(ioDispatcher) {
             cleanUpOldEncryptedSharedPreferences()
-            val loaded = LoadedApiKey(loadApiKey())
-            // A key set while loading wins over the stored value.
-            _anthropicApiKey.compareAndSet(null, loaded)
-        }
-    }
-
-    /**
-     * Loads the API key from Tink-encrypted SharedPreferences.
-     * Returns null if no key is stored or decryption fails.
-     */
-    private fun loadApiKey(): String? {
-        return try {
-            apiKeyPrefs.getString(API_KEY_PREF_KEY, null)?.let {
-                tinkEncryption.decrypt(it)
-            }
-        } catch (e: Exception) {
-            ErrorLog.e(TAG, "Failed to load API key", e)
-            null
+            storedAnthropicApiKey.load()
+            storedOpenAiApiKey.load()
         }
     }
 
@@ -155,8 +175,8 @@ class SettingsDataStore @Inject constructor(
         }
     }
 
-    /** The stored API key. Does not emit until the key has been loaded from disk. */
-    override val anthropicApiKey: Flow<String?> = _anthropicApiKey.filterNotNull().map { it.value }
+    override val anthropicApiKey: Flow<String?> = storedAnthropicApiKey.value
+    override val openAiApiKey: Flow<String?> = storedOpenAiApiKey.value
 
     private fun Preferences.aiModel() = this[Keys.AI_MODEL] ?: AiModels.DEFAULT_MODEL
     private fun Preferences.editModel() = this[Keys.EDIT_MODEL] ?: AiModels.DEFAULT_EDIT_MODEL
@@ -176,6 +196,7 @@ class SettingsDataStore @Inject constructor(
     private fun Preferences.startOfWeek() =
         this[Keys.START_OF_WEEK]?.let { enumOrNull<StartOfWeek>(it) } ?: StartOfWeek.LOCALE_DEFAULT
     private fun Preferences.importDebuggingEnabled() = this[Keys.IMPORT_DEBUGGING_ENABLED] ?: false
+    private fun Preferences.imageGenerationEnabled() = this[Keys.IMAGE_GENERATION_ENABLED] ?: true
     private fun Preferences.tagBarSize() = this[Keys.TAG_BAR_SIZE]?.let(TagBarSize::coerce) ?: TagBarSize.DEFAULT
 
     private fun <T> setting(read: Preferences.() -> T): Flow<T> =
@@ -195,8 +216,13 @@ class SettingsDataStore @Inject constructor(
     override val importDebuggingEnabled: Flow<Boolean> = setting { importDebuggingEnabled() }
     override val favoriteTags: Flow<Set<String>> = setting { this[Keys.FAVORITE_TAGS].orEmpty() }
     override val tagBarSize: Flow<Int> = setting { tagBarSize() }
+    override val imageGenerationEnabled: Flow<Boolean> = setting { imageGenerationEnabled() }
 
-    override val settings: Flow<Settings> = combine(context.dataStore.data, anthropicApiKey) { prefs, apiKey ->
+    override val settings: Flow<Settings> = combine(
+        context.dataStore.data,
+        anthropicApiKey,
+        openAiApiKey
+    ) { prefs, apiKey, openAiKey ->
         Settings(
             anthropicApiKey = apiKey,
             aiModel = prefs.aiModel(),
@@ -211,22 +237,23 @@ class SettingsDataStore @Inject constructor(
             groceryWeightUnitSystem = prefs.groceryWeightUnitSystem(),
             startOfWeek = prefs.startOfWeek(),
             importDebuggingEnabled = prefs.importDebuggingEnabled(),
+            openAiApiKey = openAiKey,
+            imageGenerationEnabled = prefs.imageGenerationEnabled(),
             tagBarSize = prefs.tagBarSize()
         )
     }.distinctUntilChanged()
 
-    override suspend fun setAnthropicApiKey(apiKey: String) {
-        withContext(ioDispatcher) {
-            val encrypted = tinkEncryption.encrypt(apiKey)
-            apiKeyPrefs.edit(commit = true) { putString(API_KEY_PREF_KEY, encrypted) }
-            _anthropicApiKey.value = LoadedApiKey(apiKey)
-        }
-    }
+    override suspend fun setAnthropicApiKey(apiKey: String) = storedAnthropicApiKey.set(apiKey)
 
-    override suspend fun clearAnthropicApiKey() {
-        withContext(ioDispatcher) {
-            apiKeyPrefs.edit(commit = true) { remove(API_KEY_PREF_KEY) }
-            _anthropicApiKey.value = LoadedApiKey(null)
+    override suspend fun clearAnthropicApiKey() = storedAnthropicApiKey.clear()
+
+    override suspend fun setOpenAiApiKey(apiKey: String) = storedOpenAiApiKey.set(apiKey)
+
+    override suspend fun clearOpenAiApiKey() = storedOpenAiApiKey.clear()
+
+    override suspend fun setImageGenerationEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[Keys.IMAGE_GENERATION_ENABLED] = enabled
         }
     }
 
@@ -323,6 +350,7 @@ class SettingsDataStore @Inject constructor(
         private const val TAG = "SettingsDataStore"
         private const val API_KEY_PREFS_FILE = "tink_encrypted_api_key"
         private const val API_KEY_PREF_KEY = "encrypted_api_key"
+        private const val OPENAI_API_KEY_PREF_KEY = "encrypted_openai_api_key"
 
         /** The stored theme, or the device's default until the user has picked one. */
         internal fun themeModeOf(stored: String?, einkDevice: Boolean): ThemeMode =

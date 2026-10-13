@@ -69,7 +69,7 @@ class SettingsViewModelTest {
 
     @Test
     fun `initial apiKeyInput is empty`() = runTest {
-        viewModel.apiKeyInput.test {
+        viewModel.anthropicKey.input.test {
             assertEquals("", awaitItem())
             cancelAndIgnoreRemainingEvents()
         }
@@ -77,15 +77,15 @@ class SettingsViewModelTest {
 
     @Test
     fun `initially there is no API key error`() = runTest {
-        assertNull(viewModel.apiKeyError.value)
+        assertNull(viewModel.anthropicKey.error.value)
     }
 
     @Test
     fun `onApiKeyInputChange updates apiKeyInput`() = runTest {
-        viewModel.apiKeyInput.test {
+        viewModel.anthropicKey.input.test {
             assertEquals("", awaitItem())
 
-            viewModel.onApiKeyInputChange("sk-ant-test-key")
+            viewModel.anthropicKey.onInputChange("sk-ant-test-key")
             assertEquals("sk-ant-test-key", awaitItem())
             cancelAndIgnoreRemainingEvents()
         }
@@ -93,54 +93,54 @@ class SettingsViewModelTest {
 
     @Test
     fun `saveApiKey with empty key shows an error`() = runTest {
-        viewModel.onApiKeyInputChange("   ")
-        viewModel.saveApiKey()
+        viewModel.anthropicKey.onInputChange("   ")
+        viewModel.anthropicKey.save()
         testDispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(UserMessage(R.string.error_api_key_empty), viewModel.apiKeyError.value)
+        assertEquals(UserMessage(R.string.error_api_key_empty), viewModel.anthropicKey.error.value)
     }
 
     @Test
     fun `saveApiKey with invalid format shows an error until the key is edited`() = runTest {
-        viewModel.onApiKeyInputChange("invalid-key-format")
-        viewModel.saveApiKey()
+        viewModel.anthropicKey.onInputChange("invalid-key-format")
+        viewModel.anthropicKey.save()
         testDispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(UserMessage(R.string.error_api_key_prefix, "sk-ant-"), viewModel.apiKeyError.value)
+        assertEquals(UserMessage(R.string.error_api_key_prefix, "sk-ant-"), viewModel.anthropicKey.error.value)
 
-        viewModel.onApiKeyInputChange("sk-ant-")
-        assertNull(viewModel.apiKeyError.value)
+        viewModel.anthropicKey.onInputChange("sk-ant-")
+        assertNull(viewModel.anthropicKey.error.value)
     }
 
     @Test
     fun `saveApiKey with valid key saves it`() = runTest {
-        viewModel.onApiKeyInputChange("sk-ant-valid-test-key")
-        viewModel.saveApiKey()
+        viewModel.anthropicKey.onInputChange("sk-ant-valid-test-key")
+        viewModel.anthropicKey.save()
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals("sk-ant-valid-test-key", settings.apiKeyFlow.value)
-        assertNull(viewModel.apiKeyError.value)
+        assertNull(viewModel.anthropicKey.error.value)
     }
 
     @Test
     fun `saveApiKey failure shows a localized error`() = runTest {
         settings.writeError = IllegalStateException("keystore broken")
-        viewModel.onApiKeyInputChange("sk-ant-valid-test-key")
-        viewModel.saveApiKey()
+        viewModel.anthropicKey.onInputChange("sk-ant-valid-test-key")
+        viewModel.anthropicKey.save()
         testDispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(UserMessage(R.string.error_api_key_save), viewModel.apiKeyError.value)
+        assertEquals(UserMessage(R.string.error_api_key_save), viewModel.anthropicKey.error.value)
     }
 
     @Test
     fun `saveApiKey clears input on success`() = runTest {
-        viewModel.apiKeyInput.test {
+        viewModel.anthropicKey.input.test {
             assertEquals("", awaitItem())
 
-            viewModel.onApiKeyInputChange("sk-ant-valid-test-key")
+            viewModel.anthropicKey.onInputChange("sk-ant-valid-test-key")
             assertEquals("sk-ant-valid-test-key", awaitItem())
 
-            viewModel.saveApiKey()
+            viewModel.anthropicKey.save()
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals("", awaitItem())
@@ -150,8 +150,8 @@ class SettingsViewModelTest {
 
     @Test
     fun `saveApiKey trims whitespace from key`() = runTest {
-        viewModel.onApiKeyInputChange("  sk-ant-valid-test-key  ")
-        viewModel.saveApiKey()
+        viewModel.anthropicKey.onInputChange("  sk-ant-valid-test-key  ")
+        viewModel.anthropicKey.save()
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals("sk-ant-valid-test-key", settings.apiKeyFlow.value)
@@ -160,7 +160,7 @@ class SettingsViewModelTest {
     @Test
     fun `clearApiKey clears the stored key`() = runTest {
         settings.apiKeyFlow.value = "sk-ant-stored-key"
-        viewModel.clearApiKey()
+        viewModel.clearAnthropicApiKey()
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertNull(settings.apiKeyFlow.value)

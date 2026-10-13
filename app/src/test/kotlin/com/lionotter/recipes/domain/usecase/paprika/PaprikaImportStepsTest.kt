@@ -16,6 +16,7 @@ import com.lionotter.recipes.testutil.FakePageContentExtractor
 import com.lionotter.recipes.testutil.FakePageFetcher
 import com.lionotter.recipes.testutil.FakePaprikaExportReader
 import com.lionotter.recipes.testutil.FakeRecipeBatchParser
+import com.lionotter.recipes.testutil.FakeRecipeImageScheduler
 import com.lionotter.recipes.testutil.FakeRecipeParser
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.testutil.FakeRecipeRepository
@@ -79,7 +80,7 @@ class PaprikaImportStepsTest {
         return PaprikaImportSteps(
             paprikaReader = reader,
             parseHtmlUseCase = ParseHtmlUseCase(
-                recipeParser, FakePageContentExtractor(), repository, debugLog, settings, imageStore
+                recipeParser, FakePageContentExtractor(), repository, debugLog, settings, imageStore, FakeRecipeImageScheduler()
             ),
             recipeBatchParser = batchParser,
             aiSettings = settings,

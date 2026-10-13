@@ -56,7 +56,9 @@ data class ParsedRecipe(
     val totalTime: String? = null,
     val instructionSections: List<InstructionSection>,
     val equipment: List<String> = emptyList(),
-    val tags: List<String> = emptyList()
+    val tags: List<String> = emptyList(),
+    /** A prompt for generating a picture of the dish. */
+    val imagePrompt: String? = null
 )
 
 data class ParsedRecipeWithUsage(

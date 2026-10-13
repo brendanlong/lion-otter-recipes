@@ -18,6 +18,7 @@ import com.lionotter.recipes.testutil.FakeAiSettings
 import com.lionotter.recipes.testutil.FakeImageStore
 import com.lionotter.recipes.testutil.FakeImportDebugLog
 import com.lionotter.recipes.testutil.FakePageContentExtractor
+import com.lionotter.recipes.testutil.FakeRecipeImageScheduler
 import com.lionotter.recipes.testutil.FakeRecipeParser
 import com.lionotter.recipes.testutil.FakeRecipeRepository
 import kotlinx.coroutines.Dispatchers
@@ -51,7 +52,7 @@ class RecipeEditWorkerTest {
     private val inputStore = ImportInputStore(context, Dispatchers.Unconfined)
 
     private val useCase = EditRecipeUseCase(
-        ParseHtmlUseCase(parser, FakePageContentExtractor(), repository, FakeImportDebugLog(), FakeAiSettings(), imageStore),
+        ParseHtmlUseCase(parser, FakePageContentExtractor(), repository, FakeImportDebugLog(), FakeAiSettings(), imageStore, FakeRecipeImageScheduler()),
         repository,
         imageStore
     )

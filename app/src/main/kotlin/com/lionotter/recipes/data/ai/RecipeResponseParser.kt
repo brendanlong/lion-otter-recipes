@@ -8,6 +8,7 @@ import com.anthropic.models.messages.StopReason
 import com.lionotter.recipes.domain.AiFailure
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.ResourceLimits
 import com.lionotter.recipes.domain.port.ParsedRecipeWithUsage
 import com.lionotter.recipes.util.ErrorLog
 import kotlinx.serialization.json.Json
@@ -98,7 +99,11 @@ class RecipeResponseParser(private val json: Json) {
 
             Outcome.Success(
                 ParsedRecipeWithUsage(
-                    recipe = recipeResult.toParsedRecipe(),
+                    recipe = recipeResult.toParsedRecipe()
+                        .copy(
+                            imagePrompt = parseResponse.imagePrompt.trim().take(ResourceLimits.MAX_IMAGE_PROMPT_CHARS)
+                                .takeIf { it.isNotEmpty() }
+                        ),
                     inputTokens = inputTokens,
                     outputTokens = outputTokens,
                     aiOutputJson = jsonContent

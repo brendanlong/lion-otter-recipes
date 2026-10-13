@@ -87,6 +87,6 @@ class RecipePromptTest {
     }
 
     private companion object {
-        const val SYSTEM_PROMPT_SHA256 = "7612b9270de8c417f92a75c7c73ca397087f9ec1f40093e7908bd47adf68bd74"
+        const val SYSTEM_PROMPT_SHA256 = "b74e10119e84b8a18c2a4f2e5d7284b5591b77b31815e386d863d34cae6f26a5"
     }
 }

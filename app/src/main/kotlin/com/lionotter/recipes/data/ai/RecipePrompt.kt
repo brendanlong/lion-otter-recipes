@@ -77,14 +77,16 @@ For successful parsing, return (every field is always present; use null where a 
     ],
     "equipment": ["9-inch round cake pan", "stand mixer", "wire cooling rack"],
     "tags": ["dessert", "cake", "baking"]
-  }
+  },
+  "imagePrompt": ""
 }
 
 If you cannot parse the content as a recipe, return an error response with a placeholder recipe (it is ignored):
 {
   "success": false,
   "error": "Human-readable explanation of why parsing failed",
-  "recipe": { "name": "", "story": null, "servings": null, "prepTime": null, "cookTime": null, "totalTime": null, "instructionSections": [], "equipment": [], "tags": [] }
+  "recipe": { "name": "", "story": null, "servings": null, "prepTime": null, "cookTime": null, "totalTime": null, "instructionSections": [], "equipment": [], "tags": [] },
+  "imagePrompt": ""
 }
 
 Return an error response when:
@@ -159,6 +161,12 @@ ADDITIONAL GUIDELINES:
 - Mark optional ingredients and steps with "optional": true (for garnish, decorative, "if desired" items).
 - Generate relevant tags based on recipe type, cuisine, dietary restrictions, etc.
 - Keep the story brief — just the essence of any background provided.
+
+IMAGE PROMPT:
+- Always write "imagePrompt" for a successfully parsed recipe; on an error response it is "".
+- Write the prompt in English (at most 80 words) for an image generation model to create an appetizing, realistic photograph of the finished dish as it is served.
+- Describe the dish's appearance from its ingredients and steps (colors, textures, garnishes), the serving vessel and a simple setting, the camera angle and natural lighting.
+- Don't ask for text, labels, hands or people in the image.
 """.trimIndent()
 
     /**

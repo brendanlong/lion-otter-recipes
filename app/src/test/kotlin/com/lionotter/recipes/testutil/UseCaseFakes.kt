@@ -24,6 +24,8 @@ import com.lionotter.recipes.domain.port.ParseRequest
 import com.lionotter.recipes.domain.port.ParsedRecipe
 import com.lionotter.recipes.domain.port.ParsedRecipeWithUsage
 import com.lionotter.recipes.domain.port.RecipeBatchParser
+import com.lionotter.recipes.domain.port.RecipeImageGenerator
+import com.lionotter.recipes.domain.port.RecipeImageScheduler
 import com.lionotter.recipes.domain.port.RecipeParser
 import com.lionotter.recipes.domain.port.TagCleanupRequest
 import com.lionotter.recipes.domain.port.TagOrganizer
@@ -139,19 +141,64 @@ class FakeAiSettings(
     apiKey: String? = "sk-ant-test",
     model: String = AiModels.DEFAULT_MODEL,
     thinkingEnabled: Boolean = false,
-    importDebuggingEnabled: Boolean = false
+    importDebuggingEnabled: Boolean = false,
+    openAiApiKey: String? = null,
+    imageGenerationEnabled: Boolean = true
 ) : AiSettings {
     val apiKeyFlow = MutableStateFlow(apiKey)
     val modelFlow = MutableStateFlow(model)
     val editModelFlow = MutableStateFlow(AiModels.DEFAULT_EDIT_MODEL)
     val thinkingFlow = MutableStateFlow(thinkingEnabled)
     val debuggingFlow = MutableStateFlow(importDebuggingEnabled)
+    val openAiApiKeyFlow = MutableStateFlow(openAiApiKey)
+    val imageGenerationFlow = MutableStateFlow(imageGenerationEnabled)
 
     override val anthropicApiKey: Flow<String?> = apiKeyFlow
     override val aiModel: Flow<String> = modelFlow
     override val editModel: Flow<String> = editModelFlow
     override val thinkingEnabled: Flow<Boolean> = thinkingFlow
     override val importDebuggingEnabled: Flow<Boolean> = debuggingFlow
+    override val openAiApiKey: Flow<String?> = openAiApiKeyFlow
+    override val imageGenerationEnabled: Flow<Boolean> = imageGenerationFlow
+}
+
+class FakeRecipeImageScheduler : RecipeImageScheduler {
+    data class Scheduled(val recipeId: String, val prompt: String? = null, val replaceImage: Boolean = false)
+
+    val scheduled = mutableListOf<Scheduled>()
+    var missingImagesScheduled = 0
+
+    /** When set, scheduling fails with it. */
+    var error: Throwable? = null
+
+    override suspend fun scheduleImageGeneration(recipeId: String, prompt: String?, replaceImage: Boolean) {
+        error?.let { throw it }
+        scheduled += Scheduled(recipeId, prompt, replaceImage)
+    }
+
+    override suspend fun scheduleMissingImages() {
+        error?.let { throw it }
+        missingImagesScheduled++
+    }
+}
+
+class FakeRecipeImageGenerator(
+    var result: Outcome<ByteArray> = Outcome.Success(ByteArray(GENERATED_IMAGE_SIZE))
+) : RecipeImageGenerator {
+    val prompts = mutableListOf<Pair<String, String>>()
+
+    /** Runs while the image is "being generated", e.g. to change the recipe meanwhile. */
+    var onGenerate: suspend () -> Unit = {}
+
+    override suspend fun generate(prompt: String, apiKey: String): Outcome<ByteArray> {
+        prompts += prompt to apiKey
+        onGenerate()
+        return result
+    }
+
+    companion object {
+        const val GENERATED_IMAGE_SIZE = 1234
+    }
 }
 
 /**
