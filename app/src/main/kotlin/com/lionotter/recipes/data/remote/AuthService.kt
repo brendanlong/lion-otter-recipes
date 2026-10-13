@@ -17,6 +17,8 @@ import com.google.firebase.auth.AuthCredential
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.auth
 import com.lionotter.recipes.R
+import com.lionotter.recipes.data.image.LocalImageFiles
+import com.lionotter.recipes.data.image.LocalImageUploader
 import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
@@ -28,6 +30,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 
 /** Represents the current authentication state of the app. */
@@ -83,7 +86,9 @@ class AuthService @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val firestoreService: FirestoreService,
     private val accountDeletionService: AccountDeletionService,
-    private val imageSyncService: ImageSyncService
+    private val localImageFiles: LocalImageFiles,
+    // Provider: the uploader reads recipes through the repository, which depends on this service.
+    private val localImageUploader: Provider<LocalImageUploader>
 ) {
     companion object {
         private const val TAG = "AuthService"
@@ -182,7 +187,7 @@ class AuthService @Inject constructor(
                 Log.w(TAG, "Sign-out aborted: local changes have not synced yet")
                 return@withLock SignOutResult.PendingWrites
             }
-            if (imageSyncService.hasPendingLocalImages()) {
+            if (localImageUploader.get().hasPendingLocalImages()) {
                 Log.w(TAG, "Sign-out aborted: some recipe images have not been uploaded yet")
                 return@withLock SignOutResult.PendingWrites
             }
@@ -232,7 +237,7 @@ class AuthService @Inject constructor(
         clearLocalData(enableNetwork = false)
         Firebase.auth.signOut()
         clearCredentialState()
-        imageSyncService.clearLocalCache()
+        localImageFiles.clear()
         prefs.edit { remove(KEY_GUEST_UID) }
         _authState.value = AuthState.Guest(uid = getOrCreateGuestUid())
     }

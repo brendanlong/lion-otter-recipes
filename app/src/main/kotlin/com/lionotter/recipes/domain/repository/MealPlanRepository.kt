@@ -20,4 +20,7 @@ interface MealPlanRepository {
     suspend fun countMealPlansByRecipeIds(recipeIds: List<String>): Int
     suspend fun getAllMealPlansOnce(): List<MealPlanEntry>
     suspend fun getMealPlanCount(): Int
+
+    /** Points meal plans showing the recipe image [oldUrl] at [newUrl] (the recipe's image moved). */
+    suspend fun replaceRecipeImageUrl(oldUrl: String, newUrl: String)
 }

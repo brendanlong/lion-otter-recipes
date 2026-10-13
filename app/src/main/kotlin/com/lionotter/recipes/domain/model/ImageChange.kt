@@ -4,6 +4,6 @@ package com.lionotter.recipes.domain.model
 sealed interface ImageChange {
     data object Remove : ImageChange
 
-    /** Use the local image file at [localUri] (see `ImageStore.storeImage`). */
+    /** Use the local image file at [localUri] (see `ImageStore.attach`). */
     data class Replace(val localUri: String) : ImageChange
 }

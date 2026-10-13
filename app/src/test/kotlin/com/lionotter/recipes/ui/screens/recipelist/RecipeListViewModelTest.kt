@@ -2,8 +2,10 @@ package com.lionotter.recipes.ui.screens.recipelist
 
 import androidx.lifecycle.SavedStateHandle
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.usecase.DeleteRecipeUseCase
 import com.lionotter.recipes.domain.usecase.GetTagsUseCase
 import com.lionotter.recipes.imports.ImportMonitor
+import com.lionotter.recipes.testutil.FakeImageStore
 import com.lionotter.recipes.testutil.FakeMealPlanRepository
 import com.lionotter.recipes.testutil.FakeRecipeRepository
 import io.mockk.every
@@ -61,6 +63,7 @@ class RecipeListViewModelTest {
             importMonitor,
             recipeRepository,
             mealPlanRepository,
+            DeleteRecipeUseCase(recipeRepository, mealPlanRepository, FakeImageStore()),
             UnconfinedTestDispatcher()
         )
     }

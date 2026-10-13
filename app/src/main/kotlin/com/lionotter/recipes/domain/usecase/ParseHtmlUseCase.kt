@@ -178,14 +178,8 @@ class ParseHtmlUseCase @Inject constructor(
         onProgress(ParseProgress.RecipeNameAvailable(parsed.name))
 
         val recipe = if (saveRecipe) {
-            // Image download is cancellable; once it's done, upload + save run to completion.
-            val downloadResult = imageUrl?.let { imageStore.downloadAndStoreWithResult(it) }
-            coroutineContext.ensureActive()
-            onProgress(ParseProgress.SavingRecipe)
-            withContext(NonCancellable) {
-                val storedImageUrl = downloadResult?.localUri?.let { imageStore.storeImage(it) }
-                buildRecipe(parsed, sourceUrl, storedImageUrl, downloadResult?.effectiveUrl ?: imageUrl)
-                    .also { recipeRepository.saveRecipe(it) }
+            saveWithImage(parsed, UUID.randomUUID().toString(), sourceUrl, imageUrl) {
+                onProgress(ParseProgress.SavingRecipe)
             }
         } else {
             // Callers that don't save (edit/regenerate) manage the image themselves, so don't
@@ -251,13 +245,7 @@ class ParseHtmlUseCase @Inject constructor(
 
         val parsed = parsedWithUsage.recipe
 
-        val downloadResult = imageUrl?.let { imageStore.downloadAndStoreWithResult(it) }
-        coroutineContext.ensureActive()
-        val recipe = withContext(NonCancellable) {
-            val storedImageUrl = downloadResult?.localUri?.let { imageStore.storeImage(it) }
-            buildRecipe(parsed, sourceUrl, storedImageUrl, downloadResult?.effectiveUrl ?: imageUrl, recipeId)
-                .also { recipeRepository.saveRecipe(it) }
-        }
+        val recipe = saveWithImage(parsed, recipeId, sourceUrl, imageUrl)
 
         // Save debug data if debugging is enabled
         val debuggingEnabled = aiSettings.importDebuggingEnabled.first()
@@ -350,6 +338,27 @@ class ParseHtmlUseCase @Inject constructor(
         )
         withContext(NonCancellable) {
             importDebugLog.record(entry)
+        }
+    }
+
+    /**
+     * Imports the image at [imageUrl] (cancellable), then attaches it and saves the recipe, which
+     * run to completion once started. Without a usable image the recipe is saved without one.
+     */
+    private suspend fun saveWithImage(
+        parsed: ParsedRecipe,
+        recipeId: String,
+        sourceUrl: String?,
+        imageUrl: String?,
+        onSaving: suspend () -> Unit = {}
+    ): Recipe {
+        val image = imageUrl?.let { imageStore.importFromUrl(it) }
+        coroutineContext.ensureActive()
+        onSaving()
+        return withContext(NonCancellable) {
+            val storedImageUrl = image?.let { imageStore.attach(it.uri, recipeId = recipeId) }
+            buildRecipe(parsed, sourceUrl, storedImageUrl, image?.sourceUrl ?: imageUrl, recipeId)
+                .also { recipeRepository.saveRecipe(it) }
         }
     }
 

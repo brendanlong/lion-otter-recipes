@@ -7,13 +7,13 @@ import com.google.firebase.auth.AuthCredential
 import com.lionotter.recipes.R
 import com.lionotter.recipes.data.ai.ApiKeyProblem
 import com.lionotter.recipes.data.ai.ApiKeyValidator
+import com.lionotter.recipes.data.image.ImageUploadScheduler
 import com.lionotter.recipes.data.remote.AccountMigrationService
 import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.AuthState
 import com.lionotter.recipes.data.remote.ReauthenticationRequiredException
 import com.lionotter.recipes.data.remote.SignOutResult
 import com.lionotter.recipes.data.remote.AccountDeletionService
-import com.lionotter.recipes.data.remote.ImageUploadScheduler
 import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.domain.model.Settings
 import com.lionotter.recipes.domain.model.StartOfWeek

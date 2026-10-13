@@ -14,6 +14,7 @@ import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.domain.model.createInstructionIngredientKey
 import com.lionotter.recipes.domain.usecase.CalculateIngredientUsageUseCase
+import com.lionotter.recipes.domain.usecase.DeleteRecipeUseCase
 import com.lionotter.recipes.domain.usecase.ExportSingleRecipeUseCase
 import com.lionotter.recipes.domain.util.RecipeSerializer
 import com.lionotter.recipes.messages.UserMessage
@@ -107,6 +108,7 @@ class RecipeDetailViewModelTest {
             savedStateHandle = savedStateHandle,
             recipeRepository = recipeRepository,
             mealPlanRepository = mealPlanRepository,
+            deleteRecipeUseCase = DeleteRecipeUseCase(recipeRepository, mealPlanRepository, FakeImageStore()),
             settings = settings,
             calculateIngredientUsage = CalculateIngredientUsageUseCase(),
             exportSingleRecipeUseCase = ExportSingleRecipeUseCase(recipeSerializer, FakeImageStore()),

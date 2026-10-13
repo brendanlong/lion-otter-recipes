@@ -205,6 +205,7 @@ subgraph app["Android App"]
             import_zip["ImportFromZipUseCase"]
             regenerate["RegenerateRecipeUseCase"]
             edit_recipe["EditRecipeUseCase"]
+            delete_recipe["DeleteRecipeUseCase<br/>(meal plans, recipe, release image)"]
             aggregate_grocery["AggregateGroceryListUseCase"]
             tags["GetTagsUseCase"]
             calc_usage["CalculateIngredientUsageUseCase"]
@@ -230,7 +231,7 @@ subgraph app["Android App"]
             port_parser["RecipeParser / RecipeBatchParser<br/>(Outcome&lt;ParsedRecipeWithUsage&gt;, BatchStatus, BatchItemOutcome)"]
             port_fetch["PageFetcher / PageContentExtractor<br/>(FetchedPage, PageContent)"]
             port_settings["AiSettings<br/>(API key, model, thinking, debugging)"]
-            port_images["ImageStore<br/>(download, save, store, local files for export)"]
+            port_images["ImageStore<br/>(importFromUrl, saveImage, attach, release,<br/>local files for export)"]
             port_debug["ImportDebugLog"]
         end
 
@@ -272,7 +273,7 @@ subgraph app["Android App"]
         parse_html -->|extract page content| port_fetch
         parse_html -->|parse| port_parser
         parse_html -->|API key, model, thinking| port_settings
-        parse_html -->|download, store image| port_images
+        parse_html -->|import, attach image| port_images
         import_paprika -->|resume / advance, persists state| paprika_state
         paprika_state -->|files in| import_input_store
         regenerate -->|uses| parse_html
@@ -307,7 +308,7 @@ subgraph app["Android App"]
             pending_import_dao["PendingImportDao"]
             pending_import_entity["PendingImportEntity<br/>(RecipeErrorConverter)"]
             import_debug_entity["ImportDebugEntity"]
-            image_storage[("Local Image Cache")]
+            image_storage[("Local images<br/>(files/recipe_images: local-only images + Storage cache)")]
             settings_ds["SettingsDataStore"]
             grocery_state_store["DataStoreGroceryListStateStore<br/>(own DataStore, per-week checked state)"]
 
@@ -322,13 +323,33 @@ subgraph app["Android App"]
 
         subgraph remote["Remote Services"]
             scraper["WebScraperService"]
-            image_dl["ImageDownloadService"]
-            image_sync["ImageSyncService"]
-            storage_fetcher["FirebaseStorageCoilFetcher"]
             firestore_svc["FirestoreService<br/>(failures: DataFailure channel, batch)"]
             auth_svc["AuthService"]
             migration_svc["AccountMigrationService"]
             deletion_svc["AccountDeletionService"]
+        end
+
+        subgraph images["Images (data/image)"]
+            image_store["RecipeImageStore<br/>(lifecycle facade: import, attach, release)"]
+            local_image_files["LocalImageFiles<br/>(save, copy, delete, cache, atomic writes, clear)"]
+            image_downloader["ImageDownloader<br/>(Ktor, size + content-type checks, HTTPS retry)"]
+            remote_image_storage["FirebaseImageStorage<br/>(RemoteImageStorage: upload, delete, cachedFile)"]
+            upload_preparer["ImageUploadPreparer<br/>(EXIF rotate, resize, compress)"]
+            local_image_uploader["LocalImageUploader<br/>(upload pending file:// images, hasPendingLocalImages)"]
+            storage_fetcher["FirebaseStorageCoilFetcher"]
+
+            image_store --> local_image_files
+            image_store -->|web images| image_downloader
+            image_store -->|upload, delete| remote_image_storage
+            image_store -->|isImageReferenced| repo
+            image_downloader --> local_image_files
+            remote_image_storage -->|resize before upload| upload_preparer
+            remote_image_storage -->|cached copies| local_image_files
+            local_image_uploader -->|upload, delete unused| remote_image_storage
+            local_image_uploader -->|"image URLs, replaceImageUrl (transaction), isImageReferenced"| repo
+            local_image_uploader -->|replaceRecipeImageUrl| meal_plan_repo
+            storage_fetcher -->|cachedFile| remote_image_storage
+            local_image_files --> image_storage
         end
 
         subgraph ai["AI (data/ai)"]
@@ -364,11 +385,6 @@ subgraph app["Android App"]
         import_debug_repo --> import_debug_dao
         pending_import_repo --> pending_import_dao
         meal_plan_repo -->|Firestore CRUD| firestore_svc
-        image_dl -->|caches images| image_storage
-        image_dl -->|upload to storage| image_sync
-        image_sync -->|download cache| image_storage
-        storage_fetcher -->|resolve paths| image_sync
-        storage_fetcher -->|cache read/write| image_storage
     end
 
     %% --------------------------------------------------------
@@ -390,6 +406,7 @@ subgraph app["Android App"]
         net_module["NetworkModule"]
         worker_module["WorkerModule"]
         scheduler_module["SchedulerModule<br/>(ImageUploadScheduler binding)"]
+        image_module["ImageModule<br/>(RemoteImageStorage binding)"]
         port_module["PortModule<br/>(domain port bindings)"]
         port_module -.->|binds| ports
     end
@@ -397,18 +414,19 @@ subgraph app["Android App"]
     %% --------------------------------------------------------
     %% Cross-layer connections within app
     %% --------------------------------------------------------
-    list_vm -->|recipes, delete| repo
-    list_vm -->|cascade delete meal plans| meal_plan_repo
+    list_vm -->|recipes| repo
+    list_vm -->|delete| delete_recipe
     list_vm -->|top tags| tags
-    detail_vm -->|recipe, delete, favorite| repo
-    detail_vm -->|cascade delete meal plans| meal_plan_repo
+    detail_vm -->|recipe, favorite| repo
+    detail_vm -->|delete| delete_recipe
+    delete_recipe -->|"cached image URL, delete meal plans, recipe"| port_repos
+    delete_recipe -->|release image| port_images
     detail_vm -->|ingredient usage| calc_usage
     detail_vm -->|export .lorecipes| export_single
     detail_vm -->|keep screen on, unit prefs| port_app_settings
     edit_vm -->|recipe, image| repo
     edit_vm -->|edit model, thinking prefs| port_app_settings
-    edit_vm -->|save picked images| image_dl
-    edit_vm -->|delete remote images| image_sync
+    edit_vm -->|"importPickedImage, attach / release on save, copy for save as copy"| port_images
     edit_vm -->|prepare edit / regenerate| work_scheduler
     edit_vm -.->|image change applied on save| repo
     edit_vm -->|"save as copy: copied image file (ImageChange)"| work_scheduler
@@ -435,15 +453,15 @@ subgraph app["Android App"]
     settings_vm -->|read / write settings| port_app_settings
     settings_vm -->|delete debug data| import_debug_repo
     settings_vm -->|"ImageUploadScheduler, after Google sign-in"| image_upload_scheduler
-    image_dl -->|"ImageUploadScheduler, upload failed"| image_upload_scheduler
-    local_image_upload_worker -->|uploadPendingLocalImages| image_sync
+    image_store -->|"ImageUploadScheduler, upload failed"| image_upload_scheduler
+    local_image_upload_worker -->|uploadPendingLocalImages| local_image_uploader
     import_debug_list_vm -->|list entries| import_debug_repo
     import_debug_detail_vm -->|get entry| import_debug_repo
 
     import_worker -->|execute| uc_import
     regenerate_worker -->|execute| regenerate
     edit_worker -->|execute| edit_recipe
-    edit_recipe -->|store copy image| port_images
+    edit_recipe -->|attach copy image| port_images
     paprika_import_worker -->|run until waiting or done| import_paprika
     zip_export_worker -->|execute| export_zip
     zip_import_worker -->|execute| import_zip
@@ -451,13 +469,13 @@ subgraph app["Android App"]
     usecases -->|access data| port_repos
     zip_import_helper -->|save recipe, check duplicates| repo
     zip_import_helper -->|import meal plans| meal_plan_repo
-    zip_import_helper -->|save / download / store images| port_images
+    zip_import_helper -->|save / import / attach images| port_images
     import_paprika -->|read export| port_paprika
     import_paprika -->|parseText, saveBatchResult| parse_html
     import_paprika -->|batch API| port_parser
     import_paprika -->|API key, model| port_settings
     regenerate -->|fetch source page| port_fetch
-    regenerate -->|download image if missing| port_images
+    regenerate -->|import, attach image if missing| port_images
     import_paprika -->|fetch source image| port_fetch
 
     anthropic_parser -.->|implements| port_parser
@@ -470,7 +488,7 @@ subgraph app["Android App"]
     parser -.->|implements| port_paprika
     repo -.->|implements| port_repos
     meal_plan_repo -.->|implements| port_repos
-    image_dl -.->|implements| port_images
+    image_store -.->|implements| port_images
     import_debug_repo -.->|implements| port_debug
     settings_ds -->|defaults| ai_models
     settings_vm -->|validate key| api_key_validator
@@ -485,7 +503,11 @@ subgraph app["Android App"]
     deletion_svc -->|re-authenticate, read from server, delete| firestore_svc
     deletion_svc -->|clear debug data| import_debug_repo
     deletion_svc -->|clear API key| settings_ds
-    deletion_svc -->|delete storage images| image_sync
+    deletion_svc -->|delete storage images| remote_image_storage
+    deletion_svc -->|clear local images| local_image_files
+    auth_svc -->|"sign out: clear local images"| local_image_files
+    auth_svc -->|"sign out: images pending upload? (Provider)"| local_image_uploader
+    lion_app -->|Coil fetcher| storage_fetcher
 end
 
 %% ============================================================
@@ -494,9 +516,9 @@ end
 deletion_svc -->|Storage delete, Auth delete| firebase
 firestore_svc -->|Firestore| firebase
 auth_svc -->|Auth| firebase
-image_sync -->|Storage| firebase
+remote_image_storage -->|Storage| firebase
 scraper -->|fetch HTML| web
-image_dl -->|download image| web
+image_downloader -->|download image| web
 anthropic_parser -->|parse recipe| anthropic
 
 %% ============================================================
@@ -554,7 +576,7 @@ subgraph legend["Data Flow"]
         e2["2. EditRecipeScreen shows image, title/URL, AI instructions, body"]
         e3["3. Image, title, URL changes saved directly without AI (image applied on save)"]
         e4["4. Body edits or AI instructions trigger RecipeEditWorker"]
-        e5["5. AI re-parses; Save applies only AI-owned fields (withRegeneratedContent), Save as Copy creates new<br/>(a new image is copied, passed in the worker input and stored for the copy by EditRecipeUseCase)"]
+        e5["5. AI re-parses; Save applies only AI-owned fields (withRegeneratedContent), Save as Copy creates new<br/>(a new image is copied, passed in the worker input and attached to the copy by EditRecipeUseCase)"]
         e1 --> e2 --> e3 --> e4 --> e5
     end
 

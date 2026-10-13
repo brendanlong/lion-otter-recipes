@@ -7,16 +7,15 @@ import androidx.work.Configuration
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.lionotter.recipes.data.image.FirebaseStorageCoilFetcher
+import com.lionotter.recipes.data.image.FirebaseStorageKeyer
+import com.lionotter.recipes.data.image.RemoteImageStorage
 import com.lionotter.recipes.data.remote.AuthService
-import com.lionotter.recipes.data.remote.FirebaseStorageCoilFetcher
-import com.lionotter.recipes.data.remote.FirebaseStorageKeyer
 import com.lionotter.recipes.notification.RecipeNotificationHelper
 import com.lionotter.recipes.util.ErrorLog
-import com.lionotter.recipes.util.IoDispatcher
 import com.lionotter.recipes.util.LogLevel
 import com.lionotter.recipes.util.LogSink
 import dagger.hilt.android.HiltAndroidApp
-import kotlinx.coroutines.CoroutineDispatcher
 import javax.inject.Inject
 
 @HiltAndroidApp
@@ -34,8 +33,7 @@ class LionOtterApp : Application(), Configuration.Provider, SingletonImageLoader
     lateinit var recipeNotificationHelper: RecipeNotificationHelper
 
     @Inject
-    @IoDispatcher
-    lateinit var ioDispatcher: CoroutineDispatcher
+    lateinit var remoteImageStorage: RemoteImageStorage
 
     /**
      * Injected eagerly so auth state is resolved and guest Firestore network access
@@ -62,7 +60,7 @@ class LionOtterApp : Application(), Configuration.Provider, SingletonImageLoader
         return ImageLoader.Builder(context)
             .components {
                 add(FirebaseStorageKeyer())
-                add(FirebaseStorageCoilFetcher.Factory(context, ioDispatcher))
+                add(FirebaseStorageCoilFetcher.Factory(remoteImageStorage))
             }
             .build()
     }

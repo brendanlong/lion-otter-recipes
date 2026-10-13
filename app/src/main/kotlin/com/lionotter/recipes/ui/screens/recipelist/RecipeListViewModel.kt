@@ -9,6 +9,7 @@ import com.lionotter.recipes.domain.model.hasTag
 import com.lionotter.recipes.domain.model.matchesSearch
 import com.lionotter.recipes.domain.repository.MealPlanRepository
 import com.lionotter.recipes.domain.repository.RecipeRepository
+import com.lionotter.recipes.domain.usecase.DeleteRecipeUseCase
 import com.lionotter.recipes.domain.usecase.GetTagsUseCase
 import com.lionotter.recipes.imports.ImportMonitor
 import com.lionotter.recipes.imports.ImportQueue
@@ -60,6 +61,7 @@ class RecipeListViewModel @Inject constructor(
     private val importMonitor: ImportMonitor,
     private val recipeRepository: RecipeRepository,
     private val mealPlanRepository: MealPlanRepository,
+    private val deleteRecipeUseCase: DeleteRecipeUseCase,
     @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
 ) : ViewModel() {
 
@@ -243,10 +245,7 @@ class RecipeListViewModel @Inject constructor(
         val item = uiState.value.items.find { it.id == recipeId }
         if (item !is RecipeListItem.Saved) return false
         return try {
-            withContext(NonCancellable) {
-                mealPlanRepository.deleteMealPlansByRecipeId(recipeId)
-                recipeRepository.deleteRecipe(recipeId)
-            }
+            deleteRecipeUseCase(recipeId)
             true
         } catch (e: CancellationException) {
             throw e
@@ -265,8 +264,7 @@ class RecipeListViewModel @Inject constructor(
             val failures = withContext(NonCancellable) {
                 ids.count { id ->
                     try {
-                        mealPlanRepository.deleteMealPlansByRecipeId(id)
-                        recipeRepository.deleteRecipe(id)
+                        deleteRecipeUseCase(id)
                         false
                     } catch (e: Exception) {
                         ErrorLog.e(TAG, "Error deleting recipe $id", e)

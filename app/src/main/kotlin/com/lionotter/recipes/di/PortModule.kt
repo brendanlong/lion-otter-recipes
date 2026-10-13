@@ -2,10 +2,10 @@ package com.lionotter.recipes.di
 
 import com.lionotter.recipes.data.ai.AnthropicRecipeParser
 import com.lionotter.recipes.data.ai.RecipeHtmlExtractor
+import com.lionotter.recipes.data.image.RecipeImageStore
 import com.lionotter.recipes.data.local.DataStoreGroceryListStateStore
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.paprika.PaprikaParser
-import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.remote.WebScraperService
 import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.domain.port.AiSettings
@@ -50,7 +50,7 @@ abstract class PortModule {
     abstract fun bindPaprikaExportReader(impl: PaprikaParser): PaprikaExportReader
 
     @Binds
-    abstract fun bindImageStore(impl: ImageDownloadService): ImageStore
+    abstract fun bindImageStore(impl: RecipeImageStore): ImageStore
 
     @Binds
     abstract fun bindImportDebugLog(impl: ImportDebugRepository): ImportDebugLog

@@ -18,6 +18,7 @@ import com.lionotter.recipes.domain.port.AppSettings
 import com.lionotter.recipes.domain.repository.MealPlanRepository
 import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.domain.usecase.CalculateIngredientUsageUseCase
+import com.lionotter.recipes.domain.usecase.DeleteRecipeUseCase
 import com.lionotter.recipes.domain.usecase.ExportSingleRecipeUseCase
 import com.lionotter.recipes.domain.util.RecipeSerializer
 import com.lionotter.recipes.messages.UserMessage
@@ -30,7 +31,6 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -104,6 +104,7 @@ class RecipeDetailViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     private val recipeRepository: RecipeRepository,
     private val mealPlanRepository: MealPlanRepository,
+    private val deleteRecipeUseCase: DeleteRecipeUseCase,
     settings: AppSettings,
     private val calculateIngredientUsage: CalculateIngredientUsageUseCase,
     private val exportSingleRecipeUseCase: ExportSingleRecipeUseCase,
@@ -366,11 +367,7 @@ class RecipeDetailViewModel @Inject constructor(
         viewModelScope.launch {
             _isDeleting.value = true
             try {
-                // Both or neither, even if the screen is left in between
-                withContext(NonCancellable) {
-                    mealPlanRepository.deleteMealPlansByRecipeId(recipeId)
-                    recipeRepository.deleteRecipe(recipeId)
-                }
+                deleteRecipeUseCase(recipeId)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

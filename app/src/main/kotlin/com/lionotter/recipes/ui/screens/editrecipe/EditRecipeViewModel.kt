@@ -7,13 +7,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
 import com.lionotter.recipes.R
-import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.domain.model.AiModels
 import com.lionotter.recipes.domain.model.ImageChange
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.di.ApplicationScope
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.port.AppSettings
+import com.lionotter.recipes.domain.port.ImageStore
 import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
 import com.lionotter.recipes.messages.UserMessage
@@ -73,7 +73,7 @@ class EditRecipeViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     private val recipeRepository: RecipeRepository,
     private val settings: AppSettings,
-    private val imageDownloadService: ImageDownloadService,
+    private val imageStore: ImageStore,
     private val recipeWorkScheduler: RecipeWorkScheduler,
     @param:ApplicationScope private val appScope: CoroutineScope,
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
@@ -252,7 +252,7 @@ class EditRecipeViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val localUri = withContext(ioDispatcher) {
-                    imageDownloadService.saveImageFromContentUri(contentUri)
+                    imageStore.importPickedImage(contentUri.toString())
                 }
                 if (localUri != null) {
                     discardPendingImageFile()
@@ -284,7 +284,7 @@ class EditRecipeViewModel @Inject constructor(
     }
 
     private fun discardImageFile(localUri: String) {
-        appScope.launch { imageDownloadService.deleteLocalImage(localUri) }
+        appScope.launch { imageStore.discardLocalImage(localUri) }
     }
 
     /** The pending image change, or null if the image wasn't changed. */
@@ -299,19 +299,21 @@ class EditRecipeViewModel @Inject constructor(
     }
 
     /**
-     * Applies an image change to this recipe: stores the new image (cleaning up the previous
-     * one) or removes the image.
+     * Applies an image change to this recipe: attaches the new image (which releases the previous
+     * one) or removes the image and releases it.
      */
     private suspend fun applyImageChange(change: ImageChange) {
         val previousImageUrl = recipeRepository.getRecipeByIdOnce(recipeId)?.imageUrl
-        val storedUrl = when (change) {
-            is ImageChange.Replace -> imageDownloadService.storeImage(change.localUri, previousImageUrl, recipeId = recipeId)
+        when (change) {
+            is ImageChange.Replace -> recipeRepository.setImageUrl(
+                recipeId,
+                imageStore.attach(change.localUri, recipeId = recipeId, previousImageUrl = previousImageUrl)
+            )
             ImageChange.Remove -> {
-                previousImageUrl?.let { imageDownloadService.cleanupImage(it, recipeId = recipeId) }
-                null
+                recipeRepository.setImageUrl(recipeId, null)
+                previousImageUrl?.let { imageStore.release(it, recipeId) }
             }
         }
-        recipeRepository.setImageUrl(recipeId, storedUrl)
     }
 
     private fun isSaveInProgress(): Boolean =
@@ -388,7 +390,7 @@ class EditRecipeViewModel @Inject constructor(
                 withContext(NonCancellable) {
                     val copyImage = when (imageChange) {
                         is ImageChange.Replace -> ImageChange.Replace(
-                            imageDownloadService.copyLocalImage(imageChange.localUri)
+                            imageStore.copyLocalImage(imageChange.localUri)
                                 ?: throw IOException("Couldn't copy the picked image")
                         )
                         else -> imageChange
@@ -400,7 +402,7 @@ class EditRecipeViewModel @Inject constructor(
                     } finally {
                         // Without the work, nothing will use the copied file
                         if (!started && copyImage is ImageChange.Replace) {
-                            imageDownloadService.deleteLocalImage(copyImage.localUri)
+                            imageStore.discardLocalImage(copyImage.localUri)
                         }
                     }
                 }
