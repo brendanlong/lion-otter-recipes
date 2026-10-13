@@ -3,6 +3,7 @@ package com.lionotter.recipes.messages
 import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.AiFailure
 import com.lionotter.recipes.domain.ArchiveFailure
+import com.lionotter.recipes.domain.ImportFileFailure
 import com.lionotter.recipes.domain.PageFetchFailure
 import com.lionotter.recipes.domain.RecipeError
 
@@ -15,6 +16,7 @@ fun RecipeError.toUserMessage(): UserMessage = when (this) {
     is RecipeError.Ai -> aiMessage(reason, httpStatus)
     is RecipeError.NotARecipe -> UserMessage(R.string.error_not_a_recipe, reason)
     is RecipeError.Archive -> UserMessage(archiveMessage(reason))
+    is RecipeError.ImportFile -> importFileMessage(reason, maxBytes)
     RecipeError.Interrupted -> UserMessage(R.string.error_interrupted)
     RecipeError.CannotRetry -> UserMessage(R.string.error_cannot_retry)
     RecipeError.Unexpected -> UserMessage(R.string.error_unexpected)
@@ -52,6 +54,24 @@ private fun aiMessage(reason: AiFailure, httpStatus: Int?): UserMessage = when (
     AiFailure.EMPTY_RESPONSE -> UserMessage(R.string.error_ai_empty_response)
     AiFailure.UNREADABLE_RESPONSE -> UserMessage(R.string.error_ai_unreadable_response)
     AiFailure.UNKNOWN -> UserMessage(R.string.error_ai_failed)
+}
+
+private const val BYTES_PER_KB = 1024L
+private const val BYTES_PER_MB = 1024L * 1024L
+
+private fun importFileMessage(reason: ImportFileFailure, maxBytes: Long?): UserMessage = when (reason) {
+    ImportFileFailure.TOO_LARGE -> if (maxBytes == null) {
+        UserMessage(R.string.error_import_file_too_large)
+    } else {
+        val size = if (maxBytes >= BYTES_PER_MB) {
+            UserMessage(R.string.file_size_mb, maxBytes / BYTES_PER_MB)
+        } else {
+            UserMessage(R.string.file_size_kb, maxBytes / BYTES_PER_KB)
+        }
+        UserMessage(R.string.error_import_file_too_large_limit, size)
+    }
+    ImportFileFailure.EMPTY -> UserMessage(R.string.error_import_file_empty)
+    ImportFileFailure.UNREADABLE -> UserMessage(R.string.error_open_import_file)
 }
 
 private fun archiveMessage(reason: ArchiveFailure): Int = when (reason) {

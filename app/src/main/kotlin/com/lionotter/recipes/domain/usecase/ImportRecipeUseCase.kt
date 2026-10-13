@@ -1,7 +1,10 @@
 package com.lionotter.recipes.domain.usecase
 
+import com.lionotter.recipes.domain.ImportFileFailure
 import com.lionotter.recipes.domain.Outcome
+import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.model.RecipeFileFormat
 import com.lionotter.recipes.domain.port.FetchedPage
 import com.lionotter.recipes.domain.port.PageContentExtractor
 import com.lionotter.recipes.domain.port.PageFetcher
@@ -69,22 +72,52 @@ class ImportRecipeUseCase @Inject constructor(
             sourceUrl = effectiveUrl,
             imageUrl = page.imageUrl,
             saveRecipe = true,
-            onProgress = { progress ->
-                when (progress) {
-                    is ParseHtmlUseCase.ParseProgress.ExtractingContent -> {
-                        // Already past fetching
-                    }
-                    is ParseHtmlUseCase.ParseProgress.ParsingRecipe -> {
-                        onProgress(ImportProgress.ParsingRecipe)
-                    }
-                    is ParseHtmlUseCase.ParseProgress.RecipeNameAvailable -> {
-                        onProgress(ImportProgress.RecipeNameAvailable(progress.name))
-                    }
-                    is ParseHtmlUseCase.ParseProgress.SavingRecipe -> {
-                        onProgress(ImportProgress.SavingRecipe)
-                    }
-                }
-            }
+            onProgress = { reportParseProgress(it, onProgress) }
         )
+    }
+
+    /**
+     * Import the recipe in a file's [content]: text is sent to the AI as is, HTML is prepared
+     * like a downloaded page. The recipe's source URL is the page's canonical address if an
+     * HTML file states one, otherwise there is none.
+     */
+    suspend fun importFile(
+        content: String,
+        format: RecipeFileFormat,
+        onProgress: suspend (ImportProgress) -> Unit = {}
+    ): Outcome<Recipe> {
+        if (content.isBlank()) return Outcome.Failure(RecipeError.ImportFile(ImportFileFailure.EMPTY))
+        return when (format) {
+            RecipeFileFormat.TEXT -> parseHtmlUseCase.parseText(
+                text = content,
+                saveRecipe = true,
+                onProgress = { reportParseProgress(it, onProgress) }
+            )
+            RecipeFileFormat.HTML -> {
+                val imageUrl = pageContentExtractor.extractImageUrl(content)
+                onProgress(ImportProgress.PageMetadataAvailable(pageContentExtractor.extractTitle(content), imageUrl))
+                parseHtmlUseCase.parseHtml(
+                    html = content,
+                    sourceUrl = pageContentExtractor.extractCanonicalUrl(content),
+                    imageUrl = imageUrl,
+                    saveRecipe = true,
+                    onProgress = { reportParseProgress(it, onProgress) }
+                )
+            }
+        }
+    }
+
+    private suspend fun reportParseProgress(
+        progress: ParseHtmlUseCase.ParseProgress,
+        onProgress: suspend (ImportProgress) -> Unit
+    ) {
+        when (progress) {
+            // Content is extracted right before parsing; there's nothing to show for it
+            ParseHtmlUseCase.ParseProgress.ExtractingContent -> Unit
+            ParseHtmlUseCase.ParseProgress.ParsingRecipe -> onProgress(ImportProgress.ParsingRecipe)
+            is ParseHtmlUseCase.ParseProgress.RecipeNameAvailable ->
+                onProgress(ImportProgress.RecipeNameAvailable(progress.name))
+            ParseHtmlUseCase.ParseProgress.SavingRecipe -> onProgress(ImportProgress.SavingRecipe)
+        }
     }
 }

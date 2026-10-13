@@ -211,7 +211,8 @@
 
     <!-- File Import -->
     <string name="import_from_file">Import from file</string>
-    <string name="import_from_file_description">Import recipes from a .lorecipes or Paprika (.paprikarecipes) file</string>
+    <string name="recipe_file_default_name">Recipe file</string>
+    <string name="import_from_file_description">Import a recipe from a Markdown, text or HTML file, or recipes from a .lorecipes or Paprika (.paprikarecipes) file</string>
 
     <!-- Import Debugging -->
     <string name="import_debugging">Import Debugging</string>

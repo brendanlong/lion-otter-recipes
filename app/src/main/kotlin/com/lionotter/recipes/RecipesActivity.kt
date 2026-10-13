@@ -2,7 +2,6 @@ package com.lionotter.recipes
 
 import android.content.Intent
 import android.graphics.Color
-import android.net.Uri
 import android.os.Bundle
 import android.view.KeyEvent
 import android.widget.Toast
@@ -27,7 +26,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.createLifecycleAwareWindowRecomposer
-import androidx.core.content.IntentCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -39,7 +37,6 @@ import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.port.AppSettings
 import com.lionotter.recipes.messages.resolve
 import com.lionotter.recipes.messages.toUserMessage
-import com.lionotter.recipes.notification.RecipeNotificationHelper
 import com.lionotter.recipes.ui.components.CollectEvents
 import com.lionotter.recipes.ui.components.LocalPageTurns
 import com.lionotter.recipes.ui.components.PageTurns
@@ -207,29 +204,6 @@ class RecipesActivity : ComponentActivity() {
     }
 
     private fun handleIntent(intent: Intent) {
-        intentToEvent(intent)?.let(sharedIntentViewModel::onEvent)
-    }
-
-    private fun intentToEvent(intent: Intent): AppIntentEvent? {
-        intent.getStringExtra(RecipeNotificationHelper.EXTRA_RECIPE_ID)?.let {
-            return AppIntentEvent.OpenRecipe(it)
-        }
-        return when (intent.action) {
-            Intent.ACTION_VIEW -> intent.data?.let { AppIntentEvent.ImportFile(it) }
-            Intent.ACTION_SEND -> {
-                val text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
-                val stream = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
-                val isTextShare = intent.type?.startsWith("text/") == true
-                when {
-                    stream != null && !isTextShare -> AppIntentEvent.ImportFile(stream)
-                    !text.isNullOrBlank() ->
-                        extractFirstUrl(text)?.let { AppIntentEvent.ImportUrl(it) }
-                            ?: AppIntentEvent.NoUrlInSharedText
-                    isTextShare -> AppIntentEvent.NoUrlInSharedText
-                    else -> null
-                }
-            }
-            else -> null
-        }
+        intent.toAppIntentEvent()?.let(sharedIntentViewModel::onEvent)
     }
 }

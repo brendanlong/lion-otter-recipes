@@ -3,6 +3,10 @@ package com.lionotter.recipes.worker
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import com.lionotter.recipes.domain.ImportFileFailure
+import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.RecipeErrorException
+import com.lionotter.recipes.domain.model.RecipeFileFormat
 import com.lionotter.recipes.util.IoDispatcher
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
@@ -11,6 +15,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -23,7 +29,7 @@ import javax.inject.Singleton
  * don't survive process death, so large inputs (selected IDs, edited markdown) and picked files
  * are copied here at enqueue time and workers receive only an import ID or file path.
  *
- * Layout: `files/imports/<importId>/` holds `source` (the copied file), `selection.txt`,
+ * Layout: `files/imports/<importId>/` holds `source` (the copied archive or recipe file), `selection.txt`,
  * `kind`, `page.html` (a URL import's page captured in the in-app browser) and any worker
  * state (e.g. Paprika batch state). `files/work-inputs/` holds one-off text inputs (edited
  * markdown, a page captured for a re-import).
@@ -68,13 +74,19 @@ class ImportInputStore @Inject constructor(
      * Copy a picked or shared document into app storage, so it can still be read after process
      * death (when the content:// grant is gone). The file only appears at [sourceFile] once the
      * copy is complete.
+     *
+     * @throws RecipeErrorException ([RecipeError.ImportFile]) if the file is bigger than [maxBytes]
      */
-    suspend fun copySource(importId: String, uri: Uri): File = withContext(ioDispatcher) {
+    suspend fun copySource(importId: String, uri: Uri, maxBytes: Long = Long.MAX_VALUE): File = withContext(ioDispatcher) {
         val target = sourceFile(importId)
         val partial = File(target.parentFile, "$SOURCE_FILE.partial")
         val input = context.contentResolver.openInputStream(uri)
             ?: throw IOException("Could not open the selected file")
-        input.use { source -> partial.outputStream().use { source.copyTo(it) } }
+        val withinLimit = input.use { source -> partial.outputStream().use { copyAtMost(source, it, maxBytes) } }
+        if (!withinLimit) {
+            partial.delete()
+            throw RecipeErrorException(RecipeError.ImportFile(ImportFileFailure.TOO_LARGE, maxBytes))
+        }
         if (!partial.renameTo(target)) {
             partial.delete()
             throw IOException("Could not save a copy of the selected file")
@@ -82,7 +94,33 @@ class ImportInputStore @Inject constructor(
         target
     }
 
+    /** Copies [input] to [output], stopping (and returning false) once more than [maxBytes] were read. */
+    private fun copyAtMost(input: InputStream, output: OutputStream, maxBytes: Long): Boolean {
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var total = 0L
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) return true
+            total += read
+            if (total > maxBytes) return false
+            output.write(buffer, 0, read)
+        }
+    }
+
     fun hasSource(importId: String): Boolean = sourceFile(importId).exists()
+
+    /**
+     * The recipe file staged for a [ImportKind.isRecipeFile] import, or null if [importId] isn't
+     * one. Doesn't create the import's directory.
+     */
+    fun readRecipeFile(importId: String): StagedRecipeFile? {
+        if (!hasImport(importId)) return null
+        val format = readKind(importId)?.recipeFileFormat ?: return null
+        val content = sourceFile(importId).takeIf { it.exists() }
+            ?.readBytes()
+            ?.let { RecipeFileText.decode(it, format) }
+        return StagedRecipeFile(format, content)
+    }
 
     /** Mark the import's files as in use so orphan cleanup doesn't remove them. */
     fun touch(importId: String) {
@@ -190,8 +228,21 @@ class ImportInputStore @Inject constructor(
 }
 
 /** What an import reads from; [value] is stored in the import's `kind` file. */
-enum class ImportKind(val value: String) {
+enum class ImportKind(val value: String, val recipeFileFormat: RecipeFileFormat? = null) {
     URL("url"),
     PAPRIKA("paprika"),
-    ZIP("zip")
+    ZIP("zip"),
+    /** A Markdown or text file with one recipe. */
+    TEXT_FILE("text_file", RecipeFileFormat.TEXT),
+    /** A saved web page with one recipe. */
+    HTML_FILE("html_file", RecipeFileFormat.HTML);
+
+    val isRecipeFile: Boolean get() = recipeFileFormat != null
+
+    companion object {
+        fun forRecipeFile(format: RecipeFileFormat): ImportKind = entries.first { it.recipeFileFormat == format }
+    }
 }
+
+/** A recipe file copied into the import; [content] is null if the file is gone. */
+data class StagedRecipeFile(val format: RecipeFileFormat, val content: String?)

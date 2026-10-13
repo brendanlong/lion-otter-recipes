@@ -1,10 +1,12 @@
 package com.lionotter.recipes.domain.usecase
 
 import com.lionotter.recipes.domain.AiFailure
+import com.lionotter.recipes.domain.ImportFileFailure
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.PageFetchFailure
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.model.RecipeFileFormat
 import com.lionotter.recipes.domain.port.FetchedPage
 import com.lionotter.recipes.testutil.FakeAiSettings
 import com.lionotter.recipes.testutil.FakeImageStore
@@ -15,6 +17,7 @@ import com.lionotter.recipes.testutil.FakeRecipeParser
 import com.lionotter.recipes.testutil.FakeRecipeRepository
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -125,5 +128,54 @@ class ImportRecipeUseCaseTest {
             ImportRecipeUseCase.ImportProgress.PageMetadataAvailable("Bread", "https://example.com/og.jpg"),
             progress.first()
         )
+    }
+
+    @Test
+    fun `a text file is sent to the AI as is and has no source URL`() = runTest {
+        val progress = mutableListOf<ImportRecipeUseCase.ImportProgress>()
+
+        val recipe = useCase().importFile("# Bread\n- flour", RecipeFileFormat.TEXT) { progress += it }.value()
+
+        assertEquals("# Bread\n- flour", parser.requests.single().content)
+        assertNull(recipe.sourceUrl)
+        assertNull(recipe.imageUrl)
+        assertEquals(listOf(recipe), repository.saved)
+        assertEquals(ImportRecipeUseCase.ImportProgress.ParsingRecipe, progress.first())
+    }
+
+    @Test
+    fun `an HTML file is extracted like a page and keeps its canonical URL`() = runTest {
+        val progress = mutableListOf<ImportRecipeUseCase.ImportProgress>()
+        val fileExtractor = FakePageContentExtractor(
+            imageUrl = "https://example.com/og.jpg",
+            title = "Bread",
+            canonicalUrl = "https://example.com/bread"
+        )
+
+        // No pages: FakePageFetcher fails the test if anything is downloaded
+        val recipe = useCase(extractor = fileExtractor)
+            .importFile("<html>saved</html>", RecipeFileFormat.HTML) { progress += it }
+            .value()
+
+        assertEquals("extracted(<html>saved</html>)", parser.requests.single().content)
+        assertEquals("https://example.com/bread", recipe.sourceUrl)
+        assertEquals("gs://bucket/og.jpg", recipe.imageUrl)
+        assertEquals(
+            ImportRecipeUseCase.ImportProgress.PageMetadataAvailable("Bread", "https://example.com/og.jpg"),
+            progress.first()
+        )
+    }
+
+    @Test
+    fun `an HTML file without a canonical URL has no source URL`() = runTest {
+        val recipe = useCase().importFile("<html>saved</html>", RecipeFileFormat.HTML).value()
+        assertNull(recipe.sourceUrl)
+    }
+
+    @Test
+    fun `an empty file fails without calling the AI`() = runTest {
+        val result = useCase().importFile(" \n ", RecipeFileFormat.TEXT)
+        assertEquals(Outcome.Failure(RecipeError.ImportFile(ImportFileFailure.EMPTY)), result)
+        assertTrue(parser.requests.isEmpty())
     }
 }

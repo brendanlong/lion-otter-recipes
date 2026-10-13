@@ -81,6 +81,7 @@ fun AddRecipeScreen(
         when (event) {
             is AddRecipeEvent.RecipeAdded -> onRecipeAdded(event.recipeId)
             is AddRecipeEvent.OpenBrowser -> onOpenBrowser(event.url)
+            is AddRecipeEvent.OpenImportSelection -> onNavigateToImportSelection(event.importType, event.uri)
         }
     }
 
@@ -96,13 +97,14 @@ fun AddRecipeScreen(
     // permission when the user actually starts one.
     val requestNotificationPermission = rememberNotificationPermissionRequester()
 
-    // Unified file picker for .lorecipes and .paprikarecipes imports
+    // Recipe files (Markdown, text, HTML) are imported here; archives (.lorecipes,
+    // .paprikarecipes) go to the selection screen
     val importFilePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
             requestNotificationPermission()
-            onNavigateToImportSelection(ImportType.guessFromUri(uri.toString()), uri)
+            viewModel.onFilePicked(uri)
         }
     }
 
@@ -136,7 +138,8 @@ fun AddRecipeScreen(
                         },
                         hasApiKey = hasApiKey,
                         onNavigateToSettings = onNavigateToSettings,
-                        errorMessage = (state as? AddRecipeUiState.Error)?.message?.text()
+                        errorMessage = (state as? AddRecipeUiState.Error)?.message?.text(),
+                        isUrlError = (state as? AddRecipeUiState.Error)?.isUrlError == true
                     )
                 }
                 is AddRecipeUiState.Loading -> {
@@ -161,7 +164,8 @@ private fun IdleContent(
     onImportFromFileClick: () -> Unit,
     hasApiKey: Boolean,
     onNavigateToSettings: () -> Unit,
-    errorMessage: String?
+    errorMessage: String?,
+    isUrlError: Boolean
 ) {
     val canImport = url.isNotBlank() && hasApiKey
     Column(
@@ -189,7 +193,7 @@ private fun IdleContent(
             label = { Text(stringResource(R.string.recipe_url)) },
             placeholder = { Text(stringResource(R.string.recipe_url_placeholder)) },
             singleLine = true,
-            isError = errorMessage != null,
+            isError = isUrlError,
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Uri,
                 imeAction = ImeAction.Go

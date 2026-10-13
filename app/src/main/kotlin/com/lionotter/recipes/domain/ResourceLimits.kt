@@ -27,4 +27,13 @@ object ResourceLimits {
 
     /** Recipe page HTML longer than this (downloaded or captured in the browser) is cut off. */
     const val MAX_PAGE_HTML_CHARS = 5 * 1024 * 1024
+
+    /** Largest HTML file that can be imported as a recipe (5 MB). */
+    const val MAX_HTML_FILE_BYTES = 5 * 1024 * 1024L
+
+    /**
+     * Largest Markdown or text file that can be imported as a recipe (200 KB). It is sent to the
+     * AI as is, so this keeps it well within what the AI accepts.
+     */
+    const val MAX_TEXT_FILE_BYTES = 200 * 1024L
 }
