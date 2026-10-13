@@ -38,12 +38,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -53,6 +53,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
+import com.lionotter.recipes.messages.resolve
+import com.lionotter.recipes.ui.components.CollectEvents
 import com.lionotter.recipes.ui.format.formatScaleMultiplier
 import com.lionotter.recipes.domain.model.MealType
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
@@ -69,15 +71,11 @@ fun GroceryListScreen(
     viewModel: GroceryListViewModel = hiltViewModel()
 ) {
     val step by viewModel.step.collectAsStateWithLifecycle()
-    val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val resources = LocalResources.current
 
-    val errorText = errorMessage?.let { stringResource(it) }
-    LaunchedEffect(errorText) {
-        if (errorText != null) {
-            snackbarHostState.showSnackbar(errorText)
-            viewModel.clearError()
-        }
+    CollectEvents(viewModel.events) { message ->
+        snackbarHostState.showSnackbar(message.resolve(resources))
     }
 
     // The list is a sub-step of this screen, so system back returns to the selection

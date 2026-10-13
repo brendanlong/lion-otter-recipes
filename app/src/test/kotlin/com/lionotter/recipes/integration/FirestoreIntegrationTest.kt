@@ -15,6 +15,7 @@ import com.lionotter.recipes.data.repository.RecipeRepository
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import com.lionotter.recipes.data.remote.uid
@@ -91,8 +92,9 @@ abstract class FirestoreIntegrationTest {
         every { authService.isGoogleUser() } returns false
         coEvery { authService.awaitUid() } coAnswers { authState.first { it !is AuthState.Loading }.uid!! }
         val imageDownloadService = ImageDownloadService(context, httpClient, imageSyncService, authService, firestoreService, {})
-        recipeRepository = RecipeRepository(firestoreService, imageDownloadService, authService)
-        mealPlanRepository = MealPlanRepository(firestoreService, authService)
+        val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        recipeRepository = RecipeRepository(firestoreService, imageDownloadService, authService, appScope)
+        mealPlanRepository = MealPlanRepository(firestoreService, authService, appScope)
     }
 
     @After

@@ -4,7 +4,10 @@ import com.google.firebase.firestore.DocumentChange
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
+import com.google.android.gms.tasks.Task
 import com.lionotter.recipes.data.remote.AuthService
+import com.lionotter.recipes.data.remote.DataFailure
+import com.lionotter.recipes.data.remote.DataOp
 import com.lionotter.recipes.data.remote.FirestoreService
 import com.lionotter.recipes.data.remote.uid
 import com.lionotter.recipes.util.ErrorLog
@@ -21,8 +24,8 @@ import kotlinx.coroutines.launch
 /**
  * Emits every snapshot of this query.
  *
- * Listener errors (e.g. PERMISSION_DENIED) are logged and reported through
- * [FirestoreService.reportError] instead of failing the flow, so a shared flow built
+ * Listener errors (e.g. PERMISSION_DENIED) are logged and reported as [loadOp] through
+ * [FirestoreService.reportFailure] instead of failing the flow, so a shared flow built
  * on top keeps its last value and never crashes the app with an unhandled exception.
  * A failed Firestore listener does not recover by itself; repositories re-create it
  * when the auth state or Firestore generation changes.
@@ -32,13 +35,11 @@ import kotlinx.coroutines.launch
  */
 internal fun Query.snapshots(
     firestoreService: FirestoreService,
-    tag: String,
-    description: String
+    loadOp: DataOp
 ): Flow<QuerySnapshot> = callbackFlow {
     val listener = addSnapshotListener { snapshot, error ->
         if (error != null) {
-            ErrorLog.e(tag, "Error listening to $description", error)
-            firestoreService.reportError("Failed to load $description: ${error.message}")
+            firestoreService.reportFailure(DataFailure(loadOp), error)
             return@addSnapshotListener
         }
         if (snapshot != null) trySend(snapshot)
@@ -94,17 +95,21 @@ internal inline fun <T> logFailure(tag: String, message: String, block: () -> T)
  * Runs a fire-and-forget write for the current user. During an auth transition (sign-in
  * migration, sign-out) the write waits in [scope] for it to finish and then goes to the
  * resulting account, so e.g. a worker saving a recipe mid-transition doesn't lose it.
+ * A failure to start the write is reported as [failure].
  */
 internal fun AuthService.writeForCurrentUser(
     scope: CoroutineScope,
     firestoreService: FirestoreService,
-    tag: String,
-    action: String,
+    failure: DataFailure,
     write: (uid: String) -> Unit
 ) {
     val uid = authState.value.uid
     if (uid != null) {
-        write(uid)
+        try {
+            write(uid)
+        } catch (e: Exception) {
+            firestoreService.reportFailure(failure, e)
+        }
         return
     }
     scope.launch {
@@ -113,8 +118,11 @@ internal fun AuthService.writeForCurrentUser(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            ErrorLog.e(tag, "Failed to $action after auth transition", e)
-            firestoreService.reportError("Failed to $action: ${e.message}")
+            firestoreService.reportFailure(failure, e)
         }
     }
 }
+
+/** Reports [failure] if this task fails. */
+internal fun <T> Task<T>.reportFailureTo(firestoreService: FirestoreService, failure: DataFailure): Task<T> =
+    addOnFailureListener { e -> firestoreService.reportFailure(failure, e) }

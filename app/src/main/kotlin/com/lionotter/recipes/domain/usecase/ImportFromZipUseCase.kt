@@ -1,5 +1,8 @@
 package com.lionotter.recipes.domain.usecase
 
+import com.lionotter.recipes.domain.ArchiveFailure
+import com.lionotter.recipes.domain.Outcome
+import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.util.ArchiveTooLargeException
 import com.lionotter.recipes.domain.util.ZipImportHelper
 import com.lionotter.recipes.util.ErrorLog
@@ -24,15 +27,12 @@ class ImportFromZipUseCase @Inject constructor(
         private const val TAG = "ImportFromZipUseCase"
     }
 
-    sealed class ImportResult {
-        data class Success(
-            val importedCount: Int,
-            val failedCount: Int,
-            val skippedCount: Int,
-            val mealPlansImported: Int = 0
-        ) : ImportResult()
-        data class Error(val message: String) : ImportResult()
-    }
+    data class ImportSummary(
+        val importedCount: Int,
+        val failedCount: Int,
+        val skippedCount: Int,
+        val mealPlansImported: Int = 0
+    )
 
     sealed class ImportProgress {
         object Starting : ImportProgress()
@@ -43,7 +43,6 @@ class ImportFromZipUseCase @Inject constructor(
             /** Total recipes to import, or 0 if unknown (importing everything). */
             val total: Int
         ) : ImportProgress()
-        data class Complete(val result: ImportResult) : ImportProgress()
     }
 
     /**
@@ -54,7 +53,7 @@ class ImportFromZipUseCase @Inject constructor(
         inputStream: InputStream,
         selectedRecipeIds: Set<String>? = null,
         onProgress: suspend (ImportProgress) -> Unit = {}
-    ): ImportResult {
+    ): Outcome<ImportSummary> {
         onProgress(ImportProgress.Starting)
         onProgress(ImportProgress.ReadingZip)
 
@@ -66,23 +65,23 @@ class ImportFromZipUseCase @Inject constructor(
             throw e
         } catch (e: ArchiveTooLargeException) {
             ErrorLog.e(TAG, "ZIP import rejected: archive too large", e)
-            return ImportResult.Error("This file is too large to import (${e.message}).")
+            return Outcome.Failure(RecipeError.Archive(ArchiveFailure.TOO_LARGE))
         } catch (e: Exception) {
             ErrorLog.e(TAG, "Failed to read ZIP file", e)
-            return ImportResult.Error("Couldn't read the file. Is it a Lion+Otter export? (${e.message})")
+            return Outcome.Failure(RecipeError.Archive(ArchiveFailure.UNREADABLE))
         }
 
         if (summary.importedCount + summary.skippedCount + summary.failedCount == 0) {
-            return ImportResult.Error("No recipes found in file")
+            return Outcome.Failure(RecipeError.Archive(ArchiveFailure.NO_RECIPES))
         }
 
-        val result = ImportResult.Success(
-            importedCount = summary.importedCount,
-            failedCount = summary.failedCount,
-            skippedCount = summary.skippedCount,
-            mealPlansImported = summary.mealPlansImported
+        return Outcome.Success(
+            ImportSummary(
+                importedCount = summary.importedCount,
+                failedCount = summary.failedCount,
+                skippedCount = summary.skippedCount,
+                mealPlansImported = summary.mealPlansImported
+            )
         )
-        onProgress(ImportProgress.Complete(result))
-        return result
     }
 }

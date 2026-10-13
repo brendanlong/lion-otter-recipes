@@ -9,6 +9,10 @@ import androidx.work.WorkInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.lionotter.recipes.data.repository.PendingImportRepository
+import com.lionotter.recipes.domain.ArchiveFailure
+import com.lionotter.recipes.domain.Outcome
+import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.RecipeErrorException
 import com.lionotter.recipes.domain.usecase.ImportPaprikaUseCase
 import com.lionotter.recipes.notification.RecipeNotificationHelper
 import dagger.assisted.Assisted
@@ -46,7 +50,7 @@ class PaprikaImportWorker @AssistedInject constructor(
 
     override suspend fun doRecipeWork(): Result {
         val importId = inputData.getString(KEY_IMPORT_ID)
-            ?: return errorResult("No import ID provided")
+            ?: return errorResult(RecipeError.Unexpected, "no import ID provided")
         // Held until this run (including any batch submission) has fully stopped, so
         // ImportQueue.cancelImport can wait before cleaning up the batch and files.
         return inputStore.withImportLock(importId) { runImportStep(importId) }
@@ -62,7 +66,7 @@ class PaprikaImportWorker @AssistedInject constructor(
                 workDir = workDir,
                 openSource = {
                     if (!sourceFile.exists()) {
-                        throw IllegalStateException("The Paprika export is no longer available. Please choose it again.")
+                        throw RecipeErrorException(RecipeError.Archive(ArchiveFailure.MISSING))
                     }
                     sourceFile.inputStream()
                 },
@@ -87,23 +91,21 @@ class PaprikaImportWorker @AssistedInject constructor(
         return when (step) {
             ImportPaprikaUseCase.StepResult.PollAgain -> scheduleNextPoll(importId)
             is ImportPaprikaUseCase.StepResult.Finished -> when (val result = step.result) {
-                is ImportPaprikaUseCase.ImportResult.Success -> {
+                is Outcome.Success -> {
+                    val summary = result.value
                     inputStore.deleteImport(importId)
                     notificationHelper.showSummaryNotification(
                         key = importId,
                         title = "Paprika Import Complete",
-                        message = notificationHelper.paprikaImportMessage(result.importedCount, result.failedCount)
+                        message = notificationHelper.paprikaImportMessage(summary.importedCount, summary.failedCount)
                     )
                     successResult(
-                        PaprikaImportWork.Outcome.Success(importId, result.importedCount, result.failedCount)
+                        PaprikaImportWork.Outcome.Success(importId, summary.importedCount, summary.failedCount)
                     )
                 }
-                is ImportPaprikaUseCase.ImportResult.Error -> errorResult(
-                    PaprikaImportWork.Outcome.Failed(result.message, importId),
-                    retryable = result.retryable
-                )
-                ImportPaprikaUseCase.ImportResult.NoApiKey -> errorResult(
-                    PaprikaImportWork.Outcome.NoApiKey("Add your Anthropic API key in Settings, then retry.", importId)
+                is Outcome.Failure -> errorResult(
+                    PaprikaImportWork.Outcome.Failed(result.error, importId),
+                    retryable = result.error.retryable && step.allowRetry
                 )
             }
         }
@@ -152,7 +154,6 @@ class PaprikaImportWorker @AssistedInject constructor(
                 )
                 setForegroundProgress("Saving ${progress.current}/${progress.total}: ${progress.recipeName}")
             }
-            is ImportPaprikaUseCase.ImportProgress.Complete -> {}
         }
     }
 }
@@ -227,14 +228,8 @@ object PaprikaImportWork : WorkContract<PaprikaImportWork.Progress, PaprikaImpor
             override fun toData() = workDataOf(WorkResult.KEY_IMPORT_ID to importId, KEY_CONTINUED to true)
         }
 
-        data class NoApiKey(override val message: String?, val importId: String?) : Outcome, FailureOutcome {
-            override fun toData() =
-                WorkResult.failure(WorkResult.NO_API_KEY, message, WorkResult.KEY_IMPORT_ID to importId)
-        }
-
-        data class Failed(override val message: String?, val importId: String?) : Outcome, FailureOutcome {
-            override fun toData() =
-                WorkResult.failure(WorkResult.ERROR, message, WorkResult.KEY_IMPORT_ID to importId)
+        data class Failed(override val error: RecipeError, val importId: String?) : Outcome, FailureOutcome {
+            override fun toData() = WorkResult.failure(error, WorkResult.KEY_IMPORT_ID to importId)
         }
     }
 
@@ -264,8 +259,7 @@ object PaprikaImportWork : WorkContract<PaprikaImportWork.Progress, PaprikaImpor
                 importedCount = data.getInt(KEY_IMPORTED_COUNT, 0),
                 failedCount = data.getInt(KEY_FAILED_COUNT, 0)
             )
-            WorkResult.type(data) == WorkResult.NO_API_KEY -> Outcome.NoApiKey(WorkResult.message(data), importId)
-            else -> Outcome.Failed(WorkResult.message(data), importId)
+            else -> Outcome.Failed(WorkResult.error(data), importId)
         }
     }
 }

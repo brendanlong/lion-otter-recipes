@@ -29,6 +29,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
+import com.lionotter.recipes.messages.toUserMessage
+import com.lionotter.recipes.ui.components.text
 import com.lionotter.recipes.imports.ImportStage
 import com.lionotter.recipes.imports.InProgressRecipe
 import com.lionotter.recipes.ui.components.RecipeThumbnail
@@ -123,7 +125,7 @@ fun InProgressRecipeCard(
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = if (isFailed) {
-                                inProgressRecipe.errorMessage ?: stringResource(R.string.import_failed)
+                                inProgressRecipe.error?.toUserMessage()?.text() ?: stringResource(R.string.import_failed)
                             } else {
                                 statusText(inProgressRecipe.stage)
                             },

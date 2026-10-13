@@ -1,6 +1,7 @@
 package com.lionotter.recipes.ui.screens.importselection
 
 import androidx.annotation.Keep
+import com.lionotter.recipes.messages.UserMessage
 
 /**
  * Represents a recipe candidate for the import selection screen.
@@ -44,5 +45,12 @@ sealed class ImportSelectionUiState {
     data class Ready(val items: List<ImportSelectionItem>) : ImportSelectionUiState()
 
     /** Error parsing the file */
-    data class Error(val message: String) : ImportSelectionUiState()
+    data class Error(val message: UserMessage) : ImportSelectionUiState()
+}
+
+sealed interface ImportSelectionEvent {
+    /** Import work was enqueued; leave the screen. */
+    data object ImportStarted : ImportSelectionEvent
+
+    data class ShowMessage(val message: UserMessage) : ImportSelectionEvent
 }

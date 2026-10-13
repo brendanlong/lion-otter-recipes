@@ -1,5 +1,11 @@
 package com.lionotter.recipes.ui.screens.settings
 
+import org.junit.Assert.assertFalse
+import kotlinx.coroutines.flow.first
+import com.lionotter.recipes.messages.UserMessage
+import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.ArchiveFailure
+import com.lionotter.recipes.R
 import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.SavedStateHandle
@@ -53,32 +59,43 @@ class ZipExportImportViewModelTest {
     }
 
     @Test
-    fun `export progress and result are shown`() = runTest {
+    fun `export progress is shown and the result reported once`() = runTest {
         val viewModel = ZipExportImportViewModel(SavedStateHandle(), scheduler)
 
         viewModel.exportToZip(fileUri)
         advanceUntilIdle()
-        assertEquals(ZipOperationState.Exporting, viewModel.operationState.value)
+        assertTrue(viewModel.isExporting.value)
 
         status.value = WorkStatus.Finished(ZipExportWork.Outcome.Success(exportedCount = 3, failedCount = 0))
         advanceUntilIdle()
-        assertEquals(ZipOperationState.ExportComplete(3, 0), viewModel.operationState.value)
-
-        viewModel.resetOperationState()
-        advanceUntilIdle()
-        assertEquals(ZipOperationState.Idle, viewModel.operationState.value)
+        assertEquals(UserMessage.Plural(R.plurals.exported_recipes, 3), viewModel.events.first())
+        assertFalse(viewModel.isExporting.value)
     }
 
     @Test
-    fun `failure to start the export is shown`() = runTest {
+    fun `failure to start the export is reported without the exception message`() = runTest {
         every { scheduler.prepareExport(fileUri) } returns PendingWork(workId) { throw IOException("disk full") }
         val viewModel = ZipExportImportViewModel(SavedStateHandle(), scheduler)
 
         viewModel.exportToZip(fileUri)
         advanceUntilIdle()
 
-        val state = viewModel.operationState.value
-        assertTrue(state is ZipOperationState.Error && state.message.contains("disk full"))
+        assertEquals(UserMessage(R.string.error_start_export), viewModel.events.first())
+        assertFalse(viewModel.isExporting.value)
+    }
+
+    @Test
+    fun `a failed export reports its error`() = runTest {
+        val viewModel = ZipExportImportViewModel(SavedStateHandle(), scheduler)
+        viewModel.exportToZip(fileUri)
+        advanceUntilIdle()
+
+        status.value = WorkStatus.Finished(
+            ZipExportWork.Outcome.Failed(RecipeError.Archive(ArchiveFailure.NOTHING_TO_EXPORT))
+        )
+        advanceUntilIdle()
+
+        assertEquals(UserMessage(R.string.error_archive_nothing_to_export), viewModel.events.first())
     }
 
     @Test
@@ -88,6 +105,6 @@ class ZipExportImportViewModelTest {
         val viewModel = ZipExportImportViewModel(SavedStateHandle(mapOf("export_work_id" to workId.toString())), scheduler)
         advanceUntilIdle()
 
-        assertEquals(ZipOperationState.Exporting, viewModel.operationState.value)
+        assertTrue(viewModel.isExporting.value)
     }
 }

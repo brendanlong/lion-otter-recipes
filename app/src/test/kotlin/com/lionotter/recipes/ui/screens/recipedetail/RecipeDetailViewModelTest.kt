@@ -1,5 +1,7 @@
 package com.lionotter.recipes.ui.screens.recipedetail
 
+import com.lionotter.recipes.messages.UserMessage
+import com.lionotter.recipes.R
 import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.navigation.testing.invoke
@@ -342,11 +344,11 @@ class RecipeDetailViewModelTest {
 
         viewModel = createViewModel()
 
-        viewModel.recipeDeleted.test {
+        viewModel.events.test {
             viewModel.deleteRecipe()
             testDispatcher.scheduler.advanceUntilIdle()
 
-            awaitItem() // Unit event
+            assertEquals(RecipeDetailEvent.Deleted, awaitItem())
             cancelAndIgnoreRemainingEvents()
         }
 
@@ -476,21 +478,18 @@ class RecipeDetailViewModelTest {
 
     @Test
     fun `deleteRecipe failure reports error instead of navigating away`() = runTest {
-        coEvery { mealPlanRepository.deleteMealPlansByRecipeId("recipe-1") } just runs
-        every { recipeRepository.deleteRecipe("recipe-1") } throws RuntimeException("offline")
+        coEvery { mealPlanRepository.deleteMealPlansByRecipeId("recipe-1") } throws IllegalStateException("offline")
 
         viewModel = createViewModel()
 
-        viewModel.errors.test {
+        viewModel.events.test {
             viewModel.deleteRecipe()
             testDispatcher.scheduler.advanceUntilIdle()
-            assertEquals(RecipeDetailError.DELETE_FAILED, awaitItem())
-            cancelAndIgnoreRemainingEvents()
-        }
-        viewModel.recipeDeleted.test {
+            assertEquals(RecipeDetailEvent.ShowMessage(UserMessage(R.string.delete_recipe_failed)), awaitItem())
             expectNoEvents()
             cancelAndIgnoreRemainingEvents()
         }
+        verify(exactly = 0) { recipeRepository.deleteRecipe(any()) }
     }
 
     @Test

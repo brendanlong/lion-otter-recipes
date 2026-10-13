@@ -1,5 +1,7 @@
 package com.lionotter.recipes.ui.screens.grocerylist
 
+import kotlinx.coroutines.flow.first
+import com.lionotter.recipes.messages.UserMessage
 import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.navigation.testing.invoke
@@ -325,7 +327,7 @@ class GroceryListViewModelTest {
             assertEquals(emptyMap<LocalDate, List<SelectableMealPlanEntry>>(), expectMostRecentItem())
             cancelAndIgnoreRemainingEvents()
         }
-        assertEquals(R.string.grocery_list_load_failed, viewModel.errorMessage.value)
+        assertEquals(UserMessage(R.string.grocery_list_load_failed), viewModel.events.first())
         unmockkStatic(Log::class)
     }
 

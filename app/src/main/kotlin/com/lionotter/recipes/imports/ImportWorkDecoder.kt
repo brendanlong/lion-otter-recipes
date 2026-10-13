@@ -3,6 +3,7 @@ package com.lionotter.recipes.imports
 import androidx.work.WorkInfo
 import com.lionotter.recipes.data.local.PendingImportEntity
 import com.lionotter.recipes.data.local.PendingImportStatus
+import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.worker.PaprikaImportWork
 import com.lionotter.recipes.worker.PaprikaImportWorker
 import com.lionotter.recipes.worker.RecipeImportWork
@@ -15,8 +16,6 @@ import com.lionotter.recipes.worker.ZipImportWorker
  * [ImportState]s, and decides which progress is worth persisting.
  */
 internal object ImportWorkDecoder {
-    const val DEFAULT_FAILURE_MESSAGE = "Import failed unexpectedly"
-
     /** Live progress of a running import. */
     data class Progress(
         val stage: ImportStage,
@@ -118,33 +117,28 @@ internal object ImportWorkDecoder {
         return when (val decoded = decode(info)) {
             is Decoded.Url -> when (val outcome = decoded.outcome) {
                 is RecipeImportWork.Outcome.Success -> ImportState.Succeeded(outcome.recipeId)
-                is RecipeImportWork.Outcome.NoApiKey -> failed(outcome.message, ImportFailure.NO_API_KEY)
-                is RecipeImportWork.Outcome.Failed -> failed(outcome.message, ImportFailure.ERROR)
+                is RecipeImportWork.Outcome.Failed -> ImportState.Failed(outcome.error)
                 null -> null
             }
             is Decoded.Paprika -> when (val outcome = decoded.outcome) {
                 is PaprikaImportWork.Outcome.Success -> ImportState.Succeeded(recipeId = null)
                 is PaprikaImportWork.Outcome.Continued -> null
-                is PaprikaImportWork.Outcome.NoApiKey -> failed(outcome.message, ImportFailure.NO_API_KEY)
-                is PaprikaImportWork.Outcome.Failed -> failed(outcome.message, ImportFailure.ERROR)
+                is PaprikaImportWork.Outcome.Failed -> ImportState.Failed(outcome.error)
                 null -> null
             }
             is Decoded.Zip -> when (val outcome = decoded.outcome) {
                 is ZipImportWork.Outcome.Success -> ImportState.Succeeded(recipeId = null)
-                is ZipImportWork.Outcome.Failed -> failed(outcome.message, ImportFailure.ERROR)
+                is ZipImportWork.Outcome.Failed -> ImportState.Failed(outcome.error)
                 null -> null
             }
             // Untagged work (shouldn't happen): still report how it finished.
             null -> when (info.state) {
                 WorkInfo.State.SUCCEEDED -> ImportState.Succeeded(recipeId = null)
-                WorkInfo.State.FAILED -> failed(null, ImportFailure.ERROR)
+                WorkInfo.State.FAILED -> ImportState.Failed(RecipeError.Unexpected)
                 else -> null
             }
         }
     }
-
-    private fun failed(message: String?, reason: ImportFailure) =
-        ImportState.Failed(message ?: DEFAULT_FAILURE_MESSAGE, reason)
 
     /**
      * The state of an import with queue row [row] (null once removed) and work [info] (null if
@@ -179,7 +173,7 @@ internal object ImportWorkDecoder {
         PendingImportStatus.SAVING -> ImportState.Running(ImportStage.SAVING)
         PendingImportStatus.SUBMITTING_BATCH -> ImportState.Running(ImportStage.SUBMITTING_BATCH)
         PendingImportStatus.WAITING_FOR_BATCH -> ImportState.Running(ImportStage.WAITING_FOR_BATCH)
-        PendingImportStatus.FAILED -> ImportState.Failed(row.errorMessage ?: DEFAULT_FAILURE_MESSAGE)
+        PendingImportStatus.FAILED -> ImportState.Failed(row.error ?: RecipeError.Unexpected)
     }
 
     /** The list entry for [row], or null if the import has finished (its row is about to be removed). */
@@ -199,7 +193,7 @@ internal object ImportWorkDecoder {
                 name = baseName,
                 imageUrl = row.imageUrl,
                 url = row.url,
-                errorMessage = state.message
+                error = state.error
             )
             is ImportState.Succeeded, ImportState.Cancelled -> null
         }

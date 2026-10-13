@@ -32,6 +32,9 @@ import com.anthropic.models.beta.messages.MessageCreateParams as BetaMessageCrea
 import com.anthropic.models.messages.batches.MessageBatch
 import com.anthropic.models.messages.batches.MessageBatchIndividualResponse
 import com.lionotter.recipes.data.local.SettingsDataStore
+import com.lionotter.recipes.domain.AiFailure
+import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.RecipeErrorSource
 import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
 import com.lionotter.recipes.util.ErrorLog
 import kotlinx.coroutines.CancellationException
@@ -47,19 +50,38 @@ import javax.inject.Singleton
 import kotlin.coroutines.coroutineContext
 
 /**
- * Exception thrown when the AI cannot parse the recipe content.
- * Contains a human-readable error message from the AI.
+ * The AI's response couldn't be turned into a recipe. [reason] is the AI's own explanation when
+ * it decided the content isn't a recipe; otherwise the response itself was unusable ([failure]).
  */
-class RecipeParseException(message: String) : Exception(message)
+class RecipeParseException private constructor(
+    val failure: AiFailure?,
+    val reason: String?,
+    message: String
+) : Exception(message), RecipeErrorSource {
+    /** The AI decided the content isn't a recipe, explaining why in [reason]. */
+    constructor(reason: String) : this(null, reason, "Not a recipe: $reason")
 
-/**
- * A failed Anthropic API call, with a user-facing [message] and whether retrying later might help.
- */
+    /** The AI's response was unusable. */
+    constructor(failure: AiFailure) : this(failure, null, "Unusable AI response: $failure")
+
+    override val recipeError: RecipeError
+        get() = reason?.let { RecipeError.NotARecipe(it) } ?: RecipeError.Ai(failure ?: AiFailure.UNKNOWN)
+}
+
+/** A failed Anthropic API call. The message is for logs; the UI shows [recipeError]. */
 class AnthropicRequestException(
-    message: String,
-    val isTransient: Boolean,
+    val failure: AiFailure,
+    val httpStatus: Int? = null,
     cause: Throwable? = null
-) : Exception(message, cause)
+) : Exception("Anthropic request failed: $failure${httpStatus?.let { " (HTTP $it)" } ?: ""}", cause),
+    RecipeErrorSource {
+    val isTransient: Boolean get() = failure.transient
+
+    override val recipeError: RecipeError get() = RecipeError.Ai(failure, httpStatus)
+}
+
+/** Why an API key can't be used. */
+enum class ApiKeyProblem { EMPTY, BAD_PREFIX }
 
 data class ParseResultWithUsage(
     val result: RecipeParseResult,
@@ -327,19 +349,14 @@ class AnthropicService @Inject constructor(
         outputTokens: Long
     ): Result<ParseResultWithUsage> {
         if (refused) {
-            return Result.failure(RecipeParseException("The AI declined to process this content."))
+            return Result.failure(RecipeParseException(AiFailure.REFUSED))
         }
         if (truncated) {
-            return Result.failure(
-                RecipeParseException(
-                    "The AI ran out of room before finishing this recipe. " +
-                        "Try again with thinking turned off or a shorter recipe."
-                )
-            )
+            return Result.failure(RecipeParseException(AiFailure.TRUNCATED))
         }
         val nonBlank = textCandidates.filter { it.isNotBlank() }
         if (nonBlank.isEmpty()) {
-            return Result.failure(RecipeParseException("The AI returned an empty response."))
+            return Result.failure(RecipeParseException(AiFailure.EMPTY_RESPONSE))
         }
         val results = nonBlank.map { parseResponseText(it, inputTokens, outputTokens) }
         return results.firstOrNull { it.isSuccess } ?: results.first()
@@ -362,7 +379,7 @@ class AnthropicService @Inject constructor(
 
             val recipeResult = parseResponse.recipe
                 ?.takeIf { it.name.isNotBlank() && it.instructionSections.any { section -> section.steps.isNotEmpty() } }
-                ?: return Result.failure(RecipeParseException("No recipe data in response"))
+                ?: return Result.failure(RecipeParseException(AiFailure.EMPTY_RESPONSE))
 
             Result.success(ParseResultWithUsage(
                 result = recipeResult,
@@ -372,7 +389,7 @@ class AnthropicService @Inject constructor(
             ))
         } catch (e: Exception) {
             ErrorLog.e(TAG, "Failed to parse AI response", e)
-            Result.failure(RecipeParseException("The AI returned a response that couldn't be read."))
+            Result.failure(RecipeParseException(AiFailure.UNREADABLE_RESPONSE))
         }
     }
 
@@ -493,47 +510,35 @@ class AnthropicService @Inject constructor(
             )
 
         /**
-         * Map an exception from the SDK to a user-facing [AnthropicRequestException].
+         * Map an exception from the SDK to an [AnthropicRequestException] saying what went wrong.
          */
         fun toFriendlyException(e: Throwable): Exception {
             if (e is RecipeParseException || e is AnthropicRequestException) return e
-            val (message, transient) = when (e) {
-                is UnauthorizedException ->
-                    "Your Anthropic API key was rejected. Check it in Settings." to false
-                is PermissionDeniedException ->
-                    "Your Anthropic API key isn't allowed to use this model." to false
-                is NotFoundException ->
-                    "The selected AI model isn't available. Choose a different model in Settings." to false
-                is RateLimitException ->
-                    "Anthropic rate limit reached. Please wait a minute and try again." to true
+            val failure = when (e) {
+                is UnauthorizedException -> AiFailure.INVALID_API_KEY
+                is PermissionDeniedException -> AiFailure.PERMISSION_DENIED
+                is NotFoundException -> AiFailure.MODEL_UNAVAILABLE
+                is RateLimitException -> AiFailure.RATE_LIMITED
                 is BadRequestException -> if (e.body().toString().contains("credit balance", ignoreCase = true)) {
-                    "Your Anthropic account is out of credits. Add credits at console.anthropic.com." to false
+                    AiFailure.OUT_OF_CREDITS
                 } else {
-                    "The AI request was rejected: ${e.message}" to false
+                    AiFailure.REQUEST_REJECTED
                 }
-                is InternalServerException ->
-                    "Anthropic's servers are overloaded or unavailable. Please try again shortly." to true
-                is AnthropicServiceException -> if (e.statusCode() == 529 || e.statusCode() >= 500) {
-                    "Anthropic's servers are overloaded or unavailable. Please try again shortly." to true
-                } else {
-                    "The AI request failed (HTTP ${e.statusCode()})." to false
-                }
-                is AnthropicIoException, is IOException ->
-                    "Couldn't reach Anthropic. Check your internet connection." to true
-                else -> "The AI request failed: ${e.message ?: e.javaClass.simpleName}" to false
+                is InternalServerException -> AiFailure.OVERLOADED
+                is AnthropicServiceException ->
+                    if (e.statusCode() >= 500) AiFailure.OVERLOADED else AiFailure.HTTP_ERROR
+                is AnthropicIoException, is IOException -> AiFailure.NETWORK
+                else -> AiFailure.UNKNOWN
             }
-            return AnthropicRequestException(message, transient, e)
+            return AnthropicRequestException(failure, (e as? AnthropicServiceException)?.statusCode(), e)
         }
 
-        /**
-         * Validates an Anthropic API key format.
-         * Returns null if valid, or an error message if invalid.
-         */
-        fun validateApiKey(apiKey: String): String? {
+        /** Checks an Anthropic API key's format. Returns null if it looks valid. */
+        fun validateApiKey(apiKey: String): ApiKeyProblem? {
             val trimmed = apiKey.trim()
             return when {
-                trimmed.isBlank() -> "API key cannot be empty"
-                !trimmed.startsWith(API_KEY_PREFIX) -> "Invalid API key format. Should start with '$API_KEY_PREFIX'"
+                trimmed.isBlank() -> ApiKeyProblem.EMPTY
+                !trimmed.startsWith(API_KEY_PREFIX) -> ApiKeyProblem.BAD_PREFIX
                 else -> null
             }
         }

@@ -4,6 +4,9 @@ import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.remote.ImageSyncService
 import com.lionotter.recipes.data.repository.IMealPlanRepository
 import com.lionotter.recipes.data.repository.IRecipeRepository
+import com.lionotter.recipes.domain.ArchiveFailure
+import com.lionotter.recipes.domain.Outcome
+import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.util.RecipeSerializer
 import com.lionotter.recipes.util.ErrorLog
@@ -36,10 +39,7 @@ class ExportToZipUseCase @Inject constructor(
         const val MEAL_PLANS_FOLDER = "meal-plans"
     }
 
-    sealed class ExportResult {
-        data class Success(val exportedCount: Int, val failedCount: Int) : ExportResult()
-        data class Error(val message: String) : ExportResult()
-    }
+    data class ExportSummary(val exportedCount: Int, val failedCount: Int)
 
     sealed class ExportProgress {
         object Starting : ExportProgress()
@@ -48,7 +48,6 @@ class ExportToZipUseCase @Inject constructor(
             val current: Int,
             val total: Int
         ) : ExportProgress()
-        data class Complete(val result: ExportResult) : ExportProgress()
     }
 
     /**
@@ -57,12 +56,12 @@ class ExportToZipUseCase @Inject constructor(
     suspend fun exportAllRecipes(
         outputStream: OutputStream,
         onProgress: suspend (ExportProgress) -> Unit = {}
-    ): ExportResult {
+    ): Outcome<ExportSummary> {
         onProgress(ExportProgress.Starting)
 
         val recipes = recipeRepository.getAllRecipes().first()
         if (recipes.isEmpty()) {
-            return ExportResult.Error("No recipes to export")
+            return Outcome.Failure(RecipeError.Archive(ArchiveFailure.NOTHING_TO_EXPORT))
         }
 
         var exportedCount = 0
@@ -141,11 +140,9 @@ class ExportToZipUseCase @Inject constructor(
             throw e
         } catch (e: Exception) {
             ErrorLog.e(TAG, "Failed to create ZIP file", e)
-            return ExportResult.Error("Failed to create ZIP file: ${e.message}")
+            return Outcome.Failure(RecipeError.Archive(ArchiveFailure.WRITE_FAILED))
         }
 
-        val result = ExportResult.Success(exportedCount = exportedCount, failedCount = failedCount)
-        onProgress(ExportProgress.Complete(result))
-        return result
+        return Outcome.Success(ExportSummary(exportedCount = exportedCount, failedCount = failedCount))
     }
 }

@@ -1,5 +1,14 @@
 package com.lionotter.recipes.ui.screens.settings
 
+import org.junit.Assert.assertNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.CompletableDeferred
+import io.mockk.unmockkStatic
+import io.mockk.mockkStatic
+import com.lionotter.recipes.messages.UserMessage
+import com.lionotter.recipes.R
+import com.google.firebase.auth.AuthCredential
+import android.util.Log
 import org.junit.Assert.assertFalse
 import kotlinx.coroutines.test.advanceUntilIdle
 import com.lionotter.recipes.data.remote.SignOutResult
@@ -92,11 +101,8 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `initial saveState is Idle`() = runTest {
-        viewModel.saveState.test {
-            assertTrue(awaitItem() is SettingsViewModel.SaveState.Idle)
-            cancelAndIgnoreRemainingEvents()
-        }
+    fun `initially there is no API key error`() = runTest {
+        assertNull(viewModel.apiKeyError.value)
     }
 
     @Test
@@ -111,54 +117,52 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `saveApiKey with empty key sets error state`() = runTest {
-        viewModel.saveState.test {
-            assertTrue(awaitItem() is SettingsViewModel.SaveState.Idle)
+    fun `saveApiKey with empty key shows an error`() = runTest {
+        viewModel.onApiKeyInputChange("   ")
+        viewModel.saveApiKey()
+        testDispatcher.scheduler.advanceUntilIdle()
 
-            viewModel.onApiKeyInputChange("   ")
-            viewModel.saveApiKey()
-            testDispatcher.scheduler.advanceUntilIdle()
-
-            val state = awaitItem()
-            assertTrue(state is SettingsViewModel.SaveState.Error)
-            assertEquals("API key cannot be empty", (state as SettingsViewModel.SaveState.Error).message)
-            cancelAndIgnoreRemainingEvents()
-        }
+        assertEquals(UserMessage(R.string.error_api_key_empty), viewModel.apiKeyError.value)
     }
 
     @Test
-    fun `saveApiKey with invalid format sets error state`() = runTest {
-        viewModel.saveState.test {
-            assertTrue(awaitItem() is SettingsViewModel.SaveState.Idle)
+    fun `saveApiKey with invalid format shows an error until the key is edited`() = runTest {
+        viewModel.onApiKeyInputChange("invalid-key-format")
+        viewModel.saveApiKey()
+        testDispatcher.scheduler.advanceUntilIdle()
 
-            viewModel.onApiKeyInputChange("invalid-key-format")
-            viewModel.saveApiKey()
-            testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(UserMessage(R.string.error_api_key_prefix, "sk-ant-"), viewModel.apiKeyError.value)
 
-            val state = awaitItem()
-            assertTrue(state is SettingsViewModel.SaveState.Error)
-            assertTrue((state as SettingsViewModel.SaveState.Error).message.contains("sk-ant-"))
-            cancelAndIgnoreRemainingEvents()
-        }
+        viewModel.onApiKeyInputChange("sk-ant-")
+        assertNull(viewModel.apiKeyError.value)
     }
 
     @Test
-    fun `saveApiKey with valid key saves and sets success state`() = runTest {
+    fun `saveApiKey with valid key saves it`() = runTest {
         coEvery { settingsDataStore.setAnthropicApiKey(any()) } just runs
 
-        viewModel.saveState.test {
-            assertTrue(awaitItem() is SettingsViewModel.SaveState.Idle)
+        viewModel.onApiKeyInputChange("sk-ant-valid-test-key")
+        viewModel.saveApiKey()
+        testDispatcher.scheduler.advanceUntilIdle()
 
+        coVerify { settingsDataStore.setAnthropicApiKey("sk-ant-valid-test-key") }
+        assertNull(viewModel.apiKeyError.value)
+    }
+
+    @Test
+    fun `saveApiKey failure shows a localized error`() = runTest {
+        coEvery { settingsDataStore.setAnthropicApiKey(any()) } throws IllegalStateException("keystore broken")
+        mockkStatic(Log::class)
+        every { Log.e(any(), any(), any()) } returns 0
+        try {
             viewModel.onApiKeyInputChange("sk-ant-valid-test-key")
             viewModel.saveApiKey()
             testDispatcher.scheduler.advanceUntilIdle()
 
-            val state = awaitItem()
-            assertTrue(state is SettingsViewModel.SaveState.Success)
-            cancelAndIgnoreRemainingEvents()
+            assertEquals(UserMessage(R.string.error_api_key_save), viewModel.apiKeyError.value)
+        } finally {
+            unmockkStatic(Log::class)
         }
-
-        coVerify { settingsDataStore.setAnthropicApiKey("sk-ant-valid-test-key") }
     }
 
     @Test
@@ -191,18 +195,11 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `clearApiKey calls datastore and resets state`() = runTest {
+    fun `clearApiKey calls datastore`() = runTest {
         coEvery { settingsDataStore.clearAnthropicApiKey() } just runs
 
-        viewModel.saveState.test {
-            assertTrue(awaitItem() is SettingsViewModel.SaveState.Idle)
-
-            viewModel.clearApiKey()
-            testDispatcher.scheduler.advanceUntilIdle()
-
-            // State should remain or return to Idle
-            cancelAndIgnoreRemainingEvents()
-        }
+        viewModel.clearApiKey()
+        testDispatcher.scheduler.advanceUntilIdle()
 
         coVerify { settingsDataStore.clearAnthropicApiKey() }
     }
@@ -218,22 +215,17 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `resetSaveState sets state to Idle`() = runTest {
-        coEvery { settingsDataStore.setAnthropicApiKey(any()) } just runs
-
-        viewModel.saveState.test {
-            assertTrue(awaitItem() is SettingsViewModel.SaveState.Idle)
-
-            // First set success state
-            viewModel.onApiKeyInputChange("sk-ant-valid-key")
-            viewModel.saveApiKey()
+    fun `a failed setting write is reported once`() = runTest {
+        coEvery { settingsDataStore.setThemeMode(any()) } throws IllegalStateException("disk full")
+        mockkStatic(Log::class)
+        every { Log.e(any(), any(), any()) } returns 0
+        try {
+            viewModel.setThemeMode(ThemeMode.DARK)
             testDispatcher.scheduler.advanceUntilIdle()
-            assertTrue(awaitItem() is SettingsViewModel.SaveState.Success)
 
-            // Then reset
-            viewModel.resetSaveState()
-            assertTrue(awaitItem() is SettingsViewModel.SaveState.Idle)
-            cancelAndIgnoreRemainingEvents()
+            assertEquals(UserMessage(R.string.settings_save_failed), viewModel.events.first())
+        } finally {
+            unmockkStatic(Log::class)
         }
     }
 
@@ -305,5 +297,67 @@ class SettingsViewModelTest {
         advanceUntilIdle()
         assertFalse(viewModel.showUnsyncedSignOutWarning.value)
         coVerify { authService.signOut(true) }
+    }
+
+    @Test
+    fun `only one account operation runs at a time`() = runTest {
+        val signOut = CompletableDeferred<SignOutResult>()
+        coEvery { authService.signOut(false) } coAnswers { signOut.await() }
+
+        viewModel.signOut()
+        advanceUntilIdle()
+        assertEquals(AccountOp.SIGNING_OUT, viewModel.busyOp.value)
+        assertFalse(viewModel.beginGoogleSignIn())
+        assertFalse(viewModel.beginDeleteAccount())
+
+        signOut.complete(SignOutResult.Success)
+        advanceUntilIdle()
+        assertNull(viewModel.busyOp.value)
+        assertTrue(viewModel.beginGoogleSignIn())
+        assertEquals(AccountOp.SIGNING_IN, viewModel.busyOp.value)
+    }
+
+    @Test
+    fun `a cancelled credential request ends the operation quietly`() = runTest {
+        assertTrue(viewModel.beginDeleteAccount())
+        viewModel.deleteAccount(CredentialResult.Cancelled)
+        advanceUntilIdle()
+        assertNull(viewModel.busyOp.value)
+
+        assertTrue(viewModel.beginGoogleSignIn())
+        viewModel.completeGoogleSignIn(CredentialResult.Cancelled)
+        advanceUntilIdle()
+        assertNull(viewModel.busyOp.value)
+        viewModel.events.test { expectNoEvents() }
+    }
+
+    @Test
+    fun `account deletion reports the outcome`() = runTest {
+        val credential = mockk<AuthCredential>()
+        coEvery { authService.deleteAccountAndData(credential) } just runs
+
+        assertTrue(viewModel.beginDeleteAccount())
+        assertEquals(AccountOp.DELETING_ACCOUNT, viewModel.busyOp.value)
+        viewModel.deleteAccount(CredentialResult.Obtained(credential))
+        advanceUntilIdle()
+
+        assertEquals(UserMessage(R.string.delete_account_success), viewModel.events.first())
+        assertNull(viewModel.busyOp.value)
+    }
+
+    @Test
+    fun `a failed sign out is reported`() = runTest {
+        coEvery { authService.signOut(false) } throws IllegalStateException("boom")
+        mockkStatic(Log::class)
+        every { Log.e(any(), any(), any()) } returns 0
+        try {
+            viewModel.signOut()
+            advanceUntilIdle()
+
+            assertEquals(UserMessage(R.string.error_sign_out), viewModel.events.first())
+            assertNull(viewModel.busyOp.value)
+        } finally {
+            unmockkStatic(Log::class)
+        }
     }
 }

@@ -39,7 +39,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,9 +51,11 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
 import com.lionotter.recipes.imports.ImportStage
+import com.lionotter.recipes.ui.components.CollectEvents
 import com.lionotter.recipes.ui.components.ErrorCard
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.components.rememberNotificationPermissionRequester
+import com.lionotter.recipes.ui.components.text
 import com.lionotter.recipes.ui.screens.importselection.ImportType
 
 @Composable
@@ -70,9 +71,9 @@ fun AddRecipeScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val hasApiKey by viewModel.hasApiKey.collectAsStateWithLifecycle()
 
-    LaunchedEffect(uiState) {
-        if (uiState is AddRecipeUiState.Success) {
-            onRecipeAdded((uiState as AddRecipeUiState.Success).recipeId)
+    CollectEvents(viewModel.events) { event ->
+        when (event) {
+            is AddRecipeEvent.RecipeAdded -> onRecipeAdded(event.recipeId)
         }
     }
 
@@ -120,7 +121,7 @@ fun AddRecipeScreen(
                         },
                         hasApiKey = hasApiKey,
                         onNavigateToSettings = onNavigateToSettings,
-                        errorMessage = (state as? AddRecipeUiState.Error)?.message
+                        errorMessage = (state as? AddRecipeUiState.Error)?.message?.text()
                     )
                 }
                 is AddRecipeUiState.Loading -> {
@@ -131,9 +132,6 @@ fun AddRecipeScreen(
                 }
                 is AddRecipeUiState.NoApiKey -> {
                     NoApiKeyContent(onNavigateToSettings = onNavigateToSettings)
-                }
-                is AddRecipeUiState.Success -> {
-                    // Handled by LaunchedEffect
                 }
             }
         }

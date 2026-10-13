@@ -12,7 +12,7 @@ import androidx.room.TypeConverters
     version = 12,
     exportSchema = true
 )
-@TypeConverters(InstantConverter::class, PendingImportStatusConverter::class)
+@TypeConverters(InstantConverter::class, PendingImportStatusConverter::class, RecipeErrorConverter::class)
 abstract class RecipeDatabase : RoomDatabase() {
     abstract fun pendingImportDao(): PendingImportDao
     abstract fun importDebugDao(): ImportDebugDao

@@ -6,6 +6,8 @@ import androidx.work.Data
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.lionotter.recipes.data.local.SettingsDataStore
+import com.lionotter.recipes.domain.Outcome
+import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.usecase.EditRecipeUseCase
 import com.lionotter.recipes.notification.RecipeNotificationHelper
 import dagger.assisted.Assisted
@@ -60,11 +62,11 @@ class RecipeEditWorker @AssistedInject constructor(
 
     override suspend fun doRecipeWork(): Result {
         val recipeId = inputData.getString(KEY_RECIPE_ID)
-            ?: return errorResult("No recipe ID provided")
+            ?: return errorResult(RecipeError.Unexpected, "no recipe ID provided")
         val markdownPath = inputData.getString(KEY_MARKDOWN_PATH)
-            ?: return errorResult("No markdown text provided")
+            ?: return errorResult(RecipeError.Unexpected, "no markdown text provided")
         val markdownText = inputStore.readWorkText(markdownPath)
-            ?: return errorResult("The edited recipe text was lost. Please try again.")
+            ?: return errorResult(RecipeError.Interrupted, "the edited recipe text was lost")
         val model = inputData.getString(KEY_MODEL)
         val thinkingEnabled = if (inputData.keyValueMap.containsKey(KEY_EXTENDED_THINKING)) {
             inputData.getBoolean(KEY_EXTENDED_THINKING, SettingsDataStore.DEFAULT_THINKING_ENABLED)
@@ -92,39 +94,35 @@ class RecipeEditWorker @AssistedInject constructor(
                         RecipeEditWork.Progress.Parsing(progress.name) to "AI is processing your changes..."
                     is EditRecipeUseCase.EditProgress.SavingRecipe ->
                         RecipeEditWork.Progress.Saving to "Saving recipe..."
-                    is EditRecipeUseCase.EditProgress.Complete -> null to "Complete!"
                 }
-                workProgress?.let { setProgress(it.toData()) }
+                setProgress(workProgress.toData())
                 setForegroundProgress(message)
             }
         )
 
         val workResult = when (result) {
-            is EditRecipeUseCase.EditResult.Success -> {
+            is Outcome.Success -> {
+                val recipe = result.value
                 notificationHelper.showSuccessNotification(
                     key = operationKey,
-                    recipeName = result.recipe.name,
-                    recipeId = result.recipe.id,
+                    recipeName = recipe.name,
+                    recipeId = recipe.id,
                     title = if (saveAsCopy) "Recipe Copy Saved" else "Recipe Updated"
                 )
                 successResult(
                     RecipeEditWork.Outcome.Success(
                         recipeId = recipeId,
-                        recipeName = result.recipe.name,
-                        newRecipeId = if (saveAsCopy) result.recipe.id else null
+                        recipeName = recipe.name,
+                        newRecipeId = if (saveAsCopy) recipe.id else null
                     )
                 )
             }
-            is EditRecipeUseCase.EditResult.Error -> errorResult(
-                RecipeEditWork.Outcome.Failed(result.message, recipeId),
-                retryable = result.retryable
-            )
-            EditRecipeUseCase.EditResult.NoApiKey -> errorResult(
-                RecipeEditWork.Outcome.NoApiKey("API key not configured", recipeId),
-                notify = false
+            is Outcome.Failure -> errorResult(
+                RecipeEditWork.Outcome.Failed(result.error, recipeId),
+                notify = result.error != RecipeError.NoApiKey
             )
         }
-        val retrying = result is EditRecipeUseCase.EditResult.Error && willRetry(result.retryable)
+        val retrying = result is Outcome.Failure && willRetry(result.error.retryable)
         if (!retrying) {
             inputStore.deleteWorkText(markdownPath)
         }
@@ -165,14 +163,8 @@ object RecipeEditWork : WorkContract<RecipeEditWork.Progress, RecipeEditWork.Out
             )
         }
 
-        data class NoApiKey(override val message: String?, val recipeId: String?) : Outcome, FailureOutcome {
-            override fun toData() =
-                WorkResult.failure(WorkResult.NO_API_KEY, message, WorkResult.KEY_RECIPE_ID to recipeId)
-        }
-
-        data class Failed(override val message: String?, val recipeId: String?) : Outcome, FailureOutcome {
-            override fun toData() =
-                WorkResult.failure(WorkResult.ERROR, message, WorkResult.KEY_RECIPE_ID to recipeId)
+        data class Failed(override val error: RecipeError, val recipeId: String?) : Outcome, FailureOutcome {
+            override fun toData() = WorkResult.failure(error, WorkResult.KEY_RECIPE_ID to recipeId)
         }
     }
 
@@ -190,8 +182,7 @@ object RecipeEditWork : WorkContract<RecipeEditWork.Progress, RecipeEditWork.Out
                 recipeName = data.getString(WorkResult.KEY_RECIPE_NAME),
                 newRecipeId = data.getString(KEY_NEW_RECIPE_ID)
             )
-            WorkResult.type(data) == WorkResult.NO_API_KEY -> Outcome.NoApiKey(WorkResult.message(data), recipeId)
-            else -> Outcome.Failed(WorkResult.message(data), recipeId)
+            else -> Outcome.Failed(WorkResult.error(data), recipeId)
         }
     }
 }

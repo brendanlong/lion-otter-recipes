@@ -279,7 +279,7 @@
     <string name="disable_import_debugging_message">Turning this off deletes all saved import debug data.</string>
     <string name="disable_and_delete">Turn off and delete</string>
     <string name="import_debug_entry_not_found">This debug entry no longer exists.</string>
-    <string name="import_debug_load_failed">Couldn\'t load debug entry: %1$s</string>
+    <string name="import_debug_load_failed">Couldn\'t load this debug entry.</string>
     <string name="import_debug_list_load_failed">Couldn\'t load import debug data.</string>
     <string name="import_debug_truncated">Showing first %1$s of %2$s characters</string>
     <string name="import_debug_share_failed">Couldn\'t share content</string>

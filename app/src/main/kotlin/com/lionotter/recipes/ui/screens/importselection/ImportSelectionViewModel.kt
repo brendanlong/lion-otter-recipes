@@ -1,16 +1,22 @@
 package com.lionotter.recipes.ui.screens.importselection
 
+import com.lionotter.recipes.domain.RecipeErrorSource
 import android.util.Log
 import androidx.core.net.toUri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
+import com.lionotter.recipes.R
 import com.lionotter.recipes.data.paprika.PaprikaParser
 import com.lionotter.recipes.data.repository.IRecipeRepository
+import com.lionotter.recipes.domain.ArchiveFailure
+import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.util.RecipeSerializer
 import com.lionotter.recipes.domain.util.ZipImportHelper
 import com.lionotter.recipes.imports.ImportQueue
+import com.lionotter.recipes.messages.UserMessage
+import com.lionotter.recipes.messages.toUserMessage
 import com.lionotter.recipes.ui.navigation.Route
 import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.worker.ImportInputStore
@@ -45,15 +51,14 @@ class ImportSelectionViewModel @Inject constructor(
         private const val TAG = "ImportSelectionVM"
         private const val KEY_SELECTED_IDS = "import_selection_selected_ids"
         private const val KEY_STAGED_IMPORT_ID = "import_selection_staged_id"
-        const val NOT_AN_EXPORT_MESSAGE = "This file isn't a Lion+Otter or Paprika recipe export."
     }
 
     private val _uiState = MutableStateFlow<ImportSelectionUiState>(ImportSelectionUiState.Loading)
     val uiState: StateFlow<ImportSelectionUiState> = _uiState.asStateFlow()
 
     /** One-shot results of [importSelected], collected by the screen. */
-    private val _results = Channel<ImportResult>(Channel.BUFFERED)
-    val results: Flow<ImportResult> = _results.receiveAsFlow()
+    private val _events = Channel<ImportSelectionEvent>(Channel.BUFFERED)
+    val events: Flow<ImportSelectionEvent> = _events.receiveAsFlow()
 
     private var currentImportType: ImportType? = null
 
@@ -63,16 +68,6 @@ class ImportSelectionViewModel @Inject constructor(
 
     init {
         loadFile()
-    }
-
-    /**
-     * Result of calling importSelected().
-     */
-    sealed class ImportResult {
-        /** Import work was enqueued via WorkManager. Navigate to RecipeList. */
-        object ImportStarted : ImportResult()
-
-        data class Error(val message: String) : ImportResult()
     }
 
     /**
@@ -93,7 +88,7 @@ class ImportSelectionViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 ErrorLog.e(TAG, "Could not copy import file", e)
-                _uiState.value = ImportSelectionUiState.Error("Could not open file: ${e.message}")
+                _uiState.value = ImportSelectionUiState.Error(UserMessage(R.string.error_open_import_file))
                 return@launch
             }
             stagedImportId = importId
@@ -102,7 +97,7 @@ class ImportSelectionViewModel @Inject constructor(
             val actualType = withContext(Dispatchers.IO) { detectImportType(file) }
             if (actualType == null) {
                 Log.w(TAG, "Not a recipe export (hint was $typeHint)")
-                _uiState.value = ImportSelectionUiState.Error(NOT_AN_EXPORT_MESSAGE)
+                _uiState.value = archiveError(ArchiveFailure.NOT_AN_EXPORT)
                 return@launch
             }
             currentImportType = actualType
@@ -132,6 +127,9 @@ class ImportSelectionViewModel @Inject constructor(
         savedStateHandle[KEY_STAGED_IMPORT_ID] = importId
         return importId
     }
+
+    private fun archiveError(reason: ArchiveFailure) =
+        ImportSelectionUiState.Error(RecipeError.Archive(reason).toUserMessage())
 
     override fun onCleared() {
         // Leaving without importing: the copy is no longer needed.
@@ -194,7 +192,7 @@ class ImportSelectionViewModel @Inject constructor(
             try {
                 val recipes = file.inputStream().use { paprikaParser.parseIndex(BufferedInputStream(it)) }
                 if (recipes.isEmpty()) {
-                    _uiState.value = ImportSelectionUiState.Error("No recipes found in Paprika export")
+                    _uiState.value = archiveError(ArchiveFailure.NO_RECIPES)
                     return@withContext
                 }
 
@@ -216,7 +214,7 @@ class ImportSelectionViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 ErrorLog.e(TAG, "Failed to parse Paprika export", e)
-                _uiState.value = ImportSelectionUiState.Error("Failed to read Paprika export: ${e.message}")
+                _uiState.value = archiveError(ArchiveFailure.UNREADABLE)
             }
         }
     }
@@ -244,7 +242,7 @@ class ImportSelectionViewModel @Inject constructor(
                     .sortedWith(compareBy<ImportSelectionItem> { it.alreadyExists }.thenBy { it.name.lowercase() })
 
                 if (items.isEmpty()) {
-                    _uiState.value = ImportSelectionUiState.Error("No valid recipes found in file")
+                    _uiState.value = archiveError(ArchiveFailure.NO_RECIPES)
                     return@withContext
                 }
 
@@ -253,7 +251,7 @@ class ImportSelectionViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 ErrorLog.e(TAG, "Failed to read ZIP contents", e)
-                _uiState.value = ImportSelectionUiState.Error("Failed to read file: ${e.message}")
+                _uiState.value = archiveError(ArchiveFailure.UNREADABLE)
             }
         }
     }
@@ -303,12 +301,12 @@ class ImportSelectionViewModel @Inject constructor(
         val selectedItems = current.items.filter { it.isSelected }
         if (selectedItems.isEmpty()) return
 
-        val importId = stagedImportId ?: run {
-            _results.trySend(ImportResult.Error("No file available"))
-            return
-        }
-        val importType = currentImportType ?: run {
-            _results.trySend(ImportResult.Error("Unknown import type"))
+        val importId = stagedImportId
+        val importType = currentImportType
+        if (importId == null || importType == null) {
+            // Ready implies both are set
+            ErrorLog.e(TAG, "Import requested without a staged file ($importId) or type ($importType)")
+            _events.trySend(ImportSelectionEvent.ShowMessage(UserMessage(R.string.error_unexpected)))
             return
         }
         importStarted = true
@@ -332,13 +330,15 @@ class ImportSelectionViewModel @Inject constructor(
                     ImportType.LORECIPES ->
                         importQueue.startZipImport(importId, selectedIds, importName)
                 }
-                _results.send(ImportResult.ImportStarted)
+                _events.send(ImportSelectionEvent.ImportStarted)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 ErrorLog.e(TAG, "Failed to start import", e)
                 importStarted = false
-                _results.send(ImportResult.Error("Couldn't start the import: ${e.message}"))
+                val message = (e as? RecipeErrorSource)?.recipeError?.toUserMessage()
+                    ?: UserMessage(R.string.error_start_import)
+                _events.send(ImportSelectionEvent.ShowMessage(message))
             }
         }
     }

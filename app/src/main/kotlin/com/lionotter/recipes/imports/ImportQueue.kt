@@ -7,6 +7,9 @@ import com.lionotter.recipes.data.local.PendingImportEntity
 import com.lionotter.recipes.data.local.PendingImportStatus
 import com.lionotter.recipes.data.repository.PendingImportRepository
 import com.lionotter.recipes.di.ApplicationScope
+import com.lionotter.recipes.domain.ArchiveFailure
+import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.RecipeErrorException
 import com.lionotter.recipes.domain.usecase.ImportPaprikaUseCase
 import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.worker.ImportInputStore
@@ -69,7 +72,7 @@ class ImportQueue @Inject constructor(
                 imageUrl = null,
                 status = PendingImportStatus.PENDING,
                 workManagerId = workManagerId,
-                errorMessage = null,
+                error = null,
                 createdAt = Clock.System.now().toEpochMilliseconds()
             )
         )
@@ -143,7 +146,7 @@ class ImportQueue @Inject constructor(
         kind: ImportKind
     ): StartedImport = withContext(NonCancellable) {
         startMutex.withLock {
-            check(inputStore.hasSource(importId)) { "The selected file is no longer available. Please choose it again." }
+            if (!inputStore.hasSource(importId)) throw RecipeErrorException(RecipeError.Archive(ArchiveFailure.MISSING))
             val request = buildRequest(importId, kind, url = "")
             inputStore.writeSelection(importId, selectedIds)
             inputStore.writeKind(importId, kind)
@@ -175,9 +178,8 @@ class ImportQueue @Inject constructor(
                     val kind = (if (inputStore.hasImport(id)) inputStore.readKind(id) else null)
                         ?: ImportKind.URL.takeIf { entity.url.isNotBlank() }
                     if (kind == null) {
-                        pendingImportRepository.updateStatusWithError(
-                            id, PendingImportStatus.FAILED, "This import can't be retried. Please start it again."
-                        )
+                        Log.w(TAG, "Import $id has no inputs to retry with")
+                        pendingImportRepository.updateStatusWithError(id, PendingImportStatus.FAILED, RecipeError.CannotRetry)
                         return@withContext
                     }
                     val request = buildRequest(id, kind, entity.url)
@@ -188,9 +190,7 @@ class ImportQueue @Inject constructor(
                     throw e
                 } catch (e: Exception) {
                     ErrorLog.e(TAG, "Failed to retry import $id", e)
-                    pendingImportRepository.updateStatusWithError(
-                        id, PendingImportStatus.FAILED, "Couldn't retry: ${e.message}"
-                    )
+                    pendingImportRepository.updateStatusWithError(id, PendingImportStatus.FAILED, RecipeError.Unexpected)
                 }
             }
         }

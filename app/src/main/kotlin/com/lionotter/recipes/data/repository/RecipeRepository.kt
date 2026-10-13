@@ -3,21 +3,23 @@ package com.lionotter.recipes.data.repository
 import android.util.Log
 import com.google.firebase.firestore.FieldPath
 import com.lionotter.recipes.data.local.RecipeIdAndName
+import com.google.android.gms.tasks.Task
 import com.lionotter.recipes.data.remote.AuthService
+import com.lionotter.recipes.data.remote.DataFailure
+import com.lionotter.recipes.data.remote.DataOp
+import com.lionotter.recipes.di.ApplicationScope
 import com.lionotter.recipes.data.remote.FirestoreService
 import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.remote.dto.RecipeDto
 import com.lionotter.recipes.data.remote.dto.toDto
 import com.lionotter.recipes.data.remote.uid
 import com.lionotter.recipes.domain.model.Recipe
-import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.data.remote.dto.RecipeFields
 import com.lionotter.recipes.data.remote.dto.MealPlanFields
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
@@ -39,13 +41,12 @@ import javax.inject.Singleton
 class RecipeRepository @Inject constructor(
     private val firestoreService: FirestoreService,
     private val imageDownloadService: ImageDownloadService,
-    private val authService: AuthService
+    private val authService: AuthService,
+    @param:ApplicationScope private val appScope: CoroutineScope
 ) : IRecipeRepository {
     companion object {
         private const val TAG = "RecipeRepository"
     }
-
-    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /**
      * Single shared Firestore snapshot listener for all recipes.
@@ -70,20 +71,23 @@ class RecipeRepository @Inject constructor(
             }
         }
         .shareIn(
-            scope = repositoryScope,
+            scope = appScope,
             started = SharingStarted.WhileSubscribed(5000),
             replay = 1
         )
 
     private fun recipesFlowForUser(uid: String): Flow<List<Recipe>> =
         firestoreService.recipesCollection(uid)
-            .snapshots(firestoreService, TAG, "recipes")
+            .snapshots(firestoreService, DataOp.LOAD_RECIPES)
             .decodeIncrementally(TAG) { doc -> doc.toObject(RecipeDto::class.java)?.toDomain() }
             .flowOn(Dispatchers.Default)
             .conflate()
 
-    private fun write(action: String, block: (uid: String) -> Unit) =
-        authService.writeForCurrentUser(repositoryScope, firestoreService, TAG, action, block)
+    private fun write(op: DataOp, id: String, block: (uid: String) -> Unit) =
+        authService.writeForCurrentUser(appScope, firestoreService, DataFailure(op, id), block)
+
+    private fun <T> Task<T>.reportFailure(op: DataOp, id: String) =
+        reportFailureTo(firestoreService, DataFailure(op, id))
 
     override fun getAllRecipes(): Flow<List<Recipe>> = allRecipesShared
 
@@ -111,22 +115,18 @@ class RecipeRepository @Inject constructor(
             withContext(Dispatchers.Default) { doc.toObject(RecipeDto::class.java)?.toDomain() }
         }
 
-    override fun saveRecipe(recipe: Recipe) = write("save recipe") { uid ->
-        val dto = recipe.toDto()
-        firestoreService.recipesCollection(uid).document(recipe.id).set(dto)
-            .addOnFailureListener { e ->
-                ErrorLog.e(TAG, "Error saving recipe ${recipe.id}", e)
-                firestoreService.reportError("Failed to save recipe: ${e.message}")
-            }
+    override fun saveRecipe(recipe: Recipe) = write(DataOp.SAVE_RECIPE, recipe.id) { uid ->
+        firestoreService.recipesCollection(uid).document(recipe.id).set(recipe.toDto())
+            .reportFailure(DataOp.SAVE_RECIPE, recipe.id)
     }
 
-    override fun deleteRecipe(id: String) = write("delete recipe") { uid ->
+    override fun deleteRecipe(id: String) = write(DataOp.DELETE_RECIPE, id) { uid ->
         // Read the recipe's image URL first, then delete everything.
         firestoreService.recipesCollection(uid).document(id).get()
             .addOnSuccessListener { snapshot ->
                 val imageUrl = snapshot.getString(RecipeFields.IMAGE_URL)
                 if (imageUrl != null) {
-                    repositoryScope.launch {
+                    appScope.launch {
                         withContext(NonCancellable) { imageDownloadService.cleanupImage(imageUrl, recipeId = id) }
                     }
                 }
@@ -141,38 +141,26 @@ class RecipeRepository @Inject constructor(
 
     private fun deleteRecipeDocuments(uid: String, id: String) {
         firestoreService.recipesCollection(uid).document(id).delete()
-            .addOnFailureListener { e ->
-                ErrorLog.e(TAG, "Error deleting recipe $id", e)
-                firestoreService.reportError("Failed to delete recipe: ${e.message}")
-            }
+            .reportFailure(DataOp.DELETE_RECIPE, id)
     }
 
-    override fun setFavorite(id: String, isFavorite: Boolean) = write("update favorite") { uid ->
+    override fun setFavorite(id: String, isFavorite: Boolean) = write(DataOp.UPDATE_FAVORITE, id) { uid ->
         firestoreService.recipesCollection(uid).document(id)
             .update(RecipeFields.IS_FAVORITE, isFavorite)
-            .addOnFailureListener { e ->
-                ErrorLog.e(TAG, "Error updating favorite for $id", e)
-                firestoreService.reportError("Failed to update favorite: ${e.message}")
-            }
+            .reportFailure(DataOp.UPDATE_FAVORITE, id)
     }
 
-    override fun setUserNotes(id: String, userNotes: String?) = write("update notes") { uid ->
+    override fun setUserNotes(id: String, userNotes: String?) = write(DataOp.UPDATE_NOTES, id) { uid ->
         firestoreService.recipesCollection(uid).document(id)
             .update(RecipeFields.USER_NOTES, userNotes)
-            .addOnFailureListener { e ->
-                ErrorLog.e(TAG, "Error updating user notes for $id", e)
-                firestoreService.reportError("Failed to update notes: ${e.message}")
-            }
+            .reportFailure(DataOp.UPDATE_NOTES, id)
     }
 
     /** Also points the recipe's meal plans (which keep a copy of the image URL) at the new image. */
-    override fun setImageUrl(id: String, imageUrl: String?) = write("update image") { uid ->
+    override fun setImageUrl(id: String, imageUrl: String?) = write(DataOp.UPDATE_IMAGE, id) { uid ->
         firestoreService.recipesCollection(uid).document(id)
             .update(RecipeFields.IMAGE_URL, imageUrl)
-            .addOnFailureListener { e ->
-                ErrorLog.e(TAG, "Error updating image URL for $id", e)
-                firestoreService.reportError("Failed to update image: ${e.message}")
-            }
+            .reportFailure(DataOp.UPDATE_IMAGE, id)
         firestoreService.mealPlansCollection(uid)
             .whereEqualTo(MealPlanFields.RECIPE_ID, id)
             .get()
@@ -185,17 +173,14 @@ class RecipeRepository @Inject constructor(
             .addOnFailureListener { e -> Log.w(TAG, "Failed to update meal plan images for recipe $id", e) }
     }
 
-    override fun updateTitleAndUrl(id: String, name: String, sourceUrl: String?) = write("update recipe") { uid ->
+    override fun updateTitleAndUrl(id: String, name: String, sourceUrl: String?) = write(DataOp.UPDATE_RECIPE, id) { uid ->
         val updates = mutableMapOf<String, Any?>(
             RecipeFields.NAME to name,
             RecipeFields.SOURCE_URL to sourceUrl
         )
         firestoreService.recipesCollection(uid).document(id)
             .update(updates)
-            .addOnFailureListener { e ->
-                ErrorLog.e(TAG, "Error updating title/URL for $id", e)
-                firestoreService.reportError("Failed to update recipe: ${e.message}")
-            }
+            .reportFailure(DataOp.UPDATE_RECIPE, id)
     }
 
     /** @throws Exception if recipes could not be read */

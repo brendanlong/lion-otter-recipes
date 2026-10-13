@@ -1,5 +1,6 @@
 package com.lionotter.recipes.ui.screens.settings
 
+import kotlinx.coroutines.CoroutineStart
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -18,14 +19,12 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.todayIn
@@ -38,7 +37,10 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
+import com.lionotter.recipes.messages.resolve
+import com.lionotter.recipes.ui.components.CollectEvents
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
+import com.lionotter.recipes.ui.components.text
 import com.lionotter.recipes.ui.screens.importselection.ImportType
 import com.lionotter.recipes.ui.screens.settings.components.AboutSection
 import com.lionotter.recipes.ui.screens.settings.components.AccountSection
@@ -67,8 +69,8 @@ fun SettingsScreen(
     val thinkingEnabled by viewModel.thinkingEnabled.collectAsStateWithLifecycle()
     val keepScreenOn by viewModel.keepScreenOn.collectAsStateWithLifecycle()
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
-    val saveState by viewModel.saveState.collectAsStateWithLifecycle()
-    val zipOperationState by zipViewModel.operationState.collectAsStateWithLifecycle()
+    val apiKeyError by viewModel.apiKeyError.collectAsStateWithLifecycle()
+    val isExporting by zipViewModel.isExporting.collectAsStateWithLifecycle()
     val volumeUnitSystem by viewModel.volumeUnitSystem.collectAsStateWithLifecycle()
     val weightUnitSystem by viewModel.weightUnitSystem.collectAsStateWithLifecycle()
     val groceryVolumeUnitSystem by viewModel.groceryVolumeUnitSystem.collectAsStateWithLifecycle()
@@ -76,8 +78,7 @@ fun SettingsScreen(
     val startOfWeek by viewModel.startOfWeek.collectAsStateWithLifecycle()
     val importDebuggingEnabled by viewModel.importDebuggingEnabled.collectAsStateWithLifecycle()
     val authState by viewModel.authState.collectAsStateWithLifecycle()
-    val isSigningIn by viewModel.isSigningIn.collectAsStateWithLifecycle()
-    val isDeletingAccount by viewModel.isDeletingAccount.collectAsStateWithLifecycle()
+    val busyOp by viewModel.busyOp.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val resources = LocalResources.current
@@ -125,13 +126,8 @@ fun SettingsScreen(
         )
     }
 
-    // Observe toast messages from SettingsViewModel (emitted as string resource IDs)
-    // Context is used for string resolution in a side-effect, not for rendering
-    @Suppress("LocalContextGetResourceValueCall")
-    LaunchedEffect(Unit) {
-        viewModel.toastMessage.collect { messageResId ->
-            Toast.makeText(context, context.getString(messageResId), Toast.LENGTH_SHORT).show()
-        }
+    CollectEvents(viewModel.events) { message ->
+        Toast.makeText(context, message.resolve(resources), Toast.LENGTH_SHORT).show()
     }
 
     // Export file picker (create .lorecipes document)
@@ -150,24 +146,9 @@ fun SettingsScreen(
         }
     }
 
-    // Show snackbar for export operation results
-    LaunchedEffect(zipOperationState) {
-        when (val state = zipOperationState) {
-            is ZipOperationState.ExportComplete -> {
-                val message = if (state.failedCount > 0) {
-                    resources.getQuantityString(R.plurals.exported_recipes_with_failures, state.exportedCount, state.exportedCount, state.failedCount)
-                } else {
-                    resources.getQuantityString(R.plurals.exported_recipes, state.exportedCount, state.exportedCount)
-                }
-                snackbarHostState.showSnackbar(message)
-                zipViewModel.resetOperationState()
-            }
-            is ZipOperationState.Error -> {
-                snackbarHostState.showSnackbar(state.message)
-                zipViewModel.resetOperationState()
-            }
-            else -> {}
-        }
+    // Export results
+    CollectEvents(zipViewModel.events) { message ->
+        snackbarHostState.showSnackbar(message.resolve(resources))
     }
 
     Scaffold(
@@ -195,8 +176,7 @@ fun SettingsScreen(
                 onApiKeyInputChange = viewModel::onApiKeyInputChange,
                 onSaveClick = viewModel::saveApiKey,
                 onClearClick = viewModel::clearApiKey,
-                saveState = saveState,
-                onResetSaveState = viewModel::resetSaveState
+                apiKeyError = apiKeyError?.text()
             )
 
             HorizontalDivider()
@@ -204,32 +184,33 @@ fun SettingsScreen(
             AccountSection(
                 authState = authState,
                 onSignInWithGoogle = {
-                    viewModel.onGoogleSignInStarted()
-                    scope.launch {
-                        val result = try {
-                            viewModel.requestGoogleCredential(context)
-                        } catch (e: CancellationException) {
-                            viewModel.onGoogleSignInAborted()
-                            throw e
+                    if (viewModel.beginGoogleSignIn()) {
+                        // Undispatched so the finally runs even if the scope is cancelled right away
+                        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                            // Cancelled unless a result arrives (e.g. the screen left composition)
+                            var result: CredentialResult = CredentialResult.Cancelled
+                            try {
+                                result = viewModel.requestGoogleCredential(context)
+                            } finally {
+                                viewModel.completeGoogleSignIn(result)
+                            }
                         }
-                        viewModel.onGoogleCredentialResult(result)
                     }
                 },
                 onSignOut = { viewModel.signOut() },
                 onDeleteAccount = {
-                    viewModel.onDeleteAccountStarted()
-                    scope.launch {
-                        val reauth = try {
-                            viewModel.requestReauthCredential(context)
-                        } catch (e: CancellationException) {
-                            viewModel.deleteAccount(null)
-                            throw e
+                    if (viewModel.beginDeleteAccount()) {
+                        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                            var reauth: CredentialResult = CredentialResult.Cancelled
+                            try {
+                                reauth = viewModel.requestReauthCredential(context)
+                            } finally {
+                                viewModel.deleteAccount(reauth)
+                            }
                         }
-                        viewModel.deleteAccount(reauth)
                     }
                 },
-                isSigningIn = isSigningIn,
-                isDeletingAccount = isDeletingAccount
+                busyOp = busyOp
             )
 
             HorizontalDivider()
@@ -286,7 +267,7 @@ fun SettingsScreen(
 
             // Backup & Restore Section
             BackupRestoreSection(
-                operationState = zipOperationState,
+                isExporting = isExporting,
                 onExportClick = {
                     val today = Clock.System.todayIn(TimeZone.currentSystemDefault())
                     exportLauncher.launch("lion-otter-recipes-$today.lorecipes")

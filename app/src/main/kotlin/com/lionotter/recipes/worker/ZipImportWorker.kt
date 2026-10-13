@@ -6,6 +6,9 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.Data
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.lionotter.recipes.domain.ArchiveFailure
+import com.lionotter.recipes.domain.Outcome
+import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.usecase.ImportFromZipUseCase
 import com.lionotter.recipes.notification.RecipeNotificationHelper
 import dagger.assisted.Assisted
@@ -33,10 +36,10 @@ class ZipImportWorker @AssistedInject constructor(
 
     override suspend fun doRecipeWork(): Result {
         val importId = inputData.getString(KEY_IMPORT_ID)
-            ?: return errorResult("No import ID provided")
+            ?: return errorResult(RecipeError.Unexpected, "no import ID provided")
         val sourceFile = inputStore.sourceFile(importId)
         if (!sourceFile.exists()) {
-            return errorResult("The file to import is no longer available. Please choose it again.")
+            return errorResult(RecipeError.Archive(ArchiveFailure.MISSING), "the file to import is gone")
         }
         val selectedRecipeIds = inputStore.readSelection(importId)
         setForegroundProgress("Starting import...")
@@ -58,40 +61,40 @@ class ZipImportWorker @AssistedInject constructor(
                                 } else {
                                     "Importing ${progress.current}: ${progress.recipeName}"
                                 }
-                        is ImportFromZipUseCase.ImportProgress.Complete -> null to "Complete!"
                     }
-                    workProgress?.let { setProgress(it.toData()) }
+                    setProgress(workProgress.toData())
                     setForegroundProgress(message)
                 }
             )
         }
 
         return when (result) {
-            is ImportFromZipUseCase.ImportResult.Success -> {
+            is Outcome.Success -> {
+                val summary = result.value
                 inputStore.deleteImport(importId)
                 notificationHelper.showSummaryNotification(
                     key = importId,
                     title = "Import Complete",
                     message = notificationHelper.zipImportMessage(
-                        importedCount = result.importedCount,
-                        failedCount = result.failedCount,
-                        skippedCount = result.skippedCount,
-                        mealPlansImported = result.mealPlansImported
+                        importedCount = summary.importedCount,
+                        failedCount = summary.failedCount,
+                        skippedCount = summary.skippedCount,
+                        mealPlansImported = summary.mealPlansImported
                     )
                 )
                 successResult(
                     ZipImportWork.Outcome.Success(
                         importId = importId,
-                        importedCount = result.importedCount,
-                        failedCount = result.failedCount,
-                        skippedCount = result.skippedCount,
-                        mealPlansImported = result.mealPlansImported
+                        importedCount = summary.importedCount,
+                        failedCount = summary.failedCount,
+                        skippedCount = summary.skippedCount,
+                        mealPlansImported = summary.mealPlansImported
                     )
                 )
             }
-            is ImportFromZipUseCase.ImportResult.Error -> {
-                Log.w(TAG, "ZIP import $importId failed: ${result.message}")
-                errorResult(ZipImportWork.Outcome.Failed(result.message, importId))
+            is Outcome.Failure -> {
+                Log.w(TAG, "ZIP import $importId failed: ${result.error}")
+                errorResult(ZipImportWork.Outcome.Failed(result.error, importId))
             }
         }
     }
@@ -149,9 +152,8 @@ object ZipImportWork : WorkContract<ZipImportWork.Progress, ZipImportWork.Outcom
             )
         }
 
-        data class Failed(override val message: String?, val importId: String?) : Outcome, FailureOutcome {
-            override fun toData() =
-                WorkResult.failure(WorkResult.ERROR, message, WorkResult.KEY_IMPORT_ID to importId)
+        data class Failed(override val error: RecipeError, val importId: String?) : Outcome, FailureOutcome {
+            override fun toData() = WorkResult.failure(error, WorkResult.KEY_IMPORT_ID to importId)
         }
     }
 
@@ -177,7 +179,7 @@ object ZipImportWork : WorkContract<ZipImportWork.Progress, ZipImportWork.Outcom
                 mealPlansImported = data.getInt(KEY_MEAL_PLANS_IMPORTED, 0)
             )
         } else {
-            Outcome.Failed(WorkResult.message(data), importId)
+            Outcome.Failed(WorkResult.error(data), importId)
         }
     }
 }

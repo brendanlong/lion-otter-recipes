@@ -1,13 +1,14 @@
 package com.lionotter.recipes.data.repository
 
-import com.google.firebase.Firebase
 import com.google.firebase.firestore.DocumentSnapshot
-import com.google.firebase.firestore.firestore
 import com.lionotter.recipes.data.remote.AuthService
+import com.lionotter.recipes.data.remote.DataFailure
+import com.lionotter.recipes.data.remote.DataOp
 import com.lionotter.recipes.data.remote.FirestoreService
 import com.lionotter.recipes.data.remote.dto.MealPlanDto
 import com.lionotter.recipes.data.remote.dto.toDto
 import com.lionotter.recipes.data.remote.uid
+import com.lionotter.recipes.di.ApplicationScope
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.data.remote.dto.MealPlanFields
@@ -15,7 +16,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
@@ -32,16 +32,15 @@ import javax.inject.Singleton
 @Singleton
 class MealPlanRepository @Inject constructor(
     private val firestoreService: FirestoreService,
-    private val authService: AuthService
+    private val authService: AuthService,
+    @param:ApplicationScope private val appScope: CoroutineScope
 ) : IMealPlanRepository {
     companion object {
         private const val TAG = "MealPlanRepository"
     }
 
-    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
-    private fun write(action: String, block: (uid: String) -> Unit) =
-        authService.writeForCurrentUser(repositoryScope, firestoreService, TAG, action, block)
+    private fun write(op: DataOp, id: String, block: (uid: String) -> Unit) =
+        authService.writeForCurrentUser(appScope, firestoreService, DataFailure(op, id), block)
 
     private fun decodeMealPlan(doc: DocumentSnapshot): MealPlanEntry? =
         doc.toObject(MealPlanDto::class.java)?.toDomain()
@@ -60,43 +59,33 @@ class MealPlanRepository @Inject constructor(
                     firestoreService.mealPlansCollection(uid)
                         .whereGreaterThanOrEqualTo("date", startDate.toString())
                         .whereLessThanOrEqualTo("date", endDate.toString())
-                        .snapshots(firestoreService, TAG, "meal plans")
+                        .snapshots(firestoreService, DataOp.LOAD_MEAL_PLANS)
                         .decodeIncrementally(TAG, ::decodeMealPlan)
                         .flowOn(Dispatchers.Default)
                 }
             }
             .conflate()
 
-    override fun saveMealPlan(entry: MealPlanEntry) = write("save meal plan") { uid ->
-        val dto = entry.toDto()
-        firestoreService.mealPlansCollection(uid).document(entry.id).set(dto)
-            .addOnFailureListener { e ->
-                ErrorLog.e(TAG, "Error saving meal plan ${entry.id}", e)
-                firestoreService.reportError("Failed to save meal plan: ${e.message}")
-            }
+    override fun saveMealPlan(entry: MealPlanEntry) = write(DataOp.SAVE_MEAL_PLAN, entry.id) { uid ->
+        firestoreService.mealPlansCollection(uid).document(entry.id).set(entry.toDto())
+            .reportFailureTo(firestoreService, DataFailure(DataOp.SAVE_MEAL_PLAN, entry.id))
     }
 
-    override fun updateMealPlan(entry: MealPlanEntry) = write("update meal plan") { uid ->
-        val dto = entry.toDto()
-        firestoreService.mealPlansCollection(uid).document(entry.id).set(dto)
-            .addOnFailureListener { e ->
-                ErrorLog.e(TAG, "Error updating meal plan ${entry.id}", e)
-                firestoreService.reportError("Failed to update meal plan: ${e.message}")
-            }
+    override fun updateMealPlan(entry: MealPlanEntry) = write(DataOp.UPDATE_MEAL_PLAN, entry.id) { uid ->
+        firestoreService.mealPlansCollection(uid).document(entry.id).set(entry.toDto())
+            .reportFailureTo(firestoreService, DataFailure(DataOp.UPDATE_MEAL_PLAN, entry.id))
     }
 
-    override fun deleteMealPlan(id: String) = write("delete meal plan") { uid ->
+    override fun deleteMealPlan(id: String) = write(DataOp.DELETE_MEAL_PLAN, id) { uid ->
         firestoreService.mealPlansCollection(uid).document(id).delete()
-            .addOnFailureListener { e ->
-                ErrorLog.e(TAG, "Error deleting meal plan $id", e)
-                firestoreService.reportError("Failed to delete meal plan: ${e.message}")
-            }
+            .reportFailureTo(firestoreService, DataFailure(DataOp.DELETE_MEAL_PLAN, id))
     }
 
     /**
      * Deletes all meal plans referencing [recipeId]. Runs to completion even if the
      * caller is cancelled. The batch is applied to the local cache immediately and
-     * synced in the background (it is not awaited, since that never completes offline).
+     * synced in the background (it is not awaited, since that never completes offline);
+     * a sync failure is reported through [FirestoreService.failures].
      *
      * @throws Exception if the meal plans could not be queried
      */
@@ -109,15 +98,12 @@ class MealPlanRepository @Inject constructor(
 
             if (snapshot.documents.isEmpty()) return@logFailure
 
-            val batch = Firebase.firestore.batch()
+            val batch = firestoreService.batch()
             for (doc in snapshot.documents) {
                 batch.delete(doc.reference)
             }
             batch.commit()
-                .addOnFailureListener { e ->
-                    ErrorLog.e(TAG, "Error batch deleting meal plans for recipe $recipeId", e)
-                    firestoreService.reportError("Failed to delete meal plans: ${e.message}")
-                }
+                .reportFailureTo(firestoreService, DataFailure(DataOp.DELETE_RECIPE_MEAL_PLANS, recipeId))
             Unit
         }
     }

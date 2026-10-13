@@ -239,10 +239,7 @@ class AuthService @Inject constructor(
 
     private suspend fun clearLocalData(enableNetwork: Boolean) {
         if (!firestoreService.clearLocalData(enableNetwork)) {
-            firestoreService.reportError(
-                "Couldn't remove the previous account's data from this device. " +
-                    "Clear the app's storage in Android settings to remove it."
-            )
+            firestoreService.reportFailure(DataFailure(DataOp.CLEAR_PREVIOUS_ACCOUNT))
         }
     }
 

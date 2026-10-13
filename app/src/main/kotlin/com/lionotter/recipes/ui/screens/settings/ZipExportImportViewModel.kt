@@ -4,6 +4,9 @@ import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lionotter.recipes.R
+import com.lionotter.recipes.messages.UserMessage
+import com.lionotter.recipes.messages.toUserMessage
 import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.worker.RecipeWorkScheduler
 import com.lionotter.recipes.worker.WorkStatus
@@ -12,10 +15,12 @@ import com.lionotter.recipes.worker.ZipExportWork
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -35,20 +40,29 @@ class ZipExportImportViewModel @Inject constructor(
     private val exportWork =
         WorkTracker(savedStateHandle, KEY_EXPORT_WORK_ID, viewModelScope, recipeWorkScheduler::observeExport)
 
-    /** Failure to start the export; the export's own state is shown once it is tracked. */
-    private val startError = MutableStateFlow<ZipOperationState?>(null)
+    private val exportStatus = exportWork.status.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
-    val operationState: StateFlow<ZipOperationState> =
-        combine(startError, exportWork.status) { error, status ->
-            error ?: status?.let(::exportState) ?: ZipOperationState.Idle
-        }.stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.Eagerly,
-            initialValue = ZipOperationState.Idle
-        )
+    /** The export's result, reported once (even if it finished while the screen was gone). */
+    private val _events = Channel<UserMessage>(Channel.BUFFERED)
+    val events: Flow<UserMessage> = _events.receiveAsFlow()
+
+    val isExporting: StateFlow<Boolean> = exportStatus
+        .map { status ->
+            status == WorkStatus.Missing || status == WorkStatus.Queued || status is WorkStatus.Running
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, initialValue = false)
+
+    init {
+        viewModelScope.launch {
+            exportStatus.collect { status ->
+                val message = status?.let(::resultMessage) ?: return@collect
+                exportWork.clear()
+                _events.send(message)
+            }
+        }
+    }
 
     fun exportToZip(fileUri: Uri) {
-        startError.value = null
         viewModelScope.launch {
             try {
                 withContext(NonCancellable) { exportWork.start(recipeWorkScheduler.prepareExport(fileUri)) }
@@ -56,30 +70,27 @@ class ZipExportImportViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 ErrorLog.e(TAG, "Failed to start export", e)
-                startError.value = ZipOperationState.Error("Export failed: ${e.message}")
+                _events.send(UserMessage(R.string.error_start_export))
             }
         }
     }
 
-    fun resetOperationState() {
-        startError.value = null
-        exportWork.clear()
-    }
-
-    private fun exportState(status: WorkStatus<ZipExportWork.Progress, ZipExportWork.Outcome>): ZipOperationState =
+    /** The message for finished (or cancelled) export work, or null while it is still running. */
+    private fun resultMessage(status: WorkStatus<ZipExportWork.Progress, ZipExportWork.Outcome>): UserMessage? =
         when (status) {
-            WorkStatus.Missing, WorkStatus.Queued, is WorkStatus.Running -> ZipOperationState.Exporting
+            WorkStatus.Missing, WorkStatus.Queued, is WorkStatus.Running -> null
             is WorkStatus.Finished -> when (val outcome = status.outcome) {
-                is ZipExportWork.Outcome.Success -> ZipOperationState.ExportComplete(outcome.exportedCount, outcome.failedCount)
-                is ZipExportWork.Outcome.Failed -> ZipOperationState.Error(outcome.message ?: "Export failed")
+                is ZipExportWork.Outcome.Success -> if (outcome.failedCount > 0) {
+                    UserMessage.Plural(
+                        R.plurals.exported_recipes_with_failures,
+                        outcome.exportedCount,
+                        listOf(outcome.exportedCount, outcome.failedCount)
+                    )
+                } else {
+                    UserMessage.Plural(R.plurals.exported_recipes, outcome.exportedCount)
+                }
+                is ZipExportWork.Outcome.Failed -> outcome.error.toUserMessage()
             }
-            WorkStatus.Cancelled -> ZipOperationState.Error("Export was cancelled")
+            WorkStatus.Cancelled -> UserMessage(R.string.error_export_cancelled)
         }
-}
-
-sealed class ZipOperationState {
-    object Idle : ZipOperationState()
-    object Exporting : ZipOperationState()
-    data class ExportComplete(val exportedCount: Int, val failedCount: Int) : ZipOperationState()
-    data class Error(val message: String) : ZipOperationState()
 }

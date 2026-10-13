@@ -7,6 +7,9 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.Data
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.lionotter.recipes.domain.ArchiveFailure
+import com.lionotter.recipes.domain.Outcome
+import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.usecase.ExportToZipUseCase
 import com.lionotter.recipes.notification.RecipeNotificationHelper
 import com.lionotter.recipes.util.ErrorLog
@@ -35,17 +38,17 @@ class ZipExportWorker @AssistedInject constructor(
 
     override suspend fun doRecipeWork(): Result {
         val fileUriString = inputData.getString(KEY_FILE_URI)
-            ?: return errorResult("No file URI provided")
+            ?: return errorResult(RecipeError.Unexpected, "no file URI provided")
 
         val fileUri = fileUriString.toUri()
         setForegroundProgress("Starting export...")
 
         val outputStream = try {
             context.contentResolver.openOutputStream(fileUri)
-                ?: return errorResult("Could not open file for writing")
+                ?: return errorResult(RecipeError.Archive(ArchiveFailure.WRITE_FAILED), "couldn't open the file")
         } catch (e: Exception) {
             ErrorLog.e(TAG, "Failed to open export file", e)
-            return errorResult("Failed to open file: ${e.message}")
+            return errorResult(GenericFailure(RecipeError.Archive(ArchiveFailure.WRITE_FAILED), importId = null))
         }
 
         val result = outputStream.use { stream ->
@@ -58,24 +61,24 @@ class ZipExportWorker @AssistedInject constructor(
                         is ExportToZipUseCase.ExportProgress.ExportingRecipe ->
                             ZipExportWork.Progress.Exporting(progress.recipeName, progress.current, progress.total) to
                                 "Exporting ${progress.current}/${progress.total}: ${progress.recipeName}"
-                        is ExportToZipUseCase.ExportProgress.Complete -> null to "Complete!"
                     }
-                    workProgress?.let { setProgress(it.toData()) }
+                    setProgress(workProgress.toData())
                     setForegroundProgress(message)
                 }
             )
         }
 
         return when (result) {
-            is ExportToZipUseCase.ExportResult.Success -> {
+            is Outcome.Success -> {
+                val summary = result.value
                 notificationHelper.showSummaryNotification(
                     key = operationKey,
                     title = "Export Complete",
-                    message = notificationHelper.zipExportMessage(result.exportedCount, result.failedCount)
+                    message = notificationHelper.zipExportMessage(summary.exportedCount, summary.failedCount)
                 )
-                successResult(ZipExportWork.Outcome.Success(result.exportedCount, result.failedCount))
+                successResult(ZipExportWork.Outcome.Success(summary.exportedCount, summary.failedCount))
             }
-            is ExportToZipUseCase.ExportResult.Error -> errorResult(ZipExportWork.Outcome.Failed(result.message))
+            is Outcome.Failure -> errorResult(ZipExportWork.Outcome.Failed(result.error))
         }
     }
 }
@@ -115,8 +118,8 @@ object ZipExportWork : WorkContract<ZipExportWork.Progress, ZipExportWork.Outcom
             )
         }
 
-        data class Failed(override val message: String?) : Outcome, FailureOutcome {
-            override fun toData() = WorkResult.failure(WorkResult.ERROR, message)
+        data class Failed(override val error: RecipeError) : Outcome, FailureOutcome {
+            override fun toData() = WorkResult.failure(error)
         }
     }
 
@@ -133,6 +136,6 @@ object ZipExportWork : WorkContract<ZipExportWork.Progress, ZipExportWork.Outcom
     override fun decodeOutcome(succeeded: Boolean, data: Data): Outcome = if (succeeded) {
         Outcome.Success(data.getInt(KEY_EXPORTED_COUNT, 0), data.getInt(KEY_FAILED_COUNT, 0))
     } else {
-        Outcome.Failed(WorkResult.message(data))
+        Outcome.Failed(WorkResult.error(data))
     }
 }

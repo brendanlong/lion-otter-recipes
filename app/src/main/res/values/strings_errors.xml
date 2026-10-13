@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Import, edit and archive failures (RecipeError) -->
+    <string name="error_no_api_key">Add your Anthropic API key in Settings first.</string>
+    <string name="error_no_source_url">This recipe has no source URL to regenerate it from.</string>
+    <string name="error_recipe_not_found">This recipe no longer exists.</string>
+    <string name="error_recipe_limit_reached">Recipe limit reached (%1$d/%2$d). Delete some recipes before importing new ones.</string>
+    <string name="error_not_a_recipe">Couldn\'t read a recipe: %1$s</string>
+    <string name="error_interrupted">This was interrupted before it finished. Please try again.</string>
+    <string name="error_cannot_retry">This import can\'t be retried. Please start it again.</string>
+    <string name="error_unexpected">Something went wrong. Please try again.</string>
+    <!-- A message saved by an older app version, shown as-is. -->
+    <string name="error_legacy" translatable="false">%1$s</string>
+
+    <string name="error_page_network">Couldn\'t load the page. Check your internet connection.</string>
+    <string name="error_page_too_large">This page is too large to import.</string>
+    <string name="error_page_bot_check">This site uses a bot check that blocked the request (%1$d). Try copying the recipe text instead.</string>
+    <string name="error_page_blocked">The site blocked the request (%1$d).</string>
+    <string name="error_page_not_found">The page wasn\'t found (%1$d). Check the URL.</string>
+    <string name="error_page_rate_limited">The site is rate limiting requests (%1$d). Try again later.</string>
+    <string name="error_page_server_error">The site had a server error (%1$d). Try again later.</string>
+    <string name="error_page_http_error">The site returned an error (%1$d).</string>
+    <string name="error_page_failed">Couldn\'t load the page.</string>
+
+    <string name="error_ai_invalid_api_key">Your Anthropic API key was rejected. Check it in Settings.</string>
+    <string name="error_ai_permission_denied">Your Anthropic API key isn\'t allowed to use this model.</string>
+    <string name="error_ai_model_unavailable">The selected AI model isn\'t available. Choose a different model in Settings.</string>
+    <string name="error_ai_rate_limited">Anthropic rate limit reached. Please wait a minute and try again.</string>
+    <string name="error_ai_out_of_credits">Your Anthropic account is out of credits. Add credits at console.anthropic.com.</string>
+    <string name="error_ai_request_rejected">The AI request was rejected.</string>
+    <string name="error_ai_overloaded">Anthropic\'s servers are overloaded or unavailable. Please try again shortly.</string>
+    <string name="error_ai_network">Couldn\'t reach Anthropic. Check your internet connection.</string>
+    <string name="error_ai_http_error">The AI request failed (HTTP %1$d).</string>
+    <string name="error_ai_refused">The AI declined to process this content.</string>
+    <string name="error_ai_truncated">The AI ran out of room before finishing this recipe. Try again with thinking turned off or a shorter recipe.</string>
+    <string name="error_ai_empty_response">The AI returned an empty response.</string>
+    <string name="error_ai_unreadable_response">The AI returned a response that couldn\'t be read.</string>
+    <string name="error_ai_failed">The AI request failed.</string>
+
+    <string name="error_archive_too_large">This file is too large to import.</string>
+    <string name="error_archive_unreadable">Couldn\'t read the file. Is it a Lion+Otter or Paprika export?</string>
+    <string name="error_archive_not_an_export">This file isn\'t a Lion+Otter or Paprika recipe export.</string>
+    <string name="error_archive_no_recipes">No recipes found in this file.</string>
+    <string name="error_archive_no_readable_recipes">None of the recipes in this file could be read.</string>
+    <string name="error_archive_missing">The file to import is no longer available. Please choose it again.</string>
+    <string name="error_archive_nothing_to_export">There are no recipes to export.</string>
+    <string name="error_archive_write_failed">Couldn\'t write the export file.</string>
+
+    <!-- Background sync failures (DataFailure) -->
+    <string name="error_sync_save_recipe">Couldn\'t save the recipe.</string>
+    <string name="error_sync_update_image">Couldn\'t update the recipe image.</string>
+    <string name="error_sync_update_recipe">Couldn\'t update the recipe.</string>
+    <string name="error_sync_delete_recipe_meal_plans">Couldn\'t remove the recipe\'s meals from the meal plan.</string>
+    <string name="error_sync_clear_previous_account">Couldn\'t remove the previous account\'s data from this device. Clear the app\'s storage in Android settings to remove it.</string>
+
+    <!-- Screen-specific failures -->
+    <string name="error_enter_url">Please enter a URL</string>
+    <string name="error_url_scheme">URL must start with http:// or https://</string>
+    <string name="error_start_import">Couldn\'t start the import. Please try again.</string>
+    <string name="error_open_import_file">Couldn\'t open the file.</string>
+    <string name="error_image_unusable">Couldn\'t use that image.</string>
+    <string name="error_save_changes">Couldn\'t save your changes. Please try again.</string>
+    <string name="error_copy_image">The copy was saved, but its new image couldn\'t be.</string>
+    <string name="error_start_regeneration">Couldn\'t start regenerating the recipe.</string>
+    <string name="error_start_export">Couldn\'t start the export.</string>
+    <string name="error_export_cancelled">The export was cancelled.</string>
+    <string name="error_api_key_empty">API key cannot be empty</string>
+    <string name="error_api_key_prefix">Invalid API key format. Should start with \'%1$s\'</string>
+    <string name="error_api_key_save">Couldn\'t save the API key. Please try again.</string>
+    <string name="error_sign_out">Couldn\'t sign out. Please try again.</string>
+
+    <!-- Edit progress -->
+    <string name="edit_progress_saving">Saving…</string>
+    <string name="edit_progress_preparing">Preparing…</string>
+    <string name="edit_progress_ai_processing">AI is processing your changes…</string>
+    <string name="edit_progress_ai_reanalyzing">AI is re-analyzing…</string>
+</resources>

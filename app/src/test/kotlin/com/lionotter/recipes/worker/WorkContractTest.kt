@@ -3,6 +3,10 @@ package com.lionotter.recipes.worker
 import androidx.work.Data
 import androidx.work.WorkInfo
 import androidx.work.workDataOf
+import com.lionotter.recipes.domain.AiFailure
+import com.lionotter.recipes.domain.ArchiveFailure
+import com.lionotter.recipes.domain.PageFetchFailure
+import com.lionotter.recipes.domain.RecipeError
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -38,8 +42,9 @@ class WorkContractTest {
     fun `recipe import outcomes round trip`() {
         listOf(
             RecipeImportWork.Outcome.Success("i1", "r1", "Pasta") to true,
-            RecipeImportWork.Outcome.NoApiKey("Add a key", "i1") to false,
-            RecipeImportWork.Outcome.Failed("Boom", "i1") to false
+            RecipeImportWork.Outcome.Failed(RecipeError.NoApiKey, "i1") to false,
+            RecipeImportWork.Outcome.Failed(RecipeError.PageFetch(PageFetchFailure.BLOCKED, 403), "i1") to false,
+            RecipeImportWork.Outcome.Failed(RecipeError.NotARecipe("It's a blog post"), "i1") to false
         ).forEach { (outcome, succeeded) ->
             val data = (outcome as? SuccessOutcome)?.toData() ?: (outcome as FailureOutcome).toData()
             assertOutcomeRoundTrip(RecipeImportWork, outcome, succeeded, data)
@@ -56,10 +61,21 @@ class WorkContractTest {
             )
         )
         assertEquals(
-            RecipeImportWork.Outcome.NoApiKey("msg", "i1"),
+            RecipeImportWork.Outcome.Failed(RecipeError.NoApiKey, "i1"),
             RecipeImportWork.decodeOutcome(
                 succeeded = false,
                 data = workDataOf("result_type" to "no_api_key", "error_message" to "msg", "import_id" to "i1")
+            )
+        )
+        assertEquals(
+            RecipeImportWork.Outcome.Failed(RecipeError.Legacy("The site blocked the request (403)."), "i1"),
+            RecipeImportWork.decodeOutcome(
+                succeeded = false,
+                data = workDataOf(
+                    "result_type" to "error",
+                    "error_message" to "The site blocked the request (403).",
+                    "import_id" to "i1"
+                )
             )
         )
         assertEquals(
@@ -77,18 +93,35 @@ class WorkContractTest {
     }
 
     @Test
-    fun `failure without output decodes as a generic failure`() {
-        assertEquals(RecipeImportWork.Outcome.Failed(null, null), RecipeImportWork.decodeOutcome(false, Data.EMPTY))
-        assertEquals(RecipeEditWork.Outcome.Failed(null, null), RecipeEditWork.decodeOutcome(false, Data.EMPTY))
-        assertEquals(ZipExportWork.Outcome.Failed(null), ZipExportWork.decodeOutcome(false, Data.EMPTY))
+    fun `failure without output decodes as an unexpected failure`() {
+        assertEquals(
+            RecipeImportWork.Outcome.Failed(RecipeError.Unexpected, null),
+            RecipeImportWork.decodeOutcome(false, Data.EMPTY)
+        )
+        assertEquals(RecipeEditWork.Outcome.Failed(RecipeError.Unexpected, null), RecipeEditWork.decodeOutcome(false, Data.EMPTY))
+        assertEquals(ZipExportWork.Outcome.Failed(RecipeError.Unexpected), ZipExportWork.decodeOutcome(false, Data.EMPTY))
     }
 
     @Test
     fun `generic failure decodes as each worker's failure`() {
-        val data = GenericFailure("Something went wrong: boom", "i1").toData()
-        assertEquals(RecipeImportWork.Outcome.Failed("Something went wrong: boom", "i1"), RecipeImportWork.decodeOutcome(false, data))
-        assertEquals(PaprikaImportWork.Outcome.Failed("Something went wrong: boom", "i1"), PaprikaImportWork.decodeOutcome(false, data))
-        assertEquals(ZipImportWork.Outcome.Failed("Something went wrong: boom", "i1"), ZipImportWork.decodeOutcome(false, data))
+        val data = GenericFailure(RecipeError.Unexpected, "i1").toData()
+        assertEquals(RecipeImportWork.Outcome.Failed(RecipeError.Unexpected, "i1"), RecipeImportWork.decodeOutcome(false, data))
+        assertEquals(PaprikaImportWork.Outcome.Failed(RecipeError.Unexpected, "i1"), PaprikaImportWork.decodeOutcome(false, data))
+        assertEquals(ZipImportWork.Outcome.Failed(RecipeError.Unexpected, "i1"), ZipImportWork.decodeOutcome(false, data))
+    }
+
+    @Test
+    fun `failures still write the result types earlier versions wrote`() {
+        fun type(error: RecipeError) = GenericFailure(error, null).toData().getString("result_type")
+        assertEquals("no_api_key", type(RecipeError.NoApiKey))
+        assertEquals("no_source_url", type(RecipeError.NoSourceUrl))
+        assertEquals("error", type(RecipeError.Ai(AiFailure.OVERLOADED)))
+    }
+
+    @Test
+    fun `an unreadable encoded error falls back to the result type`() {
+        val data = workDataOf("result_type" to "no_source_url", "error" to "{\"type\":\"from_the_future\"}")
+        assertEquals(RecipeRegenerateWork.Outcome.Failed(RecipeError.NoSourceUrl, null), RecipeRegenerateWork.decodeOutcome(false, data))
     }
 
     @Test
@@ -106,8 +139,8 @@ class WorkContractTest {
         listOf(
             PaprikaImportWork.Outcome.Success("i1", importedCount = 4, failedCount = 1) to true,
             PaprikaImportWork.Outcome.Continued("i1") to true,
-            PaprikaImportWork.Outcome.NoApiKey("Add a key", "i1") to false,
-            PaprikaImportWork.Outcome.Failed("Boom", "i1") to false
+            PaprikaImportWork.Outcome.Failed(RecipeError.NoApiKey, "i1") to false,
+            PaprikaImportWork.Outcome.Failed(RecipeError.LimitReached(1000, 1000), "i1") to false
         ).forEach { (outcome, succeeded) ->
             val data = (outcome as? SuccessOutcome)?.toData() ?: (outcome as FailureOutcome).toData()
             assertOutcomeRoundTrip(PaprikaImportWork, outcome, succeeded, data)
@@ -144,7 +177,7 @@ class WorkContractTest {
         ).forEach { assertProgressRoundTrip(ZipImportWork, it, it.toData()) }
         listOf(
             ZipImportWork.Outcome.Success("i1", 3, 1, 2, 4) to true,
-            ZipImportWork.Outcome.Failed("Bad file", "i1") to false
+            ZipImportWork.Outcome.Failed(RecipeError.Archive(ArchiveFailure.UNREADABLE), "i1") to false
         ).forEach { (outcome, succeeded) ->
             val data = (outcome as? SuccessOutcome)?.toData() ?: (outcome as FailureOutcome).toData()
             assertOutcomeRoundTrip(ZipImportWork, outcome, succeeded, data)
@@ -168,7 +201,8 @@ class WorkContractTest {
             ZipExportWork.Progress.Exporting("Soup", 1, 5)
         ).forEach { assertProgressRoundTrip(ZipExportWork, it, it.toData()) }
         assertOutcomeRoundTrip(ZipExportWork, ZipExportWork.Outcome.Success(5, 1), true, ZipExportWork.Outcome.Success(5, 1).toData())
-        assertOutcomeRoundTrip(ZipExportWork, ZipExportWork.Outcome.Failed("Disk full"), false, ZipExportWork.Outcome.Failed("Disk full").toData())
+        val failed = ZipExportWork.Outcome.Failed(RecipeError.Archive(ArchiveFailure.WRITE_FAILED))
+        assertOutcomeRoundTrip(ZipExportWork, failed, false, failed.toData())
         assertEquals(
             ZipExportWork.Outcome.Success(5, 1),
             ZipExportWork.decodeOutcome(true, workDataOf("result_type" to "success", "exported_count" to 5, "failed_count" to 1))
@@ -185,8 +219,8 @@ class WorkContractTest {
         listOf(
             RecipeEditWork.Outcome.Success("r1", "Pasta", newRecipeId = "copy") to true,
             RecipeEditWork.Outcome.Success("r1", "Pasta", newRecipeId = null) to true,
-            RecipeEditWork.Outcome.NoApiKey("API key not configured", "r1") to false,
-            RecipeEditWork.Outcome.Failed("Boom", "r1") to false
+            RecipeEditWork.Outcome.Failed(RecipeError.NoApiKey, "r1") to false,
+            RecipeEditWork.Outcome.Failed(RecipeError.Ai(AiFailure.HTTP_ERROR, 418), "r1") to false
         ).forEach { (outcome, succeeded) ->
             val data = (outcome as? SuccessOutcome)?.toData() ?: (outcome as FailureOutcome).toData()
             assertOutcomeRoundTrip(RecipeEditWork, outcome, succeeded, data)
@@ -199,7 +233,7 @@ class WorkContractTest {
             )
         )
         assertEquals(
-            RecipeEditWork.Outcome.NoApiKey("API key not configured", "r1"),
+            RecipeEditWork.Outcome.Failed(RecipeError.NoApiKey, "r1"),
             RecipeEditWork.decodeOutcome(
                 false,
                 workDataOf("result_type" to "no_api_key", "error_message" to "API key not configured", "recipe_id" to "r1")
@@ -216,15 +250,15 @@ class WorkContractTest {
         ).forEach { assertProgressRoundTrip(RecipeRegenerateWork, it, it.toData()) }
         listOf(
             RecipeRegenerateWork.Outcome.Success("r1", "Pasta") to true,
-            RecipeRegenerateWork.Outcome.NoApiKey("API key not configured", "r1") to false,
-            RecipeRegenerateWork.Outcome.NoSourceUrl("No source URL", "r1") to false,
-            RecipeRegenerateWork.Outcome.Failed("Boom", "r1") to false
+            RecipeRegenerateWork.Outcome.Failed(RecipeError.NoApiKey, "r1") to false,
+            RecipeRegenerateWork.Outcome.Failed(RecipeError.NoSourceUrl, "r1") to false,
+            RecipeRegenerateWork.Outcome.Failed(RecipeError.RecipeNotFound, "r1") to false
         ).forEach { (outcome, succeeded) ->
             val data = (outcome as? SuccessOutcome)?.toData() ?: (outcome as FailureOutcome).toData()
             assertOutcomeRoundTrip(RecipeRegenerateWork, outcome, succeeded, data)
         }
         assertEquals(
-            RecipeRegenerateWork.Outcome.NoSourceUrl("msg", "r1"),
+            RecipeRegenerateWork.Outcome.Failed(RecipeError.NoSourceUrl, "r1"),
             RecipeRegenerateWork.decodeOutcome(
                 false,
                 workDataOf("result_type" to "no_source_url", "error_message" to "msg", "recipe_id" to "r1")
@@ -252,8 +286,8 @@ class WorkContractTest {
                 .toWorkStatus(RecipeEditWork)
         )
         assertEquals(
-            WorkStatus.Finished(RecipeEditWork.Outcome.Failed("Boom", "r1")),
-            info(WorkInfo.State.FAILED, output = RecipeEditWork.Outcome.Failed("Boom", "r1").toData())
+            WorkStatus.Finished(RecipeEditWork.Outcome.Failed(RecipeError.Unexpected, "r1")),
+            info(WorkInfo.State.FAILED, output = RecipeEditWork.Outcome.Failed(RecipeError.Unexpected, "r1").toData())
                 .toWorkStatus(RecipeEditWork)
         )
         assertEquals(WorkStatus.Cancelled, info(WorkInfo.State.CANCELLED).toWorkStatus(RecipeEditWork))

@@ -99,8 +99,10 @@ interface IRecipeRepository {
 }
 ```
 
+- **Write contract.** The non-suspending writes (`saveRecipe`, `deleteRecipe`, `setFavorite`, `setUserNotes`, `setImageUrl`, `updateTitleAndUrl`, `saveMealPlan`, `updateMealPlan`, `deleteMealPlan`) apply to the local cache immediately, so flows show the change at once (also offline), and never throw. They sync in the background; a failure (or a failure to start the write) is reported asynchronously as a typed `DataFailure(op: DataOp, entityId)` through `FirestoreService.failures`. Callers need no try/catch, `NonCancellable` or error state for them. The suspending functions (reads, counts, `deleteMealPlansByRecipeId`, which must query first) do throw. Writes waiting for an auth transition and the shared listeners run in the injected `@ApplicationScope` (with its logging exception handler); repositories and `SettingsDataStore` don't create scopes of their own.
+- `FirestoreService.failures` is a `Channel` (up to 32 queued, oldest dropped) read with `receiveAsFlow`: each failure is delivered once, and failures while the app is in the background wait until `MainActivity` collects again (it collects while STARTED and toasts `DataFailure.toUserMessage()`). Snapshot listener errors arrive the same way (`LOAD_RECIPES` / `LOAD_MEAL_PLANS`), as does a failure to clear the previous account's local data (`CLEAR_PREVIOUS_ACCOUNT`). `deleteMealPlansByRecipeId` commits its batch through `FirestoreService.batch()`.
 - Both repositories re-subscribe when the auth state (`AuthService.authState`) or the Firestore instance generation (`FirestoreService.generation`) changes, so a sign-in, sign-out or local-data clear swaps the listener to the right user.
-- `data/repository/FirestoreFlows.kt` provides the shared listener helpers: an error-tolerant snapshot `Flow` (errors are logged and reported instead of killing the collector) and incremental decoding that only re-decodes changed documents and skips undecodable ones.
+- `data/repository/FirestoreFlows.kt` provides the shared helpers: an error-tolerant snapshot `Flow` (errors are reported as a `DataFailure` instead of killing the collector), incremental decoding that only re-decodes changed documents and skips undecodable ones, and `writeForCurrentUser` / `reportFailureTo` for the write contract.
 - `ImportDebugRepository` wraps `ImportDebugDao`; `PendingImportRepository` wraps `PendingImportDao`.
 - `RecipeDto` / `MealPlanDto` map the domain models to Firestore documents by hand. Field names used in queries and partial updates come from `RecipeFields` / `MealPlanFields` next to the DTOs, never string literals. A recipe whose `instructionSectionsJson` can't be parsed throws `CorruptRecipeException`: listings skip it (logged) and single reads fail, so it is never loaded with empty instructions that a later full save would write back. The JSON uses the shared `AppJson` configuration (also provided by `AppModule`).
 
@@ -116,6 +118,8 @@ interface IRecipeRepository {
 ### Error Reporting
 
 - Errors are logged with `ErrorLog.e(tag, message, throwable)` (in `util/`) rather than `Log.e`. It logs to logcat and, in release builds, records the throwable as a Crashlytics non-fatal (`LionOtterApp` installs the recorder). Only the throwable is sent, not the message, since messages often include recipe names or URLs.
+- **User-facing errors are never exception messages.** Failures of imports, edits, regeneration and archives are a sealed `RecipeError` (domain): `NoApiKey`, `NoSourceUrl`, `RecipeNotFound`, `LimitReached(count, limit)`, `PageFetch(PageFetchFailure, httpStatus)`, `Ai(AiFailure, httpStatus)`, `NotARecipe(reason)`, `Archive(ArchiveFailure)`, `Interrupted`, `CannotRetry`, `Unexpected` and `Legacy(message)` (an English message saved by an older version, shown as-is). `retryable` comes from the failure kind and drives worker retries. Data-layer exceptions that know their meaning implement `RecipeErrorSource` (`PageFetchException`, `AnthropicRequestException`, `RecipeParseException`, `RecipeErrorException`), so the domain maps them with `Throwable.toRecipeError()` without depending on those classes; anything else is `Unexpected` and its details only go to `ErrorLog`. `NotARecipe.reason` is the AI's own explanation and is shown.
+- The `messages` package turns errors into text: `UserMessage` (a string or plural resource plus arguments, resolved with `resolve(resources)` or, in Compose, `text()`), `RecipeError.toUserMessage()` (exhaustive) and `DataFailure.toUserMessage()`. ViewModels and workers (failure notifications) only produce `UserMessage`s; screens resolve them. `UserMessageTest` resolves every error against the real resources.
 - Uncaught crashes are reported by Crashlytics automatically. Collection is disabled in debug and benchmark builds via the `firebase_crashlytics_collection_enabled` manifest placeholder, and R8 mapping files are uploaded only when building in CI.
 
 ## Domain Layer
@@ -200,7 +204,7 @@ Orchestrates the full import flow:
 6. Save to Firestore (and download the image)
 ```
 
-Reports progress via callback for UI updates. Other use cases: `ImportPaprikaUseCase` (batch Paprika import, runs in short resumable steps), `ImportFromZipUseCase` / `ExportToZipUseCase` / `ExportSingleRecipeUseCase` (`.lorecipes` files), `RegenerateRecipeUseCase`, `EditRecipeUseCase`, `AggregateGroceryListUseCase`, `CalculateIngredientUsageUseCase`.
+Reports progress via callback for UI updates and returns `Outcome<Recipe>` (`Success(value)` or `Failure(RecipeError)`); `ParseHtmlUseCase`, `EditRecipeUseCase`, `RegenerateRecipeUseCase`, `ImportPaprikaUseCase` (`Outcome<ImportSummary>`), `ImportFromZipUseCase` and `ExportToZipUseCase` do the same. Other use cases: `ImportPaprikaUseCase` (batch Paprika import, runs in short resumable steps), `ImportFromZipUseCase` / `ExportToZipUseCase` / `ExportSingleRecipeUseCase` (`.lorecipes` files), `RegenerateRecipeUseCase`, `EditRecipeUseCase`, `AggregateGroceryListUseCase`, `CalculateIngredientUsageUseCase`.
 
 #### Archive handling
 
@@ -222,9 +226,9 @@ Long-running work runs in WorkManager workers extending `BaseRecipeWorker` (fore
 
 ### Work contracts
 
-Each worker has a contract object next to it (`RecipeImportWork`, `PaprikaImportWork`, `ZipImportWork`, `ZipExportWork`, `RecipeEditWork`, `RecipeRegenerateWork`) with sealed `Progress` and `Outcome` types. Workers report through `toData()` and observers decode with the same contract (`decodeProgress` / `decodeOutcome`, or `WorkInfo.toWorkStatus(contract)` → `WorkStatus` `Missing | Queued | Running(progress) | Finished(outcome) | Cancelled`), so `when` over progress and outcomes is exhaustive and keys can't drift. Key and value strings are persisted by WorkManager and must not change (`WorkContractTest` pins the values earlier versions wrote). Failures share `result_type` / `error_message` (`BaseRecipeWorker.errorResult(FailureOutcome)`).
+Each worker has a contract object next to it (`RecipeImportWork`, `PaprikaImportWork`, `ZipImportWork`, `ZipExportWork`, `RecipeEditWork`, `RecipeRegenerateWork`) with sealed `Progress` and `Outcome` types. Workers report through `toData()` and observers decode with the same contract (`decodeProgress` / `decodeOutcome`, or `WorkInfo.toWorkStatus(contract)` → `WorkStatus` `Missing | Queued | Running(progress) | Finished(outcome) | Cancelled`), so `when` over progress and outcomes is exhaustive and keys can't drift. Key and value strings are persisted by WorkManager and must not change (`WorkContractTest` pins the values earlier versions wrote). Failures are one `Failed(error: RecipeError, …)` outcome per worker (`BaseRecipeWorker.errorResult(FailureOutcome)`), written as the encoded error under `error` (`RecipeError.encode`, JSON with stable `@SerialName`s) plus the `result_type` older versions wrote (`no_api_key`, `no_source_url`, `error`). Output from older versions, which only has `result_type` and an English `error_message`, decodes to `NoApiKey` / `NoSourceUrl` / `Legacy(message)`. The import queue stores the same encoding in `pending_imports.errorMessage` (`RecipeErrorConverter`; old English messages read back as `Legacy`), so no schema change was needed.
 
-Screens follow their own work with `WorkTracker`: the work ID lives in `SavedStateHandle` (so the screen shows the work again after process death; a restored ID whose work no longer exists is dropped) and the status is observed by ID with `getWorkInfoByIdFlow` + `flatMapLatest`, so work that finishes before anyone collects is still seen. `RecipeWorkScheduler.prepareEdit / prepareRegenerate / prepareExport` return a `PendingWork` whose ID is known before it is enqueued; `WorkTracker.start` records the ID first. UI state is derived (`combine` of local state and the tracked status) rather than written from observers. ViewModels see only decoded types, never `WorkInfo` or `WorkManager`.
+Screens follow their own work with `WorkTracker`: the work ID lives in `SavedStateHandle` (so the screen shows the work again after process death; a restored ID whose work no longer exists is dropped) and the status is observed by ID with `getWorkInfoByIdFlow` + `flatMapLatest`, so work that finishes before anyone collects is still seen. `RecipeWorkScheduler.prepareEdit / prepareRegenerate / prepareExport` return a `PendingWork` whose ID is known before it is enqueued; `WorkTracker.start` records the ID first. UI state is derived (`combine` of local state and the tracked status) rather than written from observers; the one exception is finished work, which a collector reports once as an event and then stops tracking (see ViewModels). ViewModels see only decoded types, never `WorkInfo` or `WorkManager`.
 
 ### Import queue (`imports` package)
 
@@ -287,13 +291,13 @@ External intents are turned into `AppIntentEvent`s (`ImportUrl`, `ImportFile`, `
 
 - URL input with validation
 - Starts the import via `ImportQueue` and shows `ImportMonitor.importState(importId)` (the import ID is kept in `SavedStateHandle`); stages: Queued → Starting → Fetching → Analyzing → Saving
-- Errors surface on the in-progress card (Retry/Dismiss)
+- Success is the one-off `AddRecipeEvent.RecipeAdded(recipeId)` (also for an import that finished while the screen was gone); errors are shown as state and on the in-progress card (Retry/Dismiss)
 - Redirects to Settings if no API key
 
 #### EditRecipeScreen
 
 - Image, title and URL changes are staged and applied on save without the AI; body edits or AI instructions enqueue `RecipeEditWorker`
-- The edit and regenerate work are followed with `WorkTracker`s and folded into one `editState`; a missing API key shows `EditUiState.NoApiKey`
+- The edit and regenerate work are followed with `WorkTracker`s and folded into one `editState` (`Loading(@StringRes progress)`, `Error(UserMessage)`; a missing API key shows `EditUiState.NoApiKey`). A successful save is the one-off `EditRecipeEvent.Saved(newRecipeId)`, sent once and the work then untracked
 - Save preserves metadata, Save as Copy creates a new recipe
 
 #### ImportSelectionScreen
@@ -311,7 +315,8 @@ External intents are turned into `AppIntentEvent`s (`ImportUrl`, `ImportFile`, `
 - Key validation (must start with `sk-ant-`)
 - Import and edit model selection, thinking toggle
 - Secure storage via Tink-encrypted storage
-- Account section: Google sign-in/out (with unsynced-changes warning), account deletion
+- Account section: Google sign-in/out (with unsynced-changes warning), account deletion. One account operation runs at a time (`busyOp: AccountOp?` = `SIGNING_IN | SIGNING_OUT | DELETING_ACCOUNT`, claimed with `beginGoogleSignIn` / `beginDeleteAccount`). The screen requests the Google credential in its own scope (so the Activity context never reaches a ViewModel coroutine) and always hands back a `CredentialResult` (`Obtained | Cancelled | Failed`), `Cancelled` if its scope is cancelled
+- An invalid or unsaved API key is `apiKeyError: UserMessage?` state under the field; toasts (setting write failures, sign-in/out and deletion outcomes) are events
 - Backup/restore, unit and display preferences, import debugging
 
 ### ViewModels
@@ -334,7 +339,9 @@ class RecipeListViewModel @Inject constructor(
 }
 ```
 
-Mutations (writes, deletes, uploads) run inside `withContext(NonCancellable)` so they finish even if `viewModelScope` is cancelled; UI state updates stay outside that block.
+Suspending mutations (DataStore writes, uploads, starting work, the meal-plan query before a recipe delete) run inside `withContext(NonCancellable)` so they finish even if `viewModelScope` is cancelled; UI state updates stay outside that block. Fire-and-forget repository writes (see the write contract under Repository) are just called: they complete on their own and report failures app-wide, so wrapping them in `NonCancellable` or try/catch is dead code.
+
+One-off events (navigation, snackbars, toasts, undo offers) go through one `Channel<Event>(Channel.BUFFERED)` per ViewModel exposed as `events: Flow<Event> = channel.receiveAsFlow()`, never `MutableSharedFlow` + `tryEmit` (drops events with no collector) or state plus a `reset…()` callback. Screens collect with `CollectEvents(viewModel.events) { … }` (`ui/components/UserMessages.kt`), which only collects while the screen is STARTED, so events sent in the background are handled on return. Conditions that persist until something changes (loading, a validation error under a field, an import's failure) stay state. A snackbar shown for an event (e.g. the meal plan's Undo) is not restored after a configuration change. Work that finishes while the screen is gone is still reported once: the ViewModel collects its tracked status and sends the event, then stops tracking the work.
 
 ### Theme
 
@@ -351,7 +358,7 @@ Hilt modules provide:
 
 ### AppModule
 - `Json` instance with lenient parsing
-- Application-level `CoroutineScope`
+- `@ApplicationScope` `CoroutineScope` (SupervisorJob, Default dispatcher, an exception handler that logs with `ErrorLog`), used for app-lifetime work: repository listeners and pending writes, `SettingsDataStore`'s key loading, the import queue
 
 ### DatabaseModule
 - `RecipeDatabase` singleton

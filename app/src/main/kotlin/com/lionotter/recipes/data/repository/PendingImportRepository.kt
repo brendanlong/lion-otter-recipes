@@ -3,6 +3,7 @@ package com.lionotter.recipes.data.repository
 import com.lionotter.recipes.data.local.PendingImportDao
 import com.lionotter.recipes.data.local.PendingImportEntity
 import com.lionotter.recipes.data.local.PendingImportStatus
+import com.lionotter.recipes.domain.RecipeError
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -31,8 +32,8 @@ class PendingImportRepository @Inject constructor(
         pendingImportDao.updateStatus(id, status)
     }
 
-    suspend fun updateStatusWithError(id: String, status: PendingImportStatus, errorMessage: String?) {
-        pendingImportDao.updateStatusWithError(id, status, errorMessage)
+    suspend fun updateStatusWithError(id: String, status: PendingImportStatus, error: RecipeError?) {
+        pendingImportDao.updateStatusWithError(id, status, error)
     }
 
     suspend fun updateWorkManagerId(id: String, workManagerId: String) {

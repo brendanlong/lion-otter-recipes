@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import com.lionotter.recipes.domain.RecipeError
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -23,8 +24,8 @@ interface PendingImportDao {
     @Query("UPDATE pending_imports SET status = :status WHERE id = :id")
     suspend fun updateStatus(id: String, status: PendingImportStatus)
 
-    @Query("UPDATE pending_imports SET status = :status, errorMessage = :errorMessage WHERE id = :id")
-    suspend fun updateStatusWithError(id: String, status: PendingImportStatus, errorMessage: String?)
+    @Query("UPDATE pending_imports SET status = :status, errorMessage = :error WHERE id = :id")
+    suspend fun updateStatusWithError(id: String, status: PendingImportStatus, error: RecipeError?)
 
     @Query("UPDATE pending_imports SET workManagerId = :workManagerId WHERE id = :id")
     suspend fun updateWorkManagerId(id: String, workManagerId: String)

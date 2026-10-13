@@ -1,5 +1,9 @@
 package com.lionotter.recipes.ui.screens.addrecipe
 
+import com.lionotter.recipes.messages.UserMessage
+import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.PageFetchFailure
+import com.lionotter.recipes.R
 import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.work.OneTimeWorkRequest
@@ -97,7 +101,7 @@ class AddRecipeViewModelTest {
         viewModel.importRecipe()
         advanceUntilIdle()
 
-        assertEquals(AddRecipeUiState.Error("URL must start with http:// or https://"), viewModel.uiState.value)
+        assertEquals(AddRecipeUiState.Error(UserMessage(R.string.error_url_scheme)), viewModel.uiState.value)
         assertEquals(emptyList<Any>(), dao.rows.value)
     }
 
@@ -122,7 +126,9 @@ class AddRecipeViewModelTest {
             )
         )
         advanceUntilIdle()
-        assertEquals(AddRecipeUiState.Success("recipe-1"), viewModel.uiState.value)
+        assertEquals(AddRecipeEvent.RecipeAdded("recipe-1"), viewModel.events.first())
+        // Reported once; the screen is ready for another import
+        assertEquals(AddRecipeUiState.Idle, viewModel.uiState.value)
     }
 
     @Test
@@ -135,7 +141,8 @@ class AddRecipeViewModelTest {
         work.put(workInfo(startedWorkId(), WorkInfo.State.SUCCEEDED))
         advanceUntilIdle()
 
-        assertEquals(AddRecipeUiState.Success(null), viewModel.uiState.value)
+        assertEquals(AddRecipeEvent.RecipeAdded(null), viewModel.events.first())
+        assertEquals(AddRecipeUiState.Idle, viewModel.uiState.value)
     }
 
     @Test
@@ -149,12 +156,44 @@ class AddRecipeViewModelTest {
             workInfo(
                 startedWorkId(),
                 WorkInfo.State.FAILED,
-                output = RecipeImportWork.Outcome.NoApiKey("Add a key", "i").toData()
+                output = RecipeImportWork.Outcome.Failed(RecipeError.NoApiKey, "i").toData()
             )
         )
         advanceUntilIdle()
 
         assertEquals(AddRecipeUiState.NoApiKey, viewModel.uiState.value)
+    }
+
+    @Test
+    fun `an import failure is shown as a localized message`() = runTest {
+        val viewModel = createViewModel(testAppScope())
+        viewModel.onUrlChange("https://example.com/r")
+        viewModel.importRecipe()
+        advanceUntilIdle()
+
+        val error = RecipeError.PageFetch(PageFetchFailure.BLOCKED, 403)
+        work.put(
+            workInfo(startedWorkId(), WorkInfo.State.FAILED, output = RecipeImportWork.Outcome.Failed(error, "i").toData())
+        )
+        advanceUntilIdle()
+
+        assertEquals(AddRecipeUiState.Error(UserMessage(R.string.error_page_blocked, 403)), viewModel.uiState.value)
+    }
+
+    @Test
+    fun `an import that finished while the app was gone is reported once`() = runTest {
+        val workId = UUID.randomUUID()
+        work.assignUniqueName(RecipeWorkScheduler.importWorkName("import-1"), workId)
+        work.put(
+            workInfo(workId, WorkInfo.State.SUCCEEDED, output = RecipeImportWork.Outcome.Success("import-1", "r1", "Pasta").toData())
+        )
+        val handle = SavedStateHandle(mapOf("import_id" to "import-1"))
+
+        val viewModel = createViewModel(testAppScope(), handle)
+        advanceUntilIdle()
+
+        assertEquals(AddRecipeEvent.RecipeAdded("r1"), viewModel.events.first())
+        assertEquals(null, handle.get<String>("import_id"))
     }
 
     @Test

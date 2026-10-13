@@ -9,6 +9,9 @@ import com.lionotter.recipes.data.repository.RecipeRepository
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import com.lionotter.recipes.testutil.TestFirestoreService
 import com.google.firebase.Firebase
@@ -330,7 +333,12 @@ class FirestoreListenerSpikeTest {
         every { authService.isGoogleUser() } returns false
         coEvery { authService.awaitUid() } returns "test-user"
         val imageDownloadService = ImageDownloadService(context, httpClient, imageSyncService, authService, testFirestoreService, {})
-        val recipeRepo = RecipeRepository(testFirestoreService, imageDownloadService, authService)
+        val recipeRepo = RecipeRepository(
+            testFirestoreService,
+            imageDownloadService,
+            authService,
+            CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        )
 
         val recipe = com.lionotter.recipes.domain.model.Recipe(
             id = "looper-test",

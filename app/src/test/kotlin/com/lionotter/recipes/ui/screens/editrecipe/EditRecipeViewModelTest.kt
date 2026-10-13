@@ -1,5 +1,9 @@
 package com.lionotter.recipes.ui.screens.editrecipe
 
+import org.junit.Assert.assertNull
+import com.lionotter.recipes.messages.UserMessage
+import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.R
 import android.net.Uri
 import android.util.Log
 import androidx.navigation.testing.invoke
@@ -103,7 +107,8 @@ class EditRecipeViewModelTest {
         viewModel.saveEdits()
 
         val state = viewModel.editState.first { it is EditUiState.Error }
-        assertTrue((state as EditUiState.Error).message.contains("disk full"))
+        // A localized message, not the exception's
+        assertEquals(EditUiState.Error(UserMessage(R.string.error_save_changes)), state)
         unmockkStatic(Log::class)
     }
 
@@ -124,7 +129,7 @@ class EditRecipeViewModelTest {
         viewModel.imageUrl.first { it == "file:///new.jpg" }
 
         viewModel.saveAsCopy()
-        assertEquals(EditUiState.Success(newRecipeId = "copy1"), viewModel.editState.first { it is EditUiState.Success })
+        assertEquals(EditRecipeEvent.Saved(newRecipeId = "copy1"), viewModel.events.first())
         advanceUntilIdle()
 
         verify { recipeRepository.setImageUrl("copy1", "gs://new") }
@@ -138,7 +143,7 @@ class EditRecipeViewModelTest {
         val scheduler = mockk<RecipeWorkScheduler>()
         every { scheduler.prepareEdit(any(), any(), any(), any(), any(), any()) } returns PendingWork(workId) {}
         every { scheduler.observeEdit(workId) } returns
-            flowOf(WorkStatus.Finished(RecipeEditWork.Outcome.NoApiKey("API key not configured", "r1")))
+            flowOf(WorkStatus.Finished(RecipeEditWork.Outcome.Failed(RecipeError.NoApiKey, "r1")))
         val viewModel = createViewModel(scheduler = scheduler)
         advanceUntilIdle()
 
@@ -157,7 +162,39 @@ class EditRecipeViewModelTest {
 
         val viewModel = createViewModel(handle, scheduler)
 
-        assertEquals(EditUiState.Loading("Saving recipe..."), viewModel.editState.first { it is EditUiState.Loading })
+        assertEquals(EditUiState.Loading(R.string.saving_recipe), viewModel.editState.first { it is EditUiState.Loading })
+    }
+
+    @Test
+    fun `an edit that finished while the screen was gone is reported once`() = runTest {
+        val workId = UUID.randomUUID()
+        val scheduler = mockk<RecipeWorkScheduler>()
+        every { scheduler.observeEdit(workId) } returns
+            flowOf(WorkStatus.Finished(RecipeEditWork.Outcome.Success("r1", "Pasta", newRecipeId = null)))
+        val handle = SavedStateHandle(route = Route.EditRecipe("r1")).apply { set("edit_work_id", workId.toString()) }
+
+        val viewModel = createViewModel(handle, scheduler)
+        advanceUntilIdle()
+
+        assertEquals(EditRecipeEvent.Saved(newRecipeId = null), viewModel.events.first())
+        assertNull(handle.get<String>("edit_work_id"))
+    }
+
+    @Test
+    fun `a failed edit shows the error as a localized message`() = runTest {
+        val workId = UUID.randomUUID()
+        val scheduler = mockk<RecipeWorkScheduler>()
+        every { scheduler.observeEdit(workId) } returns flowOf(
+            WorkStatus.Finished(RecipeEditWork.Outcome.Failed(RecipeError.NotARecipe("Just a shopping list"), "r1"))
+        )
+        val handle = SavedStateHandle(route = Route.EditRecipe("r1")).apply { set("edit_work_id", workId.toString()) }
+
+        val viewModel = createViewModel(handle, scheduler)
+
+        assertEquals(
+            EditUiState.Error(UserMessage(R.string.error_not_a_recipe, "Just a shopping list")),
+            viewModel.editState.first { it is EditUiState.Error }
+        )
     }
 
     @Test
@@ -172,7 +209,7 @@ class EditRecipeViewModelTest {
         advanceUntilIdle()
         viewModel.setMarkdownText("changed")
         viewModel.saveEdits()
-        viewModel.editState.first { it == EditUiState.Loading("Preparing...") }
+        viewModel.editState.first { it == EditUiState.Loading(R.string.edit_progress_preparing) }
 
         viewModel.cancelProcessing()
 
@@ -225,7 +262,7 @@ class EditRecipeViewModelTest {
         advanceUntilIdle()
 
         verify { recipeRepository.setImageUrl("r1", "gs://new") }
-        assertTrue(viewModel.editState.value is EditUiState.Success)
+        assertEquals(EditRecipeEvent.Saved(newRecipeId = null), viewModel.events.first())
     }
 
     @Test

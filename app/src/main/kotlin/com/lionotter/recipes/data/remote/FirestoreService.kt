@@ -5,18 +5,20 @@ import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.FirebaseFirestoreSettings
+import com.google.firebase.firestore.WriteBatch
 import com.google.firebase.firestore.firestore
 import com.google.firebase.firestore.firestoreSettings
 import com.google.firebase.firestore.persistentCacheSettings
 import com.lionotter.recipes.util.ErrorLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
@@ -32,10 +34,16 @@ open class FirestoreService @Inject constructor() {
         const val MEAL_PLANS_COLLECTION = "mealPlans"
         private const val CLEAR_PERSISTENCE_ATTEMPTS = 3
         private const val CLEAR_PERSISTENCE_RETRY_DELAY_MS = 250L
+        private const val MAX_QUEUED_FAILURES = 32
     }
 
-    private val _errors = MutableSharedFlow<String>(extraBufferCapacity = 10)
-    val errors: SharedFlow<String> = _errors.asSharedFlow()
+    private val _failures = Channel<DataFailure>(MAX_QUEUED_FAILURES, BufferOverflow.DROP_OLDEST)
+
+    /**
+     * Background failures, each delivered once. Failures reported while nobody collects (e.g. the
+     * app is in the background) are kept, up to [MAX_QUEUED_FAILURES], until someone does.
+     */
+    val failures: Flow<DataFailure> = _failures.receiveAsFlow()
 
     private val _isNetworkEnabled = MutableStateFlow(true)
     val isNetworkEnabled: StateFlow<Boolean> = _isNetworkEnabled.asStateFlow()
@@ -69,9 +77,13 @@ open class FirestoreService @Inject constructor() {
         return Firebase.firestore.collection(USERS_COLLECTION).document(uid).collection(MEAL_PLANS_COLLECTION)
     }
 
-    fun reportError(message: String) {
-        ErrorLog.e(TAG, message)
-        _errors.tryEmit(message)
+    /** A batch of writes on the current Firestore instance. */
+    open fun batch(): WriteBatch = Firebase.firestore.batch()
+
+    /** Logs [failure] (with [cause]) and queues it for [failures]. */
+    fun reportFailure(failure: DataFailure, cause: Throwable? = null) {
+        ErrorLog.e(TAG, "Background ${failure.op} failed${failure.entityId?.let { " for $it" } ?: ""}", cause)
+        _failures.trySend(failure)
     }
 
     /** Disable Firestore network access (offline-only mode for guest users). */

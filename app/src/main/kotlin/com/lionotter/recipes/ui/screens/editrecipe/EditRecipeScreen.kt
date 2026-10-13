@@ -47,7 +47,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,7 +68,9 @@ import coil3.compose.SubcomposeAsyncImage
 import coil3.compose.SubcomposeAsyncImageContent
 import com.lionotter.recipes.R
 import com.lionotter.recipes.data.remote.imageModel
+import com.lionotter.recipes.ui.components.CollectEvents
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
+import com.lionotter.recipes.ui.components.text
 import com.lionotter.recipes.ui.screens.settings.components.SingleModelSelectionSection
 
 @Composable
@@ -137,19 +138,14 @@ fun EditRecipeScreen(
         }
     }
 
-    // Handle edit result — navigate back immediately on success
-    LaunchedEffect(editState) {
-        when (editState) {
-            is EditUiState.Success -> {
-                val newRecipeId = (editState as EditUiState.Success).newRecipeId
-                viewModel.resetEditState()
-                if (newRecipeId != null) {
-                    onCopySuccess(newRecipeId)
-                } else {
-                    onEditSuccess()
-                }
+    // Navigate back as soon as the changes are saved
+    CollectEvents(viewModel.events) { event ->
+        when (event) {
+            is EditRecipeEvent.Saved -> if (event.newRecipeId != null) {
+                onCopySuccess(event.newRecipeId)
+            } else {
+                onEditSuccess()
             }
-            else -> {}
         }
     }
 
@@ -237,7 +233,7 @@ fun EditRecipeScreen(
             }
             isLoading -> {
                 EditLoadingContent(
-                    progress = (editState as EditUiState.Loading).progress,
+                    progress = stringResource((editState as EditUiState.Loading).progress),
                     onCancelClick = viewModel::cancelProcessing,
                     modifier = Modifier.padding(paddingValues)
                 )
@@ -471,7 +467,7 @@ private fun EditContent(
             )
 
             val errorText = when (editState) {
-                is EditUiState.Error -> editState.message
+                is EditUiState.Error -> editState.message.text()
                 EditUiState.NoApiKey -> stringResource(R.string.api_key_required_for_editing)
                 else -> null
             }

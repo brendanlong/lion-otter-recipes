@@ -1,6 +1,9 @@
 package com.lionotter.recipes.data.remote
 
 import android.util.Log
+import com.lionotter.recipes.domain.PageFetchFailure
+import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.RecipeErrorSource
 import com.lionotter.recipes.domain.util.RecipeHtmlExtractor
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
@@ -20,14 +23,14 @@ data class ScrapedPage(
     val imageUrl: String? = null
 )
 
-/**
- * A page fetch that failed, with a user-facing [message] and whether retrying later might help.
- */
+/** A page fetch that failed. The message is for logs; the UI shows [recipeError]. */
 class PageFetchException(
-    message: String,
-    val isTransient: Boolean,
+    val reason: PageFetchFailure,
+    val httpStatus: Int? = null,
     cause: Throwable? = null
-) : Exception(message, cause)
+) : Exception("Page fetch failed: $reason${httpStatus?.let { " (HTTP $it)" } ?: ""}", cause), RecipeErrorSource {
+    override val recipeError: RecipeError get() = RecipeError.PageFetch(reason, httpStatus)
+}
 
 @Singleton
 class WebScraperService @Inject constructor(
@@ -49,9 +52,8 @@ class WebScraperService @Inject constructor(
 
             val contentLength = response.headers[HttpHeaders.ContentLength]?.toLongOrNull()
             if (contentLength != null && contentLength > MAX_PAGE_BYTES) {
-                return Result.failure(
-                    PageFetchException("This page is too large to import ($contentLength bytes).", isTransient = false)
-                )
+                Log.w(TAG, "Page $url is too large ($contentLength bytes)")
+                return Result.failure(PageFetchException(PageFetchFailure.TOO_LARGE))
             }
 
             val html = response.bodyAsText().let {
@@ -66,10 +68,10 @@ class WebScraperService @Inject constructor(
             throw e
         } catch (e: IOException) {
             Log.w(TAG, "Network error fetching $url", e)
-            Result.failure(PageFetchException("Couldn't load the page. Check your internet connection.", true, e))
+            Result.failure(PageFetchException(PageFetchFailure.NETWORK, cause = e))
         } catch (e: Exception) {
             Log.w(TAG, "Failed to fetch $url", e)
-            Result.failure(PageFetchException("Couldn't load the page: ${e.message ?: e.javaClass.simpleName}", false, e))
+            Result.failure(PageFetchException(PageFetchFailure.UNKNOWN, cause = e))
         }
     }
 
@@ -87,21 +89,17 @@ class WebScraperService @Inject constructor(
         val isBotCheck = response.headers["cf-mitigated"] != null ||
             (code == 403 || code == 503) && errorBodyPrefix(response)
                 .let { it.contains("Just a moment", ignoreCase = true) || it.contains("cf-chl", ignoreCase = true) }
-        return when {
-            isBotCheck -> PageFetchException(
-                "This site uses a bot check that blocked the request ($code). Try copying the recipe text instead.",
-                isTransient = false
-            )
+        val reason = when {
+            isBotCheck -> PageFetchFailure.BOT_CHECK
             response.status == HttpStatusCode.Forbidden || response.status == HttpStatusCode.Unauthorized ->
-                PageFetchException("The site blocked the request ($code).", isTransient = false)
+                PageFetchFailure.BLOCKED
             response.status == HttpStatusCode.NotFound || response.status == HttpStatusCode.Gone ->
-                PageFetchException("The page wasn't found ($code). Check the URL.", isTransient = false)
-            response.status == HttpStatusCode.TooManyRequests ->
-                PageFetchException("The site is rate limiting requests ($code). Try again later.", isTransient = true)
-            code >= 500 ->
-                PageFetchException("The site had a server error ($code). Try again later.", isTransient = true)
-            else -> PageFetchException("The site returned an error ($code).", isTransient = false)
+                PageFetchFailure.NOT_FOUND
+            response.status == HttpStatusCode.TooManyRequests -> PageFetchFailure.RATE_LIMITED
+            code >= 500 -> PageFetchFailure.SERVER_ERROR
+            else -> PageFetchFailure.HTTP_ERROR
         }
+        return PageFetchException(reason, code)
     }
 
     companion object {
