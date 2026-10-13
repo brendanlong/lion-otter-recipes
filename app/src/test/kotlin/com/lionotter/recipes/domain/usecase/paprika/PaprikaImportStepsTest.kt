@@ -17,6 +17,7 @@ import com.lionotter.recipes.testutil.FakePageFetcher
 import com.lionotter.recipes.testutil.FakePaprikaExportReader
 import com.lionotter.recipes.testutil.FakeRecipeBatchParser
 import com.lionotter.recipes.testutil.FakeRecipeParser
+import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.testutil.FakeRecipeRepository
 import com.lionotter.recipes.testutil.parsedRecipe
 import com.lionotter.recipes.testutil.parsedWithUsage
@@ -31,6 +32,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import kotlin.time.Instant
 import org.junit.rules.TemporaryFolder
 import java.io.ByteArrayInputStream
 import java.io.File
@@ -116,6 +118,24 @@ class PaprikaImportStepsTest {
     private fun summary(state: PaprikaImportState) = (state as PaprikaImportState.Done).summary
 
     // --- Happy path and restarts ---
+
+    @Test
+    fun `the batch asks the AI to reuse the user's existing tags`() = runTest {
+        repository.saveRecipe(
+            Recipe(
+                id = "existing",
+                name = "Existing",
+                tags = listOf("Dessert", "Baking"),
+                createdAt = Instant.fromEpochMilliseconds(0),
+                updatedAt = Instant.fromEpochMilliseconds(0)
+            )
+        )
+        submit()
+        assertEquals(
+            listOf(listOf("Baking", "Dessert")),
+            batchParser.created.single().map { it.existingTags }.distinct()
+        )
+    }
 
     @Test
     fun `an import resumes from disk at every step and submits only once`() = runTest {

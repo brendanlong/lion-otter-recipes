@@ -165,6 +165,12 @@ class FirestoreRecipeRepository @Inject constructor(
             .reportFailure(DataOp.UPDATE_RECIPE, id)
     }
 
+    override fun setTags(id: String, tags: List<String>) = write(DataOp.UPDATE_TAGS, id) { uid ->
+        firestoreService.recipesCollection(uid).document(id)
+            .update(RecipeFields.TAGS, tags)
+            .reportFailure(DataOp.UPDATE_TAGS, id)
+    }
+
     /** @throws Exception if recipes could not be read */
     override suspend fun getAllRecipeIdsAndNames(): List<RecipeIdAndName> =
         logFailure(TAG, "Error fetching recipe IDs and names") {
@@ -172,6 +178,20 @@ class FirestoreRecipeRepository @Inject constructor(
             snapshot.documents.mapNotNull { doc ->
                 val name = doc.getString(RecipeFields.NAME) ?: return@mapNotNull null
                 RecipeIdAndName(id = doc.id, name = name)
+            }
+        }
+
+    /**
+     * Read from the local cache (what [getAllRecipes] shows), so it never waits for the network
+     * and costs no server reads.
+     *
+     * @throws Exception if recipes could not be read
+     */
+    override suspend fun getAllRecipeTags(): Map<String, List<String>> =
+        logFailure(TAG, "Error fetching recipe tags") {
+            val snapshot = firestoreService.recipesCollection(authService.awaitUid()).get(Source.CACHE).await()
+            snapshot.documents.associate { doc ->
+                doc.id to (doc.get(RecipeFields.TAGS) as? List<*>).orEmpty().filterIsInstance<String>()
             }
         }
 

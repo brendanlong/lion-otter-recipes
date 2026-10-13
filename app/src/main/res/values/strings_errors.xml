@@ -50,6 +50,7 @@
     <string name="error_sync_save_recipe">Couldn\'t save the recipe.</string>
     <string name="error_sync_update_image">Couldn\'t update the recipe image.</string>
     <string name="error_sync_update_recipe">Couldn\'t update the recipe.</string>
+    <string name="error_sync_update_tags">Couldn\'t save the new tags of a recipe.</string>
     <string name="error_sync_delete_recipe_meal_plans">Couldn\'t remove the recipe\'s meals from the meal plan.</string>
     <string name="error_sync_clear_previous_account">Couldn\'t remove the previous account\'s data from this device. Clear the app\'s storage in Android settings to remove it.</string>
 

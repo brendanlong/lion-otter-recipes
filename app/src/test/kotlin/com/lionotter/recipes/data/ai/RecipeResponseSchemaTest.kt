@@ -8,10 +8,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The structured-output schema in [RecipeOutputSchema.RECIPE_RESPONSE_SCHEMA] is written by hand.
- * Check it against the kotlinx serializers that decode the response: every schema property must
- * exist with a compatible type, and every property without a default must be required. Optional
- * serializer properties may be left out of the schema (e.g. the non-recursive alternate shape).
+ * The structured-output schemas ([RecipeOutputSchema.RECIPE_RESPONSE_SCHEMA],
+ * [TagCleanupPrompt.RESPONSE_SCHEMA]) are written by hand. Check them against the kotlinx
+ * serializers that decode the responses: every schema property must exist with a compatible type,
+ * and every property without a default must be required. Optional serializer properties may be
+ * left out of the schema (e.g. the non-recursive alternate shape).
  */
 class RecipeResponseSchemaTest {
 
@@ -28,7 +29,21 @@ class RecipeResponseSchemaTest {
      * union-typed (nullable) parameters well under the documented maximum of 16.
      */
     @Test
-    fun `schema stays within structured output complexity limits`() {
+    fun `tag cleanup schema matches the response serializers`() {
+        val problems = mutableListOf<String>()
+        check(TagCleanupPrompt.RESPONSE_SCHEMA, TagCleanupResponse.serializer().descriptor, "$", problems)
+        assertTrue("Tag cleanup RESPONSE_SCHEMA is out of sync:\n" + problems.joinToString("\n"), problems.isEmpty())
+    }
+
+    @Test
+    fun `schema stays within structured output complexity limits`() =
+        assertWithinComplexityLimits(RecipeOutputSchema.RECIPE_RESPONSE_SCHEMA)
+
+    @Test
+    fun `tag cleanup schema stays within structured output complexity limits`() =
+        assertWithinComplexityLimits(TagCleanupPrompt.RESPONSE_SCHEMA)
+
+    private fun assertWithinComplexityLimits(schema: Map<String, Any>) {
         val optional = mutableListOf<String>()
         var unions = 0
         fun walk(schema: Map<String, Any>, path: String) {
@@ -47,7 +62,7 @@ class RecipeResponseSchemaTest {
             @Suppress("UNCHECKED_CAST")
             (schema["items"] as? Map<String, Any>)?.let { walk(it, "$path[]") }
         }
-        walk(RecipeOutputSchema.RECIPE_RESPONSE_SCHEMA, "$")
+        walk(schema, "$")
         assertTrue("Optional properties make the schema too complex to compile: $optional", optional.isEmpty())
         assertTrue("$unions union-typed parameters; the API allows 16, keep a margin", unions <= MAX_UNIONS)
     }

@@ -12,6 +12,7 @@ fun DataFailure.toUserMessage(): UserMessage = UserMessage(
         DataOp.UPDATE_NOTES -> R.string.save_notes_failed
         DataOp.UPDATE_IMAGE -> R.string.error_sync_update_image
         DataOp.UPDATE_RECIPE -> R.string.error_sync_update_recipe
+        DataOp.UPDATE_TAGS -> R.string.error_sync_update_tags
         DataOp.SAVE_MEAL_PLAN, DataOp.UPDATE_MEAL_PLAN -> R.string.meal_plan_save_failed
         DataOp.DELETE_MEAL_PLAN -> R.string.meal_plan_delete_failed
         DataOp.DELETE_RECIPE_MEAL_PLANS -> R.string.error_sync_delete_recipe_meal_plans

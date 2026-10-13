@@ -1,8 +1,10 @@
 package com.lionotter.recipes.domain.usecase
 
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.model.TagBarSize
 import kotlin.time.Instant
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -355,7 +357,104 @@ class GetTagsUseCaseTest {
         val result = getTagsUseCase.execute(recipes)
         val elapsedMs = (System.nanoTime() - start) / 1_000_000
 
-        assertEquals(GetTagsUseCase.MAX_TAGS, result.size)
+        assertEquals(TagBarSize.DEFAULT, result.size)
         assertTrue("Tag selection took ${elapsedMs}ms", elapsedMs < 2_000)
+    }
+
+    /** 12 recipes, each with its own tag plus one of three shared group tags. */
+    private fun manyTagRecipes() = (1..12).map { i -> recipe("r$i", listOf("own-$i", "group-${i % 3}")) }
+
+    @Test
+    fun `favorites come first, most used first, matched ignoring case`() {
+        val recipes = manyTagRecipes()
+
+        val result = getTagsUseCase.execute(recipes, favoriteTags = setOf("OWN-5", "Group-1"))
+
+        assertEquals(listOf("group-1", "own-5"), result.take(2))
+        assertEquals(TagBarSize.DEFAULT, result.size)
+        assertEquals(result.size, result.toSet().size)
+    }
+
+    @Test
+    fun `favorites no recipe carries are skipped`() {
+        val recipes = manyTagRecipes()
+
+        val result = getTagsUseCase.execute(recipes, favoriteTags = setOf("own-3", "gone"))
+
+        assertEquals("own-3", result.first())
+        assertFalse("gone" in result)
+        assertEquals(TagBarSize.DEFAULT, result.size)
+    }
+
+    @Test
+    fun `the tag count is respected with and without favorites`() {
+        val recipes = manyTagRecipes()
+
+        assertEquals(4, getTagsUseCase.execute(recipes, maxTags = 4).size)
+        assertEquals(14, getTagsUseCase.execute(recipes, maxTags = 14).size)
+        val withFavorites = getTagsUseCase.execute(recipes, setOf("own-1", "own-2"), maxTags = 5)
+        assertEquals(5, withFavorites.size)
+        assertEquals(listOf("own-1", "own-2"), withFavorites.take(2))
+    }
+
+    @Test
+    fun `more favorites than slots keeps the most used ones`() {
+        val recipes = manyTagRecipes()
+        val favorites = (1..6).map { "own-$it" }.toSet() + "group-0"
+
+        val result = getTagsUseCase.execute(recipes, favorites, maxTags = 4)
+
+        assertEquals(4, result.size)
+        assertEquals("group-0", result.first())
+        assertTrue(result.all { it in favorites })
+    }
+
+    @Test
+    fun `when everything fits favorites lead and the other tags follow by use`() {
+        val recipes = listOf(
+            recipe("1", listOf("dinner", "easy")),
+            recipe("2", listOf("dinner", "italian")),
+            recipe("3", listOf("dinner"))
+        )
+
+        val result = getTagsUseCase.execute(recipes, favoriteTags = setOf("italian"))
+
+        assertEquals(listOf("italian", "dinner", "easy"), result)
+    }
+
+    @Test
+    fun `the solver fills the remaining slots to cover recipes the favorites miss`() {
+        // The group tags cover everything; with group-0 and group-1 favorited the
+        // solver should add group-2 rather than leave its recipes uncovered.
+        val recipes = manyTagRecipes()
+
+        val result = getTagsUseCase.execute(recipes, setOf("group-0", "group-1"), maxTags = 3)
+
+        assertEquals(setOf("group-0", "group-1"), result.take(2).toSet())
+        assertEquals(listOf("group-2"), result.drop(2))
+    }
+
+    @Test
+    fun `greedy solver keeps fixed tags and covers what they miss`() {
+        val recipes = manyTagRecipes()
+        val tagToRecipes = getTagsUseCase.buildTagMap(recipes)
+
+        val result = getTagsUseCase.solveGreedy(recipes, tagToRecipes, maxTags = 3, fixed = setOf("group-0", "own-1"))
+
+        assertEquals(3, result.size)
+        assertTrue(result.containsAll(listOf("group-0", "own-1")))
+        // own-1 is in group-1, so the best remaining tag is group-1 or group-2 (4 uncovered each)
+        assertTrue(result.any { it.startsWith("group-") && it != "group-0" })
+    }
+
+    @Test
+    fun `ILP keeps fixed tags`() {
+        val recipes = manyTagRecipes()
+        val tagToRecipes = getTagsUseCase.buildTagMap(recipes)
+
+        val result = getTagsUseCase.solveIlp(recipes, tagToRecipes, maxTags = 5, fixed = setOf("own-7", "own-8"))
+
+        assertEquals(5, result.size)
+        assertTrue(result.containsAll(listOf("own-7", "own-8")))
     }
 }

@@ -7,6 +7,7 @@ import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.hasTag
 import com.lionotter.recipes.domain.model.matchesSearch
+import com.lionotter.recipes.domain.port.TagPreferences
 import com.lionotter.recipes.domain.repository.MealPlanRepository
 import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.domain.usecase.DeleteRecipeUseCase
@@ -57,6 +58,7 @@ data class RecipeListUiState(
 class RecipeListViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     private val getTagsUseCase: GetTagsUseCase,
+    tagPreferences: TagPreferences,
     private val importQueue: ImportQueue,
     private val importMonitor: ImportMonitor,
     private val recipeRepository: RecipeRepository,
@@ -88,14 +90,17 @@ class RecipeListViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /**
-     * Available tags derived reactively from the current recipes.
-     * Only recomputed when a recipe's tags change (not e.g. on favorite toggles), and off the
-     * main thread since the tag selection solves an ILP.
+     * Available tags derived reactively from the current recipes, favorite tags and tag count.
+     * Only recomputed when one of those changes (not e.g. on favorite recipe toggles), and off
+     * the main thread since the tag selection solves an ILP.
      */
-    private val availableTags: Flow<List<String>> = allRecipes
-        .filterNotNull()
-        .distinctUntilChangedBy { recipes -> recipes.map { it.id to it.tags } }
-        .map { recipes -> getTagsUseCase.execute(recipes) }
+    private val availableTags: Flow<List<String>> = combine(
+        allRecipes
+            .filterNotNull()
+            .distinctUntilChangedBy { recipes -> recipes.map { it.id to it.tags } },
+        tagPreferences.favoriteTags,
+        tagPreferences.tagBarSize
+    ) { recipes, favorites, size -> getTagsUseCase.execute(recipes, favorites, size) }
         .flowOn(defaultDispatcher)
         .onStart { emit(emptyList()) }
 

@@ -14,5 +14,6 @@ data class Settings(
     val groceryVolumeUnitSystem: UnitSystem,
     val groceryWeightUnitSystem: UnitSystem,
     val startOfWeek: StartOfWeek,
-    val importDebuggingEnabled: Boolean
+    val importDebuggingEnabled: Boolean,
+    val tagBarSize: Int
 )

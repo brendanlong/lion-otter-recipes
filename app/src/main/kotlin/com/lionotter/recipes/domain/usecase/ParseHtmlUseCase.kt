@@ -6,6 +6,7 @@ import com.lionotter.recipes.domain.ResourceLimits
 import com.lionotter.recipes.domain.logDescription
 import com.lionotter.recipes.domain.model.AiModels
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.model.tagVocabulary
 import com.lionotter.recipes.domain.port.AiSettings
 import com.lionotter.recipes.domain.port.ImageStore
 import com.lionotter.recipes.domain.port.ImportDebugLog
@@ -16,6 +17,8 @@ import com.lionotter.recipes.domain.port.ParsedRecipe
 import com.lionotter.recipes.domain.port.ParsedRecipeWithUsage
 import com.lionotter.recipes.domain.port.RecipeParser
 import com.lionotter.recipes.domain.repository.RecipeRepository
+import com.lionotter.recipes.util.ErrorLog
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
@@ -134,6 +137,7 @@ class ParseHtmlUseCase @Inject constructor(
 
         // Parse with AI
         onProgress(ParseProgress.ParsingRecipe)
+        val existingTags = existingTagVocabulary()
         val startTime = System.currentTimeMillis()
         val parseResult = recipeParser.parse(
             ParseRequest(
@@ -142,7 +146,8 @@ class ParseHtmlUseCase @Inject constructor(
                 model = model,
                 thinkingEnabled = thinkingEnabled,
                 densityOverrides = densityOverrides,
-                aiInstructions = aiInstructions
+                aiInstructions = aiInstructions,
+                existingTags = existingTags
             )
         )
         val durationMs = System.currentTimeMillis() - startTime
@@ -207,6 +212,19 @@ class ParseHtmlUseCase @Inject constructor(
         }
 
         return Outcome.Success(recipe)
+    }
+
+    /**
+     * The user's most used tags, for the AI to reuse. Only a hint, so if the recipes can't be
+     * read the parse goes ahead without it.
+     */
+    suspend fun existingTagVocabulary(): List<String> = try {
+        tagVocabulary(recipeRepository.getAllRecipeTags().values)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        ErrorLog.w(TAG, "Couldn't read the existing tags; parsing without them", e)
+        emptyList()
     }
 
     /**
@@ -387,5 +405,9 @@ class ParseHtmlUseCase @Inject constructor(
             createdAt = now,
             updatedAt = now
         )
+    }
+
+    private companion object {
+        const val TAG = "ParseHtmlUseCase"
     }
 }

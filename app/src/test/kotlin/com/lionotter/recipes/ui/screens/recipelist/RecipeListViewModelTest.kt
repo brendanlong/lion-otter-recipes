@@ -8,6 +8,7 @@ import com.lionotter.recipes.imports.ImportMonitor
 import com.lionotter.recipes.testutil.FakeImageStore
 import com.lionotter.recipes.testutil.FakeMealPlanRepository
 import com.lionotter.recipes.testutil.FakeRecipeRepository
+import com.lionotter.recipes.testutil.FakeTagPreferences
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +34,7 @@ class RecipeListViewModelTest {
         recipe("soup", "Tomato Soup", "dinner")
     )
     private val mealPlanRepository = FakeMealPlanRepository()
+    private val tagPreferences = FakeTagPreferences()
 
     @Before
     fun setup() {
@@ -59,6 +61,7 @@ class RecipeListViewModelTest {
         return RecipeListViewModel(
             handle,
             GetTagsUseCase(),
+            tagPreferences,
             mockk(),
             importMonitor,
             recipeRepository,
@@ -151,5 +154,27 @@ class RecipeListViewModelTest {
 
         assertEquals(listOf("cake" to true, "cake" to true), recipeRepository.favoriteUpdates)
         assertTrue(recipeRepository.recipes.value.getValue("cake").isFavorite)
+    }
+
+    @Test
+    fun `tag bar puts favorites with recipes first and follows the tag count`() {
+        recipeRepository.recipes.value = (1..12).associate { i ->
+            "r$i" to recipe("r$i", "Recipe $i", "own-$i", "group-${i % 3}")
+        }
+        val viewModel = createViewModel()
+        assertEquals(10, viewModel.uiState.value.availableTags.size)
+
+        tagPreferences.favoriteTagsFlow.value = setOf("OWN-7", "own-3", "gone")
+        tagPreferences.tagBarSizeFlow.value = 5
+
+        val tags = viewModel.uiState.value.availableTags
+        assertEquals(5, tags.size)
+        assertEquals(setOf("own-7", "own-3"), tags.take(2).toSet())
+        assertFalse("gone" in tags)
+
+        tagPreferences.favoriteTagsFlow.value = emptySet()
+        tagPreferences.tagBarSizeFlow.value = 4
+
+        assertEquals(4, viewModel.uiState.value.availableTags.size)
     }
 }

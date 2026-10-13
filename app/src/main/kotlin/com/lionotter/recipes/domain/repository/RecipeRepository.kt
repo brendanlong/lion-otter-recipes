@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.Flow
  * Recipes for the current user.
  *
  * Write contract: the non-suspending writes ([saveRecipe], [deleteRecipe], [setFavorite],
- * [setUserNotes], [setImageUrl], [updateTitleAndUrl]) apply to the local cache immediately (so
+ * [setUserNotes], [setImageUrl], [updateTitleAndUrl], [setTags]) apply to the local cache immediately (so
  * flows reflect them at once, even offline) and never throw. They sync in the background, and a
  * failure is reported asynchronously through the data layer's failure stream
  * (`FirestoreService.failures`), which the app shows wherever the user is. Callers therefore
@@ -24,7 +24,11 @@ interface RecipeRepository {
     fun setUserNotes(id: String, userNotes: String?)
     fun setImageUrl(id: String, imageUrl: String?)
     fun updateTitleAndUrl(id: String, name: String, sourceUrl: String?)
+    fun setTags(id: String, tags: List<String>)
     suspend fun getAllRecipeIdsAndNames(): List<RecipeIdAndName>
+
+    /** Every recipe's tags, by recipe ID, as stored on this device (never waits for the network). */
+    suspend fun getAllRecipeTags(): Map<String, List<String>>
     suspend fun getRecipeCount(): Int
 
     /** True if a recipe other than [excludingRecipeId] has [imageUrl] as its image. */

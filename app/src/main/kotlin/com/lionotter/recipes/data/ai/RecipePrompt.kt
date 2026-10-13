@@ -163,11 +163,23 @@ ADDITIONAL GUIDELINES:
         )
     }
 
+    /**
+     * The per-recipe part of the request. Everything that varies (known densities, the user's
+     * tags, their instructions) goes here rather than in [systemPrompt], so the system prompt
+     * stays cacheable.
+     */
     fun buildUserMessage(
         content: String,
         densityOverrides: Map<String, Double>? = null,
-        aiInstructions: String? = null
+        aiInstructions: String? = null,
+        existingTags: List<String> = emptyList()
     ): String = buildString {
+        if (existingTags.isNotEmpty()) {
+            append("Tags the user already uses for their recipes, one per line, most used first:\n")
+            existingTags.forEach { append(it).append('\n') }
+            append("\nUse these exact tags (same spelling and case) wherever they fit this recipe. ")
+            append("Only add a new tag when none of them describes something important about the recipe.\n\n")
+        }
         if (!densityOverrides.isNullOrEmpty()) {
             append("Ingredient densities already known for this recipe (g/mL — prefer these over the reference table):\n")
             append(RecipeMarkdownFormatter.formatDensityHints(densityOverrides))

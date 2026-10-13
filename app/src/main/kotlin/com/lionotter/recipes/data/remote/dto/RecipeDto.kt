@@ -19,6 +19,7 @@ object RecipeFields {
     const val IMAGE_URL = "imageUrl"
     const val IS_FAVORITE = "isFavorite"
     const val USER_NOTES = "userNotes"
+    const val TAGS = "tags"
 }
 
 /**

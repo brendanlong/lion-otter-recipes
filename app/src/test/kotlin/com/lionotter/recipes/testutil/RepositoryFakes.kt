@@ -9,6 +9,8 @@ import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.domain.port.AppSettings
+import com.lionotter.recipes.domain.port.TagPreferences
+import com.lionotter.recipes.domain.model.TagBarSize
 import com.lionotter.recipes.domain.port.GroceryListStateStore
 import com.lionotter.recipes.domain.port.SavedGroceryListState
 import com.lionotter.recipes.domain.repository.MealPlanRepository
@@ -33,6 +35,13 @@ class FakeRecipeRepository(vararg initial: Recipe) : RecipeRepository {
     val favoriteUpdates = mutableListOf<Pair<String, Boolean>>()
     val notesUpdates = mutableListOf<Pair<String, String?>>()
     val imageUrlUpdates = mutableListOf<Pair<String, String?>>()
+    val tagUpdates = mutableListOf<Pair<String, List<String>>>()
+
+    /** When set, [getAllRecipeTags] fails with it. */
+    var tagsError: Throwable? = null
+
+    /** Runs at the start of [getAllRecipeTags], e.g. to hold it until a test is ready. */
+    var beforeTagsRead: suspend () -> Unit = {}
 
     /** Overrides the count, to test the recipe limit without creating that many recipes. */
     var countOverride: Int? = null
@@ -75,8 +84,19 @@ class FakeRecipeRepository(vararg initial: Recipe) : RecipeRepository {
     override fun updateTitleAndUrl(id: String, name: String, sourceUrl: String?) =
         update(id) { it.copy(name = name, sourceUrl = sourceUrl) }
 
+    override fun setTags(id: String, tags: List<String>) {
+        tagUpdates += id to tags
+        update(id) { it.copy(tags = tags) }
+    }
+
     override suspend fun getAllRecipeIdsAndNames(): List<RecipeIdAndName> =
         recipes.value.values.map { RecipeIdAndName(it.id, it.name) }
+
+    override suspend fun getAllRecipeTags(): Map<String, List<String>> {
+        beforeTagsRead()
+        tagsError?.let { throw it }
+        return recipes.value.mapValues { it.value.tags }
+    }
 
     override suspend fun getRecipeCount(): Int = countOverride ?: recipes.value.size
 
@@ -176,10 +196,31 @@ class FakeMealPlanRepository(vararg initial: MealPlanEntry) : MealPlanRepository
 }
 
 /** Settings in memory. Set [writeError] to make every write fail. */
+class FakeTagPreferences(favorites: Set<String> = emptySet()) : TagPreferences {
+    val favoriteTagsFlow = MutableStateFlow(favorites)
+    val tagBarSizeFlow = MutableStateFlow(TagBarSize.DEFAULT)
+
+    var writeError: Throwable? = null
+
+    override val favoriteTags: Flow<Set<String>> = favoriteTagsFlow
+    override val tagBarSize: Flow<Int> = tagBarSizeFlow
+
+    override suspend fun updateFavoriteTags(transform: (Set<String>) -> Set<String>) {
+        writeError?.let { throw it }
+        favoriteTagsFlow.value = transform(favoriteTagsFlow.value)
+    }
+
+    override suspend fun setTagBarSize(size: Int) {
+        writeError?.let { throw it }
+        tagBarSizeFlow.value = TagBarSize.coerce(size)
+    }
+}
+
 class FakeAppSettings(
     apiKey: String? = "sk-ant-test",
-    unitSystem: UnitSystem = UnitSystem.METRIC
-) : AppSettings {
+    unitSystem: UnitSystem = UnitSystem.METRIC,
+    val tagPreferences: FakeTagPreferences = FakeTagPreferences()
+) : AppSettings, TagPreferences by tagPreferences {
     val apiKeyFlow = MutableStateFlow(apiKey)
     val aiModelFlow = MutableStateFlow(AiModels.DEFAULT_MODEL)
     val editModelFlow = MutableStateFlow(AiModels.DEFAULT_EDIT_MODEL)
@@ -222,7 +263,7 @@ class FakeAppSettings(
         listOf<Flow<Any?>>(
             apiKeyFlow, aiModelFlow, editModelFlow, thinkingFlow, keepScreenOnFlow, themeModeFlow,
             volumeUnitSystem, weightUnitSystem, groceryVolumeUnitSystem, groceryWeightUnitSystem,
-            startOfWeekFlow, importDebuggingFlow, volumeKeysScrollFlow
+            startOfWeekFlow, importDebuggingFlow, volumeKeysScrollFlow, tagPreferences.tagBarSizeFlow
         )
     ) { values ->
         Settings(
@@ -238,7 +279,8 @@ class FakeAppSettings(
             groceryWeightUnitSystem = values[9] as UnitSystem,
             startOfWeek = values[10] as StartOfWeek,
             importDebuggingEnabled = values[11] as Boolean,
-            volumeKeysScroll = values[12] as Boolean
+            volumeKeysScroll = values[12] as Boolean,
+            tagBarSize = values[13] as Int
         )
     }
 

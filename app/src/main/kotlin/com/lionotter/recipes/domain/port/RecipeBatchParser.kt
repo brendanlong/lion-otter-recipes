@@ -36,7 +36,9 @@ interface RecipeBatchParser {
 data class BatchParseRequest(
     val customId: String,
     val content: String,
-    val densityOverrides: Map<String, Double>? = null
+    val densityOverrides: Map<String, Double>? = null,
+    /** Tags the user already has (most used first), for the AI to reuse. */
+    val existingTags: List<String> = emptyList()
 )
 
 data class BatchStatus(

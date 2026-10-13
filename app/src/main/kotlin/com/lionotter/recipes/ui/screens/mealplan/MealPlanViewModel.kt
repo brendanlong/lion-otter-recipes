@@ -186,12 +186,15 @@ class MealPlanViewModel @Inject constructor(
         }
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5000), replay = 1)
 
-    private val availableTags: Flow<List<String>> = allRecipes
-        .map { (it as? AllRecipes.Loaded)?.recipes.orEmpty() }
-        // Tag selection runs an ILP solver, so only rerun it (off the main thread)
-        // when recipe tags actually change
-        .distinctUntilChangedBy { recipes -> recipes.map { it.id to it.tags } }
-        .map { recipes -> getTagsUseCase.execute(recipes) }
+    private val availableTags: Flow<List<String>> = combine(
+        allRecipes
+            .map { (it as? AllRecipes.Loaded)?.recipes.orEmpty() }
+            // Tag selection runs an ILP solver, so only rerun it (off the main thread)
+            // when recipe tags, favorite tags or the tag count actually change
+            .distinctUntilChangedBy { recipes -> recipes.map { it.id to it.tags } },
+        settings.favoriteTags,
+        settings.tagBarSize
+    ) { recipes, favorites, size -> getTagsUseCase.execute(recipes, favorites, size) }
         .flowOn(defaultDispatcher)
         .catch { e ->
             ErrorLog.e(TAG, "Failed to compute tags", e)
