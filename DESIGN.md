@@ -207,8 +207,8 @@ Google users). Local files live only in `files/recipe_images/`.
   worker holds a PDF about four times over: bytes, base64, request body, network buffer). The tag hint is the user's 100 most-used tags read from the local cache; a read failure only drops it.
 - Single-recipe parses stream (large `max_tokens` would hit HTTP timeouts). Anthropic parses use server-side `fallbacks: "default"`,
   so a safety decline is retried on a fallback model in the same stream; text after the last `fallback` boundary wins.
-- The thinking toggle maps to an effort level (medium when on, low when off; Anthropic also gets adaptive thinking,
-  never a fixed `budget_tokens`). Fable always thinks and rejects an explicit thinking config. Retired stored model IDs map to
+- The thinking toggle maps to an effort level (medium when on, the lowest the model accepts when off: `none` for
+  Luna, `low` otherwise; Anthropic also gets adaptive thinking, never a fixed `budget_tokens`). Fable always thinks and rejects an explicit thinking config. Retired stored model IDs map to
   the current model of their family (`AiProvider.findModel`).
 - Ingredient fields: `name` is what you buy, `modifier` is preparation ("peeled", "melted"), `notes` everything else.
   The grocery list merges by name and ignores the modifier; the recipe's "all ingredients" view keeps modifiers apart.

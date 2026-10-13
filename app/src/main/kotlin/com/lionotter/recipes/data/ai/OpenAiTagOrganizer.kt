@@ -43,7 +43,7 @@ class OpenAiTagOrganizer @Inject constructor(
         userContent = listOf(OpenAiResponses.inputText(TagCleanupPrompt.buildUserMessage(request.tags))),
         schemaName = SCHEMA_NAME,
         schema = schema,
-        effort = RecipeRequests.requestConfigFor(model, request.thinkingEnabled).effort,
+        thinkingEnabled = request.thinkingEnabled,
         maxOutputTokens = MAX_OUTPUT_TOKENS
     )
 

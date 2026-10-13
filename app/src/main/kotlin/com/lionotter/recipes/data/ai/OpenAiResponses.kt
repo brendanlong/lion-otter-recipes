@@ -3,6 +3,7 @@ package com.lionotter.recipes.data.ai
 import android.util.Log
 import com.lionotter.recipes.domain.AiFailure
 import com.lionotter.recipes.domain.Outcome
+import com.lionotter.recipes.domain.model.AiProviders
 import com.lionotter.recipes.util.ErrorLog
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
@@ -17,6 +18,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.discard
 import io.ktor.utils.io.readLine
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerializationException
@@ -98,7 +100,12 @@ class OpenAiResponses @Inject constructor(
                 // Deltas aren't needed: the terminal event carries the whole response
                 val isTerminal = eventName == null || eventName in TERMINAL_EVENTS
                 if (data.isNotEmpty() && isTerminal && data.toString() != "[DONE]") {
-                    terminalOutcome(json.decodeFromString<JsonObject>(data.toString()))?.let { return it }
+                    terminalOutcome(json.decodeFromString<JsonObject>(data.toString()))?.let {
+                        // On Android, closing a response with unread bytes hangs (seen with
+                        // gpt-6.1-sol); the server ends the stream right after this event.
+                        channel.discard()
+                        return it
+                    }
                 }
                 eventName = null
                 data.clear()
@@ -152,7 +159,7 @@ class OpenAiResponses @Inject constructor(
             userContent: List<JsonObject>,
             schemaName: String,
             schema: JsonElement,
-            effort: Effort,
+            thinkingEnabled: Boolean,
             maxOutputTokens: Long
         ): JsonObject = buildJsonObject {
             put("model", model)
@@ -172,16 +179,20 @@ class OpenAiResponses @Inject constructor(
                 }
             }
             putJsonObject("reasoning") {
-                put(
-                    "effort",
-                    when (effort) {
-                        Effort.LOW -> "low"
-                        Effort.MEDIUM -> "medium"
-                    }
-                )
+                put("effort", reasoningEffort(model, thinkingEnabled))
             }
             put("max_output_tokens", maxOutputTokens)
             put("store", false)
+        }
+
+        /** Models that can skip reasoning; the others' lowest effort is "low" (they reject "none"). */
+        private val CAN_SKIP_REASONING = setOf(AiProviders.GPT_LUNA)
+
+        /** The thinking toggle as an effort level, like Anthropic's (medium when on, as little as possible when off). */
+        internal fun reasoningEffort(model: String, thinkingEnabled: Boolean): String = when {
+            thinkingEnabled -> "medium"
+            model in CAN_SKIP_REASONING -> "none"
+            else -> "low"
         }
 
         fun inputText(text: String): JsonObject = buildJsonObject {
