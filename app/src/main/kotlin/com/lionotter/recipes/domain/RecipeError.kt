@@ -59,10 +59,13 @@ sealed interface RecipeError {
     @SerialName("archive")
     data class Archive(val reason: ArchiveFailure) : RecipeError
 
-    /** A file to import a recipe from couldn't be used; [maxBytes] is the size limit it exceeded. */
+    /**
+     * A file to import a recipe from couldn't be used; [maxBytes] is the size limit it exceeded,
+     * [limit] the page or file count limit.
+     */
     @Serializable
     @SerialName("import_file")
-    data class ImportFile(val reason: ImportFileFailure, val maxBytes: Long? = null) : RecipeError
+    data class ImportFile(val reason: ImportFileFailure, val maxBytes: Long? = null, val limit: Int? = null) : RecipeError
 
     /** The work was stopped before it finished (e.g. its input was lost) and must be started again. */
     @Serializable
@@ -168,7 +171,13 @@ enum class ArchiveFailure {
 enum class ImportFileFailure {
     TOO_LARGE,
     EMPTY,
-    UNREADABLE
+    UNREADABLE,
+    /** A PDF with more pages than the limit. */
+    TOO_MANY_PAGES,
+    /** More photos than one recipe can be imported from. */
+    TOO_MANY_FILES,
+    /** Several files were chosen, but only photos can be imported together. */
+    NOT_ALL_PHOTOS
 }
 
 /** A short English description for logs and the import debugging screen (never shown as an error message). */

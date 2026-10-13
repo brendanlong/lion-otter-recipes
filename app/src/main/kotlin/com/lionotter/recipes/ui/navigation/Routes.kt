@@ -20,14 +20,14 @@ sealed interface Route {
     data class EditRecipe(val recipeId: String) : Route
 
     /**
-     * [url] pre-fills the URL field, e.g. from a share intent; [fileUri] is a recipe file
-     * (Markdown, text or HTML) shared with the app, imported as soon as the screen opens, and
-     * [fileMimeType] the type the sharing app gave it.
+     * [url] pre-fills the URL field, e.g. from a share intent; [fileUris] is a recipe file
+     * (Markdown, text, HTML or PDF) or photos of a recipe shared with the app, imported as soon
+     * as the screen opens, and [fileMimeType] the type the sharing app gave them.
      */
     @Serializable
     data class AddRecipe(
         val url: String? = null,
-        val fileUri: String? = null,
+        val fileUris: List<String> = emptyList(),
         val fileMimeType: String? = null
     ) : Route
 

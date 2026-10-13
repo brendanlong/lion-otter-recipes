@@ -3,7 +3,10 @@ package com.lionotter.recipes.domain.port
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.model.InstructionSection
 
-/** Turns recipe text (a web page's extracted content, Markdown, a Paprika recipe) into a recipe with AI. */
+/**
+ * Turns recipe text (a web page's extracted content, Markdown, a Paprika recipe), or photos or a
+ * PDF of a recipe, into a recipe with AI.
+ */
 interface RecipeParser {
     /**
      * Fails with [RecipeError.Ai][com.lionotter.recipes.domain.RecipeError.Ai] when the request or
@@ -14,6 +17,7 @@ interface RecipeParser {
 }
 
 data class ParseRequest(
+    /** The recipe's text; empty when the recipe is in [attachments]. */
     val content: String,
     val apiKey: String,
     val model: String,
@@ -23,8 +27,24 @@ data class ParseRequest(
     /** The user's own instructions, e.g. "Make this recipe vegan". */
     val aiInstructions: String? = null,
     /** Tags the user already has (most used first), for the AI to reuse. */
-    val existingTags: List<String> = emptyList()
+    val existingTags: List<String> = emptyList(),
+    /** Photos (in page order) or a PDF of the recipe. */
+    val attachments: List<ParseAttachment> = emptyList()
 )
+
+/** A file sent to the AI with a [ParseRequest]. */
+sealed class ParseAttachment(val bytes: ByteArray, val mediaType: String) {
+    /** A photo; [mediaType] is `image/jpeg`, `image/png`, `image/gif` or `image/webp`. */
+    class Image(bytes: ByteArray, mediaType: String) : ParseAttachment(bytes, mediaType)
+
+    class Pdf(bytes: ByteArray) : ParseAttachment(bytes, PDF_MEDIA_TYPE)
+
+    override fun toString(): String = "${this::class.simpleName}($mediaType, ${bytes.size} bytes)"
+
+    companion object {
+        const val PDF_MEDIA_TYPE = "application/pdf"
+    }
+}
 
 /** The AI-generated content of a recipe. */
 data class ParsedRecipe(

@@ -54,6 +54,9 @@ class RecipeEditWorker @AssistedInject constructor(
         /** The copy's new local image, owned by this work; absent with a change means no image. */
         private const val KEY_COPY_IMAGE_URI = "copy_image_uri"
 
+        /** The tags from the edit screen, saved instead of the AI's; absent (older versions) takes the AI's. */
+        private const val KEY_TAGS = "tags"
+
         fun createInputData(
             recipeId: String,
             markdownPath: String,
@@ -62,7 +65,8 @@ class RecipeEditWorker @AssistedInject constructor(
             saveAsCopy: Boolean = false,
             aiInstructions: String? = null,
             copyRecipeId: String? = null,
-            copyImage: ImageChange? = null
+            copyImage: ImageChange? = null,
+            tags: List<String>? = null
         ): Data {
             return workDataOf(
                 KEY_RECIPE_ID to recipeId,
@@ -74,9 +78,13 @@ class RecipeEditWorker @AssistedInject constructor(
                 // Instructions are user-typed; keep them well under the Data size limit.
                 KEY_AI_INSTRUCTIONS to aiInstructions?.take(4000),
                 KEY_COPY_IMAGE_CHANGED to (copyImage != null),
-                KEY_COPY_IMAGE_URI to (copyImage as? ImageChange.Replace)?.localUri
+                KEY_COPY_IMAGE_URI to (copyImage as? ImageChange.Replace)?.localUri,
+                KEY_TAGS to tags?.toTypedArray()
             )
         }
+
+        /** The tags to keep; null for work that takes the AI's (or was enqueued by older versions). */
+        fun tags(inputData: Data): List<String>? = inputData.getNullableStringArray(KEY_TAGS)?.filterNotNull()
 
         /** The image change for the copy; null for work enqueued without one (or by older versions). */
         fun copyImage(inputData: Data): ImageChange? = when {
@@ -140,6 +148,7 @@ class RecipeEditWorker @AssistedInject constructor(
             thinkingEnabled = thinkingEnabled,
             aiInstructions = aiInstructions,
             copyImage = copyImage,
+            tags = tags(inputData),
             onProgress = { progress ->
                 val (workProgress, message) = when (progress) {
                     is EditRecipeUseCase.EditProgress.ParsingRecipe ->

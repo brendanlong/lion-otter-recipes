@@ -9,7 +9,11 @@ import androidx.navigation.toRoute
 import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.AiModels
 import com.lionotter.recipes.domain.model.ImageChange
+import com.lionotter.recipes.domain.model.MAX_TAG_LENGTH
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.model.tagKey
+import com.lionotter.recipes.domain.model.tagKeys
+import com.lionotter.recipes.domain.model.tagUsage
 import com.lionotter.recipes.di.ApplicationScope
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.port.AppSettings
@@ -21,6 +25,7 @@ import com.lionotter.recipes.messages.toUserMessage
 import com.lionotter.recipes.ui.navigation.Route
 import com.lionotter.recipes.ui.screens.importbrowser.BrowsedPage
 import com.lionotter.recipes.ui.screens.importbrowser.isWebUrl
+import com.lionotter.recipes.util.DefaultDispatcher
 import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.util.IoDispatcher
 import com.lionotter.recipes.worker.RecipeEditWork
@@ -43,6 +48,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
@@ -65,6 +71,16 @@ sealed interface RecipeLoadState {
     data class Loaded(val recipe: Recipe) : RecipeLoadState
 }
 
+/**
+ * Existing tags matching what the user typed in the tag field ([matches], best first), and
+ * [newTag], the typed text, when no tag of that name exists yet (so adding it creates one).
+ */
+data class TagSearch(val matches: List<String>, val newTag: String?) {
+    companion object {
+        val Empty = TagSearch(emptyList(), null)
+    }
+}
+
 sealed interface EditRecipeEvent {
     /** The changes were saved; [newRecipeId] is the copy for "save as copy", otherwise null. */
     data class Saved(val newRecipeId: String?) : EditRecipeEvent
@@ -81,7 +97,8 @@ class EditRecipeViewModel @Inject constructor(
     private val imageStore: ImageStore,
     private val recipeWorkScheduler: RecipeWorkScheduler,
     @param:ApplicationScope private val appScope: CoroutineScope,
-    @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
+    @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher,
+    @DefaultDispatcher defaultDispatcher: CoroutineDispatcher
 ) : ViewModel() {
 
     private val recipeId: String = savedStateHandle.toRoute<Route.EditRecipe>().recipeId
@@ -109,6 +126,26 @@ class EditRecipeViewModel @Inject constructor(
     val markdownText: StateFlow<String> = savedStateHandle.getStateFlow(KEY_MARKDOWN, "")
     val aiInstructions: StateFlow<String> = savedStateHandle.getStateFlow(KEY_AI_INSTRUCTIONS, "")
 
+    /** The recipe's tags as edited here. They aren't part of [markdownText]. */
+    val tags: StateFlow<List<String>> = savedStateHandle.getStateFlow(KEY_TAGS, emptyList())
+
+    /** What the user has typed in the tag field. */
+    val tagQuery: StateFlow<String> = savedStateHandle.getStateFlow(KEY_TAG_QUERY, "")
+
+    /** All the user's tags (one spelling each), most used first, to search and to reuse their spelling. */
+    private val tagVocabulary: StateFlow<List<String>> = recipeRepository.getAllRecipes()
+        .map { recipes -> tagUsage(recipes.map { it.tags }).map { it.name } }
+        .flowOn(defaultDispatcher)
+        .catch { e ->
+            // Only suggestions are lost; typed tags can still be added
+            ErrorLog.e(TAG, "Failed to load the tags for suggestions", e)
+            emit(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val tagSearch: StateFlow<TagSearch> = combine(tagQuery, tagVocabulary, tags, ::searchTags)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, TagSearch.Empty)
+
     /**
      * An image change (pick or remove) is held as pending until the user saves, so that
      * cancelling the edit leaves the recipe untouched. A pending pick is a local file:// copy.
@@ -133,26 +170,43 @@ class EditRecipeViewModel @Inject constructor(
 
     /** What the fields would hold for the latest version of the recipe, to detect changes. */
     private val originals: StateFlow<Originals?> = recipe
-        .map { recipe -> recipe?.let { Originals(it.name, it.sourceUrl, RecipeMarkdownFormatter.formatBody(it)) } }
+        .map { recipe ->
+            recipe?.let { Originals(it.name, it.sourceUrl, RecipeMarkdownFormatter.formatBody(it), it.tags) }
+        }
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
-    private data class Originals(val title: String, val sourceUrl: String?, val markdown: String)
+    private data class Originals(
+        val title: String,
+        val sourceUrl: String?,
+        val markdown: String,
+        val tags: List<String>
+    )
+
+    /** What the user has entered, to compare with [Originals]. */
+    private data class Fields(
+        val title: String,
+        val sourceUrl: String?,
+        val markdown: String,
+        val tags: List<String>,
+        val aiInstructions: String
+    )
+
+    private val fields: Flow<Fields> = combine(title, sourceUrl, markdownText, tags, aiInstructions, ::Fields)
 
     /** True if the user has made changes that would be lost by leaving. */
     val hasUnsavedChanges: StateFlow<Boolean> = combine(
-        title,
-        sourceUrl,
-        markdownText,
-        aiInstructions,
-        combine(originals, pendingImageChanged) { original, imageChanged -> original to imageChanged }
-    ) { title, url, markdown, ai, (original, imageChanged) ->
+        fields,
+        originals,
+        pendingImageChanged
+    ) { fields, original, imageChanged ->
         original != null && (
             imageChanged ||
-                title != original.title ||
-                url != original.sourceUrl ||
-                markdown != original.markdown ||
-                ai.isNotBlank()
+                fields.title != original.title ||
+                fields.sourceUrl != original.sourceUrl ||
+                fields.markdown != original.markdown ||
+                fields.tags != original.tags ||
+                fields.aiInstructions.isNotBlank()
             )
     }.stateIn(
         scope = viewModelScope,
@@ -226,6 +280,30 @@ class EditRecipeViewModel @Inject constructor(
 
     fun setAiInstructions(instructions: String) {
         savedStateHandle[KEY_AI_INSTRUCTIONS] = instructions
+    }
+
+    fun setTagQuery(query: String) {
+        savedStateHandle[KEY_TAG_QUERY] = query.take(MAX_TAG_LENGTH)
+    }
+
+    /**
+     * Adds [tag] (in the spelling the user's other recipes use, if it exists) unless the recipe
+     * already has it, and clears the tag field.
+     */
+    fun addTag(tag: String) {
+        savedStateHandle[KEY_TAG_QUERY] = ""
+        val key = tagKey(tag)
+        if (key.isEmpty() || key in tags.value.tagKeys()) return
+        val spelling = tagVocabulary.value.firstOrNull { tagKey(it) == key } ?: tag.trim()
+        savedStateHandle[KEY_TAGS] = ArrayList(tags.value + spelling)
+    }
+
+    /** Adds what the user typed in the tag field (keyboard Done). */
+    fun addTypedTag() = addTag(tagQuery.value)
+
+    fun removeTag(tag: String) {
+        val key = tagKey(tag)
+        savedStateHandle[KEY_TAGS] = ArrayList(tags.value.filter { tagKey(it) != key })
     }
 
     fun setModel(model: String) {
@@ -326,7 +404,7 @@ class EditRecipeViewModel @Inject constructor(
 
     /**
      * Save all changes. Only triggers the AI cycle if the recipe body text was actually modified
-     * or AI instructions were given. Image, title, and URL changes are saved directly first.
+     * or AI instructions were given. Image, title, URL and tag changes are saved directly first.
      */
     fun saveEdits() {
         if (isSaveInProgress()) return
@@ -336,6 +414,7 @@ class EditRecipeViewModel @Inject constructor(
         val urlChanged = sourceUrl.value != original?.sourceUrl
         val newTitle = title.value
         val newUrl = sourceUrl.value
+        val newTags = changedTags()
         val editRequest = buildEditRequest(saveAsCopy = false)
         // The save takes over the picked file: it now belongs to the recipe, not this screen
         val imageChange = pendingImageChange()
@@ -353,6 +432,7 @@ class EditRecipeViewModel @Inject constructor(
                     if (titleChanged || urlChanged) {
                         recipeRepository.updateTitleAndUrl(recipeId, newTitle, newUrl)
                     }
+                    newTags?.let { recipeRepository.setTags(recipeId, it) }
                     if (needsAiEdit) startEditWork(editRequest)
                     needsAiEdit
                 }
@@ -427,15 +507,30 @@ class EditRecipeViewModel @Inject constructor(
         val model: String,
         val thinkingEnabled: Boolean,
         val saveAsCopy: Boolean,
-        val aiInstructions: String?
+        val aiInstructions: String?,
+        val tags: List<String>
     )
 
+    /** The edited tags if they differ from the recipe's, otherwise null. */
+    private fun changedTags(): List<String>? = tags.value.takeIf { it != originals.value?.tags }
+
+    /**
+     * The AI sees the tags in the Markdown, but the tags shown here are saved ([EditRequest.tags]),
+     * not the AI's: the tag editor is the only way an edit changes them, so the AI can't bring
+     * back a tag the user removed.
+     */
     private fun buildEditRequest(saveAsCopy: Boolean) = EditRequest(
-        markdown = buildFullMarkdown(),
+        markdown = RecipeMarkdownFormatter.formatForAiEdit(
+            title = title.value,
+            sourceUrl = sourceUrl.value,
+            tags = tags.value,
+            body = markdownText.value
+        ),
         model = model.value,
         thinkingEnabled = thinkingEnabled.value,
         saveAsCopy = saveAsCopy,
-        aiInstructions = aiInstructions.value.takeIf { it.isNotBlank() }
+        aiInstructions = aiInstructions.value.takeIf { it.isNotBlank() },
+        tags = tags.value
     )
 
     /** Enqueues the AI edit and tracks it. Its input is written to disk on the IO dispatcher. */
@@ -448,7 +543,8 @@ class EditRecipeViewModel @Inject constructor(
                 thinkingEnabled = request.thinkingEnabled,
                 saveAsCopy = request.saveAsCopy,
                 aiInstructions = request.aiInstructions,
-                copyImage = copyImage
+                copyImage = copyImage,
+                tags = request.tags
             )
         }
         editWork.start(work)
@@ -500,25 +596,6 @@ class EditRecipeViewModel @Inject constructor(
     }
 
     /**
-     * Reconstruct the full markdown with title and URL prepended to the body.
-     * Used when sending to the AI for re-parsing.
-     */
-    private fun buildFullMarkdown(): String = buildString {
-        val title = title.value
-        if (title.isNotBlank()) {
-            appendLine("# $title")
-            appendLine()
-        }
-        sourceUrl.value?.let { url ->
-            if (url.isNotBlank()) {
-                appendLine("*Source: [$url]($url)*")
-                appendLine()
-            }
-        }
-        append(markdownText.value)
-    }
-
-    /**
      * Fills the fields from the recipe once (after recreation/process death they come from
      * SavedStateHandle), then keeps the fields the user hasn't touched in step with later
      * versions of the recipe, so a change made elsewhere isn't reverted by saving.
@@ -533,12 +610,14 @@ class EditRecipeViewModel @Inject constructor(
                         savedStateHandle[KEY_TITLE] = latest.title
                         savedStateHandle[KEY_SOURCE_URL] = latest.sourceUrl
                         savedStateHandle[KEY_MARKDOWN] = latest.markdown
+                        savedStateHandle[KEY_TAGS] = ArrayList(latest.tags)
                         savedStateHandle[KEY_FIELDS_INITIALIZED] = true
                     }
                 } else {
                     if (title.value == previous.title) savedStateHandle[KEY_TITLE] = latest.title
                     if (sourceUrl.value == previous.sourceUrl) savedStateHandle[KEY_SOURCE_URL] = latest.sourceUrl
                     if (markdownText.value == previous.markdown) savedStateHandle[KEY_MARKDOWN] = latest.markdown
+                    if (tags.value == previous.tags) savedStateHandle[KEY_TAGS] = ArrayList(latest.tags)
                 }
                 base = latest
             }
@@ -624,6 +703,32 @@ class EditRecipeViewModel @Inject constructor(
         private const val KEY_SOURCE_URL = "edit_source_url"
         private const val KEY_MARKDOWN = "edit_markdown"
         private const val KEY_AI_INSTRUCTIONS = "edit_ai_instructions"
+        private const val KEY_TAGS = "edit_tags"
+        private const val KEY_TAG_QUERY = "edit_tag_query"
+        private const val MAX_TAG_MATCHES = 8
+
+        /**
+         * The [vocabulary] tags containing [query] that the recipe doesn't have yet ([current]),
+         * exact and prefix matches first, and the query as a new tag if no tag has its name.
+         */
+        internal fun searchTags(query: String, vocabulary: List<String>, current: List<String>): TagSearch {
+            val typed = query.trim()
+            if (typed.isEmpty()) return TagSearch.Empty
+            val key = tagKey(typed)
+            val currentKeys = current.tagKeys()
+            val matches = vocabulary
+                .filter { it.contains(typed, ignoreCase = true) && tagKey(it) !in currentKeys }
+                .sortedBy {
+                    when {
+                        tagKey(it) == key -> 0
+                        tagKey(it).startsWith(key) -> 1
+                        else -> 2
+                    }
+                }
+                .take(MAX_TAG_MATCHES)
+            val exists = key in currentKeys || vocabulary.any { tagKey(it) == key }
+            return TagSearch(matches, typed.takeUnless { exists })
+        }
         private const val KEY_FIELDS_INITIALIZED = "edit_fields_initialized"
         private const val KEY_PENDING_IMAGE_CHANGED = "edit_pending_image_changed"
         private const val KEY_PENDING_IMAGE_URI = "edit_pending_image_uri"

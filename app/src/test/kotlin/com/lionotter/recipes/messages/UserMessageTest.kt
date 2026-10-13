@@ -59,6 +59,14 @@ class UserMessageTest {
             "This file is too large to import. Recipe files can be up to 5 MB.",
             RecipeError.ImportFile(ImportFileFailure.TOO_LARGE, 5 * 1024 * 1024L).toUserMessage().resolve(resources)
         )
+        assertEquals(
+            "This PDF has too many pages. PDFs can have up to 20 pages.",
+            RecipeError.ImportFile(ImportFileFailure.TOO_MANY_PAGES, limit = 20).toUserMessage().resolve(resources)
+        )
+        assertEquals(
+            "Too many photos. A recipe can be imported from up to 5 photos.",
+            RecipeError.ImportFile(ImportFileFailure.TOO_MANY_FILES, limit = 5).toUserMessage().resolve(resources)
+        )
     }
 
     @Test

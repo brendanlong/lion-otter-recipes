@@ -82,7 +82,8 @@ class RecipeErrorTest {
             ImportFileFailure.entries.map { RecipeError.ImportFile(it) } +
             listOf(
                 RecipeError.ImportFile(ImportFileFailure.TOO_LARGE, 200 * 1024L),
-                RecipeError.ImportFile(ImportFileFailure.TOO_LARGE, 5 * 1024 * 1024L)
+                RecipeError.ImportFile(ImportFileFailure.TOO_LARGE, 5 * 1024 * 1024L),
+                RecipeError.ImportFile(ImportFileFailure.TOO_MANY_PAGES, limit = 20)
             )
     }
 

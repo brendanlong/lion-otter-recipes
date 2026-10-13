@@ -24,12 +24,15 @@ sealed interface AppIntentEvent {
 
     /**
      * A shared or opened file; [mimeType] is the type the sending app gave. [SharedIntentViewModel]
-     * delivers it as is if it's a recipe archive, or as [ImportRecipeFile].
+     * delivers it as is if it's a recipe archive, or as [ImportRecipeFiles].
      */
     data class ImportFile(val uri: Uri, val mimeType: String? = null) : AppIntentEvent
 
-    /** A Markdown, text or HTML file with one recipe, imported directly. */
-    data class ImportRecipeFile(val uri: Uri, val mimeType: String? = null) : AppIntentEvent
+    /**
+     * A Markdown, text, HTML or PDF file, or photos (in order), with one recipe, imported directly.
+     * Several [uris] are only valid if they are all photos, which the import checks.
+     */
+    data class ImportRecipeFiles(val uris: List<Uri>, val mimeType: String? = null) : AppIntentEvent
     data class OpenRecipe(val recipeId: String) : AppIntentEvent
     /** Text was shared with the app but it didn't contain a web link. */
     data object NoUrlInSharedText : AppIntentEvent
@@ -64,7 +67,7 @@ class SharedIntentViewModel @Inject constructor(
     /** Whether the file goes to the selection screen (an archive) or is imported directly. */
     private suspend fun resolveFile(event: AppIntentEvent.ImportFile): AppIntentEvent = try {
         importFileInspector.recipeFile(event.uri, event.mimeType)
-            ?.let { AppIntentEvent.ImportRecipeFile(it.uri, event.mimeType) }
+            ?.let { AppIntentEvent.ImportRecipeFiles(listOf(it.uri), event.mimeType) }
             ?: event
     } catch (e: CancellationException) {
         throw e
@@ -82,12 +85,24 @@ fun Intent.toAppIntentEvent(): AppIntentEvent? {
     }
     return when (action) {
         Intent.ACTION_VIEW -> data?.let { AppIntentEvent.ImportFile(it, type) }
+        Intent.ACTION_SEND_MULTIPLE -> {
+            val streams = IntentCompat.getParcelableArrayListExtra(this, Intent.EXTRA_STREAM, Uri::class.java)
+                .orEmpty().filterNotNull()
+            when (streams.size) {
+                0 -> null
+                1 -> AppIntentEvent.ImportFile(streams.single(), type)
+                // Photos of one recipe (e.g. its cookbook pages)
+                else -> AppIntentEvent.ImportRecipeFiles(streams, type)
+            }
+        }
         Intent.ACTION_SEND -> {
             val text = getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
             val stream = IntentCompat.getParcelableExtra(this, Intent.EXTRA_STREAM, Uri::class.java)
             val isTextShare = type?.startsWith("text/") == true
             val url = text?.let(::extractFirstUrl)
             when {
+                // An app sharing a recipe link with a preview picture: the page has the recipe
+                stream != null && type?.startsWith("image/") == true && url != null -> AppIntentEvent.ImportUrl(url)
                 stream != null && !isTextShare -> AppIntentEvent.ImportFile(stream, type)
                 // A shared text, Markdown or HTML file (notes apps may send its text along), unless
                 // the text is only a link

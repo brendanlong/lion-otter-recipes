@@ -7,12 +7,17 @@ import androidx.work.ListenableWorker
 import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
 import androidx.work.testing.TestListenableWorkerBuilder
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Color
+import com.lionotter.recipes.data.image.ImageUploadPreparer
 import com.lionotter.recipes.domain.AiFailure
 import com.lionotter.recipes.domain.ImportFileFailure
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.RecipeErrorException
 import com.lionotter.recipes.domain.model.RecipeFileFormat
+import com.lionotter.recipes.domain.port.ParseAttachment
 import com.lionotter.recipes.domain.usecase.ImportRecipeUseCase
 import com.lionotter.recipes.domain.usecase.ParseHtmlUseCase
 import com.lionotter.recipes.notification.RecipeNotificationHelper
@@ -33,7 +38,9 @@ import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.GraphicsMode
 import java.io.File
+import java.io.IOException
 import javax.inject.Provider
 
 /**
@@ -41,6 +48,7 @@ import javax.inject.Provider
  * the picked file doesn't survive process death) and the import worker reads it from there.
  */
 @RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE) // Photos are decoded and scaled
 class RecipeFileImportWorkTest {
 
     private val context = ApplicationProvider.getApplicationContext<Context>()
@@ -51,8 +59,9 @@ class RecipeFileImportWorkTest {
     private val parser = FakeRecipeParser()
     private val repository = FakeRecipeRepository()
     private val extractor = FakePageContentExtractor(canonicalUrl = "https://example.com/bread")
+    private val imageStore = FakeImageStore()
     private val parseHtml =
-        ParseHtmlUseCase(parser, extractor, repository, FakeImportDebugLog(), FakeAiSettings(), FakeImageStore())
+        ParseHtmlUseCase(parser, extractor, repository, FakeImportDebugLog(), FakeAiSettings(), imageStore)
 
     private val runningWork = RunningAccountWork(Provider { error("Not used by this test") })
 
@@ -67,6 +76,7 @@ class RecipeFileImportWorkTest {
             // No pages: FakePageFetcher fails the test if anything is downloaded
             ImportRecipeUseCase(FakePageFetcher(), extractor, parseHtml),
             inputStore,
+            RecipeAttachmentLoader(ImageUploadPreparer(Dispatchers.Unconfined), Dispatchers.Unconfined),
             RecipeNotificationHelper(appContext),
             runningWork
         )
@@ -166,5 +176,117 @@ class RecipeFileImportWorkTest {
             RecipeImportWork.decodeOutcome(succeeded = false, (result as ListenableWorker.Result.Failure).outputData)
         )
         assertTrue(parser.requests.isEmpty())
+    }
+
+    private fun pickedPhoto(name: String, width: Int, height: Int): Uri {
+        val file = File(context.cacheDir, name)
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.WHITE) }
+        file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+        return Uri.fromFile(file)
+    }
+
+    private fun dimensions(bytes: ByteArray): Pair<Int, Int> {
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+        return options.outWidth to options.outHeight
+    }
+
+    @Test
+    fun `photos are scaled down and sent in order, and the first becomes the recipe's image`() = runTest {
+        inputStore.copySource("photos-1", pickedPhoto("page1.jpg", 4000, 1000), index = 0)
+        inputStore.copySource("photos-1", pickedPhoto("page2.jpg", 300, 400), index = 1)
+        inputStore.writeKind("photos-1", ImportKind.IMAGE_FILE)
+
+        val result = worker("photos-1").doWork()
+
+        assertTrue(result is ListenableWorker.Result.Success)
+        val request = parser.requests.single()
+        assertEquals("", request.content)
+        val (first, second) = request.attachments.map { it as ParseAttachment.Image }
+        assertEquals(RecipeAttachmentLoader.MAX_AI_IMAGE_DIMENSION to 392, dimensions(first.bytes))
+        assertEquals(300 to 400, dimensions(second.bytes))
+        assertEquals(listOf("image/jpeg", "image/jpeg"), request.attachments.map { it.mediaType })
+        assertEquals(listOf(first.bytes.size), imageStore.savedStreams)
+        val recipe = repository.saved.single()
+        assertEquals("gs://bucket/stream.jpg", recipe.imageUrl)
+        assertNull(recipe.sourceUrl)
+        assertNull(recipe.sourceImageUrl)
+        assertFalse(inputStore.hasImport("photos-1"))
+    }
+
+    @Test
+    fun `a recipe photo that can't be saved leaves the recipe without an image`() = runTest {
+        imageStore.streamUri = { _, _ -> throw IOException("disk full") }
+        inputStore.copySource("photos-5", pickedPhoto("card.jpg", 300, 400))
+        inputStore.writeKind("photos-5", ImportKind.IMAGE_FILE)
+
+        val result = worker("photos-5").doWork()
+
+        assertTrue(result is ListenableWorker.Result.Success)
+        assertNull(repository.saved.single().imageUrl)
+    }
+
+    @Test
+    fun `a PDF is sent as is and gives no image`() = runTest {
+        stage("pdf-1", "%PDF-1.4 recipe", ImportKind.PDF_FILE)
+
+        val result = worker("pdf-1").doWork()
+
+        assertTrue(result is ListenableWorker.Result.Success)
+        val pdf = parser.requests.single().attachments.single() as ParseAttachment.Pdf
+        assertEquals("%PDF-1.4 recipe", String(pdf.bytes))
+        assertEquals("application/pdf", pdf.mediaType)
+        assertTrue(imageStore.savedStreams.isEmpty())
+        assertNull(repository.saved.single().imageUrl)
+    }
+
+    @Test
+    fun `a photo that isn't an image fails as unreadable and isn't sent`() = runTest {
+        stage("photos-2", "not a photo", ImportKind.IMAGE_FILE)
+
+        val result = worker("photos-2").doWork()
+
+        assertTrue(result is ListenableWorker.Result.Failure)
+        assertEquals(
+            RecipeImportWork.Outcome.Failed(RecipeError.ImportFile(ImportFileFailure.UNREADABLE), "photos-2"),
+            RecipeImportWork.decodeOutcome(succeeded = false, (result as ListenableWorker.Result.Failure).outputData)
+        )
+        assertTrue(parser.requests.isEmpty())
+    }
+
+    @Test
+    fun `a photo import whose files are gone can't be retried`() = runTest {
+        stage("photos-3", "x", ImportKind.IMAGE_FILE)
+        inputStore.sourceFile("photos-3").delete()
+
+        val result = worker("photos-3").doWork()
+
+        assertEquals(
+            RecipeImportWork.Outcome.Failed(RecipeError.CannotRetry, "photos-3"),
+            RecipeImportWork.decodeOutcome(succeeded = false, (result as ListenableWorker.Result.Failure).outputData)
+        )
+    }
+
+    @Test
+    fun `staged photos are read back in order`() = runTest {
+        inputStore.copySource("photos-4", pickedFile("a", "first"), index = 0)
+        inputStore.copySource("photos-4", pickedFile("b", "second"), index = 1)
+        inputStore.writeKind("photos-4", ImportKind.IMAGE_FILE)
+
+        val staged = inputStore.readRecipeFile("photos-4")!!
+
+        assertEquals(RecipeFileFormat.IMAGE, staged.format)
+        assertNull(staged.content)
+        assertEquals(listOf("first", "second"), staged.sources.map { it.readText() })
+    }
+
+    @Test
+    fun `import kinds keep the values older versions stored`() {
+        assertEquals(
+            listOf("url", "paprika", "zip", "text_file", "html_file", "image_file", "pdf_file"),
+            ImportKind.entries.map { it.value }
+        )
+        assertEquals(ImportKind.IMAGE_FILE, ImportKind.forRecipeFile(RecipeFileFormat.IMAGE))
+        assertEquals(ImportKind.PDF_FILE, ImportKind.forRecipeFile(RecipeFileFormat.PDF))
     }
 }

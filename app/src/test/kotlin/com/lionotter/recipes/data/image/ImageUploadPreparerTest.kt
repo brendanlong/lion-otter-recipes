@@ -65,6 +65,27 @@ class ImageUploadPreparerTest {
     }
 
     @Test
+    fun `smaller limits scale further and re-encode an image that would pass for an upload`() = runBlocking {
+        val file = writeJpeg(2000, 1500)
+        val prepared = preparer.prepare(file, maxDimension = 1568, maxBytes = 3_750_000L)
+        assertEquals(1568 to 1176, dimensions(prepared.bytes))
+        assertEquals("image/jpeg", prepared.mimeType)
+    }
+
+    @Test
+    fun `transparent parts become white, not black, in the JPEG`() = runBlocking {
+        val file = tempFolder.newFile("transparent.png")
+        val bitmap = Bitmap.createBitmap(3000, 1000, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.TRANSPARENT) }
+        file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+
+        val prepared = preparer.prepare(file, maxDimension = 1568, maxBytes = 3_750_000L)
+
+        assertEquals("image/jpeg", prepared.mimeType)
+        val decoded = BitmapFactory.decodeByteArray(prepared.bytes, 0, prepared.bytes.size)
+        assertTrue(Color.red(decoded.getPixel(10, 10)) > 240)
+    }
+
+    @Test
     fun `exif rotated image is rotated upright`() = runBlocking {
         val file = writeJpeg(400, 300, ExifInterface.ORIENTATION_ROTATE_90)
         val prepared = preparer.prepare(file)

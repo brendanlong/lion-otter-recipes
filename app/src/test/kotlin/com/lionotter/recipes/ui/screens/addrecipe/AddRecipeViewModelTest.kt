@@ -1,8 +1,12 @@
 package com.lionotter.recipes.ui.screens.addrecipe
 
+import android.content.Context
 import android.net.Uri
 import android.util.Log
+import androidx.core.content.FileProvider
 import androidx.lifecycle.SavedStateHandle
+import androidx.navigation.testing.invoke
+import androidx.test.core.app.ApplicationProvider
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
@@ -12,9 +16,12 @@ import com.lionotter.recipes.domain.ImportFileFailure
 import com.lionotter.recipes.domain.PageFetchFailure
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.RecipeErrorException
+import com.lionotter.recipes.domain.ResourceLimits
 import com.lionotter.recipes.domain.model.RecipeFileFormat
+import com.lionotter.recipes.imports.CameraPhotoFiles
 import com.lionotter.recipes.imports.FakeImportWork
 import com.lionotter.recipes.imports.FakePendingImportDao
+import com.lionotter.recipes.imports.ImportFileChecker
 import com.lionotter.recipes.imports.ImportFileInspector
 import com.lionotter.recipes.imports.ImportMonitor
 import com.lionotter.recipes.imports.ImportQueue
@@ -24,6 +31,7 @@ import com.lionotter.recipes.imports.pendingImport
 import com.lionotter.recipes.imports.testAppScope
 import com.lionotter.recipes.imports.workInfo
 import com.lionotter.recipes.messages.UserMessage
+import com.lionotter.recipes.ui.navigation.Route
 import com.lionotter.recipes.ui.screens.importbrowser.BrowsedPage
 import com.lionotter.recipes.ui.screens.importselection.ImportType
 import com.lionotter.recipes.testutil.FakeAiSettings
@@ -33,6 +41,7 @@ import com.lionotter.recipes.worker.RecipeImportWork
 import com.lionotter.recipes.worker.RecipeImportWorker
 import com.lionotter.recipes.worker.RecipeWorkScheduler
 import io.mockk.coEvery
+import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
@@ -44,12 +53,15 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -74,6 +86,9 @@ class AddRecipeViewModelTest {
         recipeFiles[uri]
     }
     private val pickedUri: Uri = Uri.parse("content://files/bread.md")
+
+    @Suppress("InjectDispatcher") // Only writes the test's camera files
+    private val cameraPhotos = CameraPhotoFiles(ApplicationProvider.getApplicationContext(), Dispatchers.Unconfined)
     private val inputStore: ImportInputStore = mockk(relaxed = true)
     private val scheduler: RecipeWorkScheduler = mockk {
         every { buildUrlImportRequest(any(), any()) } answers { OneTimeWorkRequestBuilder<RecipeImportWorker>().build() }
@@ -92,6 +107,9 @@ class AddRecipeViewModelTest {
         every { Log.w(any<String>(), any<String>()) } returns 0
         every { Log.w(any<String>(), any<String>(), any()) } returns 0
         every { Log.i(any(), any()) } returns 0
+        // FileProvider caches its roots for the process, but each test has its own cache directory
+        FileProvider::class.java.getDeclaredField("sCache").apply { isAccessible = true }
+            .let { (it.get(null) as MutableMap<*, *>).clear() }
     }
 
     @After
@@ -110,9 +128,12 @@ class AddRecipeViewModelTest {
             scheduler = scheduler,
             inputStore = inputStore,
             paprikaImportSteps = mockk(),
-            monitor = monitor
+            monitor = monitor,
+            fileChecker = object : ImportFileChecker {
+                override suspend fun check(file: File, format: RecipeFileFormat) = Unit
+            }
         )
-        return AddRecipeViewModel(handle, queue, monitor, aiSettings, inspector)
+        return AddRecipeViewModel(handle, queue, monitor, aiSettings, inspector, cameraPhotos)
     }
 
     private fun startedWorkId(): UUID = UUID.fromString(dao.rows.value.single().workManagerId)
@@ -273,7 +294,7 @@ class AddRecipeViewModelTest {
 
     private fun pickMarkdown(content: String = "# Bread") {
         recipeFiles[pickedUri] = RecipeFile(pickedUri, "Bread.md", RecipeFileFormat.TEXT)
-        coEvery { inputStore.copySource(any(), pickedUri, any()) } returns
+        coEvery { inputStore.copySource(any(), pickedUri, any(), any()) } returns
             File.createTempFile("picked", ".md").apply {
                 deleteOnExit()
                 writeText(content)
@@ -321,7 +342,7 @@ class AddRecipeViewModelTest {
     fun `a recipe file that is too large is reported with the limit`() = runTest {
         pickMarkdown()
         val tooLarge = RecipeError.ImportFile(ImportFileFailure.TOO_LARGE, 200 * 1024L)
-        coEvery { inputStore.copySource(any(), pickedUri, any()) } throws RecipeErrorException(tooLarge)
+        coEvery { inputStore.copySource(any(), pickedUri, any(), any()) } throws RecipeErrorException(tooLarge)
         val viewModel = createViewModel(testAppScope())
 
         viewModel.onFilePicked(pickedUri)
@@ -339,7 +360,9 @@ class AddRecipeViewModelTest {
     @Test
     fun `a recipe file shared with the app is imported once`() = runTest {
         pickMarkdown()
-        val handle = SavedStateHandle(mapOf("fileUri" to pickedUri.toString(), "fileMimeType" to "text/markdown"))
+        val handle = SavedStateHandle(
+            route = Route.AddRecipe(fileUris = listOf(pickedUri.toString()), fileMimeType = "text/markdown")
+        )
 
         createViewModel(testAppScope(), handle)
         advanceUntilIdle()
@@ -378,5 +401,187 @@ class AddRecipeViewModelTest {
 
         assertEquals(AddRecipeUiState.Idle, viewModel.uiState.value)
         assertEquals(emptyList<Any>(), dao.rows.value)
+    }
+
+    private fun pickPhotos(count: Int): List<Uri> = (1..count).map { page ->
+        val uri = Uri.parse("content://media/photo$page.jpg")
+        recipeFiles[uri] = RecipeFile(uri, "photo$page.jpg", RecipeFileFormat.IMAGE)
+        uri
+    }.also {
+        coEvery { inputStore.copySource(any(), any(), any(), any()) } answers {
+            File.createTempFile("photo", ".jpg").apply {
+                deleteOnExit()
+                writeBytes(byteArrayOf(1, 2, 3))
+            }
+        }
+    }
+
+    @Test
+    fun `several photos are imported as one recipe, in order`() = runTest {
+        val photos = pickPhotos(2)
+        val viewModel = createViewModel(testAppScope())
+
+        viewModel.onFilesPicked(photos)
+        advanceUntilIdle()
+
+        val row = dao.rows.value.single()
+        assertEquals("photo1.jpg", row.name)
+        coVerifyOrder {
+            inputStore.copySource(row.id, photos[0], RecipeFileFormat.IMAGE.maxBytes, 0)
+            inputStore.copySource(row.id, photos[1], RecipeFileFormat.IMAGE.maxBytes, 1)
+        }
+        verify { inputStore.writeKind(row.id, ImportKind.IMAGE_FILE) }
+        assertEquals(AddRecipeUiState.Loading(ImportStage.QUEUED), viewModel.uiState.value)
+    }
+
+    @Test
+    fun `several files are only imported together if they are all photos`() = runTest {
+        pickMarkdown()
+        val photo = pickPhotos(1).single()
+        val viewModel = createViewModel(testAppScope())
+
+        viewModel.onFilesPicked(listOf(photo, pickedUri))
+        advanceUntilIdle()
+
+        assertEquals(
+            AddRecipeUiState.Error(UserMessage(R.string.error_import_files_not_all_photos)),
+            viewModel.uiState.value
+        )
+        assertEquals(emptyList<Any>(), dao.rows.value)
+    }
+
+    @Test
+    fun `too many photos are reported with the limit`() = runTest {
+        val viewModel = createViewModel(testAppScope())
+
+        viewModel.onFilesPicked(pickPhotos(ResourceLimits.MAX_PHOTOS_PER_RECIPE + 1))
+        advanceUntilIdle()
+
+        assertEquals(
+            AddRecipeUiState.Error(
+                UserMessage.Plural(R.plurals.error_too_many_photos, ResourceLimits.MAX_PHOTOS_PER_RECIPE)
+            ),
+            viewModel.uiState.value
+        )
+        assertEquals(emptyList<Any>(), dao.rows.value)
+    }
+
+    @Test
+    fun `photos shared with the app are imported together`() = runTest {
+        val photos = pickPhotos(2)
+        val handle = SavedStateHandle(
+            route = Route.AddRecipe(fileUris = photos.map { it.toString() }, fileMimeType = "image/*")
+        )
+
+        createViewModel(testAppScope(), handle)
+        advanceUntilIdle()
+
+        verify { inputStore.writeKind(dao.rows.value.single().id, ImportKind.IMAGE_FILE) }
+        assertEquals(listOf<String?>("image/*", "image/*"), inspectedTypes)
+    }
+
+    /** Has the camera "take" a photo for [viewModel] and returns its URI. */
+    private suspend fun TestScope.takePhoto(viewModel: AddRecipeViewModel, success: Boolean = true): Uri {
+        viewModel.onTakePhotoClick()
+        advanceUntilIdle()
+        val uri = (viewModel.events.first() as AddRecipeEvent.TakePhoto).uri
+        if (success) photoFile(uri).writeBytes(byteArrayOf(1, 2, 3))
+        viewModel.onPhotoTaken(success)
+        advanceUntilIdle()
+        return uri
+    }
+
+    private fun photoFile(uri: Uri) =
+        File(File(ApplicationProvider.getApplicationContext<Context>().cacheDir, "camera_photos"), uri.lastPathSegment!!)
+
+    @Test
+    fun `camera photos are collected, survive process death, and are deleted once imported`() = runTest {
+        val handle = SavedStateHandle()
+        val viewModel = createViewModel(testAppScope(), handle)
+        val first = takePhoto(viewModel)
+        val second = takePhoto(viewModel)
+        assertEquals(listOf(first.toString(), second.toString()), viewModel.capturedPhotos.value)
+
+        // The camera app may get the app killed; the photos are still there
+        val restored = createViewModel(testAppScope(), handle)
+        assertEquals(listOf(first.toString(), second.toString()), restored.capturedPhotos.value)
+
+        listOf(first, second).forEachIndexed { index, uri ->
+            recipeFiles[uri] = RecipeFile(uri, "IMG_$index.jpg", RecipeFileFormat.IMAGE)
+        }
+        coEvery { inputStore.copySource(any(), any(), any(), any()) } returns
+            File.createTempFile("photo", ".jpg").apply { writeBytes(byteArrayOf(1)) }
+        restored.importCapturedPhotos()
+        advanceUntilIdle()
+
+        verify { inputStore.writeKind(dao.rows.value.single().id, ImportKind.IMAGE_FILE) }
+        assertEquals(emptyList<String>(), restored.capturedPhotos.value)
+        assertFalse(photoFile(first).exists())
+        assertFalse(photoFile(second).exists())
+    }
+
+    @Test
+    fun `camera photos are kept when their import is cancelled while starting`() = runTest {
+        val viewModel = createViewModel(testAppScope())
+        val uri = takePhoto(viewModel)
+        recipeFiles[uri] = RecipeFile(uri, "IMG.jpg", RecipeFileFormat.IMAGE)
+        coEvery { inputStore.copySource(any(), any(), any(), any()) } returns
+            File.createTempFile("photo", ".jpg").apply { writeBytes(byteArrayOf(1)) }
+
+        viewModel.importCapturedPhotos()
+        viewModel.cancelImport()
+        advanceUntilIdle()
+
+        assertEquals(emptyList<Any>(), dao.rows.value)
+        assertEquals(listOf(uri.toString()), viewModel.capturedPhotos.value)
+        assertTrue(photoFile(uri).exists())
+    }
+
+    @Test
+    fun `camera photos cleaned up while the app was gone are forgotten`() = runTest {
+        val handle = SavedStateHandle()
+        val viewModel = createViewModel(testAppScope(), handle)
+        val kept = takePhoto(viewModel)
+        val gone = takePhoto(viewModel)
+        photoFile(gone).delete()
+
+        val restored = createViewModel(testAppScope(), handle)
+        advanceUntilIdle()
+
+        assertEquals(listOf(kept.toString()), restored.capturedPhotos.value)
+    }
+
+    @Test
+    fun `a cancelled camera photo is not kept`() = runTest {
+        val viewModel = createViewModel(testAppScope())
+
+        val uri = takePhoto(viewModel, success = false)
+
+        assertEquals(emptyList<String>(), viewModel.capturedPhotos.value)
+        assertFalse(photoFile(uri).exists())
+    }
+
+    @Test
+    fun `discarded camera photos are deleted`() = runTest {
+        val viewModel = createViewModel(testAppScope())
+        val uri = takePhoto(viewModel)
+
+        viewModel.discardCapturedPhotos()
+        advanceUntilIdle()
+
+        assertEquals(emptyList<String>(), viewModel.capturedPhotos.value)
+        assertFalse(photoFile(uri).exists())
+        assertEquals(emptyList<Any>(), dao.rows.value)
+    }
+
+    @Test
+    fun `no more photos can be taken than one recipe can be imported from`() = runTest {
+        val viewModel = createViewModel(testAppScope())
+        repeat(ResourceLimits.MAX_PHOTOS_PER_RECIPE) { takePhoto(viewModel) }
+
+        assertFalse(viewModel.canTakePhoto.value)
+        viewModel.onTakePhotoClick()
+        advanceUntilIdle()
+        assertEquals(ResourceLimits.MAX_PHOTOS_PER_RECIPE, viewModel.capturedPhotos.value.size)
     }
 }

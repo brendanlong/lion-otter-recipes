@@ -28,7 +28,7 @@ class RecipeFileFormatTest {
         assertNull(RecipeFileFormat.detect("export.lorecipes", "application/zip"))
         assertNull(RecipeFileFormat.detect("My Recipes.paprikarecipes", "application/octet-stream"))
         assertNull(RecipeFileFormat.detect(null, "application/zip"))
-        assertNull(RecipeFileFormat.detect("photo.jpg", "image/jpeg"))
+        assertNull(RecipeFileFormat.detect("song.mp3", "audio/mpeg"))
         assertNull(RecipeFileFormat.detect(null, null))
     }
 
@@ -36,5 +36,15 @@ class RecipeFileFormatTest {
     fun `text files have a smaller size limit than HTML files`() {
         assertEquals(200 * 1024L, RecipeFileFormat.TEXT.maxBytes)
         assertEquals(5 * 1024 * 1024L, RecipeFileFormat.HTML.maxBytes)
+    }
+
+    @Test
+    fun `photos and PDFs are recipe files`() {
+        assertEquals(RecipeFileFormat.IMAGE, RecipeFileFormat.detect("photo.jpg", "image/jpeg"))
+        assertEquals(RecipeFileFormat.IMAGE, RecipeFileFormat.detect("IMG_0001.HEIC", "application/octet-stream"))
+        assertEquals(RecipeFileFormat.IMAGE, RecipeFileFormat.detect("1000000123", "image/webp"))
+        assertEquals(RecipeFileFormat.PDF, RecipeFileFormat.detect("Bread.PDF", null))
+        assertEquals(RecipeFileFormat.PDF, RecipeFileFormat.detect(null, "application/pdf"))
+        assertEquals(10 * 1024 * 1024L, RecipeFileFormat.PDF.maxBytes)
     }
 }

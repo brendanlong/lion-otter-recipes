@@ -1,5 +1,6 @@
 package com.lionotter.recipes.data.ai
 
+import com.lionotter.recipes.domain.port.ParseAttachment
 import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
 
 /** The prompt text for recipe parsing. */
@@ -181,7 +182,8 @@ ADDITIONAL GUIDELINES:
         content: String,
         densityOverrides: Map<String, Double>? = null,
         aiInstructions: String? = null,
-        existingTags: List<String> = emptyList()
+        existingTags: List<String> = emptyList(),
+        attachments: List<ParseAttachment> = emptyList()
     ): String = buildString {
         if (existingTags.isNotEmpty()) {
             append("Tags the user already uses for their recipes, one per line, most used first:\n")
@@ -194,11 +196,32 @@ ADDITIONAL GUIDELINES:
             append(RecipeMarkdownFormatter.formatDensityHints(densityOverrides))
             append("\n\n")
         }
-        append("Parse this recipe and extract the structured data:\n\n")
-        append(content)
+        if (attachments.isEmpty()) {
+            append("Parse this recipe and extract the structured data:\n\n")
+            append(content)
+        } else {
+            append(attachmentInstructions(attachments))
+            if (content.isNotBlank()) append("\n\n").append(content)
+        }
         if (!aiInstructions.isNullOrBlank()) {
             append("\n\nThe user also provided these instructions: ")
             append(aiInstructions)
         }
+    }
+
+    /** Tells the AI what the attached photos or PDF are, in place of the recipe's text. */
+    private fun attachmentInstructions(attachments: List<ParseAttachment>): String {
+        val photos = attachments.count { it is ParseAttachment.Image }
+        val source = when {
+            photos == 0 -> "The attached PDF document contains a recipe."
+            photos == 1 -> "The attached photo shows a recipe, for example a recipe card or a cookbook page."
+            else -> "The $photos attached photos show one recipe, for example the pages of a cookbook, in order."
+        }
+        return source + " Parse it and extract the structured data. " +
+            "Transcribe the recipe faithfully: take the name, ingredients, amounts, units and steps from what is " +
+            "written and don't invent anything that isn't there. Ignore everything else (other recipes on the " +
+            "same page, page numbers, the background). If it contains several recipes, extract the first complete " +
+            "one. If it doesn't show a recipe, or the recipe is too blurry or cut off to read, return an error " +
+            "response."
     }
 }

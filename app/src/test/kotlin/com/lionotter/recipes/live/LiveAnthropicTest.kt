@@ -7,7 +7,9 @@ import com.lionotter.recipes.domain.model.AiModels
 import com.lionotter.recipes.domain.model.TagChange
 import com.lionotter.recipes.domain.model.TagUsage
 import com.lionotter.recipes.domain.model.planTagChanges
+import com.lionotter.recipes.domain.port.ParseAttachment
 import com.lionotter.recipes.domain.port.ParseRequest
+import com.lionotter.recipes.domain.port.ParsedRecipeWithUsage
 import com.lionotter.recipes.domain.port.TagCleanupRequest
 import com.lionotter.recipes.util.AppJson
 import kotlinx.coroutines.Dispatchers
@@ -57,6 +59,46 @@ class LiveAnthropicTest {
                 assertTrue(ingredients.none { it.name.contains("mashed") || it.name.contains("melted") })
             }
         }
+    }
+
+    private fun fixture(name: String): ByteArray =
+        requireNotNull(javaClass.getResourceAsStream("/live/$name")) { "Missing fixture $name" }.use { it.readBytes() }
+
+    private fun ingredientNames(result: Outcome<*>): List<String> {
+        val parsed = ((result as? Outcome.Success)?.value as? ParsedRecipeWithUsage)?.recipe
+        assertNotNull("$result", parsed)
+        return parsed!!.instructionSections.flatMap { it.steps }.flatMap { it.ingredients }.map { it.name.lowercase() }
+    }
+
+    @Test
+    fun parsePhoto() = runBlocking {
+        val key = System.getenv("LIVE_ANTHROPIC_KEY")
+        assumeTrue(key != null)
+        val parser = AnthropicRecipeParser(AppJson, Dispatchers.IO)
+        val photo = ParseAttachment.Image(fixture("recipe_card.png"), "image/png")
+
+        val result = parser.parse(ParseRequest("", key!!, AiModels.MODEL_SONNET, false, attachments = listOf(photo)))
+
+        val ingredients = ingredientNames(result)
+        assertEquals("Buttermilk Pancakes", (result as Outcome.Success).value.recipe.name)
+        assertTrue("$ingredients", ingredients.size >= 7)
+        assertTrue("$ingredients", ingredients.any { it.contains("buttermilk") })
+    }
+
+    @Test
+    fun parsePdf() = runBlocking {
+        val key = System.getenv("LIVE_ANTHROPIC_KEY")
+        assumeTrue(key != null)
+        val parser = AnthropicRecipeParser(AppJson, Dispatchers.IO)
+        val pdf = ParseAttachment.Pdf(fixture("recipe.pdf"))
+
+        val result = parser.parse(ParseRequest("", key!!, AiModels.MODEL_HAIKU, false, attachments = listOf(pdf)))
+
+        val ingredients = ingredientNames(result)
+        val name = (result as Outcome.Success).value.recipe.name
+        assertTrue(name, name.contains("Tomato Soup"))
+        assertTrue("$ingredients", ingredients.size >= 8)
+        assertTrue("$ingredients", ingredients.any { it.contains("tomato") })
     }
 
     @Test

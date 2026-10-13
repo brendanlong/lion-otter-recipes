@@ -314,5 +314,14 @@ class WorkContractTest {
             "ai_instructions" to null
         )
         assertNull(RecipeEditWorker.copyImage(data))
+        assertNull(RecipeEditWorker.tags(data))
+    }
+
+    @Test
+    fun `the tags in edit input round trip, including none`() {
+        listOf(null, emptyList(), listOf("Dessert", "quick")).forEach { tags ->
+            val data = RecipeEditWorker.createInputData("r1", "/md", "model", true, tags = tags)
+            assertEquals(tags, RecipeEditWorker.tags(data))
+        }
     }
 }

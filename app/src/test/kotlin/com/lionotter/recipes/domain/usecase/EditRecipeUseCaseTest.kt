@@ -106,6 +106,24 @@ class EditRecipeUseCaseTest {
     }
 
     @Test
+    fun `tags from the edit screen are kept instead of the AI's`() = runTest {
+        // In place, the recipe's current tags win, including a change made while the AI ran
+        parser.onParse = { repository.setTags("recipe-1", listOf("Changed meanwhile")) }
+        val edited = useCase.execute("recipe-1", "# Banana Bread", tags = listOf("old")).value()
+        assertEquals(listOf("Changed meanwhile"), edited.tags)
+        parser.onParse = {}
+
+        val copy = useCase.execute(
+            recipeId = "recipe-1",
+            markdownText = "# Banana Bread",
+            saveAsCopy = true,
+            copyRecipeId = "copy-1",
+            tags = emptyList()
+        ).value()
+        assertEquals(emptyList<String>(), copy.tags)
+    }
+
+    @Test
     fun `an image changed while the AI runs is kept`() = runTest {
         parser.onParse = { repository.setImageUrl("recipe-1", "gs://bucket/new.jpg") }
         val edited = useCase.execute("recipe-1", "# Banana Bread").value()

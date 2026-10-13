@@ -14,6 +14,8 @@ import com.lionotter.recipes.domain.ImportFileFailure
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.RecipeErrorException
 import com.lionotter.recipes.domain.RecipeErrorSource
+import com.lionotter.recipes.domain.ResourceLimits
+import com.lionotter.recipes.domain.model.RecipeFileFormat
 import com.lionotter.recipes.domain.usecase.paprika.PaprikaImportSteps
 import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.worker.ImportInputStore
@@ -56,7 +58,8 @@ class ImportQueue @Inject constructor(
     private val scheduler: RecipeWorkScheduler,
     private val inputStore: ImportInputStore,
     private val paprikaImportSteps: PaprikaImportSteps,
-    private val monitor: ImportMonitor
+    private val monitor: ImportMonitor,
+    private val fileChecker: ImportFileChecker
 ) : PerUserLocalData {
     companion object {
         private const val TAG = "ImportQueue"
@@ -188,37 +191,51 @@ class ImportQueue @Inject constructor(
         ImportKind.URL -> scheduler.buildUrlImportRequest(url, importId)
         ImportKind.PAPRIKA -> scheduler.buildPaprikaImportRequest(importId)
         ImportKind.ZIP -> scheduler.buildZipImportRequest(importId)
-        ImportKind.TEXT_FILE, ImportKind.HTML_FILE -> scheduler.buildRecipeFileImportRequest(importId)
+        ImportKind.TEXT_FILE, ImportKind.HTML_FILE, ImportKind.IMAGE_FILE, ImportKind.PDF_FILE -> scheduler.buildRecipeFileImportRequest(importId)
     }
 
     /**
-     * Start importing the recipe in a Markdown, text or HTML file. The file is copied into
+     * Start importing the recipe in a Markdown, text, HTML or PDF file, or in up to
+     * [ResourceLimits.MAX_PHOTOS_PER_RECIPE] photos (in page order). The files are copied into
      * [ImportInputStore] first, since the permission to read [RecipeFile.uri] doesn't survive
      * process death.
      *
      * @throws com.lionotter.recipes.domain.RecipeErrorException ([RecipeError.ImportFile]) if
-     *   the file can't be read, is empty or is too large
+     *   a file can't be read, is empty or is too large, a PDF has too many pages, or there are
+     *   too many files or files other than photos
      */
-    suspend fun startRecipeFileImport(file: RecipeFile): StartedImport = withContext(NonCancellable) {
+    suspend fun startRecipeFileImport(files: List<RecipeFile>): StartedImport = withContext(NonCancellable) {
+        val first = files.firstOrNull() ?: throw RecipeErrorException(RecipeError.ImportFile(ImportFileFailure.EMPTY))
+        if (files.size > 1 && files.any { it.format != RecipeFileFormat.IMAGE }) {
+            throw RecipeErrorException(RecipeError.ImportFile(ImportFileFailure.NOT_ALL_PHOTOS))
+        }
+        if (files.size > ResourceLimits.MAX_PHOTOS_PER_RECIPE) {
+            throw RecipeErrorException(
+                RecipeError.ImportFile(ImportFileFailure.TOO_MANY_FILES, limit = ResourceLimits.MAX_PHOTOS_PER_RECIPE)
+            )
+        }
         val importId = UUID.randomUUID().toString()
         try {
-            val copy = inputStore.copySource(importId, file.uri, maxBytes = file.format.maxBytes)
-            if (copy.length() == 0L) throw RecipeErrorException(RecipeError.ImportFile(ImportFileFailure.EMPTY))
-            inputStore.writeKind(importId, ImportKind.forRecipeFile(file.format))
+            files.forEachIndexed { index, file ->
+                val copy = inputStore.copySource(importId, file.uri, maxBytes = file.format.maxBytes, index = index)
+                if (copy.length() == 0L) throw RecipeErrorException(RecipeError.ImportFile(ImportFileFailure.EMPTY))
+                fileChecker.check(copy, file.format)
+            }
+            inputStore.writeKind(importId, ImportKind.forRecipeFile(first.format))
         } catch (e: CancellationException) {
             // Can't happen in NonCancellable
             throw e
         } catch (e: Exception) {
             inputStore.deleteImport(importId)
             if (e is RecipeErrorSource) throw e
-            Log.w(TAG, "Couldn't copy the recipe file ${file.uri}", e)
+            Log.w(TAG, "Couldn't copy the recipe files ${files.map { it.uri }}", e)
             throw RecipeErrorException(RecipeError.ImportFile(ImportFileFailure.UNREADABLE), e)
         }
         startMutex.withLock {
             val request = scheduler.buildRecipeFileImportRequest(importId)
             var inserted = false
             try {
-                insertPendingImport(importId, file.displayName, url = "", workManagerId = request.id.toString())
+                insertPendingImport(importId, first.displayName, url = "", workManagerId = request.id.toString())
                 inserted = true
                 scheduler.enqueueImport(importId, request)
             } catch (e: Exception) {

@@ -36,4 +36,22 @@ object ResourceLimits {
      * AI as is, so this keeps it well within what the AI accepts.
      */
     const val MAX_TEXT_FILE_BYTES = 200 * 1024L
+
+    /**
+     * Largest photo that can be imported as a recipe (25 MB, like other local images). Photos are
+     * scaled down before they are sent to the AI.
+     */
+    const val MAX_PHOTO_FILE_BYTES = 25 * 1024 * 1024L
+
+    /** Most photos one recipe can be imported from (e.g. the pages of a cookbook recipe). */
+    const val MAX_PHOTOS_PER_RECIPE = 5
+
+    /**
+     * Largest PDF that can be imported as a recipe (10 MB). PDFs are sent to the AI as is, and
+     * base64 makes them a third larger, so this stays well within the API's 32 MB request limit.
+     */
+    const val MAX_PDF_FILE_BYTES = 10 * 1024 * 1024L
+
+    /** Most pages a PDF imported as a recipe can have. */
+    const val MAX_PDF_PAGES = 20
 }

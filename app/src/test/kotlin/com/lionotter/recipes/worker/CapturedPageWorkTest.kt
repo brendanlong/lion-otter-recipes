@@ -1,6 +1,7 @@
 package com.lionotter.recipes.worker
 
 import android.content.Context
+import com.lionotter.recipes.data.image.ImageUploadPreparer
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.ListenableWorker
 import androidx.work.WorkerFactory
@@ -78,6 +79,7 @@ class CapturedPageWorkTest {
                 workerParameters,
                 ImportRecipeUseCase(fetcher, FakePageContentExtractor(), parseHtml),
                 inputStore,
+                RecipeAttachmentLoader(ImageUploadPreparer(Dispatchers.Unconfined), Dispatchers.Unconfined),
                 RecipeNotificationHelper(appContext),
                 runningWork
             )

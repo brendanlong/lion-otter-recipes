@@ -6,6 +6,7 @@ import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.InstructionStep
 import com.lionotter.recipes.domain.model.Recipe
 import kotlin.time.Instant
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -522,6 +523,42 @@ class RecipeMarkdownFormatterTest {
         // Body content should be present in both
         assertTrue(full.contains("A great recipe"))
         assertTrue(body.contains("A great recipe"))
+    }
+
+    @Test
+    fun `formatBody leaves the tags out, since they are edited separately`() {
+        val recipe = createTestRecipe(story = "A great recipe", tags = listOf("Dessert", "quick"))
+        val body = RecipeMarkdownFormatter.formatBody(recipe)
+
+        assertFalse(body.contains("**Tags:**"))
+        assertTrue(RecipeMarkdownFormatter.format(recipe).contains("**Tags:** Dessert, quick"))
+    }
+
+    @Test
+    fun `formatForAiEdit puts title, source and tags back in front of the body`() {
+        val recipe = createTestRecipe(story = "A great recipe", tags = listOf("old"))
+        val body = RecipeMarkdownFormatter.formatBody(recipe)
+
+        val markdown = RecipeMarkdownFormatter.formatForAiEdit(
+            title = "My Recipe",
+            sourceUrl = "https://example.com/recipe",
+            tags = listOf("Dessert", "quick"),
+            body = body
+        )
+
+        assertEquals(
+            "# My Recipe\n\n*Source: [https://example.com/recipe](https://example.com/recipe)*\n\n" +
+                "**Tags:** Dessert, quick\n\n" + body,
+            markdown
+        )
+    }
+
+    @Test
+    fun `formatForAiEdit omits a blank source and empty tags`() {
+        assertEquals(
+            "# My Recipe\n\nbody",
+            RecipeMarkdownFormatter.formatForAiEdit("My Recipe", sourceUrl = " ", tags = emptyList(), body = "body")
+        )
     }
 
     @Test

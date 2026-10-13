@@ -23,25 +23,44 @@ object RecipeMarkdownFormatter {
      * Format a recipe as Markdown, including the title and source URL header.
      */
     fun format(recipe: Recipe): String = buildString {
-        // Title
-        appendLine("# ${recipe.name}")
-        appendLine()
-
-        // Source URL
-        recipe.sourceUrl?.let { url ->
-            appendLine("*Source: [$url]($url)*")
-            appendLine()
-        }
-
+        appendHeader(recipe.name, recipe.sourceUrl)
         append(formatBody(recipe, forEditing = false))
     }
 
     /**
-     * Format a recipe body as Markdown for editing, excluding the title and source URL
+     * Format a recipe body as Markdown for editing, excluding the title, source URL and tags
      * (which the edit screen edits separately). Ingredients are listed under the step that
      * uses them rather than in an aggregated list.
      */
     fun formatBody(recipe: Recipe): String = formatBody(recipe, forEditing = true)
+
+    /**
+     * The Markdown sent to the AI for an edit: the separately edited [title], [sourceUrl] and
+     * [tags] put back in front of the edited [body] (a [formatBody] layout).
+     */
+    fun formatForAiEdit(title: String, sourceUrl: String?, tags: List<String>, body: String): String = buildString {
+        appendHeader(title, sourceUrl)
+        appendTags(tags)
+        append(body)
+    }
+
+    private fun StringBuilder.appendHeader(title: String, sourceUrl: String?) {
+        if (title.isNotBlank()) {
+            appendLine("# $title")
+            appendLine()
+        }
+        if (!sourceUrl.isNullOrBlank()) {
+            appendLine("*Source: [$sourceUrl]($sourceUrl)*")
+            appendLine()
+        }
+    }
+
+    private fun StringBuilder.appendTags(tags: List<String>) {
+        if (tags.isNotEmpty()) {
+            appendLine("**Tags:** ${tags.joinToString(", ")}")
+            appendLine()
+        }
+    }
 
     private fun formatBody(recipe: Recipe, forEditing: Boolean): String = buildString {
         // Story/Description
@@ -62,11 +81,7 @@ object RecipeMarkdownFormatter {
             appendLine()
         }
 
-        // Tags
-        if (recipe.tags.isNotEmpty()) {
-            appendLine("**Tags:** ${recipe.tags.joinToString(", ")}")
-            appendLine()
-        }
+        if (!forEditing) appendTags(recipe.tags)
 
         appendLine("---")
         appendLine()

@@ -8,6 +8,7 @@ import androidx.work.WorkInfo
 import com.lionotter.recipes.domain.ImportFileFailure
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.RecipeErrorException
+import com.lionotter.recipes.domain.ResourceLimits
 import com.lionotter.recipes.domain.model.RecipeFileFormat
 import com.lionotter.recipes.data.local.PendingImportStatus
 import com.lionotter.recipes.data.repository.PendingImportRepository
@@ -52,6 +53,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.File
 import java.util.UUID
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -79,6 +81,17 @@ class ImportQueueTest {
 
     @get:Rule
     val tempFolder = TemporaryFolder()
+
+    /** Fails every check with [checkError] if set; records the checked files. */
+    private val fileChecker = object : ImportFileChecker {
+        var checkError: RecipeErrorException? = null
+        val checked = mutableListOf<Pair<File, RecipeFileFormat>>()
+
+        override suspend fun check(file: File, format: RecipeFileFormat) {
+            checked += file to format
+            checkError?.let { throw it }
+        }
+    }
     private val scheduler: RecipeWorkScheduler = mockk {
         every { buildUrlImportRequest(any(), any()) } answers { OneTimeWorkRequestBuilder<RecipeImportWorker>().build() }
         coEvery { enqueueImport(any(), any()) } answers {
@@ -112,7 +125,8 @@ class ImportQueueTest {
             scheduler = scheduler,
             inputStore = inputStore,
             paprikaImportSteps = paprikaSteps,
-            monitor = ImportMonitor(work.workManager, repository, scope)
+            monitor = ImportMonitor(work.workManager, repository, scope),
+            fileChecker = fileChecker
         )
     }
 
@@ -398,7 +412,7 @@ class ImportQueueTest {
 
     private fun stubCopiedFile(content: String) {
         val copy = tempFolder.newFile().apply { writeText(content) }
-        coEvery { inputStore.copySource(any(), pickedUri, any()) } returns copy
+        coEvery { inputStore.copySource(any(), pickedUri, any(), any()) } returns copy
         every { scheduler.buildRecipeFileImportRequest(any()) } answers
             { OneTimeWorkRequestBuilder<RecipeImportWorker>().build() }
     }
@@ -408,9 +422,9 @@ class ImportQueueTest {
         stubCopiedFile("# Bread")
         val queue = createQueue()
 
-        val started = queue.startRecipeFileImport(markdownFile)
+        val started = queue.startRecipeFileImport(listOf(markdownFile))
 
-        coVerify { inputStore.copySource(started.importId, pickedUri, RecipeFileFormat.TEXT.maxBytes) }
+        coVerify { inputStore.copySource(started.importId, pickedUri, RecipeFileFormat.TEXT.maxBytes, 0) }
         verify { inputStore.writeKind(started.importId, ImportKind.TEXT_FILE) }
         val row = dao[started.importId]!!
         assertEquals("Bread.md", row.name)
@@ -424,7 +438,7 @@ class ImportQueueTest {
         stubCopiedFile("")
         val queue = createQueue()
 
-        val error = assertRecipeError { queue.startRecipeFileImport(markdownFile) }
+        val error = assertRecipeError { queue.startRecipeFileImport(listOf(markdownFile)) }
 
         assertEquals(RecipeError.ImportFile(ImportFileFailure.EMPTY), error)
         assertTrue(dao.rows.value.isEmpty())
@@ -434,19 +448,19 @@ class ImportQueueTest {
     @Test
     fun `a recipe file over its limit is rejected with the limit`() = runTest {
         val tooLarge = RecipeError.ImportFile(ImportFileFailure.TOO_LARGE, RecipeFileFormat.TEXT.maxBytes)
-        coEvery { inputStore.copySource(any(), pickedUri, any()) } throws RecipeErrorException(tooLarge)
+        coEvery { inputStore.copySource(any(), pickedUri, any(), any()) } throws RecipeErrorException(tooLarge)
         val queue = createQueue()
 
-        assertEquals(tooLarge, assertRecipeError { queue.startRecipeFileImport(markdownFile) })
+        assertEquals(tooLarge, assertRecipeError { queue.startRecipeFileImport(listOf(markdownFile)) })
         assertTrue(dao.rows.value.isEmpty())
     }
 
     @Test
     fun `a recipe file that can't be read is reported as unreadable`() = runTest {
-        coEvery { inputStore.copySource(any(), pickedUri, any()) } throws SecurityException("no permission")
+        coEvery { inputStore.copySource(any(), pickedUri, any(), any()) } throws SecurityException("no permission")
         val queue = createQueue()
 
-        val error = assertRecipeError { queue.startRecipeFileImport(markdownFile) }
+        val error = assertRecipeError { queue.startRecipeFileImport(listOf(markdownFile)) }
 
         assertEquals(RecipeError.ImportFile(ImportFileFailure.UNREADABLE), error)
         verify { inputStore.deleteImport(any()) }
@@ -468,6 +482,93 @@ class ImportQueueTest {
 
         verify { scheduler.buildRecipeFileImportRequest("file-1") }
         assertEquals(PendingImportStatus.PENDING, dao["file-1"]!!.status)
+    }
+
+    private fun stubCopiedPdf(): File {
+        val copy = tempFolder.newFile().apply { writeText("%PDF-1.4") }
+        coEvery { inputStore.copySource(any(), pickedUri, any(), any()) } returns copy
+        every { scheduler.buildRecipeFileImportRequest(any()) } answers
+            { OneTimeWorkRequestBuilder<RecipeImportWorker>().build() }
+        return copy
+    }
+
+    private val pdfFile = RecipeFile(pickedUri, "Bread.pdf", RecipeFileFormat.PDF)
+
+    @Test
+    fun `a PDF is checked once copied, before the row is inserted`() = runTest {
+        val copy = stubCopiedPdf()
+        val queue = createQueue()
+
+        val started = queue.startRecipeFileImport(listOf(pdfFile))
+
+        coVerify { inputStore.copySource(started.importId, pickedUri, ResourceLimits.MAX_PDF_FILE_BYTES, 0) }
+        assertEquals(listOf(copy to RecipeFileFormat.PDF), fileChecker.checked)
+        verify { inputStore.writeKind(started.importId, ImportKind.PDF_FILE) }
+        assertEquals("Bread.pdf", dao[started.importId]!!.name)
+    }
+
+    @Test
+    fun `a file that fails its check is rejected and leaves nothing behind`() = runTest {
+        stubCopiedPdf()
+        val tooManyPages = RecipeError.ImportFile(ImportFileFailure.TOO_MANY_PAGES, limit = ResourceLimits.MAX_PDF_PAGES)
+        fileChecker.checkError = RecipeErrorException(tooManyPages)
+        val queue = createQueue()
+
+        assertEquals(tooManyPages, assertRecipeError { queue.startRecipeFileImport(listOf(pdfFile)) })
+        assertTrue(dao.rows.value.isEmpty())
+        verify { inputStore.deleteImport(any()) }
+    }
+
+    @Test
+    fun `several photos are copied in order into one import`() = runTest {
+        val photos = (1..3).map { RecipeFile(mockk(), "page$it.jpg", RecipeFileFormat.IMAGE) }
+        coEvery { inputStore.copySource(any(), any(), any(), any()) } answers
+            { tempFolder.newFile().apply { writeBytes(byteArrayOf(1)) } }
+        every { scheduler.buildRecipeFileImportRequest(any()) } answers
+            { OneTimeWorkRequestBuilder<RecipeImportWorker>().build() }
+        val queue = createQueue()
+
+        val started = queue.startRecipeFileImport(photos)
+
+        photos.forEachIndexed { index, photo ->
+            coVerify { inputStore.copySource(started.importId, photo.uri, ResourceLimits.MAX_PHOTO_FILE_BYTES, index) }
+        }
+        verify { inputStore.writeKind(started.importId, ImportKind.IMAGE_FILE) }
+        assertEquals("page1.jpg", dao[started.importId]!!.name)
+    }
+
+    @Test
+    fun `several files that aren't all photos, or too many photos, are rejected before anything is copied`() = runTest {
+        val photo = RecipeFile(mockk(), "page.jpg", RecipeFileFormat.IMAGE)
+        val queue = createQueue()
+
+        assertEquals(
+            RecipeError.ImportFile(ImportFileFailure.NOT_ALL_PHOTOS),
+            assertRecipeError { queue.startRecipeFileImport(listOf(photo, pdfFile)) }
+        )
+        assertEquals(
+            RecipeError.ImportFile(ImportFileFailure.TOO_MANY_FILES, limit = ResourceLimits.MAX_PHOTOS_PER_RECIPE),
+            assertRecipeError { queue.startRecipeFileImport(List(ResourceLimits.MAX_PHOTOS_PER_RECIPE + 1) { photo }) }
+        )
+        coVerify(exactly = 0) { inputStore.copySource(any(), any(), any(), any()) }
+        assertTrue(dao.rows.value.isEmpty())
+    }
+
+    @Test
+    fun `retryImport of a photo import re-enqueues it from its copied files`() = runTest {
+        dao.rows.value = listOf(
+            pendingImport("photos-1", UUID.randomUUID().toString(), url = "", status = PendingImportStatus.FAILED)
+        )
+        every { inputStore.hasImport("photos-1") } returns true
+        every { inputStore.readKind("photos-1") } returns ImportKind.IMAGE_FILE
+        every { scheduler.buildRecipeFileImportRequest("photos-1") } returns
+            OneTimeWorkRequestBuilder<RecipeImportWorker>().build()
+        val queue = createQueue()
+
+        queue.retryImport("photos-1")
+        advanceUntilIdle()
+
+        assertEquals(PendingImportStatus.PENDING, dao["photos-1"]!!.status)
     }
 
     private suspend fun assertRecipeError(block: suspend () -> Unit): RecipeError {

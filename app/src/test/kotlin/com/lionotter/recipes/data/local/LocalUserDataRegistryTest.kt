@@ -3,6 +3,7 @@ package com.lionotter.recipes.data.local
 import com.lionotter.recipes.data.image.LocalImageFiles
 import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.di.LocalUserDataModule
+import com.lionotter.recipes.imports.CameraPhotoFiles
 import com.lionotter.recipes.imports.ImportQueue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.fail
@@ -81,6 +82,7 @@ class LocalUserDataRegistryTest {
             "data/local/PendingImportDao.kt" to ClearedBy(ImportQueue::class),
             // The import directories; one-off work inputs are deleted by the work using them.
             "worker/ImportInputStore.kt" to ClearedBy(ImportQueue::class),
+            "imports/CameraPhotoFiles.kt" to ClearedBy(CameraPhotoFiles::class),
             "data/local/ImportDebugDao.kt" to ClearedBy(ImportDebugRepository::class),
             // The API key; the other settings are device preferences and are kept.
             "data/local/SettingsDataStore.kt" to ClearedBy(SettingsDataStore::class),
