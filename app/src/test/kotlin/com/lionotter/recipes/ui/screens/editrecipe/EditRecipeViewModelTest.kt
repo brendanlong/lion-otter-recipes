@@ -64,14 +64,18 @@ class EditRecipeViewModelTest {
         name = "Pasta",
         sourceUrl = "https://example.com",
         imageUrl = "file:///old.jpg",
+        tags = listOf("Dinner"),
         createdAt = Instant.fromEpochMilliseconds(0),
         updatedAt = Instant.fromEpochMilliseconds(0)
     )
 
+    // Another recipe, so the user's tag vocabulary has more than this recipe's tags
+    private val otherRecipe = recipe.copy(id = "r2", name = "Cake", tags = listOf("Dessert", "Quick", "dinner"))
+
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
-        recipeRepository = FakeRecipeRepository(recipe)
+        recipeRepository = FakeRecipeRepository(recipe, otherRecipe)
         imageStore = FakeImageStore()
         imageStore.pickedImages[contentUri.toString()] = "file:///new.jpg"
     }
@@ -91,13 +95,14 @@ class EditRecipeViewModelTest {
         imageStore,
         scheduler,
         TestScope(UnconfinedTestDispatcher()),
+        testDispatcher,
         testDispatcher
     )
 
     @Test
     fun `failure to start the AI edit shows an error instead of crashing`() = runTest {
         val scheduler = mockk<RecipeWorkScheduler>()
-        every { scheduler.prepareEdit(any(), any(), any(), any(), any(), any(), any()) } throws IOException("disk full")
+        every { scheduler.prepareEdit(any(), any(), any(), any(), any(), any(), any(), any()) } throws IOException("disk full")
         val viewModel = createViewModel(scheduler = scheduler)
         advanceUntilIdle()
 
@@ -114,7 +119,7 @@ class EditRecipeViewModelTest {
         val workId = UUID.randomUUID()
         val scheduler = mockk<RecipeWorkScheduler>()
         every {
-            scheduler.prepareEdit("r1", any(), any(), any(), true, any(), ImageChange.Replace("file:///new-copy.jpg"))
+            scheduler.prepareEdit("r1", any(), any(), any(), true, any(), ImageChange.Replace("file:///new-copy.jpg"), any())
         } returns PendingWork(workId) {}
         every { scheduler.observeEdit(workId) } returns
             flowOf(WorkStatus.Finished(RecipeEditWork.Outcome.Success("r1", "Pasta", newRecipeId = "copy1")))
@@ -142,13 +147,13 @@ class EditRecipeViewModelTest {
         viewModel.saveAsCopy()
         advanceUntilIdle()
 
-        verify { scheduler.prepareEdit("r1", any(), any(), any(), true, any(), ImageChange.Remove) }
+        verify { scheduler.prepareEdit("r1", any(), any(), any(), true, any(), ImageChange.Remove, any()) }
     }
 
     @Test
     fun `the image copy is deleted if the copy work can't be started`() = runTest {
         val scheduler = mockk<RecipeWorkScheduler>()
-        every { scheduler.prepareEdit(any(), any(), any(), any(), any(), any(), any()) } throws IOException("disk full")
+        every { scheduler.prepareEdit(any(), any(), any(), any(), any(), any(), any(), any()) } throws IOException("disk full")
         val viewModel = createViewModel(scheduler = scheduler)
         advanceUntilIdle()
         viewModel.onImageSelected(contentUri)
@@ -204,7 +209,156 @@ class EditRecipeViewModelTest {
         advanceUntilIdle()
         assertEquals("Renamed Elsewhere", recipeRepository.recipes.value.getValue("r1").name)
         assertEquals("https://example.com/mine", recipeRepository.recipes.value.getValue("r1").sourceUrl)
-        verify(exactly = 0) { scheduler.prepareEdit(any(), any(), any(), any(), any(), any(), any()) }
+        verify(exactly = 0) { scheduler.prepareEdit(any(), any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `tags start from the recipe and can be added and removed`() = runTest {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        assertEquals(listOf("Dinner"), viewModel.tags.value)
+        assertFalse(viewModel.hasUnsavedChanges.value)
+
+        // An existing tag is added in the spelling the user's recipes use
+        viewModel.addTag(" dessert ")
+        viewModel.addTag("DINNER")
+        viewModel.setTagQuery("weeknight")
+        viewModel.addTypedTag()
+        advanceUntilIdle()
+
+        assertEquals(listOf("Dinner", "Dessert", "weeknight"), viewModel.tags.value)
+        assertEquals("", viewModel.tagQuery.value)
+        assertTrue(viewModel.hasUnsavedChanges.value)
+
+        viewModel.removeTag("weeknight")
+        viewModel.removeTag("dessert")
+        advanceUntilIdle()
+        assertEquals(listOf("Dinner"), viewModel.tags.value)
+        assertFalse(viewModel.hasUnsavedChanges.value)
+    }
+
+    @Test
+    fun `the tag field finds existing tags the recipe doesn't have, or offers a new one`() = runTest {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.setTagQuery("e")
+        advanceUntilIdle()
+        // "Dinner" is on the recipe already
+        assertEquals(TagSearch(listOf("Dessert"), newTag = "e"), viewModel.tagSearch.value)
+
+        viewModel.setTagQuery("quick ")
+        advanceUntilIdle()
+        assertEquals(TagSearch(listOf("Quick"), newTag = null), viewModel.tagSearch.value)
+
+        viewModel.setTagQuery("dinner")
+        advanceUntilIdle()
+        assertEquals(TagSearch.Empty, viewModel.tagSearch.value)
+
+        viewModel.setTagQuery(" ")
+        advanceUntilIdle()
+        assertEquals(TagSearch.Empty, viewModel.tagSearch.value)
+    }
+
+    @Test
+    fun `existing tags that start with the query come first`() {
+        assertEquals(
+            listOf("Bread", "Breadsticks", "Shortbread"),
+            EditRecipeViewModel.searchTags("bread", listOf("Shortbread", "Breadsticks", "Bread"), emptyList()).matches
+        )
+    }
+
+    @Test
+    fun `a tag-only change is saved directly without the AI`() = runTest {
+        val scheduler = mockk<RecipeWorkScheduler>(relaxed = true)
+        val viewModel = createViewModel(scheduler = scheduler)
+        advanceUntilIdle()
+
+        viewModel.removeTag("Dinner")
+        viewModel.addTag("Quick")
+        viewModel.saveEdits()
+        advanceUntilIdle()
+
+        assertEquals(listOf("r1" to listOf("Quick")), recipeRepository.tagUpdates)
+        assertEquals(EditRecipeEvent.Saved(newRecipeId = null), viewModel.events.first())
+        verify(exactly = 0) { scheduler.prepareEdit(any(), any(), any(), any(), any(), any(), any(), any()) }
+        assertFalse(viewModel.hasUnsavedChanges.value)
+    }
+
+    @Test
+    fun `a body change sends the tags in the Markdown and saves the edited tags directly`() = runTest {
+        val scheduler = mockk<RecipeWorkScheduler>(relaxed = true)
+        val viewModel = createViewModel(scheduler = scheduler)
+        advanceUntilIdle()
+        assertFalse(viewModel.markdownText.value.contains("**Tags:**"))
+
+        viewModel.addTag("Quick")
+        viewModel.setMarkdownText("changed")
+        viewModel.saveEdits()
+        advanceUntilIdle()
+
+        val markdown = "# Pasta\n\n*Source: [https://example.com](https://example.com)*\n\n" +
+            "**Tags:** Dinner, Quick\n\nchanged"
+        verify {
+            scheduler.prepareEdit("r1", markdown, any(), any(), false, any(), any(), listOf("Dinner", "Quick"))
+        }
+        assertEquals(listOf("r1" to listOf("Dinner", "Quick")), recipeRepository.tagUpdates)
+    }
+
+    @Test
+    fun `a body change without a tag change still keeps the recipe's tags over the AI's`() = runTest {
+        val scheduler = mockk<RecipeWorkScheduler>(relaxed = true)
+        val viewModel = createViewModel(scheduler = scheduler)
+        advanceUntilIdle()
+
+        viewModel.setMarkdownText("changed")
+        viewModel.saveEdits()
+        advanceUntilIdle()
+
+        verify { scheduler.prepareEdit("r1", match { "**Tags:** Dinner" in it }, any(), any(), false, any(), any(), listOf("Dinner")) }
+        assertEquals(emptyList<Any>(), recipeRepository.tagUpdates)
+    }
+
+    @Test
+    fun `save as copy gives the copy the edited tags and leaves the original's alone`() = runTest {
+        val scheduler = mockk<RecipeWorkScheduler>(relaxed = true)
+        val viewModel = createViewModel(scheduler = scheduler)
+        advanceUntilIdle()
+
+        viewModel.removeTag("Dinner")
+        viewModel.saveAsCopy()
+        advanceUntilIdle()
+
+        verify { scheduler.prepareEdit("r1", any(), any(), any(), true, any(), any(), emptyList()) }
+        assertEquals(emptyList<Any>(), recipeRepository.tagUpdates)
+    }
+
+    @Test
+    fun `edited tags and the tag field survive process death`() = runTest {
+        val handle = SavedStateHandle(route = Route.EditRecipe("r1"))
+        val first = createViewModel(handle)
+        advanceUntilIdle()
+        first.addTag("Dessert")
+        first.setTagQuery("week")
+
+        val restored = createViewModel(handle)
+        advanceUntilIdle()
+
+        assertEquals(listOf("Dinner", "Dessert"), restored.tags.value)
+        assertEquals("week", restored.tagQuery.value)
+        assertTrue(restored.hasUnsavedChanges.value)
+    }
+
+    @Test
+    fun `untouched tags follow changes made elsewhere`() = runTest {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        recipeRepository.setTags("r1", listOf("Dinner", "Pasta"))
+        advanceUntilIdle()
+
+        assertEquals(listOf("Dinner", "Pasta"), viewModel.tags.value)
+        assertFalse(viewModel.hasUnsavedChanges.value)
     }
 
     @Test
@@ -246,7 +400,7 @@ class EditRecipeViewModelTest {
     fun `edit that fails for a missing API key says so`() = runTest {
         val workId = UUID.randomUUID()
         val scheduler = mockk<RecipeWorkScheduler>()
-        every { scheduler.prepareEdit(any(), any(), any(), any(), any(), any(), any()) } returns PendingWork(workId) {}
+        every { scheduler.prepareEdit(any(), any(), any(), any(), any(), any(), any(), any()) } returns PendingWork(workId) {}
         every { scheduler.observeEdit(workId) } returns
             flowOf(WorkStatus.Finished(RecipeEditWork.Outcome.Failed(RecipeError.NoApiKey, "r1")))
         val viewModel = createViewModel(scheduler = scheduler)
@@ -307,7 +461,7 @@ class EditRecipeViewModelTest {
         val workId = UUID.randomUUID()
         val status = MutableStateFlow<WorkStatus<RecipeEditWork.Progress, RecipeEditWork.Outcome>>(WorkStatus.Queued)
         val scheduler = mockk<RecipeWorkScheduler>()
-        every { scheduler.prepareEdit(any(), any(), any(), any(), any(), any(), any()) } returns PendingWork(workId) {}
+        every { scheduler.prepareEdit(any(), any(), any(), any(), any(), any(), any(), any()) } returns PendingWork(workId) {}
         every { scheduler.observeEdit(workId) } returns status
         every { scheduler.cancel(workId) } answers { status.value = WorkStatus.Cancelled }
         val viewModel = createViewModel(scheduler = scheduler)

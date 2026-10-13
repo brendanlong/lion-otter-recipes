@@ -204,3 +204,7 @@ Google users). Local files live only in `files/recipe_images/`.
   The grocery list merges by name and ignores the modifier; the recipe's "all ingredients" view keeps modifiers apart.
   Recipes parsed before modifiers existed keep preparation in `name`/`notes` and are not migrated.
 - Regeneration and AI edits copy only AI-owned fields (`Recipe.withRegeneratedContent`); every other field is preserved.
+- **Edit screen**: title, source URL and tags are edited outside the Markdown and saved directly; only a Markdown
+  change or AI instructions run the AI. The AI still gets all three in the Markdown it is sent, but an AI edit
+  saves the screen's tags, not the AI's (also for "Save as copy"): only the tag editor changes them, so the AI
+  can't bring back a tag the user removed. (Regeneration from the source still takes the AI's tags.)

@@ -50,6 +50,9 @@ fun tagUsage(tagLists: Collection<List<String>>): List<TagUsage> {
 /** How many of the user's tags the AI is told about when parsing a recipe. */
 const val MAX_TAG_VOCABULARY = 100
 
+/** Longest tag the user can type: tags are short labels. */
+const val MAX_TAG_LENGTH = 50
+
 /** The user's most used tags, for asking the AI to reuse them rather than invent new ones. */
 fun tagVocabulary(tagLists: Collection<List<String>>, limit: Int = MAX_TAG_VOCABULARY): List<String> =
     tagUsage(tagLists).take(limit).map { it.name }

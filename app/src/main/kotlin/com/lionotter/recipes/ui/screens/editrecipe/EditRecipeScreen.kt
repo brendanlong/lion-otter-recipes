@@ -8,11 +8,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,16 +28,23 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.HideImage
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.InputChip
+import androidx.compose.material3.InputChipDefaults
+import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -52,6 +66,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,6 +74,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -93,6 +109,9 @@ fun EditRecipeScreen(
     val sourceUrl by viewModel.sourceUrl.collectAsStateWithLifecycle()
     val markdownText by viewModel.markdownText.collectAsStateWithLifecycle()
     val aiInstructions by viewModel.aiInstructions.collectAsStateWithLifecycle()
+    val tags by viewModel.tags.collectAsStateWithLifecycle()
+    val tagQuery by viewModel.tagQuery.collectAsStateWithLifecycle()
+    val tagSearch by viewModel.tagSearch.collectAsStateWithLifecycle()
     val editState by viewModel.editState.collectAsStateWithLifecycle()
     val model by viewModel.model.collectAsStateWithLifecycle()
     val thinkingEnabled by viewModel.thinkingEnabled.collectAsStateWithLifecycle()
@@ -265,6 +284,17 @@ fun EditRecipeScreen(
                     onTitleChange = viewModel::setTitle,
                     sourceUrl = sourceUrl,
                     onSourceUrlChange = viewModel::setSourceUrl,
+                    tagsEditor = {
+                        TagsEditSection(
+                            tags = tags,
+                            query = tagQuery,
+                            search = tagSearch,
+                            onQueryChange = viewModel::setTagQuery,
+                            onAddTag = viewModel::addTag,
+                            onAddTypedTag = viewModel::addTypedTag,
+                            onRemoveTag = viewModel::removeTag
+                        )
+                    },
                     aiInstructions = aiInstructions,
                     onAiInstructionsChange = viewModel::setAiInstructions,
                     markdownText = markdownText,
@@ -356,6 +386,7 @@ private fun EditContent(
     onTitleChange: (String) -> Unit,
     sourceUrl: String?,
     onSourceUrlChange: (String?) -> Unit,
+    tagsEditor: @Composable () -> Unit,
     aiInstructions: String,
     onAiInstructionsChange: (String) -> Unit,
     markdownText: String,
@@ -422,6 +453,10 @@ private fun EditContent(
                 label = { Text(stringResource(R.string.source_url_field)) },
                 singleLine = true
             )
+
+            HorizontalDivider()
+
+            tagsEditor()
 
             HorizontalDivider()
 
@@ -528,6 +563,116 @@ private fun EditContent(
                     text = stringResource(R.string.save),
                     modifier = Modifier.padding(start = 8.dp)
                 )
+            }
+        }
+    }
+}
+
+/**
+ * The recipe's tags as removable chips, and a field that finds existing tags as you type
+ * (tap one to add it) or adds what you typed as a new tag (keyboard Done or the add button).
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TagsEditSection(
+    tags: List<String>,
+    query: String,
+    search: TagSearch,
+    onQueryChange: (String) -> Unit,
+    onAddTag: (String) -> Unit,
+    onAddTypedTag: () -> Unit,
+    onRemoveTag: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = stringResource(R.string.tags_section),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold
+        )
+        if (tags.isEmpty()) {
+            Text(
+                text = stringResource(R.string.edit_tags_none),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                tags.forEach { tag ->
+                    // The whole chip removes the tag; the x says so and labels the action
+                    InputChip(
+                        selected = false,
+                        onClick = { onRemoveTag(tag) },
+                        label = { Text(tag) },
+                        trailingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = stringResource(R.string.edit_tags_remove, tag),
+                                modifier = Modifier.size(InputChipDefaults.IconSize)
+                            )
+                        }
+                    )
+                }
+            }
+        }
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(stringResource(R.string.edit_tags_field)) },
+            singleLine = true,
+            trailingIcon = {
+                IconButton(onClick = onAddTypedTag, enabled = query.isNotBlank()) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = stringResource(R.string.edit_tags_add)
+                    )
+                }
+            },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = {
+                if (query.isBlank()) defaultKeyboardAction(ImeAction.Done) else onAddTypedTag()
+            })
+        )
+        if (search.matches.isNotEmpty() || search.newTag != null) {
+            // Scroll the suggestions into view: below the field, the keyboard would cover them.
+            // Again as the keyboard opens, since that shrinks the screen.
+            val bringIntoView = remember { BringIntoViewRequester() }
+            val keyboardHeight = WindowInsets.ime.getBottom(LocalDensity.current)
+            LaunchedEffect(query, keyboardHeight) {
+                withFrameNanos { } // once the suggestions are laid out
+                bringIntoView.bringIntoView()
+            }
+            FlowRow(
+                modifier = Modifier.bringIntoViewRequester(bringIntoView),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                search.matches.forEach { tag ->
+                    SuggestionChip(
+                        onClick = { onAddTag(tag) },
+                        label = { Text(tag) }
+                    )
+                }
+                search.newTag?.let { newTag ->
+                    AssistChip(
+                        onClick = { onAddTag(newTag) },
+                        label = { Text(stringResource(R.string.edit_tags_new, newTag)) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = null,
+                                modifier = Modifier.size(InputChipDefaults.IconSize)
+                            )
+                        }
+                    )
+                }
             }
         }
     }

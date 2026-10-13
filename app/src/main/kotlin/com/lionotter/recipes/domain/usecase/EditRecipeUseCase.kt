@@ -46,6 +46,9 @@ class EditRecipeUseCase @Inject constructor(
      * @param aiInstructions Optional user instructions for the AI (e.g. "Make this recipe vegan")
      * @param copyImage for [saveAsCopy], a new image for the copy instead of the original's
      *   (a [ImageChange.Replace] file is stored for the copy and belongs to it from then on)
+     * @param tags the tags from the edit screen, kept instead of the ones the AI returns: a copy
+     *   gets these, an in-place edit keeps the recipe's current tags (the screen saved them first).
+     *   Null (work enqueued by older versions) takes the AI's.
      * @param onProgress Callback for progress updates
      */
     suspend fun execute(
@@ -57,6 +60,7 @@ class EditRecipeUseCase @Inject constructor(
         thinkingEnabled: Boolean? = null,
         aiInstructions: String? = null,
         copyImage: ImageChange? = null,
+        tags: List<String>? = null,
         onProgress: suspend (EditProgress) -> Unit = {}
     ): Outcome<Recipe> {
         // Load existing recipe to preserve metadata
@@ -105,6 +109,7 @@ class EditRecipeUseCase @Inject constructor(
                         val copyId = copyRecipeId ?: java.util.UUID.randomUUID().toString()
                         parsed.copy(
                             id = copyId,
+                            tags = tags ?: parsed.tags,
                             createdAt = now,
                             updatedAt = now,
                             isFavorite = false,
@@ -117,7 +122,12 @@ class EditRecipeUseCase @Inject constructor(
                             sourceImageUrl = freshRecipe.sourceImageUrl
                         )
                     } else {
-                        freshRecipe.withRegeneratedContent(parsed, now)
+                        // The screen saved its tags before the work started; keep the current
+                        // ones so a change made while the work waited isn't reverted
+                        freshRecipe.withRegeneratedContent(
+                            if (tags != null) parsed.copy(tags = freshRecipe.tags) else parsed,
+                            now
+                        )
                     }
                     recipeRepository.saveRecipe(edited)
                     edited

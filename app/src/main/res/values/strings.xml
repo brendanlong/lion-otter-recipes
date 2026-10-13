@@ -86,7 +86,12 @@
     <!-- Edit Recipe -->
     <string name="edit_recipe">Edit Recipe</string>
     <string name="edit_recipe_action">Edit recipe</string>
-    <string name="edit_recipe_description">Edit the recipe body below. Title and URL changes are saved directly. Body changes will be processed by the AI to regenerate structured data.</string>
+    <string name="edit_recipe_description">Edit the recipe body below. Title, URL and tag changes are saved directly. Body changes will be processed by the AI to regenerate structured data.</string>
+    <string name="edit_tags_none">No tags</string>
+    <string name="edit_tags_field">Add a tag</string>
+    <string name="edit_tags_add">Add tag</string>
+    <string name="edit_tags_remove">Remove tag %1$s</string>
+    <string name="edit_tags_new">New tag “%1$s”</string>
     <string name="edit_save_success">Recipe updated successfully</string>
     <string name="save_as_copy">Save as Copy</string>
     <string name="edit_background_notice">You can leave this screen. You\'ll be notified when the update is complete.</string>

@@ -101,7 +101,8 @@ class RecipeWorkScheduler @Inject constructor(
         thinkingEnabled: Boolean?,
         saveAsCopy: Boolean = false,
         aiInstructions: String? = null,
-        copyImage: ImageChange? = null
+        copyImage: ImageChange? = null,
+        tags: List<String>? = null
     ): PendingWork {
         val markdownPath = inputStore.writeWorkText(markdownText)
         val request = OneTimeWorkRequestBuilder<RecipeEditWorker>()
@@ -115,7 +116,8 @@ class RecipeWorkScheduler @Inject constructor(
                     aiInstructions = aiInstructions,
                     // Fixed at enqueue time so a rerun overwrites the copy instead of adding another
                     copyRecipeId = if (saveAsCopy) UUID.randomUUID().toString() else null,
-                    copyImage = copyImage.takeIf { saveAsCopy }
+                    copyImage = copyImage.takeIf { saveAsCopy },
+                    tags = tags
                 )
             )
             .addTag(RecipeEditWorker.TAG_RECIPE_EDIT)
