@@ -14,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.lionotter.recipes.ui.theme.einkBorder
 
 @Composable
 fun ProgressCard(
@@ -21,6 +22,7 @@ fun ProgressCard(
     modifier: Modifier = Modifier
 ) {
     Card(
+        border = einkBorder(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant
         ),

@@ -155,6 +155,8 @@
     <string name="theme_auto">Auto (System)</string>
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>
+    <string name="theme_eink">E-ink</string>
+    <string name="theme_eink_description">Black on white with no animations, for e-ink screens. The launcher shows a black-and-white icon from the next time the app starts.</string>
     <string name="unit_preferences">Unit Preferences</string>
     <string name="recipe_units">Recipe units</string>
     <string name="volume_units">Volume units</string>
@@ -168,6 +170,8 @@
     <string name="display">Display</string>
     <string name="keep_screen_on">Keep screen on</string>
     <string name="keep_screen_on_description">Prevent the screen from turning off while viewing a recipe.</string>
+    <string name="volume_keys_scroll">Volume buttons scroll</string>
+    <string name="volume_keys_scroll_description">Scroll recipes, lists and settings by a page with the volume buttons.</string>
     <string name="about">About</string>
     <string name="version_format">Version %1$s</string>
     <string name="about_description">Import recipes from any website using AI. Your recipes are stored locally on your device.</string>

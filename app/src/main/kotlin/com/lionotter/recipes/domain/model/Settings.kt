@@ -7,6 +7,7 @@ data class Settings(
     val editModel: String,
     val thinkingEnabled: Boolean,
     val keepScreenOn: Boolean,
+    val volumeKeysScroll: Boolean,
     val themeMode: ThemeMode,
     val volumeUnitSystem: UnitSystem,
     val weightUnitSystem: UnitSystem,

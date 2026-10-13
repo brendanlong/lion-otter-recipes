@@ -20,6 +20,8 @@ import com.lionotter.recipes.R
 fun DisplaySection(
     keepScreenOn: Boolean,
     onKeepScreenOnChange: (Boolean) -> Unit,
+    volumeKeysScroll: Boolean,
+    onVolumeKeysScrollChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -28,32 +30,54 @@ fun DisplaySection(
             style = MaterialTheme.typography.titleMedium
         )
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .toggleable(
-                    value = keepScreenOn,
-                    role = Role.Switch,
-                    onValueChange = onKeepScreenOnChange
-                ),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.keep_screen_on),
-                    style = MaterialTheme.typography.bodyLarge
-                )
-                Text(
-                    text = stringResource(R.string.keep_screen_on_description),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Switch(
-                checked = keepScreenOn,
-                onCheckedChange = null
+        SwitchRow(
+            title = stringResource(R.string.keep_screen_on),
+            description = stringResource(R.string.keep_screen_on_description),
+            checked = keepScreenOn,
+            onCheckedChange = onKeepScreenOnChange
+        )
+
+        SwitchRow(
+            title = stringResource(R.string.volume_keys_scroll),
+            description = stringResource(R.string.volume_keys_scroll_description),
+            checked = volumeKeysScroll,
+            onCheckedChange = onVolumeKeysScrollChange
+        )
+    }
+}
+
+@Composable
+private fun SwitchRow(
+    title: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .toggleable(
+                value = checked,
+                role = Role.Switch,
+                onValueChange = onCheckedChange
+            ),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+        Switch(
+            checked = checked,
+            onCheckedChange = null
+        )
     }
 }

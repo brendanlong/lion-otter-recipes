@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Share
@@ -52,6 +53,10 @@ import com.lionotter.recipes.R
 import com.lionotter.recipes.ui.format.formatScaleMultiplier
 import com.lionotter.recipes.domain.model.MealType
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
+import com.lionotter.recipes.ui.theme.einkBorder
+import com.lionotter.recipes.ui.theme.einkEdge
+import com.lionotter.recipes.ui.components.rememberScrollAids
+import com.lionotter.recipes.ui.components.scrollAids
 import com.lionotter.recipes.ui.screens.mealplan.MealPlanDateFormat
 import kotlinx.datetime.LocalDate
 
@@ -116,7 +121,7 @@ private fun RecipeSelectionScreen(
         },
         bottomBar = {
             if (!selectableEntries.isNullOrEmpty()) {
-                Surface(tonalElevation = 3.dp) {
+                Surface(tonalElevation = 3.dp, modifier = Modifier.einkEdge(atTop = true)) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -174,7 +179,9 @@ private fun RecipeSelectionScreen(
                 }
             }
         } else {
+            val listState = rememberLazyListState()
             LazyColumn(
+                state = listState,
                 contentPadding = PaddingValues(
                     start = 16.dp,
                     end = 16.dp,
@@ -183,7 +190,8 @@ private fun RecipeSelectionScreen(
                 ),
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = paddingValues.calculateTopPadding()),
+                    .padding(top = paddingValues.calculateTopPadding())
+                    .scrollAids(rememberScrollAids(listState)),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 // Select all / Deselect all row
@@ -353,11 +361,14 @@ private fun GroceryListDisplayScreen(
                 }
             }
         } else {
+            val listState = rememberLazyListState()
             LazyColumn(
+                state = listState,
                 contentPadding = PaddingValues(16.dp),
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(paddingValues),
+                    .padding(paddingValues)
+                    .scrollAids(rememberScrollAids(listState)),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 if (skippedRecipeNames.isNotEmpty()) {
@@ -388,6 +399,7 @@ private fun GroceryListDisplayScreen(
 private fun SkippedRecipesNotice(names: List<String>, modifier: Modifier = Modifier) {
     Card(
         modifier = modifier.fillMaxWidth(),
+        border = einkBorder(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.errorContainer,
             contentColor = MaterialTheme.colorScheme.onErrorContainer

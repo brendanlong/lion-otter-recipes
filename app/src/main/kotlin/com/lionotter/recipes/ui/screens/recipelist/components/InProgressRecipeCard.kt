@@ -37,6 +37,9 @@ import com.lionotter.recipes.ui.components.RecipeThumbnail
 import com.lionotter.recipes.ui.components.SwipeActionBox
 import com.lionotter.recipes.ui.components.SwipeActionBoxState
 import com.lionotter.recipes.ui.components.rememberSwipeActionBoxState
+import com.lionotter.recipes.ui.theme.LocalEinkTheme
+import com.lionotter.recipes.ui.theme.einkBorder
+import com.lionotter.recipes.ui.theme.cardElevation
 
 @Composable
 fun InProgressRecipeCard(
@@ -71,10 +74,12 @@ fun InProgressRecipeCard(
         }
     ) {
         Card(
+            border = einkBorder(if (isFailed) 2.dp else 1.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .alpha(if (isFailed) 1f else 0.8f),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                // Translucency dithers on e-ink.
+                .alpha(if (isFailed || LocalEinkTheme.current) 1f else 0.8f),
+            elevation = cardElevation(2.dp),
             colors = CardDefaults.cardColors(
                 containerColor = if (isFailed) {
                     MaterialTheme.colorScheme.errorContainer
@@ -140,12 +145,22 @@ fun InProgressRecipeCard(
                         )
                     }
 
-                    // Show spinner on right side when we have an image (since spinner isn't on left)
-                    if (inProgressRecipe.imageUrl != null && !isFailed) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
-                            strokeWidth = 2.dp
-                        )
+                    // With an image on the left, the spinner or warning goes on the right, so a
+                    // failure doesn't rely on the card's color alone.
+                    if (inProgressRecipe.imageUrl != null) {
+                        if (isFailed) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        } else {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp
+                            )
+                        }
                     }
                 }
 

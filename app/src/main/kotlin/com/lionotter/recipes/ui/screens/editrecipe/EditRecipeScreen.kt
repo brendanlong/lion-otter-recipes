@@ -72,6 +72,7 @@ import com.lionotter.recipes.ui.components.CollectEvents
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.components.text
 import com.lionotter.recipes.ui.screens.settings.components.SingleModelSelectionSection
+import com.lionotter.recipes.ui.theme.einkBorder
 
 @Composable
 fun EditRecipeScreen(
@@ -310,6 +311,7 @@ private fun EditLoadingContent(
         Spacer(modifier = Modifier.height(24.dp))
 
         Card(
+            border = einkBorder(),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surfaceVariant
             )

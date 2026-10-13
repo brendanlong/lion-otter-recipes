@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronLeft
@@ -26,7 +27,6 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -62,6 +62,9 @@ import com.lionotter.recipes.ui.components.SwipeActionDirection
 import com.lionotter.recipes.ui.components.rememberSwipeActionBoxState
 import com.lionotter.recipes.domain.model.MealType
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
+import com.lionotter.recipes.ui.theme.fabElevation
+import com.lionotter.recipes.ui.components.rememberScrollAids
+import com.lionotter.recipes.ui.components.scrollAids
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -79,6 +82,8 @@ import kotlinx.coroutines.launch
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.plus
+import com.lionotter.recipes.ui.theme.einkBorder
+import com.lionotter.recipes.ui.theme.cardElevation
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -163,7 +168,8 @@ fun MealPlanScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { viewModel.openAddDialog() },
-                containerColor = MaterialTheme.colorScheme.secondary
+                containerColor = MaterialTheme.colorScheme.secondary,
+                elevation = fabElevation()
             ) {
                 Icon(
                     imageVector = Icons.Default.Add,
@@ -207,7 +213,10 @@ fun MealPlanScreen(
             // Week content
             val days = (0..6).map { weekStart.plus(it, DateTimeUnit.DAY) }
 
+            val listState = rememberLazyListState()
             LazyColumn(
+                state = listState,
+                modifier = Modifier.scrollAids(rememberScrollAids(listState)),
                 // Extra bottom padding so the FAB doesn't cover the last card
                 contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 88.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -379,6 +388,7 @@ private fun MealPlanCard(
 
     Box {
         Card(
+            border = einkBorder(),
             modifier = Modifier
                 .fillMaxWidth()
                 .combinedClickable(
@@ -392,7 +402,7 @@ private fun MealPlanCard(
                         CustomAccessibilityAction(removeLabel) { onDeleteRequest(); true }
                     )
                 },
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            elevation = cardElevation(2.dp)
         ) {
             Row(
                 modifier = Modifier

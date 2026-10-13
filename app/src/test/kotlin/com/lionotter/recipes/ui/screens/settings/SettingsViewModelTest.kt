@@ -175,6 +175,22 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `setVolumeKeysScroll saves the choice`() = runTest {
+        viewModel.setVolumeKeysScroll(true)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(true, settings.volumeKeysScrollFlow.value)
+    }
+
+    @Test
+    fun `setThemeMode saves e-ink`() = runTest {
+        viewModel.setThemeMode(ThemeMode.EINK)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(ThemeMode.EINK, settings.themeModeFlow.value)
+    }
+
+    @Test
     fun `a failed setting write is reported once`() = runTest {
         settings.writeError = IllegalStateException("disk full")
         viewModel.setThemeMode(ThemeMode.DARK)

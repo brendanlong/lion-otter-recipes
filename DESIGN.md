@@ -67,7 +67,8 @@ Migrations live in `RecipeDatabaseMigrations` (10→11 drops the Firestore-era t
 `SettingsDataStore` (the `AppSettings` / `AiSettings` ports) stores user preferences:
 - Anthropic API key, encrypted with Tink (`TinkEncryption`) and kept out of the plain DataStore
 - `ai_model` (imports) and `edit_model` (edits), plus a `thinking` toggle
-- Display, theme, keep-screen-on, measurement unit preferences (recipe and grocery), start of week, import debugging
+- Display, theme, keep-screen-on, volume buttons scroll, measurement unit preferences (recipe and grocery), start of week, import debugging
+- Until the user picks a theme, it defaults to E-ink on an e-ink device (`EinkDevices`: Android can't report an e-ink screen, so this matches makers that only make e-readers, like Onyx/Boox, Boyue/Meebook, Bigme, PocketBook, Mudita, and the e-ink models of others, like Hisense's A-series) and to Auto elsewhere
 
 `DataStoreGroceryListStateStore` (the `GroceryListStateStore` port) is a separate DataStore holding each week's grocery list selection, whether the list is shown, and the checked-off source keys, keyed per week start date. Item check state is derived from the sources, so the `checked_items` key older versions wrote is ignored and removed on save. Old weeks are pruned on save.
 
@@ -377,7 +378,7 @@ External intents are turned into `AppIntentEvent`s (`ImportUrl`, `ImportFile`, `
 - Secure storage via Tink-encrypted storage
 - Account section: Google sign-in/out (with unsynced-changes warning), account deletion. One account operation runs at a time (`busyOp: AccountOp?` = `SIGNING_IN | SIGNING_OUT | DELETING_ACCOUNT`, claimed with `beginGoogleSignIn` / `beginDeleteAccount`). The screen requests the Google credential in its own scope (so the Activity context never reaches a ViewModel coroutine) and always hands back a `CredentialResult` (`Obtained | Cancelled | Failed`), `Cancelled` if its scope is cancelled
 - An invalid or unsaved API key is `apiKeyError: UserMessage?` state under the field; toasts (setting write failures, sign-in/out and deletion outcomes) are events
-- Backup/restore, unit and display preferences, import debugging
+- Backup/restore, unit and display preferences (keep screen on, volume buttons scroll), import debugging
 - `SettingsUiState` is `Loading` until `AppSettings.settings` has emitted (including the API key), so the screen shows a progress indicator instead of flashing defaults
 
 ### ViewModels
@@ -412,6 +413,14 @@ Custom Material 3 theme with Lion+Otter branding:
 - **Secondary (Lion)**: Gold `#D4A03C`
 - **Surfaces**: Warm off-whites
 - **Dark mode**: Inverted with appropriate contrast
+
+`ThemeMode` is Auto, Light, Dark or E-ink. The **E-ink** theme (`ui/theme/Eink.kt`) follows Lion Reader's e-paper theme: every surface white and every text and edge black, contrast from borders rather than fills, and "on" as a black fill (selected chips and segmented buttons, via `secondaryContainer`). The only greys are exact panel levels (`EinkGray`: `#555` for secondary text, `#888` for the scrollbar), since e-ink panels dither everything else. White-on-white surfaces need edges the colors can't give them, so `LocalEinkTheme` lets components add them: cards take `border = einkBorder()` (thicker for a selected card, failed import or highlighted step) and `cardElevation(...)` (no shadows), bars `Modifier.einkEdge(...)`, and the few things whose color is `secondaryContainer` for decoration (tag chips, the scale control) switch to an outline. Ripples are off (`LocalRippleConfiguration` null), and `MainActivity` gives the window recomposer an `AppMotion` duration scale of 0, so every Compose animation (screen transitions, swipes, page scrolls) jumps to its end.
+
+State is never shown by color alone, since e-ink and grayscale screens can't show it: favorites are a filled vs outlined star, selected filter chips get a check, a selected recipe card a check icon (and a thick border in e-ink), a failed import a warning icon even when it has an image.
+
+**Launcher icon**: with the E-ink theme the launcher shows a black-and-white icon (`ic_launcher_eink`, generated from the color and monochrome layers by `assets/eink-icon.py`). Android has no resource qualifier for this, so the launcher entries are two activity-aliases of `MainActivity` (`.DefaultIcon`, `.EinkIcon`), and `matchLauncherIcon` (`LauncherIcon.kt`) enables the one for the theme on a fresh launch from the launcher. Android removes a task whose launcher entry is disabled, so the swap waits for the next start rather than happening when the theme changes in Settings, and a start from the entry being hidden reopens itself from the shown one. Start `MainActivity` by its class, never by an alias name.
+
+**Long screens** (recipe list, recipe detail, settings, meal planner, grocery list) use `rememberScrollAids(state)` + `Modifier.scrollAids(...)` on their scrolling container: a drawn scrollbar (Compose has none on phones) that shows while scrolling and fades out, and always shows in the E-ink theme; and, with "Volume buttons scroll" on, a page turn (`PageTurns`, provided by `MainActivity` through `LocalPageTurns`) that scrolls 87.5% of the screen per volume press. `MainActivity.onKeyDown` gives the press to the latest registered screen and lets the volume change as usual when nothing scrolls.
 
 ## Dependency Injection
 

@@ -17,6 +17,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import com.lionotter.recipes.R
 import com.lionotter.recipes.ui.TestTags
+import com.lionotter.recipes.ui.theme.einkEdge
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -27,7 +28,7 @@ fun RecipeTopAppBar(
     actions: @Composable RowScope.() -> Unit = {}
 ) {
     TopAppBar(
-        modifier = modifier,
+        modifier = modifier.einkEdge(atTop = false),
         title = {
             Text(
                 text = title,

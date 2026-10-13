@@ -22,7 +22,6 @@ import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -64,6 +63,9 @@ import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.toLocalDateTime
+import com.lionotter.recipes.ui.components.SelectedChipIcon
+import com.lionotter.recipes.ui.theme.einkBorder
+import com.lionotter.recipes.ui.theme.cardElevation
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -301,7 +303,12 @@ fun AddMealPlanDialog(
                                 FilterChip(
                                     selected = selectedTag == tag,
                                     onClick = { onTagClick(tag) },
-                                    label = { Text(tag, style = MaterialTheme.typography.labelSmall) }
+                                    label = { Text(tag, style = MaterialTheme.typography.labelSmall) },
+                                    leadingIcon = if (selectedTag == tag) {
+                                        { SelectedChipIcon() }
+                                    } else {
+                                        null
+                                    }
                                 )
                             }
                         }
@@ -346,10 +353,11 @@ private fun RecipeSelectionCard(
     modifier: Modifier = Modifier
 ) {
     Card(
+        border = einkBorder(),
         modifier = modifier
             .fillMaxWidth()
             .clickable(enabled = enabled, onClick = onClick),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = cardElevation(1.dp)
     ) {
         Row(
             modifier = Modifier

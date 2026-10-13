@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -68,8 +69,12 @@ import com.lionotter.recipes.ui.components.BulkDeleteConfirmationDialog
 import com.lionotter.recipes.ui.components.CancelImportConfirmationDialog
 import com.lionotter.recipes.ui.components.DeleteConfirmationDialog
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
+import com.lionotter.recipes.ui.theme.fabElevation
+import com.lionotter.recipes.ui.components.SelectedChipIcon
 import com.lionotter.recipes.ui.components.SwipeActionBoxState
+import com.lionotter.recipes.ui.components.rememberScrollAids
 import com.lionotter.recipes.ui.components.rememberSwipeActionBoxState
+import com.lionotter.recipes.ui.components.scrollAids
 import com.lionotter.recipes.ui.screens.recipelist.components.InProgressRecipeCard
 import com.lionotter.recipes.ui.screens.recipelist.components.SwipeableRecipeCard
 import com.lionotter.recipes.ui.state.RecipeListItem
@@ -253,7 +258,8 @@ fun RecipeListScreen(
             if (!isMultiSelectActive) {
                 FloatingActionButton(
                     onClick = onAddRecipeClick,
-                    containerColor = MaterialTheme.colorScheme.secondary
+                    containerColor = MaterialTheme.colorScheme.secondary,
+                    elevation = fabElevation()
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
@@ -321,10 +327,16 @@ fun RecipeListScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     tagsToShow.forEach { tag ->
+                        val selected = selectedTag.equals(tag, ignoreCase = true)
                         FilterChip(
-                            selected = selectedTag.equals(tag, ignoreCase = true),
+                            selected = selected,
                             onClick = { viewModel.onTagSelected(tag) },
-                            label = { Text(tag) }
+                            label = { Text(tag) },
+                            leadingIcon = if (selected) {
+                                { SelectedChipIcon() }
+                            } else {
+                                null
+                            }
                         )
                     }
                 }
@@ -357,8 +369,12 @@ fun RecipeListScreen(
                     )
                 }
                 else -> {
+                    val listState = rememberLazyListState()
                     LazyColumn(
-                        modifier = Modifier.testTag(TestTags.RECIPE_LIST),
+                        state = listState,
+                        modifier = Modifier
+                            .testTag(TestTags.RECIPE_LIST)
+                            .scrollAids(rememberScrollAids(listState)),
                         contentPadding = PaddingValues(
                             start = 16.dp,
                             top = 16.dp,

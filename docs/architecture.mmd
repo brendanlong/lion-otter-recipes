@@ -64,6 +64,8 @@ subgraph app["Android App"]
             collect_events["CollectEvents / UserMessage.text()<br/>(lifecycle-aware one-off events)"]
             grocery_presenter["GroceryListPresenter<br/>(pure: display items, totals, share text)"]
             current_date["CurrentDate<br/>(util; today as a Flow)"]
+            scroll_aids["ScrollAids<br/>(scrollbar + volume-button page turns)"]
+            theme["LionOtterTheme<br/>(Auto / Light / Dark / E-ink; LocalEinkTheme)"]
         end
 
         screens --> components
@@ -88,6 +90,10 @@ subgraph app["Android App"]
         main_activity["MainActivity<br/>(onNewIntent, notification recipe_id)"]
         main_activity -->|AppIntentEvent| shared_intent_vm
         main_activity -->|"toasts DataFailure (failures channel)"| firestore_svc
+        main_activity -->|"theme, volume keys scroll"| port_app_settings
+        main_activity -->|"volume keys to PageTurns"| scroll_aids
+        launcher_icon["LauncherIcon<br/>(DefaultIcon / EinkIcon activity-aliases)"]
+        main_activity -->|"e-ink theme: e-ink icon"| launcher_icon
         viewmodels -->|"RecipeError / DataFailure to UserMessage"| messages
         nav_graph -->|collects events| shared_intent_vm
         nav_graph -->|navigates| screens
@@ -491,6 +497,7 @@ subgraph app["Android App"]
     image_store -.->|implements| port_images
     import_debug_repo -.->|implements| port_debug
     settings_ds -->|defaults| ai_models
+    settings_ds -->|"default theme"| eink_devices["EinkDevices<br/>(e-ink makers / models)"]
     settings_vm -->|validate key| api_key_validator
 
     lion_app["LionOtterApp<br/>(injects AuthService eagerly, installs ErrorLog Android sink)"]
