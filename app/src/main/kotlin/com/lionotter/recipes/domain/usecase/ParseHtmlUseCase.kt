@@ -4,7 +4,9 @@ import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.ResourceLimits
 import com.lionotter.recipes.domain.logDescription
-import com.lionotter.recipes.domain.model.AiModels
+import com.lionotter.recipes.domain.model.AiProviders
+import com.lionotter.recipes.domain.model.ModelKind
+import com.lionotter.recipes.domain.model.ModelRole
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.tagVocabulary
 import com.lionotter.recipes.domain.port.AiSettings
@@ -18,6 +20,7 @@ import com.lionotter.recipes.domain.port.ParsedRecipe
 import com.lionotter.recipes.domain.port.ParsedRecipeWithUsage
 import com.lionotter.recipes.domain.port.RecipeImageScheduler
 import com.lionotter.recipes.domain.port.RecipeParser
+import com.lionotter.recipes.domain.port.model
 import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.util.ErrorLog
 import kotlinx.coroutines.CancellationException
@@ -181,10 +184,13 @@ class ParseHtmlUseCase @Inject constructor(
         aiInstructions: String?,
         onProgress: suspend (ParseProgress) -> Unit
     ): Outcome<Recipe> {
-        val apiKey = aiSettings.anthropicApiKey.first()
-        if (apiKey.isNullOrBlank()) {
-            return Outcome.Failure(RecipeError.NoApiKey)
-        }
+        // Only edits and regeneration pass a model; if its provider has lost its key, the edit model takes over
+        val configuredModel = if (model != null) {
+            AiProviders.configuredModel(model, aiSettings.apiKeys.first())?.takeIf { it.model.kind == ModelKind.TEXT }
+                ?: aiSettings.model(ModelRole.EDIT).first()
+        } else {
+            aiSettings.model(ModelRole.IMPORT).first()
+        } ?: return Outcome.Failure(RecipeError.NoApiKey)
 
         // Check recipe count limit before spending AI credits
         if (saveRecipe) {
@@ -194,7 +200,7 @@ class ParseHtmlUseCase @Inject constructor(
             }
         }
 
-        val model = AiModels.normalizeModel(model ?: aiSettings.aiModel.first())
+        val model = configuredModel.model.id
         val thinkingEnabled = thinkingEnabled ?: aiSettings.thinkingEnabled.first()
         val debuggingEnabled = aiSettings.importDebuggingEnabled.first()
         // Parse with AI
@@ -204,7 +210,7 @@ class ParseHtmlUseCase @Inject constructor(
         val parseResult = recipeParser.parse(
             ParseRequest(
                 content = text,
-                apiKey = apiKey,
+                apiKey = configuredModel.apiKey,
                 model = model,
                 thinkingEnabled = thinkingEnabled,
                 densityOverrides = densityOverrides,
@@ -295,7 +301,7 @@ class ParseHtmlUseCase @Inject constructor(
     }
 
     private suspend fun imageGenerationAvailable(): Boolean =
-        aiSettings.imageGenerationEnabled.first() && !aiSettings.openAiApiKey.first().isNullOrBlank()
+        aiSettings.imageGenerationEnabled.first() && aiSettings.model(ModelRole.IMAGE).first() != null
 
     /**
      * The user's most used tags, for the AI to reuse. Only a hint, so if the recipes can't be

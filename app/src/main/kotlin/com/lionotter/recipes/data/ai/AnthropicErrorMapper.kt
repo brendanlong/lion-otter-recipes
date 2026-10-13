@@ -10,6 +10,7 @@ import com.anthropic.errors.RateLimitException
 import com.anthropic.errors.UnauthorizedException
 import com.lionotter.recipes.domain.AiFailure
 import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.model.AiProviders
 import java.io.IOException
 
 /** Says what went wrong when an Anthropic SDK call throws. */
@@ -31,6 +32,6 @@ object AnthropicErrorMapper {
             is AnthropicIoException, is IOException -> AiFailure.NETWORK
             else -> AiFailure.UNKNOWN
         }
-        return RecipeError.Ai(failure, (e as? AnthropicServiceException)?.statusCode())
+        return RecipeError.Ai(failure, (e as? AnthropicServiceException)?.statusCode(), AiProviders.ANTHROPIC_ID)
     }
 }

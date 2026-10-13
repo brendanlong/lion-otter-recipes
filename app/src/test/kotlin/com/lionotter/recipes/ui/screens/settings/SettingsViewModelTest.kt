@@ -8,7 +8,9 @@ import com.lionotter.recipes.data.remote.AccountMigrationService
 import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.AuthState
 import com.lionotter.recipes.data.repository.ImportDebugRepository
-import com.lionotter.recipes.domain.model.AiModels
+import com.lionotter.recipes.domain.model.AiModel
+import com.lionotter.recipes.domain.model.AiProviders
+import com.lionotter.recipes.domain.model.ModelRole
 import com.lionotter.recipes.domain.model.TagBarSize
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
@@ -67,9 +69,27 @@ class SettingsViewModelTest {
         Dispatchers.resetMain()
     }
 
+    private val anthropicKey get() = viewModel.apiKeyFields.single { it.provider == AiProviders.ANTHROPIC }
+    private val openAiKey get() = viewModel.apiKeyFields.single { it.provider == AiProviders.OPENAI }
+
+    @Test
+    fun `there is a key field for every provider`() {
+        assertEquals(AiProviders.ALL, viewModel.apiKeyFields.map { it.provider })
+    }
+
+    @Test
+    fun `an Anthropic key in the OpenAI field shows an error`() = runTest {
+        openAiKey.onInputChange("sk-ant-api03-abc")
+        openAiKey.save()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(UserMessage(R.string.error_api_key_other_provider, "Anthropic", "OpenAI"), openAiKey.error.value)
+        assertNull(settings.openAiApiKeyFlow.value)
+    }
+
     @Test
     fun `initial apiKeyInput is empty`() = runTest {
-        viewModel.anthropicKey.input.test {
+        anthropicKey.input.test {
             assertEquals("", awaitItem())
             cancelAndIgnoreRemainingEvents()
         }
@@ -77,15 +97,15 @@ class SettingsViewModelTest {
 
     @Test
     fun `initially there is no API key error`() = runTest {
-        assertNull(viewModel.anthropicKey.error.value)
+        assertNull(anthropicKey.error.value)
     }
 
     @Test
     fun `onApiKeyInputChange updates apiKeyInput`() = runTest {
-        viewModel.anthropicKey.input.test {
+        anthropicKey.input.test {
             assertEquals("", awaitItem())
 
-            viewModel.anthropicKey.onInputChange("sk-ant-test-key")
+            anthropicKey.onInputChange("sk-ant-test-key")
             assertEquals("sk-ant-test-key", awaitItem())
             cancelAndIgnoreRemainingEvents()
         }
@@ -93,54 +113,54 @@ class SettingsViewModelTest {
 
     @Test
     fun `saveApiKey with empty key shows an error`() = runTest {
-        viewModel.anthropicKey.onInputChange("   ")
-        viewModel.anthropicKey.save()
+        anthropicKey.onInputChange("   ")
+        anthropicKey.save()
         testDispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(UserMessage(R.string.error_api_key_empty), viewModel.anthropicKey.error.value)
+        assertEquals(UserMessage(R.string.error_api_key_empty), anthropicKey.error.value)
     }
 
     @Test
     fun `saveApiKey with invalid format shows an error until the key is edited`() = runTest {
-        viewModel.anthropicKey.onInputChange("invalid-key-format")
-        viewModel.anthropicKey.save()
+        anthropicKey.onInputChange("invalid-key-format")
+        anthropicKey.save()
         testDispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(UserMessage(R.string.error_api_key_prefix, "sk-ant-"), viewModel.anthropicKey.error.value)
+        assertEquals(UserMessage(R.string.error_api_key_prefix, "sk-ant-"), anthropicKey.error.value)
 
-        viewModel.anthropicKey.onInputChange("sk-ant-")
-        assertNull(viewModel.anthropicKey.error.value)
+        anthropicKey.onInputChange("sk-ant-")
+        assertNull(anthropicKey.error.value)
     }
 
     @Test
     fun `saveApiKey with valid key saves it`() = runTest {
-        viewModel.anthropicKey.onInputChange("sk-ant-valid-test-key")
-        viewModel.anthropicKey.save()
+        anthropicKey.onInputChange("sk-ant-valid-test-key")
+        anthropicKey.save()
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals("sk-ant-valid-test-key", settings.apiKeyFlow.value)
-        assertNull(viewModel.anthropicKey.error.value)
+        assertNull(anthropicKey.error.value)
     }
 
     @Test
     fun `saveApiKey failure shows a localized error`() = runTest {
         settings.writeError = IllegalStateException("keystore broken")
-        viewModel.anthropicKey.onInputChange("sk-ant-valid-test-key")
-        viewModel.anthropicKey.save()
+        anthropicKey.onInputChange("sk-ant-valid-test-key")
+        anthropicKey.save()
         testDispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(UserMessage(R.string.error_api_key_save), viewModel.anthropicKey.error.value)
+        assertEquals(UserMessage(R.string.error_api_key_save), anthropicKey.error.value)
     }
 
     @Test
     fun `saveApiKey clears input on success`() = runTest {
-        viewModel.anthropicKey.input.test {
+        anthropicKey.input.test {
             assertEquals("", awaitItem())
 
-            viewModel.anthropicKey.onInputChange("sk-ant-valid-test-key")
+            anthropicKey.onInputChange("sk-ant-valid-test-key")
             assertEquals("sk-ant-valid-test-key", awaitItem())
 
-            viewModel.anthropicKey.save()
+            anthropicKey.save()
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals("", awaitItem())
@@ -150,8 +170,8 @@ class SettingsViewModelTest {
 
     @Test
     fun `saveApiKey trims whitespace from key`() = runTest {
-        viewModel.anthropicKey.onInputChange("  sk-ant-valid-test-key  ")
-        viewModel.anthropicKey.save()
+        anthropicKey.onInputChange("  sk-ant-valid-test-key  ")
+        anthropicKey.save()
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals("sk-ant-valid-test-key", settings.apiKeyFlow.value)
@@ -160,18 +180,21 @@ class SettingsViewModelTest {
     @Test
     fun `clearApiKey clears the stored key`() = runTest {
         settings.apiKeyFlow.value = "sk-ant-stored-key"
-        viewModel.clearAnthropicApiKey()
+        viewModel.clearApiKey(AiProviders.ANTHROPIC_ID)
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertNull(settings.apiKeyFlow.value)
     }
 
     @Test
-    fun `setAiModel saves the model`() = runTest {
-        viewModel.setAiModel("claude-3-sonnet")
+    fun `setSelectedModel saves the model for the role`() = runTest {
+        viewModel.setSelectedModel(ModelRole.IMPORT, AiProviders.CLAUDE_OPUS)
+        viewModel.setSelectedModel(ModelRole.IMAGE, AiProviders.GPT_IMAGE_SUNBURST)
         testDispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals("claude-3-sonnet", settings.aiModelFlow.value)
+        assertEquals(AiProviders.CLAUDE_OPUS, settings.aiModelFlow.value)
+        assertEquals(AiProviders.GPT_IMAGE_SUNBURST, settings.imageModelFlow.value)
+        assertNull(settings.editModelFlow.value)
     }
 
     @Test
@@ -212,7 +235,7 @@ class SettingsViewModelTest {
 
             gate.value = true
             val loaded = (awaitItem() as SettingsUiState.Loaded).settings
-            assertNull(loaded.anthropicApiKey)
+            assertEquals(emptyMap<String, String>(), loaded.apiKeys)
             assertEquals(UnitSystem.CUSTOMARY, loaded.volumeUnitSystem)
             assertEquals(UnitSystem.METRIC, loaded.weightUnitSystem)
             cancelAndIgnoreRemainingEvents()
@@ -223,15 +246,17 @@ class SettingsViewModelTest {
     fun `settings reflect stored changes`() = runTest {
         viewModel.uiState.test {
             assertEquals(SettingsUiState.Loading, awaitItem())
-            assertEquals(AiModels.DEFAULT_MODEL, (awaitItem() as SettingsUiState.Loaded).settings.aiModel)
+            assertEquals(emptyMap<ModelRole, AiModel>(), (awaitItem() as SettingsUiState.Loaded).settings.models)
 
-            settings.aiModelFlow.value = "claude-opus-5-5"
+            settings.aiModelFlow.value = AiProviders.CLAUDE_OPUS
             settings.apiKeyFlow.value = "sk-ant-stored-key"
             testDispatcher.scheduler.advanceUntilIdle()
 
             val loaded = (expectMostRecentItem() as SettingsUiState.Loaded).settings
-            assertEquals("claude-opus-5-5", loaded.aiModel)
-            assertEquals("sk-ant-stored-key", loaded.anthropicApiKey)
+            assertEquals(AiProviders.CLAUDE_OPUS, loaded.models[ModelRole.IMPORT]?.id)
+            assertEquals(AiProviders.CLAUDE_HAIKU, loaded.models[ModelRole.EDIT]?.id)
+            assertNull(loaded.models[ModelRole.IMAGE])
+            assertEquals(mapOf(AiProviders.ANTHROPIC_ID to "sk-ant-stored-key"), loaded.apiKeys)
             cancelAndIgnoreRemainingEvents()
         }
     }

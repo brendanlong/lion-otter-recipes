@@ -3,7 +3,7 @@ package com.lionotter.recipes.live
 import com.lionotter.recipes.data.ai.AnthropicRecipeParser
 import com.lionotter.recipes.data.ai.AnthropicTagOrganizer
 import com.lionotter.recipes.domain.Outcome
-import com.lionotter.recipes.domain.model.AiModels
+import com.lionotter.recipes.domain.model.AiProviders
 import com.lionotter.recipes.domain.model.TagChange
 import com.lionotter.recipes.domain.model.TagUsage
 import com.lionotter.recipes.domain.model.planTagChanges
@@ -44,7 +44,7 @@ class LiveAnthropicTest {
         val key = System.getenv("LIVE_ANTHROPIC_KEY")
         assumeTrue(key != null)
         val parser = AnthropicRecipeParser(AppJson, Dispatchers.IO)
-        for (model in listOf(AiModels.MODEL_SONNET, AiModels.MODEL_HAIKU)) {
+        for (model in listOf(AiProviders.CLAUDE_SONNET, AiProviders.CLAUDE_HAIKU)) {
             for (thinking in listOf(false, true)) {
                 val result = parser.parse(ParseRequest(html, key!!, model, thinking))
                 val parsed = (result as? Outcome.Success)?.value?.recipe
@@ -77,7 +77,7 @@ class LiveAnthropicTest {
         val parser = AnthropicRecipeParser(AppJson, Dispatchers.IO)
         val photo = ParseAttachment.Image(fixture("recipe_card.png"), "image/png")
 
-        val result = parser.parse(ParseRequest("", key!!, AiModels.MODEL_SONNET, false, attachments = listOf(photo)))
+        val result = parser.parse(ParseRequest("", key!!, AiProviders.CLAUDE_SONNET, false, attachments = listOf(photo)))
 
         val ingredients = ingredientNames(result)
         assertEquals("Buttermilk Pancakes", (result as Outcome.Success).value.recipe.name)
@@ -92,7 +92,7 @@ class LiveAnthropicTest {
         val parser = AnthropicRecipeParser(AppJson, Dispatchers.IO)
         val pdf = ParseAttachment.Pdf(fixture("recipe.pdf"))
 
-        val result = parser.parse(ParseRequest("", key!!, AiModels.MODEL_HAIKU, false, attachments = listOf(pdf)))
+        val result = parser.parse(ParseRequest("", key!!, AiProviders.CLAUDE_HAIKU, false, attachments = listOf(pdf)))
 
         val ingredients = ingredientNames(result)
         val name = (result as Outcome.Success).value.recipe.name
@@ -107,7 +107,7 @@ class LiveAnthropicTest {
         assumeTrue(key != null)
         val parser = AnthropicRecipeParser(AppJson, Dispatchers.IO)
         val existingTags = listOf("Baking", "Breakfast", "Quick Bread", "Vegetarian", "Dessert")
-        val result = parser.parse(ParseRequest(html, key!!, AiModels.MODEL_HAIKU, false, existingTags = existingTags))
+        val result = parser.parse(ParseRequest(html, key!!, AiProviders.CLAUDE_HAIKU, false, existingTags = existingTags))
         val tags = (result as? Outcome.Success)?.value?.recipe?.tags
         assertNotNull("$result", tags)
         println("Tags with existing vocabulary: $tags")
@@ -125,7 +125,7 @@ class LiveAnthropicTest {
         )
         val organizer = AnthropicTagOrganizer(AppJson, Dispatchers.IO)
         for (thinking in listOf(false, true)) {
-            val result = organizer.suggestTagChanges(TagCleanupRequest(tags, key!!, AiModels.MODEL_HAIKU, thinking))
+            val result = organizer.suggestTagChanges(TagCleanupRequest(tags, key!!, AiProviders.CLAUDE_HAIKU, thinking))
             val mappings = (result as? Outcome.Success)?.value
             assertNotNull("thinking=$thinking: $result", mappings)
             val changes = planTagChanges(tags, mappings!!)

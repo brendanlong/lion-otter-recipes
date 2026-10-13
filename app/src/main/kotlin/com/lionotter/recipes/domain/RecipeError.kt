@@ -42,10 +42,13 @@ sealed interface RecipeError {
         override val retryable: Boolean get() = reason.transient
     }
 
-    /** The AI request failed, or its response couldn't be used. */
+    /**
+     * The AI request failed, or its response couldn't be used. [provider] is the ID of the AI
+     * provider it was sent to (null in errors from versions that only used Anthropic for text).
+     */
     @Serializable
     @SerialName("ai")
-    data class Ai(val reason: AiFailure, val httpStatus: Int? = null) : RecipeError {
+    data class Ai(val reason: AiFailure, val httpStatus: Int? = null, val provider: String? = null) : RecipeError {
         override val retryable: Boolean get() = reason.transient
     }
 

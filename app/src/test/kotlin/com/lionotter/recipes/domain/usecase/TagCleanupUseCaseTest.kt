@@ -3,7 +3,7 @@ package com.lionotter.recipes.domain.usecase
 import com.lionotter.recipes.domain.AiFailure
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
-import com.lionotter.recipes.domain.model.AiModels
+import com.lionotter.recipes.domain.model.AiProviders
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.TagChange
 import com.lionotter.recipes.domain.model.TagMapping
@@ -45,7 +45,7 @@ class TagCleanupUseCaseTest {
 
     @Test
     fun `sends every tag with its count to the edit model and plans the answer`() = runTest {
-        settings.editModelFlow.value = AiModels.MODEL_SONNET
+        settings.editModelFlow.value = AiProviders.CLAUDE_SONNET
         settings.thinkingFlow.value = true
         organizer.result = Outcome.Success(
             listOf(TagMapping("desserts", "Dessert"), TagMapping("recipe", null), TagMapping("Unknown", "x"))
@@ -59,7 +59,7 @@ class TagCleanupUseCaseTest {
             request.tags.toSet()
         )
         assertEquals("sk-ant-test", request.apiKey)
-        assertEquals(AiModels.MODEL_SONNET, request.model)
+        assertEquals(AiProviders.CLAUDE_SONNET, request.model)
         assertTrue(request.thinkingEnabled)
         assertEquals(
             Outcome.Success(
@@ -75,8 +75,8 @@ class TagCleanupUseCaseTest {
     @Test
     fun `uses Haiku by default`() = runTest {
         useCase.suggestChanges()
-        assertEquals(AiModels.DEFAULT_EDIT_MODEL, organizer.requests.single().model)
-        assertEquals(AiModels.MODEL_HAIKU, AiModels.DEFAULT_EDIT_MODEL)
+        assertEquals(AiProviders.CLAUDE_HAIKU, organizer.requests.single().model)
+        assertEquals(AiProviders.CLAUDE_HAIKU, AiProviders.CLAUDE_HAIKU)
     }
 
     @Test

@@ -42,7 +42,6 @@ import com.lionotter.recipes.ui.theme.einkBorder
 @Composable
 fun ApiKeySection(
     title: String,
-    description: String,
     keyPrefix: String,
     getKeyLabel: String,
     getKeyUrl: String,
@@ -60,13 +59,7 @@ fun ApiKeySection(
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
             text = title,
-            style = MaterialTheme.typography.titleMedium
-        )
-
-        Text(
-            text = description,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            style = MaterialTheme.typography.titleSmall
         )
 
         if (currentApiKey != null) {

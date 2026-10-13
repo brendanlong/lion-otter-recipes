@@ -1,11 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- AI model picker -->
-    <string name="model_opus_5_5">Claude Opus 5.5 (Best quality)</string>
-    <string name="model_sonnet_5_5">Claude Sonnet 5.5 (Balanced, recommended)</string>
-    <string name="model_haiku_5_5">Claude Haiku 5.5 (Fastest, cheapest)</string>
-    <string name="model_fable_5_1">Claude Fable 5.1 (Most capable, expensive)</string>
-
     <!-- In-progress import card -->
     <string name="retry_import">Retry</string>
     <string name="dismiss_import">Dismiss</string>

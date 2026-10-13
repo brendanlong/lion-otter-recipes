@@ -9,7 +9,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
-import com.lionotter.recipes.domain.model.AiModels
+import com.lionotter.recipes.domain.model.AiProviders
 import com.lionotter.recipes.domain.model.ImageChange
 import com.lionotter.recipes.domain.port.ImageStore
 import com.lionotter.recipes.domain.toRecipeError
@@ -130,7 +130,7 @@ class RecipeEditWorker @AssistedInject constructor(
             ?: return errorResult(RecipeError.Interrupted, "the edited recipe text was lost")
         val model = inputData.getString(KEY_MODEL)
         val thinkingEnabled = if (inputData.keyValueMap.containsKey(KEY_EXTENDED_THINKING)) {
-            inputData.getBoolean(KEY_EXTENDED_THINKING, AiModels.DEFAULT_THINKING_ENABLED)
+            inputData.getBoolean(KEY_EXTENDED_THINKING, AiProviders.DEFAULT_THINKING_ENABLED)
         } else {
             null
         }

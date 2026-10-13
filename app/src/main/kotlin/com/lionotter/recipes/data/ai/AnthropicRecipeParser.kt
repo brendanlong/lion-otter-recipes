@@ -17,7 +17,7 @@ import com.anthropic.models.messages.batches.MessageBatch
 import com.anthropic.models.messages.batches.MessageBatchIndividualResponse
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.logDescription
-import com.lionotter.recipes.domain.model.AiModels
+import com.lionotter.recipes.domain.model.AiProviders
 import com.lionotter.recipes.domain.port.BatchItemOutcome
 import com.lionotter.recipes.domain.port.BatchParseRequest
 import com.lionotter.recipes.domain.port.BatchStatus
@@ -54,7 +54,7 @@ class AnthropicRecipeParser @Inject constructor(
     private var cachedApiKey: String? = null
 
     override suspend fun parse(request: ParseRequest): Outcome<ParsedRecipeWithUsage> {
-        val model = AiModels.normalizeModel(request.model)
+        val model = normalizeModel(request.model)
         val result = try {
             val client = clientFor(request.apiKey)
             val params = buildParams(request, model)
@@ -161,7 +161,7 @@ class AnthropicRecipeParser @Inject constructor(
         model: String,
         thinkingEnabled: Boolean
     ): Outcome<String> {
-        val resolvedModel = AiModels.normalizeModel(model)
+        val resolvedModel = normalizeModel(model)
         return try {
             val client = clientFor(apiKey)
             val requestConfig = RecipeRequests.requestConfigFor(resolvedModel, thinkingEnabled)
@@ -207,7 +207,7 @@ class AnthropicRecipeParser @Inject constructor(
         }
     }
 
-    override suspend fun getBatchStatus(batchId: String, apiKey: String): Outcome<BatchStatus> {
+    override suspend fun getBatchStatus(batchId: String, model: String, apiKey: String): Outcome<BatchStatus> {
         return try {
             val client = clientFor(apiKey)
             val batch = withContext(ioDispatcher) {
@@ -232,7 +232,7 @@ class AnthropicRecipeParser @Inject constructor(
         }
     }
 
-    override suspend fun cancelBatch(batchId: String, apiKey: String): Outcome<Unit> {
+    override suspend fun cancelBatch(batchId: String, model: String, apiKey: String): Outcome<Unit> {
         return try {
             val client = clientFor(apiKey)
             withContext(ioDispatcher) {
@@ -249,6 +249,7 @@ class AnthropicRecipeParser @Inject constructor(
 
     override suspend fun forEachResult(
         batchId: String,
+        model: String,
         apiKey: String,
         skipCustomIds: Set<String>,
         onResult: (BatchItemOutcome) -> Unit
@@ -313,5 +314,8 @@ class AnthropicRecipeParser @Inject constructor(
 
     private companion object {
         const val TAG = "AnthropicRecipeParser"
+
+        fun normalizeModel(model: String): String =
+            AiProviders.ANTHROPIC.findModel(model)?.id ?: AiProviders.CLAUDE_SONNET
     }
 }

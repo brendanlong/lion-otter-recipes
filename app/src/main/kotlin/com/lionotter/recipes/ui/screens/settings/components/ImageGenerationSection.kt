@@ -16,38 +16,48 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
-import com.lionotter.recipes.data.ai.ApiKeyValidator
+import com.lionotter.recipes.domain.model.AiModel
+import com.lionotter.recipes.domain.model.AiProviders
+import com.lionotter.recipes.domain.model.ModelKind
 
-/** The OpenAI API key used to generate recipe images, and whether to generate them. */
+/** The model that generates recipe images (from [models], those of providers with a key), and whether to generate them. */
 @Composable
 fun ImageGenerationSection(
-    currentApiKey: String?,
-    apiKeyInput: String,
-    onApiKeyInputChange: (String) -> Unit,
-    onSaveClick: () -> Unit,
-    onClearClick: () -> Unit,
-    apiKeyError: String?,
+    models: List<AiModel>,
+    imageModel: AiModel?,
+    onImageModelChange: (String) -> Unit,
     imageGenerationEnabled: Boolean,
     onImageGenerationChange: (Boolean) -> Unit,
     onGenerateMissingImagesClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        ApiKeySection(
-            title = stringResource(R.string.recipe_images),
-            description = stringResource(R.string.openai_api_key_storage_info),
-            keyPrefix = ApiKeyValidator.OPENAI_API_KEY_PREFIX,
-            getKeyLabel = stringResource(R.string.get_openai_api_key),
-            getKeyUrl = "https://platform.openai.com/api-keys",
-            currentApiKey = currentApiKey,
-            apiKeyInput = apiKeyInput,
-            onApiKeyInputChange = onApiKeyInputChange,
-            onSaveClick = onSaveClick,
-            onClearClick = onClearClick,
-            apiKeyError = apiKeyError
+        Text(
+            text = stringResource(R.string.recipe_images),
+            style = MaterialTheme.typography.titleMedium
         )
 
-        if (currentApiKey != null) {
+        if (models.isEmpty()) {
+            val providers = AiProviders.ALL.filter { it.models(ModelKind.IMAGE).isNotEmpty() }.joinToString { it.name }
+            Text(
+                text = stringResource(R.string.recipe_images_need_key, providers),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            Text(
+                text = stringResource(R.string.recipe_images_description),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            ModelDropdown(
+                label = stringResource(R.string.image_model),
+                currentModel = imageModel,
+                models = models,
+                onModelChange = onImageModelChange
+            )
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

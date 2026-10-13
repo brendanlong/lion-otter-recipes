@@ -2,7 +2,7 @@ package com.lionotter.recipes.domain.usecase
 
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
-import com.lionotter.recipes.domain.model.AiModels
+import com.lionotter.recipes.domain.model.ModelRole
 import com.lionotter.recipes.domain.model.TagChange
 import com.lionotter.recipes.domain.model.applyTagChanges
 import com.lionotter.recipes.domain.model.planTagChanges
@@ -12,6 +12,7 @@ import com.lionotter.recipes.domain.port.AiSettings
 import com.lionotter.recipes.domain.port.TagCleanupRequest
 import com.lionotter.recipes.domain.port.TagOrganizer
 import com.lionotter.recipes.domain.port.TagPreferences
+import com.lionotter.recipes.domain.port.model
 import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.util.ErrorLog
 import kotlinx.coroutines.CancellationException
@@ -33,8 +34,7 @@ class TagCleanupUseCase @Inject constructor(
 ) {
     /** The AI's suggested changes; empty if there are no tags or nothing needs changing. */
     suspend fun suggestChanges(): Outcome<List<TagChange>> {
-        val apiKey = aiSettings.anthropicApiKey.first()
-        if (apiKey.isNullOrBlank()) return Outcome.Failure(RecipeError.NoApiKey)
+        val model = aiSettings.model(ModelRole.EDIT).first() ?: return Outcome.Failure(RecipeError.NoApiKey)
 
         val usage = try {
             tagUsage(recipeRepository.getAllRecipeTags().values)
@@ -48,8 +48,8 @@ class TagCleanupUseCase @Inject constructor(
 
         val request = TagCleanupRequest(
             tags = usage,
-            apiKey = apiKey,
-            model = AiModels.normalizeModel(aiSettings.editModel.first(), AiModels.DEFAULT_EDIT_MODEL),
+            apiKey = model.apiKey,
+            model = model.model.id,
             thinkingEnabled = aiSettings.thinkingEnabled.first()
         )
         return when (val result = tagOrganizer.suggestTagChanges(request)) {

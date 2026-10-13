@@ -11,10 +11,12 @@ import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.IngredientUsageStatus
 import com.lionotter.recipes.domain.model.InstructionIngredientKey
 import com.lionotter.recipes.domain.model.MeasurementPreference
+import com.lionotter.recipes.domain.model.ModelRole
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.domain.model.createInstructionIngredientKey
 import com.lionotter.recipes.domain.port.AppSettings
+import com.lionotter.recipes.domain.port.model
 import com.lionotter.recipes.domain.repository.MealPlanRepository
 import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.domain.usecase.CalculateIngredientUsageUseCase
@@ -183,8 +185,8 @@ class RecipeDetailViewModel @Inject constructor(
             initialValue = UnitSystem.localeDefault()
         )
 
-    val hasApiKey: StateFlow<Boolean> = settings.anthropicApiKey
-        .map { !it.isNullOrBlank() }
+    val hasApiKey: StateFlow<Boolean> = settings.model(ModelRole.EDIT)
+        .map { it != null }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),

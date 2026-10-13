@@ -4,10 +4,12 @@ import com.lionotter.recipes.domain.AiFailure
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.ResourceLimits
+import com.lionotter.recipes.domain.model.ModelRole
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.port.AiSettings
 import com.lionotter.recipes.domain.port.ImageStore
 import com.lionotter.recipes.domain.port.RecipeImageGenerator
+import com.lionotter.recipes.domain.port.model
 import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.util.ErrorLog
 import kotlinx.coroutines.CancellationException
@@ -35,12 +37,12 @@ class GenerateRecipeImageUseCase @Inject constructor(
         data class Generated(val imageUrl: String) : Result
 
         /**
-         * There is no OpenAI key any more, the recipe doesn't need this image any more, or (for a
+         * No provider with an image model has a key any more, the recipe doesn't need this image any more, or (for a
          * missing image) image generation was turned off.
          */
         data object Skipped : Result
 
-        /** Generating the image (with the OpenAI API) failed. */
+        /** Generating the image failed. */
         data class ImageFailed(val error: RecipeError) : Result
     }
 
@@ -49,8 +51,7 @@ class GenerateRecipeImageUseCase @Inject constructor(
      *   this image, so it is made even with image generation for missing images turned off)
      */
     suspend fun execute(recipeId: String, prompt: String?, replaceImage: Boolean): Result {
-        val apiKey = aiSettings.openAiApiKey.first()
-        if (apiKey.isNullOrBlank()) return Result.Skipped
+        val model = aiSettings.model(ModelRole.IMAGE).first() ?: return Result.Skipped
         if (!replaceImage && !aiSettings.imageGenerationEnabled.first()) return Result.Skipped
         val recipe = recipeRepository.getRecipeByIdOnce(recipeId) ?: return Result.Skipped
         if (!replaceImage && recipe.imageUrl != null) return Result.Skipped
@@ -59,7 +60,7 @@ class GenerateRecipeImageUseCase @Inject constructor(
         val imagePrompt = prompt?.takeIf { it.isNotBlank() }
             ?: recipe.imagePrompt?.takeIf { it.isNotBlank() }
             ?: fallbackPrompt(recipe)
-        val bytes = when (val generated = generator.generate(imagePrompt, apiKey)) {
+        val bytes = when (val generated = generator.generate(imagePrompt, model.model.id, model.apiKey)) {
             is Outcome.Success -> generated.value
             is Outcome.Failure -> return Result.ImageFailed(generated.error)
         }

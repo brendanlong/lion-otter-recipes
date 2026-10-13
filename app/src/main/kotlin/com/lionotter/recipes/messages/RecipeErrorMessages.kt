@@ -7,6 +7,8 @@ import com.lionotter.recipes.domain.ImportFileFailure
 import com.lionotter.recipes.domain.PageFetchFailure
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.ResourceLimits
+import com.lionotter.recipes.domain.model.AiProvider
+import com.lionotter.recipes.domain.model.AiProviders
 
 fun RecipeError.toUserMessage(): UserMessage = when (this) {
     RecipeError.NoApiKey -> UserMessage(R.string.error_no_api_key)
@@ -14,7 +16,7 @@ fun RecipeError.toUserMessage(): UserMessage = when (this) {
     RecipeError.RecipeNotFound -> UserMessage(R.string.error_recipe_not_found)
     is RecipeError.LimitReached -> UserMessage(R.string.error_recipe_limit_reached, count, limit)
     is RecipeError.PageFetch -> pageFetchMessage(reason, httpStatus)
-    is RecipeError.Ai -> aiMessage(reason, httpStatus)
+    is RecipeError.Ai -> aiMessage(reason, httpStatus, providerName(provider, AiProviders.ANTHROPIC))
     is RecipeError.NotARecipe -> UserMessage(R.string.error_not_a_recipe, reason)
     is RecipeError.Archive -> UserMessage(archiveMessage(reason))
     is RecipeError.ImportFile -> importFileMessage(reason, maxBytes, limit)
@@ -39,15 +41,22 @@ private fun pageFetchMessage(reason: PageFetchFailure, httpStatus: Int?): UserMe
     return if (httpStatus != null) UserMessage(withStatus, httpStatus) else UserMessage(R.string.error_page_failed)
 }
 
-private fun aiMessage(reason: AiFailure, httpStatus: Int?): UserMessage = when (reason) {
-    AiFailure.INVALID_API_KEY -> UserMessage(R.string.error_ai_invalid_api_key)
-    AiFailure.PERMISSION_DENIED -> UserMessage(R.string.error_ai_permission_denied)
+/**
+ * The name of the provider with ID [providerId]; [legacy] for errors saved before errors named
+ * their provider (when every request of that kind went to one provider).
+ */
+internal fun providerName(providerId: String?, legacy: AiProvider): String =
+    providerId?.let { AiProviders.provider(it)?.name ?: it } ?: legacy.name
+
+private fun aiMessage(reason: AiFailure, httpStatus: Int?, provider: String): UserMessage = when (reason) {
+    AiFailure.INVALID_API_KEY -> UserMessage(R.string.error_ai_invalid_api_key, provider)
+    AiFailure.PERMISSION_DENIED -> UserMessage(R.string.error_ai_permission_denied, provider)
     AiFailure.MODEL_UNAVAILABLE -> UserMessage(R.string.error_ai_model_unavailable)
-    AiFailure.RATE_LIMITED -> UserMessage(R.string.error_ai_rate_limited)
-    AiFailure.OUT_OF_CREDITS -> UserMessage(R.string.error_ai_out_of_credits)
+    AiFailure.RATE_LIMITED -> UserMessage(R.string.error_ai_rate_limited, provider)
+    AiFailure.OUT_OF_CREDITS -> UserMessage(R.string.error_ai_out_of_credits, provider)
     AiFailure.REQUEST_REJECTED -> UserMessage(R.string.error_ai_request_rejected)
-    AiFailure.OVERLOADED -> UserMessage(R.string.error_ai_overloaded)
-    AiFailure.NETWORK -> UserMessage(R.string.error_ai_network)
+    AiFailure.OVERLOADED -> UserMessage(R.string.error_ai_overloaded, provider)
+    AiFailure.NETWORK -> UserMessage(R.string.error_ai_network, provider)
     AiFailure.HTTP_ERROR ->
         if (httpStatus != null) UserMessage(R.string.error_ai_http_error, httpStatus) else UserMessage(R.string.error_ai_failed)
     AiFailure.REFUSED -> UserMessage(R.string.error_ai_refused)

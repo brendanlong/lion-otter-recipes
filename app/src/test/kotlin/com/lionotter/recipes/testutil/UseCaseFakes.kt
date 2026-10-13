@@ -1,7 +1,8 @@
 package com.lionotter.recipes.testutil
 
 import com.lionotter.recipes.domain.Outcome
-import com.lionotter.recipes.domain.model.AiModels
+import com.lionotter.recipes.domain.model.AiProviders
+import com.lionotter.recipes.domain.model.ModelRole
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.InstructionStep
 import com.lionotter.recipes.domain.model.Ingredient
@@ -31,6 +32,7 @@ import com.lionotter.recipes.domain.port.TagCleanupRequest
 import com.lionotter.recipes.domain.port.TagOrganizer
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
@@ -55,6 +57,10 @@ class FakeRecipeParser(
 class FakeRecipeBatchParser : RecipeBatchParser {
     val created = mutableListOf<List<BatchParseRequest>>()
     val cancelled = mutableListOf<String>()
+
+    /** The model and key of every call after the batch was created. */
+    val calls = mutableListOf<Pair<String, String>>()
+    var createdModel: String? = null
     var createResult: Outcome<String> = Outcome.Success("batch-1")
     var cancelResult: Outcome<Unit> = Outcome.Success(Unit)
     var statusPolls = 0
@@ -72,27 +78,32 @@ class FakeRecipeBatchParser : RecipeBatchParser {
         thinkingEnabled: Boolean
     ): Outcome<String> {
         created += requests
+        createdModel = model
         onCreate()
         return createResult
     }
 
-    override suspend fun getBatchStatus(batchId: String, apiKey: String): Outcome<BatchStatus> {
+    override suspend fun getBatchStatus(batchId: String, model: String, apiKey: String): Outcome<BatchStatus> {
+        calls += model to apiKey
         statusPolls++
         return status
     }
 
     override suspend fun forEachResult(
         batchId: String,
+        model: String,
         apiKey: String,
         skipCustomIds: Set<String>,
         onResult: (BatchItemOutcome) -> Unit
     ): Outcome<Unit> {
+        calls += model to apiKey
         resultsError?.let { return it }
         results.filter { it.customId !in skipCustomIds }.forEach(onResult)
         return Outcome.Success(Unit)
     }
 
-    override suspend fun cancelBatch(batchId: String, apiKey: String): Outcome<Unit> {
+    override suspend fun cancelBatch(batchId: String, model: String, apiKey: String): Outcome<Unit> {
+        calls += model to apiKey
         cancelled += batchId
         return cancelResult
     }
@@ -137,9 +148,16 @@ class FakePageContentExtractor(
     override fun extractCanonicalUrl(html: String): String? = canonicalUrl
 }
 
+/** The keys as the settings store has them: blank keys count as none, Anthropic's comes first. */
+fun fakeApiKeys(anthropicKey: String?, openAiKey: String?): Map<String, String> = buildMap {
+    anthropicKey?.takeIf { it.isNotBlank() }?.let { put(AiProviders.ANTHROPIC_ID, it) }
+    openAiKey?.takeIf { it.isNotBlank() }?.let { put(AiProviders.OPENAI_ID, it) }
+}
+
+/** [apiKeyFlow] is the Anthropic key; the model flows are the user's picks (null for the defaults). */
 class FakeAiSettings(
     apiKey: String? = "sk-ant-test",
-    model: String = AiModels.DEFAULT_MODEL,
+    model: String? = null,
     thinkingEnabled: Boolean = false,
     importDebuggingEnabled: Boolean = false,
     openAiApiKey: String? = null,
@@ -147,18 +165,23 @@ class FakeAiSettings(
 ) : AiSettings {
     val apiKeyFlow = MutableStateFlow(apiKey)
     val modelFlow = MutableStateFlow(model)
-    val editModelFlow = MutableStateFlow(AiModels.DEFAULT_EDIT_MODEL)
+    val editModelFlow = MutableStateFlow<String?>(null)
+    val imageModelFlow = MutableStateFlow<String?>(null)
     val thinkingFlow = MutableStateFlow(thinkingEnabled)
     val debuggingFlow = MutableStateFlow(importDebuggingEnabled)
     val openAiApiKeyFlow = MutableStateFlow(openAiApiKey)
     val imageGenerationFlow = MutableStateFlow(imageGenerationEnabled)
 
-    override val anthropicApiKey: Flow<String?> = apiKeyFlow
-    override val aiModel: Flow<String> = modelFlow
-    override val editModel: Flow<String> = editModelFlow
+    override val apiKeys: Flow<Map<String, String>> = combine(apiKeyFlow, openAiApiKeyFlow, ::fakeApiKeys)
+
+    override fun selectedModel(role: ModelRole): Flow<String?> = when (role) {
+        ModelRole.IMPORT -> modelFlow
+        ModelRole.EDIT -> editModelFlow
+        ModelRole.IMAGE -> imageModelFlow
+    }
+
     override val thinkingEnabled: Flow<Boolean> = thinkingFlow
     override val importDebuggingEnabled: Flow<Boolean> = debuggingFlow
-    override val openAiApiKey: Flow<String?> = openAiApiKeyFlow
     override val imageGenerationEnabled: Flow<Boolean> = imageGenerationFlow
 }
 
@@ -185,13 +208,14 @@ class FakeRecipeImageScheduler : RecipeImageScheduler {
 class FakeRecipeImageGenerator(
     var result: Outcome<ByteArray> = Outcome.Success(ByteArray(GENERATED_IMAGE_SIZE))
 ) : RecipeImageGenerator {
-    val prompts = mutableListOf<Pair<String, String>>()
+    /** Each prompt with the model and key it was sent with. */
+    val prompts = mutableListOf<Triple<String, String, String>>()
 
     /** Runs while the image is "being generated", e.g. to change the recipe meanwhile. */
     var onGenerate: suspend () -> Unit = {}
 
-    override suspend fun generate(prompt: String, apiKey: String): Outcome<ByteArray> {
-        prompts += prompt to apiKey
+    override suspend fun generate(prompt: String, model: String, apiKey: String): Outcome<ByteArray> {
+        prompts += Triple(prompt, model, apiKey)
         onGenerate()
         return result
     }

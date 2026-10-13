@@ -6,9 +6,11 @@ import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
 import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.ResourceLimits
+import com.lionotter.recipes.domain.model.ModelRole
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.port.AiSettings
 import com.lionotter.recipes.domain.port.RecipeImageScheduler
+import com.lionotter.recipes.domain.port.model
 import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.domain.usecase.GenerateRecipeImageUseCase
 import com.lionotter.recipes.messages.UserMessage
@@ -47,8 +49,8 @@ class GenerateImageViewModel @Inject constructor(
 
     private val recipeId: String = savedStateHandle.toRoute<Route.EditRecipe>().recipeId
 
-    val hasOpenAiKey: StateFlow<Boolean> = aiSettings.openAiApiKey
-        .map { !it.isNullOrBlank() }
+    val hasImageModel: StateFlow<Boolean> = aiSettings.model(ModelRole.IMAGE)
+        .map { it != null }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), initialValue = false)
 
     /** The prompt being edited; null while the dialog is closed. */

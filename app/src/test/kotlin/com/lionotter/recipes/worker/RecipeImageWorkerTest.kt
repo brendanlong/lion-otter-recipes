@@ -12,6 +12,7 @@ import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.AiFailure
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.model.AiProviders
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.usecase.GenerateRecipeImageUseCase
 import com.lionotter.recipes.notification.RecipeNotificationHelper
@@ -94,7 +95,7 @@ class RecipeImageWorkerTest {
         val result = worker().doWork()
 
         assertTrue(result is ListenableWorker.Result.Success)
-        assertEquals(listOf("A loaf of banana bread" to "sk-openai"), generator.prompts)
+        assertEquals(listOf(Triple("A loaf of banana bread", AiProviders.GPT_IMAGE_FLARE, "sk-openai")), generator.prompts)
         assertEquals("gs://bucket/stream.jpg", repository.recipes.value.getValue("r1").imageUrl)
     }
 

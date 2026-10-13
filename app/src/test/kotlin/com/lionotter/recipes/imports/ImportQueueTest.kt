@@ -9,6 +9,7 @@ import com.lionotter.recipes.domain.ImportFileFailure
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.RecipeErrorException
 import com.lionotter.recipes.domain.ResourceLimits
+import com.lionotter.recipes.domain.model.AiProviders
 import com.lionotter.recipes.domain.model.RecipeFileFormat
 import com.lionotter.recipes.data.local.PendingImportStatus
 import com.lionotter.recipes.data.repository.PendingImportRepository
@@ -270,7 +271,7 @@ class ImportQueueTest {
     fun `cancelling a Paprika import cancels its batch once, even after the worker did`() = runTest {
         val dir = tempFolder.newFolder("import-1")
         paprikaSteps.store(dir).writeBatch(
-            PaprikaBatch("batch-1", "model", thinkingEnabled = false, submittedAtMillis = 0, recipes = emptyList())
+            PaprikaBatch("batch-1", AiProviders.CLAUDE_SONNET, thinkingEnabled = false, submittedAtMillis = 0, recipes = emptyList())
         )
         every { inputStore.hasImport("import-1") } returns true
         every { inputStore.readKind("import-1") } returns ImportKind.PAPRIKA

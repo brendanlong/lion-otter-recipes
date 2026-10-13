@@ -7,9 +7,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
 import com.lionotter.recipes.R
-import com.lionotter.recipes.domain.model.AiModels
+import com.lionotter.recipes.domain.model.AiModel
+import com.lionotter.recipes.domain.model.AiProviders
 import com.lionotter.recipes.domain.model.ImageChange
 import com.lionotter.recipes.domain.model.MAX_TAG_LENGTH
+import com.lionotter.recipes.domain.model.ModelKind
+import com.lionotter.recipes.domain.model.ModelRole
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.tagKey
 import com.lionotter.recipes.domain.model.tagKeys
@@ -18,6 +21,7 @@ import com.lionotter.recipes.di.ApplicationScope
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.port.AppSettings
 import com.lionotter.recipes.domain.port.ImageStore
+import com.lionotter.recipes.domain.port.model
 import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
 import com.lionotter.recipes.messages.UserMessage
@@ -240,19 +244,30 @@ class EditRecipeViewModel @Inject constructor(
         initialValue = EditUiState.Idle
     )
 
-    /** The model for this edit: the user's choice on this screen, otherwise the edit model setting. */
-    val model: StateFlow<String> = combine(
+    /** The text models the user can pick for this edit (those of providers with a key). */
+    val availableModels: StateFlow<List<AiModel>> = settings.apiKeys
+        .map { AiProviders.availableModels(ModelKind.TEXT, it) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /**
+     * The model for this edit: the user's choice on this screen while its provider has a key,
+     * otherwise the edit model setting; null when no provider with a text model has a key.
+     */
+    val model: StateFlow<AiModel?> = combine(
         savedStateHandle.getStateFlow<String?>(KEY_MODEL, null),
-        settings.editModel
-    ) { chosen, setting -> chosen ?: setting }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, AiModels.DEFAULT_EDIT_MODEL)
+        settings.apiKeys,
+        settings.model(ModelRole.EDIT)
+    ) { chosen, keys, setting ->
+        AiProviders.configuredModel(chosen, keys)?.model?.takeIf { it.kind == ModelKind.TEXT } ?: setting?.model
+    }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /** Thinking for this edit: the user's choice on this screen, otherwise the setting. */
     val thinkingEnabled: StateFlow<Boolean> = combine(
         savedStateHandle.getStateFlow<Boolean?>(KEY_THINKING, null),
         settings.thinkingEnabled
     ) { chosen, setting -> chosen ?: setting }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, AiModels.DEFAULT_THINKING_ENABLED)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, AiProviders.DEFAULT_THINKING_ENABLED)
 
     /**
      * Whether regeneration from original source is available.
@@ -510,7 +525,7 @@ class EditRecipeViewModel @Inject constructor(
 
     private data class EditRequest(
         val markdown: String,
-        val model: String,
+        val model: String?,
         val thinkingEnabled: Boolean,
         val saveAsCopy: Boolean,
         val aiInstructions: String?,
@@ -532,7 +547,7 @@ class EditRecipeViewModel @Inject constructor(
             tags = tags.value,
             body = markdownText.value
         ),
-        model = model.value,
+        model = model.value?.id,
         thinkingEnabled = thinkingEnabled.value,
         saveAsCopy = saveAsCopy,
         aiInstructions = aiInstructions.value.takeIf { it.isNotBlank() },
@@ -581,7 +596,7 @@ class EditRecipeViewModel @Inject constructor(
             return
         }
         showLocalState(EditUiState.Loading(R.string.edit_progress_preparing))
-        val model = model.value
+        val model = model.value?.id
         val thinkingEnabled = thinkingEnabled.value
         viewModelScope.launch {
             try {

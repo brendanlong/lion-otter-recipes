@@ -2,9 +2,10 @@ package com.lionotter.recipes.domain.model
 
 /** All of the user's settings at one point in time. */
 data class Settings(
-    val anthropicApiKey: String?,
-    val aiModel: String,
-    val editModel: String,
+    /** Provider ID to API key, in the order the user added them. */
+    val apiKeys: Map<String, String>,
+    /** The models in use for each role (see [AiProviders.resolve]); a role is missing if no configured provider has a model for it. */
+    val models: Map<ModelRole, AiModel>,
     val thinkingEnabled: Boolean,
     val keepScreenOn: Boolean,
     val volumeKeysScroll: Boolean,
@@ -15,7 +16,6 @@ data class Settings(
     val groceryWeightUnitSystem: UnitSystem,
     val startOfWeek: StartOfWeek,
     val importDebuggingEnabled: Boolean,
-    val openAiApiKey: String?,
     val imageGenerationEnabled: Boolean,
     val tagBarSize: Int
 )
