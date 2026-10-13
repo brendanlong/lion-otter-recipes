@@ -31,7 +31,8 @@ class RecipeRegeneratedContentTest {
         createdAt = Instant.fromEpochSeconds(1),
         updatedAt = Instant.fromEpochSeconds(2),
         isFavorite = false,
-        userNotes = "parsed notes"
+        userNotes = "parsed notes",
+        imagePrompt = "A parsed pie"
     )
 
     private val now = Instant.fromEpochSeconds(1_800_000_000)
@@ -56,11 +57,17 @@ class RecipeRegeneratedContentTest {
         }
     }
 
+    @Test
+    fun `keeps the image prompt when the AI gave none`() {
+        val result = existing.withRegeneratedContent(parsed.copy(imagePrompt = null), now)
+        assertEquals(existing.imagePrompt, result.imagePrompt)
+    }
+
     private companion object {
         /** Fields the AI regenerates. Every other field (including new ones) must be preserved. */
         val AI_OWNED_FIELDS = setOf(
             "name", "story", "servings", "prepTime", "cookTime", "totalTime",
-            "instructionSections", "equipment", "tags"
+            "instructionSections", "equipment", "tags", "imagePrompt"
         )
     }
 }

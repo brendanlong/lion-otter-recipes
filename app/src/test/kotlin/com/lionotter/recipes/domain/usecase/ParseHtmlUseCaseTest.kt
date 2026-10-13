@@ -243,17 +243,25 @@ class ParseHtmlUseCaseTest {
 
     private fun enableImageGeneration() {
         settings.openAiApiKeyFlow.value = "sk-openai"
-        parser.result = Outcome.Success(parsedWithUsage().copy(imagePrompt = "A loaf of banana bread"))
     }
 
     @Test
-    fun `a recipe saved without an image gets one generated from the AI's prompt`() = runTest {
+    fun `the AI's image prompt is saved with the recipe`() = runTest {
+        parser.result = Outcome.Success(parsedWithUsage(parsedRecipe().copy(imagePrompt = "A loaf of banana bread")))
+
+        val recipe = useCase().parseText("recipe text").value()
+
+        assertEquals("A loaf of banana bread", recipe.imagePrompt)
+        assertEquals("A loaf of banana bread", repository.saved.single().imagePrompt)
+    }
+
+    @Test
+    fun `a recipe saved without an image gets one generated`() = runTest {
         enableImageGeneration()
 
         val recipe = useCase().parseText("recipe text").value()
 
-        assertTrue(parser.requests.single().requestImagePrompt)
-        assertEquals(listOf(recipe.id to "A loaf of banana bread"), imageScheduler.scheduled)
+        assertEquals(listOf(FakeRecipeImageScheduler.Scheduled(recipe.id)), imageScheduler.scheduled)
     }
 
     @Test
@@ -262,67 +270,51 @@ class ParseHtmlUseCaseTest {
 
         val recipe = useCase().parseText("text", imageUrl = "https://example.com/broken.jpg").value()
 
-        assertEquals(listOf(recipe.id to "A loaf of banana bread"), imageScheduler.scheduled)
+        assertEquals(listOf(FakeRecipeImageScheduler.Scheduled(recipe.id)), imageScheduler.scheduled)
     }
 
     @Test
-    fun `no image is generated for a recipe with an image`() = runTest {
+    fun `no image is generated for a recipe with an image, an unsaved parse, or without generation`() = runTest {
         enableImageGeneration()
-
         useCase().parseText("text", imageUrl = "https://example.com/bread.jpg").value()
-
-        assertTrue(imageScheduler.scheduled.isEmpty())
-    }
-
-    @Test
-    fun `no image prompt is requested for photo imports, unsaved parses or without generation`() = runTest {
-        enableImageGeneration()
         useCase().parseAttachments(
             listOf(ParseAttachment.Image(byteArrayOf(1), "image/jpeg")),
             recipePhoto = ParseAttachment.Image(byteArrayOf(1), "image/jpeg")
         ).value()
         useCase().parseText("text", saveRecipe = false).value()
+        useCase().parseText("text", generateMissingImage = false).value()
         settings.imageGenerationFlow.value = false
         useCase().parseText("text").value()
         settings.imageGenerationFlow.value = true
         settings.openAiApiKeyFlow.value = null
         useCase().parseText("text").value()
 
-        assertEquals(listOf(false, false, false, false), parser.requests.map { it.requestImagePrompt })
         assertTrue(imageScheduler.scheduled.isEmpty())
+    }
+
+    @Test
+    fun `a PDF import gets a generated image`() = runTest {
+        enableImageGeneration()
+
+        useCase().parseAttachments(listOf(ParseAttachment.Pdf(byteArrayOf(1)))).value()
+
+        assertEquals(1, imageScheduler.scheduled.size)
     }
 
     @Test
     fun `a recipe that can't be scheduled for an image is still imported`() = runTest {
         enableImageGeneration()
-        val failingScheduler = RecipeImageScheduler { _, _ ->
-            throw IllegalStateException("WorkManager isn't initialized")
+        val failingScheduler = object : RecipeImageScheduler {
+            override fun scheduleImageGeneration(recipeId: String, prompt: String?, replaceImage: Boolean) =
+                throw IllegalStateException("WorkManager isn't initialized")
+
+            override fun scheduleMissingImages(recipeIds: List<String>) = Unit
         }
         val useCase = ParseHtmlUseCase(parser, FakePageContentExtractor(), repository, debugLog, settings, imageStore, failingScheduler)
 
         val recipe = useCase.parseText("recipe text").value()
 
         assertEquals(listOf(recipe), repository.saved)
-    }
-
-    @Test
-    fun `no image is generated when the caller opts out`() = runTest {
-        enableImageGeneration()
-
-        useCase().parseText("recipe text", generateMissingImage = false).value()
-
-        assertFalse(parser.requests.single().requestImagePrompt)
-        assertTrue(imageScheduler.scheduled.isEmpty())
-    }
-
-    @Test
-    fun `a PDF import asks for an image prompt`() = runTest {
-        enableImageGeneration()
-
-        useCase().parseAttachments(listOf(ParseAttachment.Pdf(byteArrayOf(1)))).value()
-
-        assertTrue(parser.requests.single().requestImagePrompt)
-        assertEquals(1, imageScheduler.scheduled.size)
     }
 
     private fun tagged(id: String, vararg tags: String) = Recipe(

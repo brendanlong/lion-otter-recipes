@@ -166,6 +166,25 @@
     <string name="get_openai_api_key">Get an API Key from OpenAI</string>
     <string name="generate_missing_images">Generate missing images</string>
     <string name="generate_missing_images_description">When a recipe is imported without a picture, create one in the background.</string>
+    <string name="generate_images_for_existing_recipes">Generate images for existing recipes</string>
+    <plurals name="generate_missing_images_confirmation">
+        <item quantity="one">Create an image for the %d recipe without one? Images cost about a cent each with OpenAI.</item>
+        <item quantity="other">Create images for the %d recipes without one? Images cost about a cent each with OpenAI, and are made one at a time in the background.</item>
+    </plurals>
+    <plurals name="generating_missing_images">
+        <item quantity="one">Creating %d image in the background</item>
+        <item quantity="other">Creating %d images in the background</item>
+    </plurals>
+    <string name="no_missing_images">All your recipes have images</string>
+    <string name="missing_images_read_failed">Couldn\'t read your recipes. Please try again.</string>
+    <string name="generate_image">Generate image</string>
+    <string name="generate_image_description">The image replaces the recipe\'s current one. Edit the prompt to change what it shows, or tap the sparkles to have Claude write a new one.</string>
+    <string name="image_prompt">Image prompt</string>
+    <string name="image_prompt_placeholder">Describe the photo, or tap the sparkles</string>
+    <string name="write_image_prompt">Write a prompt with AI</string>
+    <string name="generate">Generate</string>
+    <string name="generating_image">Creating the image in the background</string>
+    <string name="image_prompt_write_failed">Couldn\'t write an image prompt. Please try again.</string>
     <string name="ai_models">AI Models</string>
     <string name="ai_model">AI Model</string>
     <string name="ai_model_description">Choose the Claude models to use for recipe operations. Better models may provide more accurate results but cost more.</string>

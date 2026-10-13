@@ -205,10 +205,12 @@ Google users). Local files live only in `files/recipe_images/`.
   Recipes parsed before modifiers existed keep preparation in `name`/`notes` and are not migrated.
 - Regeneration and AI edits copy only AI-owned fields (`Recipe.withRegeneratedContent`); every other field is preserved.
 - **Generated images**: Claude can't draw, so recipe images come from OpenAI's image API with a separate OpenAI key
-  (optional; image generation defaults to on once a key is set). A saved import without a photo of its own asks the
-  parse for an `imagePrompt` (requested in the user message; the schema field is a required string, `""` for none).
-  The recipe is saved first; if it ends up without an image, a worker generates one and attaches it only if the recipe
-  still has none. The prompt is not saved with the recipe.
+  (optional; generation for new imports defaults to on once a key is set). Every parse also writes an `imagePrompt`
+  (a required schema string, `""` for none), which is saved on the recipe and is AI-owned like its other content.
+  A recipe without a prompt gets one from the edit model when an image is needed. All image work runs one at a time in
+  a single WorkManager chain (OpenAI's image rate limits are low), and a failed item still succeeds so the chain goes
+  on. A generated image is attached only if the recipe's image hasn't changed meanwhile (checked before and after
+  the upload). Paprika imports never generate images automatically.
 - **Edit screen**: title, source URL and tags are edited outside the Markdown and saved directly; only a Markdown
   change or AI instructions run the AI. The AI still gets all three in the Markdown it is sent, but an AI edit
   saves the screen's tags, not the AI's (also for "Save as copy"): only the tag editor changes them, so the AI

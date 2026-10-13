@@ -155,6 +155,12 @@ class FirestoreRecipeRepository @Inject constructor(
             .addOnFailureListener { e -> Log.w(TAG, "Failed to update meal plan images for recipe $id", e) }
     }
 
+    override fun setImagePrompt(id: String, imagePrompt: String?) = write(DataOp.UPDATE_RECIPE, id) { uid ->
+        firestoreService.recipesCollection(uid).document(id)
+            .update(RecipeFields.IMAGE_PROMPT, imagePrompt)
+            .reportFailure(DataOp.UPDATE_RECIPE, id)
+    }
+
     override fun updateTitleAndUrl(id: String, name: String, sourceUrl: String?) = write(DataOp.UPDATE_RECIPE, id) { uid ->
         val updates = mutableMapOf<String, Any?>(
             RecipeFields.NAME to name,

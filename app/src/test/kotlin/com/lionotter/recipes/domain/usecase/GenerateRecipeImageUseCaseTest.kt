@@ -3,9 +3,11 @@ package com.lionotter.recipes.domain.usecase
 import com.lionotter.recipes.domain.AiFailure
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.model.AiModels
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.port.ImageStore
 import com.lionotter.recipes.testutil.FakeAiSettings
+import com.lionotter.recipes.testutil.FakeImagePromptWriter
 import com.lionotter.recipes.testutil.FakeImageStore
 import com.lionotter.recipes.testutil.FakeRecipeImageGenerator
 import com.lionotter.recipes.testutil.FakeRecipeRepository
@@ -21,70 +23,126 @@ class GenerateRecipeImageUseCaseTest {
     private val recipe = Recipe(
         id = "r1",
         name = "Banana Bread",
+        imagePrompt = "A loaf of banana bread",
         createdAt = Instant.fromEpochMilliseconds(0),
         updatedAt = Instant.fromEpochMilliseconds(0)
     )
     private val repository = FakeRecipeRepository(recipe)
     private val imageStore = FakeImageStore()
     private val generator = FakeRecipeImageGenerator()
+    private val promptWriter = FakeImagePromptWriter()
     private val settings = FakeAiSettings(openAiApiKey = "sk-openai")
-    private val useCase = GenerateRecipeImageUseCase(generator, repository, imageStore, settings)
+
+    private fun useCase(store: ImageStore = imageStore) = GenerateRecipeImageUseCase(
+        generator,
+        WriteImagePromptUseCase(promptWriter, settings),
+        repository,
+        store,
+        settings
+    )
+
+    private fun imageUrl() = repository.recipes.value.getValue("r1").imageUrl
 
     @Test
-    fun `generates the image and makes it the recipe's image`() = runTest {
-        val result = useCase.execute("r1", "A loaf of banana bread")
+    fun `generates an image from the saved prompt and makes it the recipe's image`() = runTest {
+        val result = useCase().execute("r1", prompt = null, replaceImage = false)
 
         assertEquals(listOf("A loaf of banana bread" to "sk-openai"), generator.prompts)
         assertEquals(listOf(FakeRecipeImageGenerator.GENERATED_IMAGE_SIZE), imageStore.savedStreams)
-        val imageUrl = repository.recipes.value.getValue("r1").imageUrl
-        assertEquals("gs://bucket/stream.jpg", imageUrl)
-        assertEquals(Outcome.Success(GenerateRecipeImageUseCase.Result.Generated("gs://bucket/stream.jpg")), result)
+        assertEquals("gs://bucket/stream.jpg", imageUrl())
+        assertEquals(GenerateRecipeImageUseCase.Result.Generated("gs://bucket/stream.jpg"), result)
+        assertTrue(promptWriter.requests.isEmpty())
     }
 
     @Test
-    fun `skips without a key, with generation off, or when the recipe no longer needs an image`() = runTest {
+    fun `a given prompt wins over the saved one`() = runTest {
+        useCase().execute("r1", prompt = "Pancakes", replaceImage = false)
+
+        assertEquals("Pancakes", generator.prompts.single().first)
+    }
+
+    @Test
+    fun `without a saved prompt, the edit model writes one and it is saved`() = runTest {
+        repository.setImagePrompt("r1", null)
+
+        useCase().execute("r1", prompt = null, replaceImage = false)
+
+        val (markdown, apiKey, model) = promptWriter.requests.single()
+        assertTrue(markdown.contains("Banana Bread"))
+        assertEquals("sk-ant-test", apiKey)
+        assertEquals(AiModels.DEFAULT_EDIT_MODEL, model)
+        assertEquals("A written prompt", generator.prompts.single().first)
+        assertEquals("A written prompt", repository.recipes.value.getValue("r1").imagePrompt)
+    }
+
+    @Test
+    fun `prompt failures are told apart from image failures`() = runTest {
+        repository.setImagePrompt("r1", null)
+        settings.apiKeyFlow.value = null
+        assertEquals(GenerateRecipeImageUseCase.Result.PromptFailed(RecipeError.NoApiKey), useCase().execute("r1", null, false))
+
+        settings.apiKeyFlow.value = "sk-ant-test"
+        promptWriter.result = Outcome.Failure(RecipeError.Ai(AiFailure.INVALID_API_KEY, 401))
+        assertEquals(
+            GenerateRecipeImageUseCase.Result.PromptFailed(RecipeError.Ai(AiFailure.INVALID_API_KEY, 401)),
+            useCase().execute("r1", null, false)
+        )
+
+        generator.result = Outcome.Failure(RecipeError.Ai(AiFailure.RATE_LIMITED, 429))
+        assertEquals(
+            GenerateRecipeImageUseCase.Result.ImageFailed(RecipeError.Ai(AiFailure.RATE_LIMITED, 429)),
+            useCase().execute("r1", "prompt", false)
+        )
+        assertNull(imageUrl())
+        assertTrue(imageStore.savedStreams.isEmpty())
+    }
+
+    @Test
+    fun `replaces an existing image only when asked, then releases the old one`() = runTest {
+        repository.setImageUrl("r1", "gs://bucket/old.jpg")
+
+        assertEquals(GenerateRecipeImageUseCase.Result.Skipped, useCase().execute("r1", null, replaceImage = false))
+        assertTrue(generator.prompts.isEmpty())
+
+        useCase().execute("r1", null, replaceImage = true)
+
+        assertEquals("gs://bucket/stream.jpg", imageUrl())
+        assertEquals(listOf("gs://bucket/old.jpg" to "r1"), imageStore.released)
+    }
+
+    @Test
+    fun `skips without an OpenAI key or a recipe`() = runTest {
+        assertEquals(GenerateRecipeImageUseCase.Result.Skipped, useCase().execute("gone", "prompt", false))
         settings.openAiApiKeyFlow.value = null
-        assertEquals(Outcome.Success(GenerateRecipeImageUseCase.Result.Skipped), useCase.execute("r1", "prompt"))
-
-        settings.openAiApiKeyFlow.value = "sk-openai"
-        settings.imageGenerationFlow.value = false
-        assertEquals(Outcome.Success(GenerateRecipeImageUseCase.Result.Skipped), useCase.execute("r1", "prompt"))
-
-        settings.imageGenerationFlow.value = true
-        assertEquals(Outcome.Success(GenerateRecipeImageUseCase.Result.Skipped), useCase.execute("gone", "prompt"))
-
-        repository.setImageUrl("r1", "gs://bucket/mine.jpg")
-        assertEquals(Outcome.Success(GenerateRecipeImageUseCase.Result.Skipped), useCase.execute("r1", "prompt"))
-
+        assertEquals(GenerateRecipeImageUseCase.Result.Skipped, useCase().execute("r1", "prompt", false))
         assertTrue(generator.prompts.isEmpty())
     }
 
     @Test
-    fun `an image the user added meanwhile wins and the generated one is discarded`() = runTest {
+    fun `an image the user set during generation wins and the generated one is discarded`() = runTest {
         generator.onGenerate = { repository.setImageUrl("r1", "gs://bucket/mine.jpg") }
 
-        val result = useCase.execute("r1", "prompt")
+        val result = useCase().execute("r1", "prompt", replaceImage = false)
 
-        assertEquals(Outcome.Success(GenerateRecipeImageUseCase.Result.Skipped), result)
-        assertEquals("gs://bucket/mine.jpg", repository.recipes.value.getValue("r1").imageUrl)
+        assertEquals(GenerateRecipeImageUseCase.Result.Skipped, result)
+        assertEquals("gs://bucket/mine.jpg", imageUrl())
         assertEquals(listOf("file:///images/stream.jpg"), imageStore.deletedLocal)
         assertTrue(imageStore.stored.isEmpty())
     }
 
     @Test
-    fun `an image the user added during the upload wins and the generated one is released`() = runTest {
+    fun `an image the user set during the upload wins and the generated one is released`() = runTest {
         val uploading = object : ImageStore by imageStore {
             override suspend fun attach(localUri: String, recipeId: String?, previousImageUrl: String?): String {
                 repository.setImageUrl("r1", "gs://bucket/mine.jpg")
                 return imageStore.attach(localUri, recipeId, previousImageUrl)
             }
         }
-        val useCase = GenerateRecipeImageUseCase(generator, repository, uploading, settings)
 
-        val result = useCase.execute("r1", "prompt")
+        val result = useCase(uploading).execute("r1", "prompt", replaceImage = true)
 
-        assertEquals(Outcome.Success(GenerateRecipeImageUseCase.Result.Skipped), result)
-        assertEquals("gs://bucket/mine.jpg", repository.recipes.value.getValue("r1").imageUrl)
+        assertEquals(GenerateRecipeImageUseCase.Result.Skipped, result)
+        assertEquals("gs://bucket/mine.jpg", imageUrl())
         assertEquals(listOf("gs://bucket/stream.jpg" to "r1"), imageStore.released)
     }
 
@@ -92,19 +150,9 @@ class GenerateRecipeImageUseCaseTest {
     fun `the generated image is discarded when attaching it fails`() = runTest {
         imageStore.attachError = IOException("disk full")
 
-        val thrown = runCatching { useCase.execute("r1", "prompt") }.exceptionOrNull()
+        val thrown = runCatching { useCase().execute("r1", "prompt", false) }.exceptionOrNull()
 
         assertEquals("disk full", (thrown as IOException).message)
         assertEquals(listOf("file:///images/stream.jpg"), imageStore.deletedLocal)
-    }
-
-    @Test
-    fun `generation failures are returned and the recipe is unchanged`() = runTest {
-        val failure = Outcome.Failure(RecipeError.Ai(AiFailure.RATE_LIMITED, 429))
-        generator.result = failure
-
-        assertEquals(failure, useCase.execute("r1", "prompt"))
-        assertNull(repository.recipes.value.getValue("r1").imageUrl)
-        assertTrue(imageStore.savedStreams.isEmpty())
     }
 }

@@ -11,6 +11,7 @@ import com.lionotter.recipes.domain.port.BatchItemOutcome
 import com.lionotter.recipes.domain.port.BatchParseRequest
 import com.lionotter.recipes.domain.port.BatchStatus
 import com.lionotter.recipes.domain.port.FetchedPage
+import com.lionotter.recipes.domain.port.ImagePromptWriter
 import com.lionotter.recipes.domain.port.ImageStore
 import com.lionotter.recipes.domain.port.ImportDebugLog
 import com.lionotter.recipes.domain.port.ImportDebugRecord
@@ -163,11 +164,28 @@ class FakeAiSettings(
 }
 
 class FakeRecipeImageScheduler : RecipeImageScheduler {
-    /** (recipe ID, prompt) of each scheduled generation. */
-    val scheduled = mutableListOf<Pair<String, String>>()
+    data class Scheduled(val recipeId: String, val prompt: String? = null, val replaceImage: Boolean = false)
 
-    override fun scheduleImageGeneration(recipeId: String, prompt: String) {
-        scheduled += recipeId to prompt
+    val scheduled = mutableListOf<Scheduled>()
+
+    override fun scheduleImageGeneration(recipeId: String, prompt: String?, replaceImage: Boolean) {
+        scheduled += Scheduled(recipeId, prompt, replaceImage)
+    }
+
+    override fun scheduleMissingImages(recipeIds: List<String>) {
+        recipeIds.forEach { scheduled += Scheduled(it) }
+    }
+}
+
+class FakeImagePromptWriter(
+    var result: Outcome<String> = Outcome.Success("A written prompt")
+) : ImagePromptWriter {
+    /** (recipe Markdown, API key, model) of each request. */
+    val requests = mutableListOf<Triple<String, String, String>>()
+
+    override suspend fun writePrompt(recipeMarkdown: String, apiKey: String, model: String): Outcome<String> {
+        requests += Triple(recipeMarkdown, apiKey, model)
+        return result
     }
 }
 

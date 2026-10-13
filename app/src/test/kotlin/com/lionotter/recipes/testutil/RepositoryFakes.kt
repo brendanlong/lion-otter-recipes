@@ -76,6 +76,10 @@ class FakeRecipeRepository(vararg initial: Recipe) : RecipeRepository {
         update(id) { it.copy(userNotes = userNotes) }
     }
 
+    override fun setImagePrompt(id: String, imagePrompt: String?) {
+        update(id) { it.copy(imagePrompt = imagePrompt) }
+    }
+
     override fun setImageUrl(id: String, imageUrl: String?) {
         imageUrlUpdates += id to imageUrl
         update(id) { it.copy(imageUrl = imageUrl) }

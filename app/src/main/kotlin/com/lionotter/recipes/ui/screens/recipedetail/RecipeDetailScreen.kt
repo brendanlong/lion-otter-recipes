@@ -58,6 +58,7 @@ import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
 import com.lionotter.recipes.ui.TestTags
 import com.lionotter.recipes.ui.components.DeleteConfirmationDialog
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
+import com.lionotter.recipes.ui.screens.recipedetail.components.GenerateImageDialog
 import com.lionotter.recipes.ui.screens.recipedetail.components.RecipeContent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -84,7 +85,8 @@ fun RecipeDetailScreen(
     onTagClick: (String) -> Unit = {},
     editSuccess: Boolean = false,
     onEditSuccessConsumed: () -> Unit = {},
-    viewModel: RecipeDetailViewModel = hiltViewModel()
+    viewModel: RecipeDetailViewModel = hiltViewModel(),
+    imageViewModel: GenerateImageViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val cookingProgress by viewModel.cookingProgress.collectAsStateWithLifecycle()
@@ -96,6 +98,10 @@ fun RecipeDetailScreen(
     val volumeUnitSystem by viewModel.volumeUnitSystem.collectAsStateWithLifecycle()
     val weightUnitSystem by viewModel.weightUnitSystem.collectAsStateWithLifecycle()
     val hasApiKey by viewModel.hasApiKey.collectAsStateWithLifecycle()
+    val hasOpenAiKey by imageViewModel.hasOpenAiKey.collectAsStateWithLifecycle()
+    // Immediate, so the text field never sees a stale value while typing
+    val imagePromptDraft by imageViewModel.promptDraft.collectAsStateWithLifecycle(context = Dispatchers.Main.immediate)
+    val writingImagePrompt by imageViewModel.writingPrompt.collectAsStateWithLifecycle()
 
     val recipe: Recipe? = (uiState as? RecipeDetailState.Loaded)?.recipe
 
@@ -158,6 +164,21 @@ fun RecipeDetailScreen(
             }
             is RecipeDetailEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message.resolve(resources))
         }
+    }
+
+    CollectEvents(imageViewModel.events) { message ->
+        snackbarHostState.showSnackbar(message.resolve(resources))
+    }
+
+    imagePromptDraft?.let { prompt ->
+        GenerateImageDialog(
+            prompt = prompt,
+            writingPrompt = writingImagePrompt,
+            onPromptChange = imageViewModel::onPromptChange,
+            onWritePrompt = imageViewModel::writePrompt,
+            onGenerate = imageViewModel::generate,
+            onDismiss = imageViewModel::dismiss
+        )
     }
 
     // API key required dialog
@@ -260,6 +281,15 @@ fun RecipeDetailScreen(
                                         viewModel.exportRecipeFile()
                                     }
                                 )
+                                if (hasOpenAiKey) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.generate_image)) },
+                                        onClick = {
+                                            showOverflowMenu = false
+                                            imageViewModel.open()
+                                        }
+                                    )
+                                }
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.reset_cooking_progress)) },
                                     enabled = cookingProgress.hasProgress,

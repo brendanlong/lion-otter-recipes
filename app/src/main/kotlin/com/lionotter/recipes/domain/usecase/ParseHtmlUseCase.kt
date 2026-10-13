@@ -197,9 +197,6 @@ class ParseHtmlUseCase @Inject constructor(
         val model = AiModels.normalizeModel(model ?: aiSettings.aiModel.first())
         val thinkingEnabled = thinkingEnabled ?: aiSettings.thinkingEnabled.first()
         val debuggingEnabled = aiSettings.importDebuggingEnabled.first()
-        // Asked for even when there is an image URL, since its download can still fail
-        val requestImagePrompt = saveRecipe && generateMissingImage && recipePhoto == null && imageGenerationAvailable()
-
         // Parse with AI
         onProgress(ParseProgress.ParsingRecipe)
         val existingTags = existingTagVocabulary()
@@ -213,8 +210,7 @@ class ParseHtmlUseCase @Inject constructor(
                 densityOverrides = densityOverrides,
                 aiInstructions = aiInstructions,
                 existingTags = existingTags,
-                attachments = attachments,
-                requestImagePrompt = requestImagePrompt
+                attachments = attachments
             )
         )
         val debugContent = if (attachments.isEmpty()) text else describeAttachments(attachments)
@@ -259,9 +255,10 @@ class ParseHtmlUseCase @Inject constructor(
             // download or upload anything here (that would orphan a copy on every edit).
             buildRecipe(parsed, sourceUrl, storedImageUrl = null, sourceImageUrl = imageUrl)
         }
-        val imagePrompt = parsedWithUsage.imagePrompt
-        if (requestImagePrompt && recipe.imageUrl == null && imagePrompt != null && coroutineContext.isActive) {
-            scheduleImageGeneration(recipe.id, imagePrompt)
+        if (saveRecipe && generateMissingImage && recipe.imageUrl == null && coroutineContext.isActive &&
+            imageGenerationAvailable()
+        ) {
+            scheduleImageGeneration(recipe.id)
         }
 
         // Save debug data on success if debugging is enabled
@@ -287,9 +284,9 @@ class ParseHtmlUseCase @Inject constructor(
     }
 
     /** The recipe is already saved, so failing to schedule only costs the image. */
-    private fun scheduleImageGeneration(recipeId: String, prompt: String) {
+    private fun scheduleImageGeneration(recipeId: String) {
         try {
-            imageScheduler.scheduleImageGeneration(recipeId, prompt)
+            imageScheduler.scheduleImageGeneration(recipeId)
         } catch (e: Exception) {
             ErrorLog.e(TAG, "Failed to schedule image generation", e)
         }
@@ -510,6 +507,7 @@ class ParseHtmlUseCase @Inject constructor(
             instructionSections = parsed.instructionSections,
             equipment = parsed.equipment,
             tags = parsed.tags,
+            imagePrompt = parsed.imagePrompt,
             imageUrl = storedImageUrl,
             sourceImageUrl = sourceImageUrl,
             createdAt = now,

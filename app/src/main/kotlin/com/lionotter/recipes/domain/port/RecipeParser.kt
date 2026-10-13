@@ -29,9 +29,7 @@ data class ParseRequest(
     /** Tags the user already has (most used first), for the AI to reuse. */
     val existingTags: List<String> = emptyList(),
     /** Photos (in page order) or a PDF of the recipe. */
-    val attachments: List<ParseAttachment> = emptyList(),
-    /** Whether to also write a prompt for generating a picture of the dish ([ParsedRecipeWithUsage.imagePrompt]). */
-    val requestImagePrompt: Boolean = false
+    val attachments: List<ParseAttachment> = emptyList()
 )
 
 /** A file sent to the AI with a [ParseRequest]. */
@@ -58,7 +56,9 @@ data class ParsedRecipe(
     val totalTime: String? = null,
     val instructionSections: List<InstructionSection>,
     val equipment: List<String> = emptyList(),
-    val tags: List<String> = emptyList()
+    val tags: List<String> = emptyList(),
+    /** A prompt for generating a picture of the dish. */
+    val imagePrompt: String? = null
 )
 
 data class ParsedRecipeWithUsage(
@@ -66,7 +66,5 @@ data class ParsedRecipeWithUsage(
     val inputTokens: Long,
     val outputTokens: Long,
     /** The AI's JSON response, kept for import debugging. */
-    val aiOutputJson: String,
-    /** A prompt for a picture of the dish, if [ParseRequest.requestImagePrompt] asked for one. */
-    val imagePrompt: String? = null
+    val aiOutputJson: String
 )

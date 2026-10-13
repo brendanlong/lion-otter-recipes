@@ -20,6 +20,7 @@ object RecipeFields {
     const val IS_FAVORITE = "isFavorite"
     const val USER_NOTES = "userNotes"
     const val TAGS = "tags"
+    const val IMAGE_PROMPT = "imagePrompt"
 }
 
 /**
@@ -53,7 +54,8 @@ data class RecipeDto(
     val tags: List<String> = emptyList(),
     val equipment: List<String> = emptyList(),
     val instructionSectionsJson: String = "[]",
-    val userNotes: String? = null
+    val userNotes: String? = null,
+    val imagePrompt: String? = null
 ) {
     /** @throws CorruptRecipeException if [instructionSectionsJson] can't be parsed */
     fun toDomain(): Recipe {
@@ -83,7 +85,8 @@ data class RecipeDto(
             tags = tags,
             equipment = equipment,
             instructionSections = sections,
-            userNotes = userNotes
+            userNotes = userNotes,
+            imagePrompt = imagePrompt
         )
     }
 }
@@ -105,5 +108,6 @@ fun Recipe.toDto(): RecipeDto = RecipeDto(
     tags = tags,
     equipment = equipment,
     instructionSectionsJson = AppJson.encodeToString(instructionSections),
-    userNotes = userNotes
+    userNotes = userNotes,
+    imagePrompt = imagePrompt
 )

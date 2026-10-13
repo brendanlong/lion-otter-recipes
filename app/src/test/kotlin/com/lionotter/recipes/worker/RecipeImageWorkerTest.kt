@@ -8,13 +8,16 @@ import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
 import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.workDataOf
+import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.AiFailure
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.usecase.GenerateRecipeImageUseCase
+import com.lionotter.recipes.domain.usecase.WriteImagePromptUseCase
 import com.lionotter.recipes.notification.RecipeNotificationHelper
 import com.lionotter.recipes.testutil.FakeAiSettings
+import com.lionotter.recipes.testutil.FakeImagePromptWriter
 import com.lionotter.recipes.testutil.FakeImageStore
 import com.lionotter.recipes.testutil.FakeRecipeImageGenerator
 import com.lionotter.recipes.testutil.FakeRecipeRepository
@@ -47,18 +50,25 @@ class RecipeImageWorkerTest {
         )
     )
     private val generator = FakeRecipeImageGenerator()
+    private val settings = FakeAiSettings(openAiApiKey = "sk-openai")
+    private val promptWriter = FakeImagePromptWriter()
     private val useCase = GenerateRecipeImageUseCase(
         generator,
+        WriteImagePromptUseCase(promptWriter, settings),
         repository,
         FakeImageStore(),
-        FakeAiSettings(openAiApiKey = "sk-openai")
+        settings
     )
     private val notifications = shadowOf(context.getSystemService(NotificationManager::class.java))
 
-    private fun worker(recipeId: String = "r1", runAttemptCount: Int = 0): RecipeImageWorker =
+    private fun worker(
+        recipeId: String = "r1",
+        prompt: String? = "A loaf of banana bread",
+        runAttemptCount: Int = 0
+    ): RecipeImageWorker =
         TestListenableWorkerBuilder<RecipeImageWorker>(context)
             // Literal keys: they are persisted by WorkManager, so they must not change
-            .setInputData(workDataOf("recipe_id" to recipeId, "prompt" to "A loaf of banana bread"))
+            .setInputData(workDataOf("recipe_id" to recipeId, "prompt" to prompt, "replace_image" to false))
             .setRunAttemptCount(runAttemptCount)
             .setWorkerFactory(object : WorkerFactory() {
                 override fun createWorker(
@@ -77,9 +87,10 @@ class RecipeImageWorkerTest {
 
     @Test
     fun `input data uses the persisted keys and caps the prompt`() {
-        val data = RecipeImageWorker.createInputData("r1", "x".repeat(5000))
+        val data = RecipeImageWorker.createInputData("r1", "x".repeat(5000), replaceImage = true)
         assertEquals("r1", data.getString("recipe_id"))
         assertEquals(2000, data.getString("prompt")?.length)
+        assertTrue(data.getBoolean("replace_image", false))
     }
 
     @Test
@@ -92,23 +103,33 @@ class RecipeImageWorkerTest {
     }
 
     @Test
-    fun `transient failures retry, then notify`() = runTest {
+    fun `transient failures retry, then notify and let the queue go on`() = runTest {
         generator.result = Outcome.Failure(RecipeError.Ai(AiFailure.OVERLOADED, 503))
 
         assertTrue(worker().doWork() is ListenableWorker.Result.Retry)
         assertTrue(notifications.allNotifications.isEmpty())
 
         val last = worker(runAttemptCount = RecipeImageWorker.MAX_ATTEMPTS - 1).doWork()
-        assertTrue(last is ListenableWorker.Result.Failure)
+        assertTrue(last is ListenableWorker.Result.Success)
         assertEquals(1, notifications.allNotifications.size)
+    }
+
+    @Test
+    fun `a rejected Anthropic key while writing a prompt isn't blamed on OpenAI`() = runTest {
+        promptWriter.result = Outcome.Failure(RecipeError.Ai(AiFailure.INVALID_API_KEY, 401))
+
+        worker(prompt = null).doWork()
+
+        val text = notifications.allNotifications.single().extras.getCharSequence("android.text").toString()
+        assertEquals(context.getString(R.string.error_ai_invalid_api_key), text)
     }
 
     @Test
     fun `a key problem is one notification, however many recipes fail`() = runTest {
         generator.result = Outcome.Failure(RecipeError.Ai(AiFailure.INVALID_API_KEY, 401))
 
-        assertTrue(worker("r1").doWork() is ListenableWorker.Result.Failure)
-        assertTrue(worker("r2").doWork() is ListenableWorker.Result.Failure)
+        assertTrue(worker("r1").doWork() is ListenableWorker.Result.Success)
+        assertTrue(worker("r2").doWork() is ListenableWorker.Result.Success)
 
         assertEquals(1, notifications.allNotifications.size)
     }

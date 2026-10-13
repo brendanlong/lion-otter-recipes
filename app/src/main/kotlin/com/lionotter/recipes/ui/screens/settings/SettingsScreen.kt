@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -69,13 +70,15 @@ fun SettingsScreen(
     onNavigateToManageTags: () -> Unit = {},
     onNavigateToImportSelection: (importType: ImportType, uri: Uri) -> Unit = { _, _ -> },
     viewModel: SettingsViewModel = hiltViewModel(),
-    zipViewModel: ZipExportImportViewModel = hiltViewModel()
+    zipViewModel: ZipExportImportViewModel = hiltViewModel(),
+    missingImagesViewModel: MissingImagesViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val apiKeyInput by viewModel.anthropicKey.input.collectAsStateWithLifecycle()
     val apiKeyError by viewModel.anthropicKey.error.collectAsStateWithLifecycle()
     val openAiKeyInput by viewModel.openAiKey.input.collectAsStateWithLifecycle()
     val openAiKeyError by viewModel.openAiKey.error.collectAsStateWithLifecycle()
+    val missingImages by missingImagesViewModel.pendingConfirmation.collectAsStateWithLifecycle()
     val isExporting by zipViewModel.isExporting.collectAsStateWithLifecycle()
     val authState by viewModel.authState.collectAsStateWithLifecycle()
     val busyOp by viewModel.busyOp.collectAsStateWithLifecycle()
@@ -99,6 +102,26 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = viewModel::dismissUnsyncedSignOutWarning) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    missingImages?.let { recipeIds ->
+        AlertDialog(
+            onDismissRequest = missingImagesViewModel::dismiss,
+            title = { Text(stringResource(R.string.generate_images_for_existing_recipes)) },
+            text = {
+                Text(pluralStringResource(R.plurals.generate_missing_images_confirmation, recipeIds.size, recipeIds.size))
+            },
+            confirmButton = {
+                TextButton(onClick = missingImagesViewModel::confirm) {
+                    Text(stringResource(R.string.generate))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = missingImagesViewModel::dismiss) {
                     Text(stringResource(R.string.cancel))
                 }
             }
@@ -148,6 +171,10 @@ fun SettingsScreen(
 
     // Export results
     CollectEvents(zipViewModel.events) { message ->
+        snackbarHostState.showSnackbar(message.resolve(resources))
+    }
+
+    CollectEvents(missingImagesViewModel.events) { message ->
         snackbarHostState.showSnackbar(message.resolve(resources))
     }
 
@@ -254,7 +281,8 @@ fun SettingsScreen(
                 onClearClick = viewModel::clearOpenAiApiKey,
                 apiKeyError = openAiKeyError?.text(),
                 imageGenerationEnabled = settings.imageGenerationEnabled,
-                onImageGenerationChange = viewModel::setImageGenerationEnabled
+                onImageGenerationChange = viewModel::setImageGenerationEnabled,
+                onGenerateMissingImagesClick = missingImagesViewModel::findMissingImages
             )
 
             HorizontalDivider()

@@ -3,6 +3,7 @@ package com.lionotter.recipes.domain.usecase
 import com.lionotter.recipes.domain.AiFailure
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.port.AiSettings
 import com.lionotter.recipes.domain.port.ImageStore
 import com.lionotter.recipes.domain.port.RecipeImageGenerator
@@ -18,12 +19,14 @@ import javax.inject.Inject
 import kotlin.coroutines.coroutineContext
 
 /**
- * Generates an image for a recipe that was imported without one and makes it the recipe's image.
- * Nothing happens if the recipe got an image (or was deleted) in the meantime, or image generation
- * has since been turned off.
+ * Generates an image for a recipe and makes it the recipe's image. The prompt is the one given,
+ * else the recipe's saved prompt, else one written by [WriteImagePromptUseCase] (and saved).
+ * If the recipe's image changes (or the recipe is deleted) while this runs, the user's change
+ * wins and the generated image is thrown away.
  */
 class GenerateRecipeImageUseCase @Inject constructor(
     private val generator: RecipeImageGenerator,
+    private val writeImagePrompt: WriteImagePromptUseCase,
     private val recipeRepository: RecipeRepository,
     private val imageStore: ImageStore,
     private val aiSettings: AiSettings
@@ -31,30 +34,40 @@ class GenerateRecipeImageUseCase @Inject constructor(
     sealed interface Result {
         data class Generated(val imageUrl: String) : Result
 
-        /** The recipe doesn't need an image any more, or generation is off. */
+        /** There is no OpenAI key any more, or the recipe doesn't need this image any more. */
         data object Skipped : Result
+
+        /** The recipe had no prompt, and writing one (with the Anthropic API) failed. */
+        data class PromptFailed(val error: RecipeError) : Result
+
+        /** Generating the image (with the OpenAI API) failed. */
+        data class ImageFailed(val error: RecipeError) : Result
     }
 
-    suspend fun execute(recipeId: String, prompt: String): Outcome<Result> {
+    /** @param replaceImage whether to replace an image the recipe already has */
+    suspend fun execute(recipeId: String, prompt: String?, replaceImage: Boolean): Result {
         val apiKey = aiSettings.openAiApiKey.first()
-        if (apiKey.isNullOrBlank() || !aiSettings.imageGenerationEnabled.first()) {
-            return Outcome.Success(Result.Skipped)
-        }
-        if (!needsImage(recipeId)) return Outcome.Success(Result.Skipped)
+        if (apiKey.isNullOrBlank()) return Result.Skipped
+        val recipe = recipeRepository.getRecipeByIdOnce(recipeId) ?: return Result.Skipped
+        if (!replaceImage && recipe.imageUrl != null) return Result.Skipped
+        val previousImageUrl = recipe.imageUrl
 
-        val bytes = when (val generated = generator.generate(prompt, apiKey)) {
+        val imagePrompt = when (val resolved = resolvePrompt(recipe, prompt)) {
+            is Outcome.Success -> resolved.value
+            is Outcome.Failure -> return Result.PromptFailed(resolved.error)
+        }
+        val bytes = when (val generated = generator.generate(imagePrompt, apiKey)) {
             is Outcome.Success -> generated.value
-            is Outcome.Failure -> return generated
+            is Outcome.Failure -> return Result.ImageFailed(generated.error)
         }
         coroutineContext.ensureActive()
         return withContext(NonCancellable) {
             val localImage = imageStore.saveImage(ByteArrayInputStream(bytes))
-                ?: return@withContext Outcome.Failure(RecipeError.Ai(AiFailure.UNREADABLE_RESPONSE)).also {
+                ?: return@withContext Result.ImageFailed(RecipeError.Ai(AiFailure.UNREADABLE_RESPONSE)).also {
                     ErrorLog.w(TAG, "The generated image isn't a usable image")
                 }
             val imageUrl = try {
-                // The user may have added an image (or deleted the recipe) while this one was generated
-                if (needsImage(recipeId)) imageStore.attach(localImage, recipeId = recipeId) else null
+                if (imageUnchanged(recipeId, previousImageUrl)) imageStore.attach(localImage, recipeId = recipeId) else null
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -63,21 +76,31 @@ class GenerateRecipeImageUseCase @Inject constructor(
             }
             if (imageUrl == null) {
                 imageStore.discardLocalImage(localImage)
-                return@withContext Outcome.Success(Result.Skipped)
+                return@withContext Result.Skipped
             }
-            // ...or while it was uploaded
-            if (!needsImage(recipeId)) {
+            // Checked again: the upload takes a while
+            if (!imageUnchanged(recipeId, previousImageUrl)) {
                 imageStore.release(imageUrl, recipeId)
-                return@withContext Outcome.Success(Result.Skipped)
+                return@withContext Result.Skipped
             }
             recipeRepository.setImageUrl(recipeId, imageUrl)
-            Outcome.Success(Result.Generated(imageUrl))
+            previousImageUrl?.let { imageStore.release(it, recipeId) }
+            Result.Generated(imageUrl)
         }
     }
 
-    private suspend fun needsImage(recipeId: String): Boolean {
+    private suspend fun resolvePrompt(recipe: Recipe, prompt: String?): Outcome<String> {
+        prompt?.takeIf { it.isNotBlank() }?.let { return Outcome.Success(it) }
+        recipe.imagePrompt?.takeIf { it.isNotBlank() }?.let { return Outcome.Success(it) }
+        val written = writeImagePrompt.execute(recipe)
+        if (written is Outcome.Success) recipeRepository.setImagePrompt(recipe.id, written.value)
+        return written
+    }
+
+    /** Whether recipe [recipeId] still exists with [imageUrl] as its image. */
+    private suspend fun imageUnchanged(recipeId: String, imageUrl: String?): Boolean {
         val recipe = recipeRepository.getRecipeByIdOnce(recipeId) ?: return false
-        return recipe.imageUrl == null
+        return recipe.imageUrl == imageUrl
     }
 
     private companion object {

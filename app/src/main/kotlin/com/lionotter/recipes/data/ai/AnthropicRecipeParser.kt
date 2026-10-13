@@ -108,8 +108,7 @@ class AnthropicRecipeParser @Inject constructor(
             request.densityOverrides,
             request.aiInstructions,
             request.existingTags,
-            request.attachments,
-            request.requestImagePrompt
+            request.attachments
         )
         val paramsBuilder = BetaMessageCreateParams.builder()
             .model(model)

@@ -47,9 +47,9 @@ class RecipePromptTest {
     }
 
     @Test
-    fun `user message asks for an image prompt only when requested`() {
-        assertFalse(RecipePrompt.buildUserMessage("RECIPE TEXT").contains("imagePrompt"))
-        assertTrue(RecipePrompt.buildUserMessage("RECIPE TEXT", requestImagePrompt = true).contains("\"imagePrompt\""))
+    fun `the parse and the prompt writer share the image prompt guidelines`() {
+        assertTrue(RecipePrompt.systemPrompt.contains(ImagePrompts.GUIDELINES))
+        assertTrue(ImagePrompts.writerSystemPrompt.contains(ImagePrompts.GUIDELINES))
     }
 
     @Test
@@ -93,6 +93,6 @@ class RecipePromptTest {
     }
 
     private companion object {
-        const val SYSTEM_PROMPT_SHA256 = "a7052df0d8f4fe5bba69bb14178926fe39ecbae2d0328f3f603d8e26bce80d05"
+        const val SYSTEM_PROMPT_SHA256 = "b74e10119e84b8a18c2a4f2e5d7284b5591b77b31815e386d863d34cae6f26a5"
     }
 }

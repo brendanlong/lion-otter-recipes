@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,6 +29,7 @@ fun ImageGenerationSection(
     apiKeyError: String?,
     imageGenerationEnabled: Boolean,
     onImageGenerationChange: (Boolean) -> Unit,
+    onGenerateMissingImagesClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -72,6 +74,13 @@ fun ImageGenerationSection(
                     checked = imageGenerationEnabled,
                     onCheckedChange = null
                 )
+            }
+
+            OutlinedButton(
+                onClick = onGenerateMissingImagesClick,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(stringResource(R.string.generate_images_for_existing_recipes))
             }
         }
     }

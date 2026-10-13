@@ -98,11 +98,11 @@ class RecipeResponseParser(private val json: Json) {
 
             Outcome.Success(
                 ParsedRecipeWithUsage(
-                    recipe = recipeResult.toParsedRecipe(),
+                    recipe = recipeResult.toParsedRecipe()
+                        .copy(imagePrompt = parseResponse.imagePrompt.trim().takeIf { it.isNotEmpty() }),
                     inputTokens = inputTokens,
                     outputTokens = outputTokens,
-                    aiOutputJson = jsonContent,
-                    imagePrompt = parseResponse.imagePrompt.trim().takeIf { it.isNotEmpty() }
+                    aiOutputJson = jsonContent
                 )
             )
         } catch (e: Exception) {

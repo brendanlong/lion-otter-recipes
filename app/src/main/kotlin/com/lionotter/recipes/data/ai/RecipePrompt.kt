@@ -163,11 +163,8 @@ ADDITIONAL GUIDELINES:
 - Keep the story brief — just the essence of any background provided.
 
 IMAGE PROMPT:
-- "imagePrompt" is "" unless the user message asks for an image prompt.
-- When asked, write a prompt in English (at most 80 words) for an image generation model to create an appetizing, realistic photograph of the finished dish as it is served.
-- Describe the dish's appearance from its ingredients and steps (colors, textures, garnishes), the serving vessel and a simple setting, the camera angle and natural lighting.
-- Don't ask for text, labels, hands or people in the image.
-- On an error response, "imagePrompt" is "".
+- Always write "imagePrompt" for a successfully parsed recipe; on an error response it is "".
+${ImagePrompts.GUIDELINES}
 """.trimIndent()
 
     /**
@@ -192,8 +189,7 @@ IMAGE PROMPT:
         densityOverrides: Map<String, Double>? = null,
         aiInstructions: String? = null,
         existingTags: List<String> = emptyList(),
-        attachments: List<ParseAttachment> = emptyList(),
-        requestImagePrompt: Boolean = false
+        attachments: List<ParseAttachment> = emptyList()
     ): String = buildString {
         if (existingTags.isNotEmpty()) {
             append("Tags the user already uses for their recipes, one per line, most used first:\n")
@@ -216,9 +212,6 @@ IMAGE PROMPT:
         if (!aiInstructions.isNullOrBlank()) {
             append("\n\nThe user also provided these instructions: ")
             append(aiInstructions)
-        }
-        if (requestImagePrompt) {
-            append("\n\nAlso write an image prompt for a photo of the finished dish in \"imagePrompt\".")
         }
     }
 

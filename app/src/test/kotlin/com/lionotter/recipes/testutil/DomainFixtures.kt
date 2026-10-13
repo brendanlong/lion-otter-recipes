@@ -56,7 +56,8 @@ object DomainFixtures {
         createdAt = Instant.fromEpochSeconds(1_700_000_000, 123_000_000),
         updatedAt = Instant.fromEpochSeconds(1_700_000_500, 456_000_000),
         isFavorite = true,
-        userNotes = "Use less sugar next time"
+        userNotes = "Use less sugar next time",
+        imagePrompt = "A golden pie on a wooden table"
     )
 
     val fullMealPlanEntry = MealPlanEntry(
