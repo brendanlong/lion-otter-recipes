@@ -15,6 +15,7 @@ import com.lionotter.recipes.imports.ImportState
 import com.lionotter.recipes.messages.UserMessage
 import com.lionotter.recipes.messages.toUserMessage
 import com.lionotter.recipes.ui.navigation.Route
+import com.lionotter.recipes.ui.screens.importbrowser.BrowsedPage
 import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -115,7 +116,8 @@ class AddRecipeViewModel @Inject constructor(
         savedStateHandle[KEY_URL_INPUT] = url
     }
 
-    fun importRecipe() {
+    /** Validates the URL and opens it in the in-app browser ([AddRecipeEvent.OpenBrowser]). */
+    fun onImportClick() {
         savedStateHandle[KEY_IMPORT_ID] = null
         val input = url.value.trim()
         if (input.isBlank()) {
@@ -130,15 +132,25 @@ class AddRecipeViewModel @Inject constructor(
             return
         }
 
+        localState.value = AddRecipeUiState.Idle
+        _events.trySend(AddRecipeEvent.OpenBrowser(currentUrl))
+    }
+
+    /**
+     * Import the page chosen in the in-app browser (or, without a captured page, download it).
+     * The captured file is handed to the import.
+     */
+    fun importPage(page: BrowsedPage) {
+        savedStateHandle[KEY_IMPORT_ID] = null
         localState.value = AddRecipeUiState.Loading(ImportStage.QUEUED)
         cancelRequested = false
         startJob = viewModelScope.launch {
             val started = try {
-                importQueue.startUrlImport(currentUrl)
+                importQueue.startUrlImport(page.url, page.htmlPath)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                ErrorLog.e(TAG, "Failed to start import of $currentUrl", e)
+                ErrorLog.e(TAG, "Failed to start import of ${page.url}", e)
                 localState.value = AddRecipeUiState.Error(UserMessage(R.string.error_start_import))
                 return@launch
             }
@@ -173,6 +185,9 @@ sealed class AddRecipeUiState {
 }
 
 sealed interface AddRecipeEvent {
+    /** Show [url] in the in-app browser so the user can confirm it. */
+    data class OpenBrowser(val url: String) : AddRecipeEvent
+
     /** [recipeId] is null if the import succeeded without reporting the new recipe. */
     data class RecipeAdded(val recipeId: String?) : AddRecipeEvent
 }

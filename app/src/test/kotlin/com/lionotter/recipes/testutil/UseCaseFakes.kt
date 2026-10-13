@@ -127,6 +127,7 @@ class FakePageContentExtractor(
 ) : PageContentExtractor {
     override fun extract(html: String, sourceUrl: String?) = PageContent("extracted($html)", imageUrl)
     override fun extractTitle(html: String): String? = title
+    override fun extractImageUrl(html: String): String? = imageUrl
 }
 
 class FakeAiSettings(

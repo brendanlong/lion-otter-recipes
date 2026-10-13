@@ -24,8 +24,9 @@ import javax.inject.Singleton
  * are copied here at enqueue time and workers receive only an import ID or file path.
  *
  * Layout: `files/imports/<importId>/` holds `source` (the copied file), `selection.txt`,
- * `kind`, and any worker state (e.g. Paprika batch state). `files/work-inputs/` holds
- * one-off text inputs.
+ * `kind`, `page.html` (a URL import's page captured in the in-app browser) and any worker
+ * state (e.g. Paprika batch state). `files/work-inputs/` holds one-off text inputs (edited
+ * markdown, a page captured for a re-import).
  */
 @Singleton
 class ImportInputStore @Inject constructor(
@@ -37,6 +38,7 @@ class ImportInputStore @Inject constructor(
         private const val SOURCE_FILE = "source"
         private const val SELECTION_FILE = "selection.txt"
         private const val KIND_FILE = "kind"
+        private const val PAGE_FILE = "page.html"
         private const val ORPHAN_AGE_MILLIS = 60 * 60 * 1000L
         private const val STALE_WORK_INPUT_EXTRA_MILLIS = 6 * 24 * 60 * 60 * 1000L
     }
@@ -112,6 +114,26 @@ class ImportInputStore @Inject constructor(
         val value = File(importDir(importId), KIND_FILE).takeIf { it.exists() }?.readText()?.trim() ?: return null
         return ImportKind.entries.firstOrNull { it.value == value }
             ?: null.also { Log.w(TAG, "Unknown import kind '$value' for $importId") }
+    }
+
+    /**
+     * Move a page written with [writeWorkText] (captured in the in-app browser) into the
+     * import, where [readPageHtml] finds it.
+     */
+    fun adoptPageHtml(importId: String, workTextPath: String) {
+        val source = File(workTextPath)
+        if (!isWorkInput(source) || !source.exists()) throw IOException("The captured page is gone")
+        val target = File(importDir(importId), PAGE_FILE)
+        if (!source.renameTo(target)) {
+            source.copyTo(target, overwrite = true)
+            deleteWorkText(workTextPath)
+        }
+    }
+
+    /** The import's captured page, or null for a plain URL import. Doesn't create the import's directory. */
+    fun readPageHtml(importId: String): String? {
+        if (!hasImport(importId)) return null
+        return File(importDir(importId), PAGE_FILE).takeIf { it.exists() }?.readText()
     }
 
     fun hasImport(importId: String): Boolean = File(importsRoot, importId).exists()

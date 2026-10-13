@@ -18,7 +18,10 @@ import com.lionotter.recipes.imports.pendingImport
 import com.lionotter.recipes.imports.testAppScope
 import com.lionotter.recipes.imports.workInfo
 import com.lionotter.recipes.messages.UserMessage
+import com.lionotter.recipes.ui.screens.importbrowser.BrowsedPage
 import com.lionotter.recipes.testutil.FakeAiSettings
+import com.lionotter.recipes.worker.ImportInputStore
+import com.lionotter.recipes.worker.ImportKind
 import com.lionotter.recipes.worker.RecipeImportWork
 import com.lionotter.recipes.worker.RecipeImportWorker
 import com.lionotter.recipes.worker.RecipeWorkScheduler
@@ -27,6 +30,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
+import io.mockk.verify
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -50,6 +54,7 @@ class AddRecipeViewModelTest {
     private val dao = FakePendingImportDao()
     private val work = FakeImportWork()
     private val aiSettings = FakeAiSettings()
+    private val inputStore: ImportInputStore = mockk(relaxed = true)
     private val scheduler: RecipeWorkScheduler = mockk {
         every { buildUrlImportRequest(any(), any()) } answers { OneTimeWorkRequestBuilder<RecipeImportWorker>().build() }
         coEvery { enqueueImport(any(), any()) } answers {
@@ -82,7 +87,7 @@ class AddRecipeViewModelTest {
             pendingImportRepository = repository,
             appScope = scope,
             scheduler = scheduler,
-            inputStore = mockk(relaxed = true),
+            inputStore = inputStore,
             paprikaImportSteps = mockk(),
             monitor = monitor
         )
@@ -96,7 +101,7 @@ class AddRecipeViewModelTest {
         val viewModel = createViewModel(testAppScope())
         viewModel.onUrlChange("not a url")
 
-        viewModel.importRecipe()
+        viewModel.onImportClick()
         advanceUntilIdle()
 
         assertEquals(AddRecipeUiState.Error(UserMessage(R.string.error_url_scheme)), viewModel.uiState.value)
@@ -106,8 +111,7 @@ class AddRecipeViewModelTest {
     @Test
     fun `progress and the new recipe are shown`() = runTest {
         val viewModel = createViewModel(testAppScope())
-        viewModel.onUrlChange("https://example.com/r")
-        viewModel.importRecipe()
+        viewModel.importPage(BrowsedPage("https://example.com/r", htmlPath = null))
         advanceUntilIdle()
         assertEquals(AddRecipeUiState.Loading(ImportStage.QUEUED), viewModel.uiState.value)
 
@@ -132,8 +136,7 @@ class AddRecipeViewModelTest {
     @Test
     fun `success without a recipe ID does not stay loading`() = runTest {
         val viewModel = createViewModel(testAppScope())
-        viewModel.onUrlChange("https://example.com/r")
-        viewModel.importRecipe()
+        viewModel.importPage(BrowsedPage("https://example.com/r", htmlPath = null))
         advanceUntilIdle()
 
         work.put(workInfo(startedWorkId(), WorkInfo.State.SUCCEEDED))
@@ -146,8 +149,7 @@ class AddRecipeViewModelTest {
     @Test
     fun `missing API key is reported`() = runTest {
         val viewModel = createViewModel(testAppScope())
-        viewModel.onUrlChange("https://example.com/r")
-        viewModel.importRecipe()
+        viewModel.importPage(BrowsedPage("https://example.com/r", htmlPath = null))
         advanceUntilIdle()
 
         work.put(
@@ -165,8 +167,7 @@ class AddRecipeViewModelTest {
     @Test
     fun `an import failure is shown as a localized message`() = runTest {
         val viewModel = createViewModel(testAppScope())
-        viewModel.onUrlChange("https://example.com/r")
-        viewModel.importRecipe()
+        viewModel.importPage(BrowsedPage("https://example.com/r", htmlPath = null))
         advanceUntilIdle()
 
         val error = RecipeError.PageFetch(PageFetchFailure.BLOCKED, 403)
@@ -212,8 +213,7 @@ class AddRecipeViewModelTest {
     @Test
     fun `cancel returns to idle and removes the import`() = runTest {
         val viewModel = createViewModel(testAppScope())
-        viewModel.onUrlChange("https://example.com/r")
-        viewModel.importRecipe()
+        viewModel.importPage(BrowsedPage("https://example.com/r", htmlPath = null))
         advanceUntilIdle()
 
         viewModel.cancelImport()
@@ -221,5 +221,32 @@ class AddRecipeViewModelTest {
 
         assertEquals(AddRecipeUiState.Idle, viewModel.uiState.value)
         assertEquals(emptyList<Any>(), dao.rows.value)
+    }
+
+    @Test
+    fun `a valid URL opens the browser instead of importing`() = runTest {
+        val viewModel = createViewModel(testAppScope())
+        viewModel.onUrlChange("Pasta https://example.com/r")
+
+        viewModel.onImportClick()
+        advanceUntilIdle()
+
+        assertEquals(AddRecipeEvent.OpenBrowser("https://example.com/r"), viewModel.events.first())
+        assertEquals(AddRecipeUiState.Idle, viewModel.uiState.value)
+        assertEquals(emptyList<Any>(), dao.rows.value)
+    }
+
+    @Test
+    fun `a page captured in the browser is handed to the import`() = runTest {
+        val viewModel = createViewModel(testAppScope())
+
+        viewModel.importPage(BrowsedPage("https://example.com/final", htmlPath = "/work-inputs/page.txt"))
+        advanceUntilIdle()
+
+        val row = dao.rows.value.single()
+        assertEquals("https://example.com/final", row.url)
+        verify { inputStore.adoptPageHtml(row.id, "/work-inputs/page.txt") }
+        verify { inputStore.writeKind(row.id, ImportKind.URL) }
+        assertEquals(AddRecipeUiState.Loading(ImportStage.QUEUED), viewModel.uiState.value)
     }
 }

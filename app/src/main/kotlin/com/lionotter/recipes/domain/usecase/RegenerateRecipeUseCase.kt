@@ -3,7 +3,9 @@ package com.lionotter.recipes.domain.usecase
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.port.FetchedPage
 import com.lionotter.recipes.domain.port.ImageStore
+import com.lionotter.recipes.domain.port.PageContentExtractor
 import com.lionotter.recipes.domain.port.PageFetcher
 import com.lionotter.recipes.domain.repository.RecipeRepository
 import kotlinx.coroutines.NonCancellable
@@ -15,6 +17,7 @@ class RegenerateRecipeUseCase @Inject constructor(
     private val parseHtmlUseCase: ParseHtmlUseCase,
     private val recipeRepository: RecipeRepository,
     private val pageFetcher: PageFetcher,
+    private val pageContentExtractor: PageContentExtractor,
     private val imageStore: ImageStore
 ) {
     sealed class RegenerateProgress {
@@ -25,18 +28,20 @@ class RegenerateRecipeUseCase @Inject constructor(
     }
 
     /**
-     * Regenerate a recipe by re-fetching its source URL and re-parsing with AI.
+     * Regenerate a recipe by re-fetching its source URL (or using [pageHtml]) and re-parsing with AI.
      * Requires the recipe to have a source URL.
      * Only the AI-generated content changes (see [Recipe.withRegeneratedContent]); the image is
      * kept (a new one is only downloaded if the recipe doesn't have one).
      *
      * @param recipeId The ID of the recipe to regenerate
+     * @param pageHtml The source page as the in-app browser rendered it; null to download it
      * @param model The AI model to use (null = use current setting)
      * @param thinkingEnabled Whether to use extended thinking (null = use current setting)
      * @param onProgress Callback for progress updates
      */
     suspend fun execute(
         recipeId: String,
+        pageHtml: String? = null,
         model: String? = null,
         thinkingEnabled: Boolean? = null,
         onProgress: suspend (RegenerateProgress) -> Unit = {}
@@ -49,11 +54,14 @@ class RegenerateRecipeUseCase @Inject constructor(
             return Outcome.Failure(RecipeError.NoSourceUrl)
         }
 
-        // Fetch fresh HTML from the source URL
-        onProgress(RegenerateProgress.FetchingFromUrl)
-        val page = when (val pageResult = pageFetcher.fetchPage(sourceUrl)) {
-            is Outcome.Success -> pageResult.value
-            is Outcome.Failure -> return pageResult
+        val page = if (pageHtml != null) {
+            FetchedPage(html = pageHtml, imageUrl = pageContentExtractor.extractImageUrl(pageHtml))
+        } else {
+            onProgress(RegenerateProgress.FetchingFromUrl)
+            when (val pageResult = pageFetcher.fetchPage(sourceUrl)) {
+                is Outcome.Success -> pageResult.value
+                is Outcome.Failure -> return pageResult
+            }
         }
 
         // Re-parse with AI (don't save yet, we need to adjust the recipe)

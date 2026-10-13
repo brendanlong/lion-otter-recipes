@@ -124,15 +124,37 @@ class RecipeWorkScheduler @Inject constructor(
         }
     }
 
-    fun prepareRegenerate(recipeId: String, model: String?, thinkingEnabled: Boolean?): PendingWork {
+    /**
+     * @param pageHtmlPath the source page captured in the in-app browser
+     *   ([ImportInputStore.writeWorkText]); the work takes it over (it is deleted if enqueuing fails)
+     */
+    fun prepareRegenerate(
+        recipeId: String,
+        model: String?,
+        thinkingEnabled: Boolean?,
+        pageHtmlPath: String? = null
+    ): PendingWork {
         val request = OneTimeWorkRequestBuilder<RecipeRegenerateWorker>()
-            .setInputData(RecipeRegenerateWorker.createInputData(recipeId, model, thinkingEnabled))
+            .setInputData(RecipeRegenerateWorker.createInputData(recipeId, model, thinkingEnabled, pageHtmlPath))
             .addTag(RecipeRegenerateWorker.TAG_RECIPE_REGENERATE)
             .setConstraints(NETWORK_CONSTRAINTS)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, BACKOFF_SECONDS, TimeUnit.SECONDS)
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build()
-        return PendingWork(request.id) { workManager.enqueue(request).await() }
+        return PendingWork(request.id) {
+            var enqueued = false
+            try {
+                workManager.enqueue(request).await()
+                enqueued = true
+            } finally {
+                if (!enqueued && pageHtmlPath != null) inputStore.deleteWorkText(pageHtmlPath)
+            }
+        }
+    }
+
+    /** Delete a work input (e.g. a captured page) that no work will use. */
+    fun discardWorkInput(path: String) {
+        inputStore.deleteWorkText(path)
     }
 
     fun prepareExport(fileUri: Uri): PendingWork {

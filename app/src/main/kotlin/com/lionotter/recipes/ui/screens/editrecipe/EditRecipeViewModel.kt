@@ -19,6 +19,8 @@ import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
 import com.lionotter.recipes.messages.UserMessage
 import com.lionotter.recipes.messages.toUserMessage
 import com.lionotter.recipes.ui.navigation.Route
+import com.lionotter.recipes.ui.screens.importbrowser.BrowsedPage
+import com.lionotter.recipes.ui.screens.importbrowser.isWebUrl
 import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.util.IoDispatcher
 import com.lionotter.recipes.worker.RecipeEditWork
@@ -66,6 +68,9 @@ sealed interface RecipeLoadState {
 sealed interface EditRecipeEvent {
     /** The changes were saved; [newRecipeId] is the copy for "save as copy", otherwise null. */
     data class Saved(val newRecipeId: String?) : EditRecipeEvent
+
+    /** Show the recipe's source page in the in-app browser before regenerating from it. */
+    data class OpenBrowser(val url: String) : EditRecipeEvent
 }
 
 @HiltViewModel
@@ -450,17 +455,38 @@ class EditRecipeViewModel @Inject constructor(
     }
 
     /**
-     * Regenerate the recipe from the original source HTML/URL.
+     * The user confirmed regenerating: show the source page in the in-app browser first
+     * ([EditRecipeEvent.OpenBrowser]), or regenerate directly if it isn't a web page.
      */
-    fun regenerateFromOriginal() {
+    fun requestRegenerate() {
         if (isSaveInProgress()) return
+        val sourceUrl = recipe.value?.sourceUrl
+        if (sourceUrl != null && sourceUrl.isWebUrl()) {
+            _events.trySend(EditRecipeEvent.OpenBrowser(sourceUrl))
+        } else {
+            regenerateFromOriginal(page = null)
+        }
+    }
+
+    /**
+     * Regenerate the recipe from its source: the [page] captured in the in-app browser, or
+     * (without a captured page) the source URL downloaded by the worker.
+     */
+    fun regenerateFromOriginal(page: BrowsedPage?) {
+        val pageHtmlPath = page?.htmlPath
+        if (isSaveInProgress()) {
+            pageHtmlPath?.let(recipeWorkScheduler::discardWorkInput)
+            return
+        }
         showLocalState(EditUiState.Loading(R.string.edit_progress_preparing))
         val model = model.value
         val thinkingEnabled = thinkingEnabled.value
         viewModelScope.launch {
             try {
                 withContext(NonCancellable) {
-                    regenerateWork.start(recipeWorkScheduler.prepareRegenerate(recipeId, model, thinkingEnabled))
+                    regenerateWork.start(
+                        recipeWorkScheduler.prepareRegenerate(recipeId, model, thinkingEnabled, pageHtmlPath)
+                    )
                 }
             } catch (e: CancellationException) {
                 throw e

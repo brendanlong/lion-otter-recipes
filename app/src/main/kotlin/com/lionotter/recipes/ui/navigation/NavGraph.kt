@@ -25,6 +25,7 @@ import com.lionotter.recipes.ui.screens.addrecipe.AddRecipeScreen
 import com.lionotter.recipes.ui.screens.editrecipe.EditRecipeScreen
 import com.lionotter.recipes.ui.screens.grocerylist.GroceryListScreen
 import com.lionotter.recipes.ui.screens.importdebug.ImportDebugDetailScreen
+import com.lionotter.recipes.ui.screens.importbrowser.ImportBrowserScreen
 import com.lionotter.recipes.ui.screens.importdebug.ImportDebugListScreen
 import com.lionotter.recipes.ui.screens.importselection.ImportSelectionRoute
 import com.lionotter.recipes.ui.screens.importselection.ImportType
@@ -85,7 +86,9 @@ fun NavGraph(
             when (event) {
                 is AppIntentEvent.ImportUrl -> {
                     requestNotificationPermission()
+                    // The page opens for confirmation; backing out of it leaves the URL on Add Recipe
                     navController.navigate(Route.AddRecipe(event.url))
+                    navController.navigate(Route.ImportBrowser(event.url))
                 }
                 is AppIntentEvent.ImportFile -> {
                     requestNotificationPermission()
@@ -160,8 +163,14 @@ fun NavGraph(
         }
 
         composable<Route.EditRecipe> { backStackEntry ->
+            val browsedPage by backStackEntry.resultState(NavResult.BrowsedPage)
             EditRecipeScreen(
                 onBackClick = { backStackEntry.back() },
+                onOpenBrowser = { url ->
+                    navController.navigateFrom(backStackEntry, Route.ImportBrowser(url, reimport = true))
+                },
+                browsedPage = browsedPage,
+                onBrowsedPageConsumed = { backStackEntry.consumeResult(NavResult.BrowsedPage) },
                 onEditSuccess = {
                     navController.setPreviousResult(NavResult.EditSaved, true)
                     navigateBack()
@@ -176,8 +185,14 @@ fun NavGraph(
         }
 
         composable<Route.AddRecipe> { backStackEntry ->
+            val browsedPage by backStackEntry.resultState(NavResult.BrowsedPage)
             AddRecipeScreen(
                 onBackClick = { backStackEntry.back() },
+                onOpenBrowser = { url ->
+                    navController.navigateFrom(backStackEntry, Route.ImportBrowser(url))
+                },
+                browsedPage = browsedPage,
+                onBrowsedPageConsumed = { backStackEntry.consumeResult(NavResult.BrowsedPage) },
                 onRecipeAdded = { recipeId ->
                     // Clear back stack and set up proper navigation: RecipeList -> RecipeDetail
                     // This ensures back from RecipeDetail always goes to RecipeList
@@ -191,6 +206,22 @@ fun NavGraph(
                 },
                 onNavigateToImportSelection = { importType, uri ->
                     navController.navigate(Route.ImportSelection(importType, uri.toString()))
+                }
+            )
+        }
+
+        composable<Route.ImportBrowser> { entry ->
+            ImportBrowserScreen(
+                onBackClick = { entry.back() },
+                onPageChosen = { page ->
+                    // Sent at most once, so only checked for still being on top (not resumed):
+                    // dropping it would lose the page
+                    if (navController.currentBackStackEntry == entry) {
+                        navController.setPreviousResult(NavResult.BrowsedPage, page)
+                        navigateBack()
+                    } else {
+                        Log.w(TAG, "Browser closed before the chosen page arrived; dropping it")
+                    }
                 }
             )
         }

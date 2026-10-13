@@ -1,7 +1,9 @@
 package com.lionotter.recipes.worker
 
 import android.content.Context
+import android.os.Build
 import androidx.hilt.work.HiltWorker
+import androidx.work.WorkInfo
 import androidx.work.Data
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
@@ -18,6 +20,7 @@ class RecipeRegenerateWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted workerParams: WorkerParameters,
     private val regenerateRecipeUseCase: RegenerateRecipeUseCase,
+    private val inputStore: ImportInputStore,
     notificationHelper: RecipeNotificationHelper
 ) : BaseRecipeWorker(context, workerParams, notificationHelper) {
 
@@ -31,16 +34,24 @@ class RecipeRegenerateWorker @AssistedInject constructor(
         private const val KEY_RECIPE_ID = WorkResult.KEY_RECIPE_ID
         private const val KEY_MODEL = "model"
         private const val KEY_EXTENDED_THINKING = "extended_thinking"
+        private const val KEY_PAGE_HTML_PATH = "page_html_path"
 
+        /**
+         * @param pageHtmlPath the source page captured in the in-app browser, written with
+         *   [ImportInputStore.writeWorkText]; the worker deletes it once no run needs it. Without
+         *   one the worker downloads the recipe's source URL.
+         */
         fun createInputData(
             recipeId: String,
             model: String?,
-            thinkingEnabled: Boolean?
+            thinkingEnabled: Boolean?,
+            pageHtmlPath: String? = null
         ): Data {
             return workDataOf(
                 KEY_RECIPE_ID to recipeId,
                 KEY_MODEL to model,
-                KEY_EXTENDED_THINKING to thinkingEnabled
+                KEY_EXTENDED_THINKING to thinkingEnabled,
+                KEY_PAGE_HTML_PATH to pageHtmlPath
             )
         }
     }
@@ -57,8 +68,40 @@ class RecipeRegenerateWorker @AssistedInject constructor(
 
         setForegroundProgress("Starting regeneration...")
 
+        val pageHtmlPath = inputData.getString(KEY_PAGE_HTML_PATH)
+        var result: Result? = null
+        try {
+            result = regenerate(recipeId, model, thinkingEnabled, pageHtmlPath)
+            return result
+        } finally {
+            val keepPage = when {
+                result != null -> result == Result.retry()
+                // Stopped by the system, the work runs again; cancelled by the user, it doesn't.
+                // Below API 31 the reason is unknown and the page is kept (stale work inputs are
+                // cleaned up later).
+                isStopped -> Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                    stopReason != WorkInfo.STOP_REASON_CANCELLED_BY_APP
+                // An unexpected exception fails the work for good
+                else -> false
+            }
+            if (pageHtmlPath != null && !keepPage) inputStore.deleteWorkText(pageHtmlPath)
+        }
+    }
+
+    private suspend fun regenerate(
+        recipeId: String,
+        model: String?,
+        thinkingEnabled: Boolean?,
+        pageHtmlPath: String?
+    ): Result {
+        val pageHtml = pageHtmlPath?.let { path ->
+            inputStore.readWorkText(path)
+                ?: return errorResult(RecipeError.Interrupted, "the captured page was lost")
+        }
+
         val result = regenerateRecipeUseCase.execute(
             recipeId = recipeId,
+            pageHtml = pageHtml,
             model = model,
             thinkingEnabled = thinkingEnabled,
             onProgress = { progress ->

@@ -42,10 +42,13 @@ class RegenerateRecipeUseCaseTest {
     private val imageStore = FakeImageStore()
     private val settings = FakeAiSettings()
 
+    private val fetcher = FakePageFetcher(mapOf(sourceUrl to Outcome.Success(page)))
+
     private fun useCase(pageResult: Outcome<FetchedPage> = Outcome.Success(page)) = RegenerateRecipeUseCase(
         ParseHtmlUseCase(parser, FakePageContentExtractor(), repository, FakeImportDebugLog(), settings, imageStore),
         repository,
-        FakePageFetcher(mapOf(sourceUrl to pageResult)),
+        if (pageResult == Outcome.Success(page)) fetcher else FakePageFetcher(mapOf(sourceUrl to pageResult)),
+        FakePageContentExtractor(imageUrl = "https://example.com/captured.jpg"),
         imageStore
     )
 
@@ -114,5 +117,20 @@ class RegenerateRecipeUseCaseTest {
         assertEquals(Outcome.Failure(RecipeError.NotARecipe("Access denied page")), useCase().execute("recipe-1"))
         assertEquals(existing, repository.recipes.value["recipe-1"])
         assertTrue(repository.saved.isEmpty())
+    }
+
+    @Test
+    fun `a page captured in the browser is used instead of downloading it`() = runTest {
+        repository.setImageUrl("recipe-1", null)
+        val progress = mutableListOf<RegenerateRecipeUseCase.RegenerateProgress>()
+
+        val regenerated = useCase().execute("recipe-1", pageHtml = "<html>captured</html>") { progress += it }.value()
+
+        assertTrue(fetcher.fetched.isEmpty())
+        assertEquals("extracted(<html>captured</html>)", parser.requests.single().content)
+        // The image comes from the captured page, as it would from a downloaded one
+        assertEquals(listOf("https://example.com/captured.jpg"), imageStore.downloaded)
+        assertEquals(sourceUrl, regenerated.sourceUrl)
+        assertTrue(RegenerateRecipeUseCase.RegenerateProgress.FetchingFromUrl !in progress)
     }
 }

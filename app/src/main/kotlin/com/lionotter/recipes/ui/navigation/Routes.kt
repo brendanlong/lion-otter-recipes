@@ -23,6 +23,14 @@ sealed interface Route {
     @Serializable
     data class AddRecipe(val url: String? = null) : Route
 
+    /**
+     * The in-app browser showing [url] so the user can confirm the page before it is imported
+     * ([reimport]: re-imported into the recipe being edited). The chosen page goes back to the
+     * previous screen as [NavResult.BrowsedPage].
+     */
+    @Serializable
+    data class ImportBrowser(val url: String, val reimport: Boolean = false) : Route
+
     @Serializable
     data object Settings : Route
 

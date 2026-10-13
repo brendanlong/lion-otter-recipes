@@ -5,6 +5,7 @@ import com.lionotter.recipes.data.ai.RecipeHtmlExtractor
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.PageFetchFailure
 import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.ResourceLimits
 import com.lionotter.recipes.domain.port.FetchedPage
 import com.lionotter.recipes.domain.port.PageFetcher
 import io.ktor.client.HttpClient
@@ -45,7 +46,7 @@ class WebScraperService @Inject constructor(
             }
 
             val html = response.bodyAsText().let {
-                if (it.length > MAX_PAGE_CHARS) it.take(MAX_PAGE_CHARS) else it
+                if (it.length > ResourceLimits.MAX_PAGE_HTML_CHARS) it.take(ResourceLimits.MAX_PAGE_HTML_CHARS) else it
             }
 
             Outcome.Success(
@@ -98,6 +99,5 @@ class WebScraperService @Inject constructor(
             "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) " +
                 "Chrome/141.0.0.0 Mobile Safari/537.36"
         private const val MAX_PAGE_BYTES = 10L * 1024 * 1024
-        private const val MAX_PAGE_CHARS = 5 * 1024 * 1024
     }
 }

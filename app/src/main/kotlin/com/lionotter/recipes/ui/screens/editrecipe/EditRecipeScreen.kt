@@ -47,6 +47,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,6 +72,7 @@ import com.lionotter.recipes.data.image.imageModel
 import com.lionotter.recipes.ui.components.CollectEvents
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.components.text
+import com.lionotter.recipes.ui.screens.importbrowser.BrowsedPage
 import com.lionotter.recipes.ui.screens.settings.components.SingleModelSelectionSection
 
 @Composable
@@ -78,7 +80,10 @@ fun EditRecipeScreen(
     onBackClick: () -> Unit,
     onEditSuccess: () -> Unit,
     onCopySuccess: (newRecipeId: String) -> Unit,
+    onOpenBrowser: (url: String) -> Unit,
     modifier: Modifier = Modifier,
+    browsedPage: BrowsedPage? = null,
+    onBrowsedPageConsumed: () -> Unit = {},
     viewModel: EditRecipeViewModel = hiltViewModel()
 ) {
     val loadState by viewModel.loadState.collectAsStateWithLifecycle()
@@ -145,6 +150,15 @@ fun EditRecipeScreen(
             } else {
                 onEditSuccess()
             }
+            is EditRecipeEvent.OpenBrowser -> onOpenBrowser(event.url)
+        }
+    }
+
+    // The source page confirmed in the in-app browser
+    LaunchedEffect(browsedPage) {
+        if (browsedPage != null) {
+            onBrowsedPageConsumed()
+            viewModel.regenerateFromOriginal(browsedPage)
         }
     }
 
@@ -163,7 +177,7 @@ fun EditRecipeScreen(
                 TextButton(
                     onClick = {
                         showRegenerateConfirmDialog = false
-                        viewModel.regenerateFromOriginal()
+                        viewModel.requestRegenerate()
                     }
                 ) {
                     Text(stringResource(R.string.regenerate))
