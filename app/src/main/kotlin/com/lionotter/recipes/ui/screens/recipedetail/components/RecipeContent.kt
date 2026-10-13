@@ -117,15 +117,6 @@ fun RecipeContent(
         }
 
         Column(modifier = Modifier.padding(16.dp)) {
-            // The app bar truncates long names to one line, so show the full name here.
-            Text(
-                text = recipe.name,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.semantics { heading() }
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-
             // Tags
             if (recipe.tags.isNotEmpty()) {
                 DisableSelection {
