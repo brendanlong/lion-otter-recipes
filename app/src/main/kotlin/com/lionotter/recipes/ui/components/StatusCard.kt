@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.lionotter.recipes.ui.theme.einkBorder
 
 @Composable
 fun StatusCard(
@@ -24,6 +25,7 @@ fun StatusCard(
     contentColor: Color = MaterialTheme.colorScheme.onSurface
 ) {
     Card(
+        border = einkBorder(),
         colors = CardDefaults.cardColors(
             containerColor = containerColor
         ),

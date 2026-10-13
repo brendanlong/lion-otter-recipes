@@ -144,6 +144,9 @@ class SettingsViewModel @Inject constructor(
     fun setKeepScreenOn(enabled: Boolean) =
         launchSettingWrite("set keep screen on") { settings.setKeepScreenOn(enabled) }
 
+    fun setVolumeKeysScroll(enabled: Boolean) =
+        launchSettingWrite("set volume keys scroll") { settings.setVolumeKeysScroll(enabled) }
+
     fun setThemeMode(mode: ThemeMode) =
         launchSettingWrite("set theme") { settings.setThemeMode(mode) }
 

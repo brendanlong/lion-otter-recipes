@@ -47,6 +47,7 @@ class SettingsDataStore @Inject constructor(
         val EDIT_MODEL = stringPreferencesKey("edit_model")
         val EXTENDED_THINKING_ENABLED = booleanPreferencesKey("extended_thinking_enabled")
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
+        val VOLUME_KEYS_SCROLL = booleanPreferencesKey("volume_keys_scroll")
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val IMPORT_DEBUGGING_ENABLED = booleanPreferencesKey("import_debugging_enabled")
         val VOLUME_UNIT_SYSTEM = stringPreferencesKey("volume_unit_system")
@@ -127,7 +128,8 @@ class SettingsDataStore @Inject constructor(
     private fun Preferences.editModel() = this[Keys.EDIT_MODEL] ?: AiModels.DEFAULT_EDIT_MODEL
     private fun Preferences.thinkingEnabled() = this[Keys.EXTENDED_THINKING_ENABLED] ?: AiModels.DEFAULT_THINKING_ENABLED
     private fun Preferences.keepScreenOn() = this[Keys.KEEP_SCREEN_ON] ?: true
-    private fun Preferences.themeMode() = this[Keys.THEME_MODE]?.let { enumOrNull<ThemeMode>(it) } ?: ThemeMode.AUTO
+    private fun Preferences.volumeKeysScroll() = this[Keys.VOLUME_KEYS_SCROLL] ?: false
+    private fun Preferences.themeMode() = themeModeOf(this[Keys.THEME_MODE], EinkDevices.isThisDevice)
     private fun Preferences.unitSystem(key: Preferences.Key<String>) = this[key]?.let { enumOrNull<UnitSystem>(it) }
     private fun Preferences.volumeUnitSystem() = unitSystem(Keys.VOLUME_UNIT_SYSTEM) ?: UnitSystem.localeDefault()
     private fun Preferences.weightUnitSystem() = unitSystem(Keys.WEIGHT_UNIT_SYSTEM) ?: UnitSystem.localeDefault()
@@ -148,6 +150,7 @@ class SettingsDataStore @Inject constructor(
     override val editModel: Flow<String> = setting { editModel() }
     override val thinkingEnabled: Flow<Boolean> = setting { thinkingEnabled() }
     override val keepScreenOn: Flow<Boolean> = setting { keepScreenOn() }
+    override val volumeKeysScroll: Flow<Boolean> = setting { volumeKeysScroll() }
     override val themeMode: Flow<ThemeMode> = setting { themeMode() }
     override val volumeUnitSystem: Flow<UnitSystem> = setting { volumeUnitSystem() }
     override val weightUnitSystem: Flow<UnitSystem> = setting { weightUnitSystem() }
@@ -163,6 +166,7 @@ class SettingsDataStore @Inject constructor(
             editModel = prefs.editModel(),
             thinkingEnabled = prefs.thinkingEnabled(),
             keepScreenOn = prefs.keepScreenOn(),
+            volumeKeysScroll = prefs.volumeKeysScroll(),
             themeMode = prefs.themeMode(),
             volumeUnitSystem = prefs.volumeUnitSystem(),
             weightUnitSystem = prefs.weightUnitSystem(),
@@ -212,6 +216,12 @@ class SettingsDataStore @Inject constructor(
         }
     }
 
+    override suspend fun setVolumeKeysScroll(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[Keys.VOLUME_KEYS_SCROLL] = enabled
+        }
+    }
+
     override suspend fun setThemeMode(mode: ThemeMode) {
         context.dataStore.edit { preferences ->
             preferences[Keys.THEME_MODE] = mode.name
@@ -258,5 +268,9 @@ class SettingsDataStore @Inject constructor(
         private const val TAG = "SettingsDataStore"
         private const val API_KEY_PREFS_FILE = "tink_encrypted_api_key"
         private const val API_KEY_PREF_KEY = "encrypted_api_key"
+
+        /** The stored theme, or the device's default until the user has picked one. */
+        internal fun themeModeOf(stored: String?, einkDevice: Boolean): ThemeMode =
+            stored?.let { enumOrNull<ThemeMode>(it) } ?: ThemeMode.defaultFor(einkDevice)
     }
 }

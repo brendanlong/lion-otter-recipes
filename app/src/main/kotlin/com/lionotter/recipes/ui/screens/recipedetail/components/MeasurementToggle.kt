@@ -18,6 +18,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.MeasurementPreference
+import com.lionotter.recipes.ui.theme.einkBorder
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -32,6 +33,7 @@ internal fun MeasurementToggle(
     )
 
     Card(
+        border = einkBorder(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant
         )

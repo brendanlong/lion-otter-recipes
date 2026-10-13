@@ -20,7 +20,7 @@ sealed interface AppIntentEvent {
 }
 
 /**
- * Delivers intent events from [MainActivity] to the navigation graph exactly once.
+ * Delivers intent events from [RecipesActivity] to the navigation graph exactly once.
  *
  * Backed by a buffered [Channel] so events sent before the UI starts collecting
  * (e.g. during onCreate, or while auth is still resolving) are not dropped, and

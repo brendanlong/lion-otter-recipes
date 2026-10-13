@@ -10,7 +10,7 @@ A modern Android app for importing, organizing, and cooking with recipes from an
 - **Ingredient Scaling**: Adjust serving sizes with automatic quantity recalculation
 - **Cloud Sync**: Recipes and meal plans live in Firebase Firestore and sync across devices after signing in with Google (until then you use a local-only guest account)
 - **Offline First**: Firestore's offline cache keeps recipes available without internet after import
-- **Clean UI**: Material 3 design with a warm Lion+Otter color theme
+- **Clean UI**: Material 3 design with a warm Lion+Otter color theme, plus an E-ink theme (and black-and-white launcher icon) for e-readers, scroll bars and optional volume-button scrolling
 
 ## Screenshots
 

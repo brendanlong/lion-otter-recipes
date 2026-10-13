@@ -36,6 +36,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import com.lionotter.recipes.R
+import com.lionotter.recipes.ui.theme.einkBorder
 
 @Composable
 fun ApiKeySection(
@@ -64,6 +65,7 @@ fun ApiKeySection(
 
         if (currentApiKey != null) {
             Card(
+                border = einkBorder(),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer
                 )

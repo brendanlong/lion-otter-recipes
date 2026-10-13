@@ -33,6 +33,8 @@ import com.lionotter.recipes.domain.model.MeasurementPreference
 import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.domain.model.createInstructionIngredientKey
 import com.lionotter.recipes.ui.screens.recipedetail.HighlightedInstructionStep
+import androidx.compose.foundation.border
+import com.lionotter.recipes.ui.theme.einkBorder
 
 @Composable
 internal fun InstructionSectionContent(
@@ -77,6 +79,13 @@ internal fun InstructionSectionContent(
                         } else {
                             Modifier
                         }
+                    )
+                    .then(
+                        // The e-ink theme has no tinted background to mark the step with.
+                        einkBorder(2.dp)
+                            ?.takeIf { isHighlighted }
+                            ?.let { Modifier.border(it, MaterialTheme.shapes.medium) }
+                            ?: Modifier
                     )
                     .clickable(onClickLabel = highlightLabel) {
                         onToggleHighlightedInstruction(sectionIndex, stepIndex)

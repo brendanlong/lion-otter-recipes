@@ -186,6 +186,7 @@ class FakeAppSettings(
     val thinkingFlow = MutableStateFlow(AiModels.DEFAULT_THINKING_ENABLED)
     val importDebuggingFlow = MutableStateFlow(false)
     val keepScreenOnFlow = MutableStateFlow(true)
+    val volumeKeysScrollFlow = MutableStateFlow(false)
     val themeModeFlow = MutableStateFlow(ThemeMode.AUTO)
     val volumeUnitSystemFlow = MutableStateFlow(unitSystem)
     val weightUnitSystemFlow = MutableStateFlow(unitSystem)
@@ -203,6 +204,7 @@ class FakeAppSettings(
     override val importDebuggingEnabled: Flow<Boolean> = importDebuggingFlow
     override val editModel: Flow<String> = editModelFlow
     override val keepScreenOn: Flow<Boolean> = keepScreenOnFlow
+    override val volumeKeysScroll: Flow<Boolean> = volumeKeysScrollFlow
     override val themeMode: Flow<ThemeMode> = themeModeFlow
     override val volumeUnitSystem: Flow<UnitSystem> = volumeUnitSystemFlow
     override val weightUnitSystem: Flow<UnitSystem> = weightUnitSystemFlow
@@ -220,7 +222,7 @@ class FakeAppSettings(
         listOf<Flow<Any?>>(
             apiKeyFlow, aiModelFlow, editModelFlow, thinkingFlow, keepScreenOnFlow, themeModeFlow,
             volumeUnitSystem, weightUnitSystem, groceryVolumeUnitSystem, groceryWeightUnitSystem,
-            startOfWeekFlow, importDebuggingFlow
+            startOfWeekFlow, importDebuggingFlow, volumeKeysScrollFlow
         )
     ) { values ->
         Settings(
@@ -235,7 +237,8 @@ class FakeAppSettings(
             groceryVolumeUnitSystem = values[8] as UnitSystem,
             groceryWeightUnitSystem = values[9] as UnitSystem,
             startOfWeek = values[10] as StartOfWeek,
-            importDebuggingEnabled = values[11] as Boolean
+            importDebuggingEnabled = values[11] as Boolean,
+            volumeKeysScroll = values[12] as Boolean
         )
     }
 
@@ -250,6 +253,7 @@ class FakeAppSettings(
     override suspend fun setEditModel(model: String) = write(editModelFlow, model)
     override suspend fun setThinkingEnabled(enabled: Boolean) = write(thinkingFlow, enabled)
     override suspend fun setKeepScreenOn(enabled: Boolean) = write(keepScreenOnFlow, enabled)
+    override suspend fun setVolumeKeysScroll(enabled: Boolean) = write(volumeKeysScrollFlow, enabled)
     override suspend fun setThemeMode(mode: ThemeMode) = write(themeModeFlow, mode)
     override suspend fun setVolumeUnitSystem(system: UnitSystem) = write(volumeUnitSystemFlow, system)
     override suspend fun setWeightUnitSystem(system: UnitSystem) = write(weightUnitSystemFlow, system)

@@ -56,7 +56,10 @@ import com.lionotter.recipes.domain.model.MeasurementPreference
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.ui.TestTags
+import com.lionotter.recipes.ui.components.rememberScrollAids
+import com.lionotter.recipes.ui.components.scrollAids
 import com.lionotter.recipes.ui.screens.recipedetail.HighlightedInstructionStep
+import com.lionotter.recipes.ui.theme.einkBorder
 
 private const val TAG = "RecipeContent"
 
@@ -86,11 +89,13 @@ fun RecipeContent(
     volumeUnitSystem: UnitSystem = UnitSystem.localeDefault(),
     weightUnitSystem: UnitSystem = UnitSystem.localeDefault()
 ) {
+    val scrollState = rememberScrollState()
     Column(
         modifier = modifier
             .fillMaxSize()
             .testTag(TestTags.RECIPE_DETAIL_CONTENT)
-            .verticalScroll(rememberScrollState())
+            .scrollAids(rememberScrollAids(scrollState))
+            .verticalScroll(scrollState)
     ) {
         // Hero image (only shown if image loads successfully)
         recipe.imageUrl?.let { imageUrl ->
@@ -146,6 +151,7 @@ fun RecipeContent(
             recipe.story?.let { story ->
                 Spacer(modifier = Modifier.height(16.dp))
                 Card(
+                    border = einkBorder(),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceVariant
                     )

@@ -13,6 +13,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.ui.theme.einkBorder
 
 /** Prep/cook/total time. Servings are shown (and adjusted) by [ScaleControl]. */
 @Composable
@@ -25,6 +26,7 @@ internal fun RecipeMetadata(recipe: Recipe) {
 
     if (items.isNotEmpty()) {
         Card(
+            border = einkBorder(),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.primaryContainer
             )

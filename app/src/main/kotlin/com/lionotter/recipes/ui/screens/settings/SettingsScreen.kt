@@ -43,6 +43,8 @@ import com.lionotter.recipes.R
 import com.lionotter.recipes.messages.resolve
 import com.lionotter.recipes.ui.components.CollectEvents
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
+import com.lionotter.recipes.ui.components.rememberScrollAids
+import com.lionotter.recipes.ui.components.scrollAids
 import com.lionotter.recipes.ui.components.text
 import com.lionotter.recipes.ui.screens.importselection.ImportType
 import com.lionotter.recipes.ui.screens.settings.components.AboutSection
@@ -165,12 +167,14 @@ fun SettingsScreen(
             }
             return@Scaffold
         }
+        val scrollState = rememberScrollState()
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .scrollAids(rememberScrollAids(scrollState))
                 .padding(16.dp)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(scrollState),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             // API Key Section
@@ -242,7 +246,9 @@ fun SettingsScreen(
             // Display Section
             DisplaySection(
                 keepScreenOn = settings.keepScreenOn,
-                onKeepScreenOnChange = viewModel::setKeepScreenOn
+                onKeepScreenOnChange = viewModel::setKeepScreenOn,
+                volumeKeysScroll = settings.volumeKeysScroll,
+                onVolumeKeysScrollChange = viewModel::setVolumeKeysScroll
             )
 
             HorizontalDivider()

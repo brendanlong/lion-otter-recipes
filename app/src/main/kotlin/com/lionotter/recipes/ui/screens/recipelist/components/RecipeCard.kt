@@ -38,6 +38,8 @@ import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.ui.TestTags
 import com.lionotter.recipes.ui.components.RecipeThumbnail
+import com.lionotter.recipes.ui.theme.cardElevation
+import com.lionotter.recipes.ui.theme.einkBorder
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
@@ -75,7 +77,8 @@ internal fun RecipeCard(
                     )
                 }
             },
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        elevation = cardElevation(2.dp),
+        border = einkBorder(if (isSelected) 3.dp else 1.dp),
         colors = if (isSelected) {
             CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.primaryContainer

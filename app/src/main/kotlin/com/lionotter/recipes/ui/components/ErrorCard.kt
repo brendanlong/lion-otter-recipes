@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.lionotter.recipes.ui.theme.einkBorder
 
 @Composable
 fun ErrorCard(
@@ -24,6 +25,7 @@ fun ErrorCard(
     icon: ImageVector = Icons.Outlined.Error
 ) {
     Card(
+        border = einkBorder(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.errorContainer
         ),

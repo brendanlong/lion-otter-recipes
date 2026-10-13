@@ -59,6 +59,7 @@ import com.lionotter.recipes.ui.components.rememberNotificationPermissionRequest
 import com.lionotter.recipes.ui.components.text
 import com.lionotter.recipes.ui.screens.importbrowser.BrowsedPage
 import com.lionotter.recipes.ui.screens.importselection.ImportType
+import com.lionotter.recipes.ui.theme.einkBorder
 
 @Composable
 fun AddRecipeScreen(
@@ -204,6 +205,7 @@ private fun IdleContent(
 
         if (!hasApiKey) {
             Card(
+                border = einkBorder(),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.errorContainer
                 )
@@ -321,6 +323,7 @@ private fun LoadingContent(
         Spacer(modifier = Modifier.height(24.dp))
 
         Card(
+            border = einkBorder(),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surfaceVariant
             )

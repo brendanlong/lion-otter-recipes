@@ -14,6 +14,9 @@ interface AppSettings : AiSettings {
     /** The model for edits and regeneration. */
     val editModel: Flow<String>
     val keepScreenOn: Flow<Boolean>
+
+    /** Whether the volume buttons scroll long screens by a page. */
+    val volumeKeysScroll: Flow<Boolean>
     val themeMode: Flow<ThemeMode>
     val volumeUnitSystem: Flow<UnitSystem>
     val weightUnitSystem: Flow<UnitSystem>
@@ -31,6 +34,7 @@ interface AppSettings : AiSettings {
     suspend fun setEditModel(model: String)
     suspend fun setThinkingEnabled(enabled: Boolean)
     suspend fun setKeepScreenOn(enabled: Boolean)
+    suspend fun setVolumeKeysScroll(enabled: Boolean)
     suspend fun setThemeMode(mode: ThemeMode)
     suspend fun setVolumeUnitSystem(system: UnitSystem)
     suspend fun setWeightUnitSystem(system: UnitSystem)

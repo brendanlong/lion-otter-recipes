@@ -27,6 +27,8 @@ import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
 import com.lionotter.recipes.ui.format.formatScaleMultiplier
 import kotlin.math.roundToInt
+import com.lionotter.recipes.ui.theme.LocalEinkTheme
+import com.lionotter.recipes.ui.theme.einkBorder
 
 /**
  * Scales the recipe. Shows the number of servings when the recipe says how many it makes,
@@ -41,8 +43,14 @@ internal fun ScaleControl(
 ) {
     val knownServings = servings?.takeIf { it > 0 }
     Card(
+        border = einkBorder(),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer
+            // The e-ink theme's secondary container is black, for selected things.
+            containerColor = if (LocalEinkTheme.current) {
+                MaterialTheme.colorScheme.surface
+            } else {
+                MaterialTheme.colorScheme.secondaryContainer
+            }
         )
     ) {
         Row(
@@ -55,8 +63,7 @@ internal fun ScaleControl(
             if (knownServings == null) {
                 Text(
                     text = stringResource(R.string.scale_label),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                    style = MaterialTheme.typography.titleSmall
                 )
                 Spacer(modifier = Modifier.width(16.dp))
             }
@@ -75,7 +82,6 @@ internal fun ScaleControl(
                 },
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
             )
             IconButton(onClick = onIncrement) {

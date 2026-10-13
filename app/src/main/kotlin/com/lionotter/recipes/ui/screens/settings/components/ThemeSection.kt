@@ -34,7 +34,8 @@ fun ThemeSection(
     val options = listOf(
         ThemeMode.AUTO to stringResource(R.string.theme_auto),
         ThemeMode.LIGHT to stringResource(R.string.theme_light),
-        ThemeMode.DARK to stringResource(R.string.theme_dark)
+        ThemeMode.DARK to stringResource(R.string.theme_dark),
+        ThemeMode.EINK to stringResource(R.string.theme_eink)
     )
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -44,7 +45,9 @@ fun ThemeSection(
         )
 
         Text(
-            text = stringResource(R.string.theme_description),
+            text = stringResource(
+                if (currentThemeMode == ThemeMode.EINK) R.string.theme_eink_description else R.string.theme_description
+            ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
