@@ -21,7 +21,23 @@ The app follows **Clean Architecture** with three distinct layers:
 
 ### Dependency Rule
 
-Dependencies point inward: UI → Domain → Data. The goal is a domain layer with no dependencies on Android frameworks or external libraries (except kotlinx for serialization). This is not true yet: use cases still use some data-layer services, `android.util.Log` and Compose stability annotations. `LayerDependencyTest` enforces the rules and lists the current exceptions (see Guardrails).
+Dependencies point inward: UI → Domain → Data. The goal is a domain layer with no dependencies on Android frameworks or external libraries (except kotlinx for serialization). This is not true yet: some use cases still use data-layer services and repository interfaces, `android.util.Log` and Compose stability annotations. `LayerDependencyTest` enforces the rules and lists the current exceptions (see Guardrails).
+
+#### Ports
+
+Where a use case needs something the data layer provides, the domain owns an interface (`domain/port`) and the data layer implements it; `AiModule` binds them (`@Binds`, or `@Provides` for the `RecipeHtmlExtractor` object). `ParseHtmlUseCase`, `ImportRecipeUseCase`, `EditRecipeUseCase` and `RegenerateRecipeUseCase` depend only on ports plus `IRecipeRepository`, and `ImportPaprikaUseCase` also on `PaprikaParser`; their tests use in-memory fakes (`testutil/UseCaseFakes.kt`):
+
+| Port | Implemented by | Purpose |
+|------|----------------|---------|
+| `RecipeParser` | `AnthropicRecipeParser` | one AI parse: `ParseRequest` (content, key, model, thinking, density overrides, user instructions) → `Outcome<ParsedRecipeWithUsage>` |
+| `RecipeBatchParser` | `AnthropicRecipeParser` | Message Batches: `createBatch`, `getBatchStatus` (`BatchStatus`), `forEachResult` (`BatchItemOutcome.Parsed`/`Failed`), `cancelBatch` |
+| `PageFetcher` | `WebScraperService` | `fetchPage(url)` → `Outcome<FetchedPage>` (HTML + preview image) |
+| `PageContentExtractor` | `RecipeHtmlExtractor` | page HTML → `PageContent` for the AI, page title |
+| `AiSettings` | `SettingsDataStore` | read-only API key, import model, thinking, import debugging |
+| `ImageStore` | `ImageDownloadService` | download / save / store recipe images |
+| `ImportDebugLog` | `ImportDebugRepository` | record an `ImportDebugRecord` for the import debugging screen |
+
+Ports return `Outcome` with a typed `RecipeError` rather than throwing or returning SDK types; the implementations log the underlying exception.
 
 ## Data Layer
 
@@ -56,25 +72,34 @@ Migrations live in `RecipeDatabaseMigrations` (10→11 drops the Firestore-era t
 
 #### WebScraperService
 
-Simple HTTP client that fetches raw HTML from recipe URLs:
+Simple HTTP client that fetches raw HTML from recipe URLs (the `PageFetcher` port):
 
 ```kotlin
-suspend fun fetchHtml(url: String): Result<String>
+suspend fun fetchPage(url: String): Outcome<FetchedPage>
 ```
 
 - Uses mobile User-Agent to get mobile-friendly pages
-- No parsing in the scraper itself; `RecipeHtmlExtractor` (domain/util) prepares the page for the AI
+- Failures are `RecipeError.PageFetch` (bot check, blocked, not found, rate limited, …)
+- Only the preview image is read here; `RecipeHtmlExtractor` (`data/ai`, the `PageContentExtractor` port) prepares the page for the AI
 
-#### AnthropicService
+#### AI (`data/ai`)
 
-Calls the Claude API (official SDK) to parse recipe text into structured data:
+Calls the Claude API (official SDK) to parse recipe text into structured data. Split by concern:
 
-- **Models**: `claude-sonnet-5-5` (default for imports), `claude-haiku-5-5` (default for edits), `claude-opus-5-5`, `claude-fable-5-1`. `normalizeModel()` maps legacy or unknown stored IDs to the closest supported family.
+- `AnthropicRecipeParser`: the transport, implementing `RecipeParser` and `RecipeBatchParser`. One SDK client per API key; SDK exceptions are logged and mapped by `AnthropicErrorMapper` to `RecipeError.Ai(AiFailure, httpStatus)`. Returns app types only (`ParsedRecipeWithUsage`, `BatchStatus`, `BatchItemOutcome`).
+- `RecipeResponseParser`: model output → recipe (stop reasons, fallback blocks, `extractJson`, `RecipeParseResponse` decoding); the AI's "not a recipe" answer becomes `RecipeError.NotARecipe(reason)`.
+- `RecipePrompt` (system prompt with the density table, user message) and `RecipeOutputSchema` (the JSON schema): pure data. `RecipeRequests` holds the shared SDK pieces (cached system blocks, output formats, `requestConfigFor`).
+- `ApiKeyValidator`: key format check used by Settings.
+- `AiModels` (domain/model): model IDs, defaults (`DEFAULT_MODEL`, `DEFAULT_EDIT_MODEL`, `DEFAULT_THINKING_ENABLED`) and `normalizeModel()`, shared by settings, the UI and the use cases without depending on the transport.
+
+Behavior:
+
+- **Models**: `claude-sonnet-5-5` (default for imports), `claude-haiku-5-5` (default for edits), `claude-opus-5-5`, `claude-fable-5-1`. `AiModels.normalizeModel()` maps legacy or unknown stored IDs to the closest supported family.
 - **Structured output**: requests use a JSON schema (non-recursive, derived from `RecipeParseResponse`) so the response is valid JSON; `extractJson` remains as a fallback.
 - **Streaming**: single-recipe parses use `createStreaming` so large `max_tokens` values do not hit HTTP timeouts; the stream is closed on coroutine cancellation.
 - **Effort/thinking per model**: every supported model takes adaptive thinking plus an effort level, and none accepts a fixed `budget_tokens` budget. The "thinking" setting maps to effort (medium when on, low when off), with adaptive thinking requested when on (except Fable 5.1, which always thinks and rejects an explicit config).
 - **Server-side fallback**: single-recipe parses go through the beta Messages API with `fallbacks: "default"` (all supported models), so a safety-classifier decline is retried on a fallback model in the same stream. `fallback` content blocks mark the switch; text before a mid-stream boundary is continuation context, so the joined text is parsed first, then the text after the last boundary.
-- **Batches**: `createRecipeBatch`, `retrieveBatch`, `cancelBatch`, `forEachBatchResult` (streams results) back the Paprika import.
+- **Batches**: `createBatch`, `getBatchStatus`, `cancelBatch`, `forEachResult` (streams results, parsing each not-yet-processed one into a `BatchItemOutcome`) back the Paprika import.
 
 **Prompt Engineering**: The system prompt instructs Claude to:
 1. Extract all recipe metadata (name, times, servings)
@@ -118,7 +143,7 @@ interface IRecipeRepository {
 ### Error Reporting
 
 - Errors are logged with `ErrorLog.e(tag, message, throwable)` (in `util/`) rather than `Log.e`. It logs to logcat and, in release builds, records the throwable as a Crashlytics non-fatal (`LionOtterApp` installs the recorder). Only the throwable is sent, not the message, since messages often include recipe names or URLs.
-- **User-facing errors are never exception messages.** Failures of imports, edits, regeneration and archives are a sealed `RecipeError` (domain): `NoApiKey`, `NoSourceUrl`, `RecipeNotFound`, `LimitReached(count, limit)`, `PageFetch(PageFetchFailure, httpStatus)`, `Ai(AiFailure, httpStatus)`, `NotARecipe(reason)`, `Archive(ArchiveFailure)`, `Interrupted`, `CannotRetry`, `Unexpected` and `Legacy(message)` (an English message saved by an older version, shown as-is). `retryable` comes from the failure kind and drives worker retries. Data-layer exceptions that know their meaning implement `RecipeErrorSource` (`PageFetchException`, `AnthropicRequestException`, `RecipeParseException`, `RecipeErrorException`), so the domain maps them with `Throwable.toRecipeError()` without depending on those classes; anything else is `Unexpected` and its details only go to `ErrorLog`. `NotARecipe.reason` is the AI's own explanation and is shown.
+- **User-facing errors are never exception messages.** Failures of imports, edits, regeneration and archives are a sealed `RecipeError` (domain): `NoApiKey`, `NoSourceUrl`, `RecipeNotFound`, `LimitReached(count, limit)`, `PageFetch(PageFetchFailure, httpStatus)`, `Ai(AiFailure, httpStatus)`, `NotARecipe(reason)`, `Archive(ArchiveFailure)`, `Interrupted`, `CannotRetry`, `Unexpected` and `Legacy(message)` (an English message saved by an older version, shown as-is). `retryable` comes from the failure kind and drives worker retries. Ports (`PageFetcher`, `RecipeParser`, `RecipeBatchParser`) return the `RecipeError` directly in an `Outcome`. Exceptions that know their meaning implement `RecipeErrorSource` (`RecipeErrorException`), so the domain maps them with `Throwable.toRecipeError()`; anything else is `Unexpected` and its details only go to `ErrorLog`. `NotARecipe.reason` is the AI's own explanation and is shown.
 - The `messages` package turns errors into text: `UserMessage` (a string or plural resource plus arguments, resolved with `resolve(resources)` or, in Compose, `text()`), `RecipeError.toUserMessage()` (exhaustive) and `DataFailure.toUserMessage()`. ViewModels and workers (failure notifications) only produce `UserMessage`s; screens resolve them. `UserMessageTest` resolves every error against the real resources.
 - Uncaught crashes are reported by Crashlytics automatically. Collection is disabled in debug and benchmark builds via the `firebase_crashlytics_collection_enabled` manifest placeholder, and R8 mapping files are uploaded only when building in CI.
 
@@ -197,9 +222,9 @@ Orchestrates the full import flow:
 
 ```
 1. Validate API key exists
-2. Fetch HTML from URL (WebScraperService)
-3. Extract JSON-LD + structured text (RecipeHtmlExtractor)
-4. Parse with AI (AnthropicService via ParseHtmlUseCase)
+2. Fetch HTML from URL (PageFetcher)
+3. Extract JSON-LD + structured text (PageContentExtractor)
+4. Parse with AI (RecipeParser via ParseHtmlUseCase)
 5. Create Recipe domain object
 6. Save to Firestore (and download the image)
 ```
@@ -367,6 +392,9 @@ Hilt modules provide:
 ### RepositoryModule
 - Binds `IRecipeRepository` / `IMealPlanRepository` to their Firestore-backed implementations
 
+### AiModule
+- Binds the domain ports (`RecipeParser`, `RecipeBatchParser`, `PageFetcher`, `PageContentExtractor`, `AiSettings`, `ImageStore`, `ImportDebugLog`) to their data-layer implementations
+
 ### NetworkModule
 - `HttpClient` with Ktor Android engine (page and image fetching)
 
@@ -392,13 +420,13 @@ RecipeWorkScheduler.enqueueImport() ──> RecipeImportWorker
        ▼
 ImportRecipeUseCase.execute()
        │
-       ├──> SettingsDataStore.anthropicApiKey (check API key)
+       ├──> PageFetcher.fetchPage() (WebScraperService: download page)
        │
-       ├──> WebScraperService.fetchHtml() (download page)
+       ├──> PageContentExtractor.extract() (RecipeHtmlExtractor: JSON-LD + structured text)
        │
-       ├──> RecipeHtmlExtractor.extract() (JSON-LD + structured text)
+       ├──> AiSettings.anthropicApiKey (check API key)
        │
-       ├──> AnthropicService.parseRecipe() (AI extraction)
+       ├──> RecipeParser.parse() (AnthropicRecipeParser: AI extraction)
        │
        └──> RecipeRepository.saveRecipe() (persist)
               │
@@ -465,7 +493,7 @@ Static checks and tests that catch whole classes of bugs. All run in `./ci-local
 - **detekt** (`./gradlew detektDebug`, with type resolution) runs a targeted rule set in `config/detekt/detekt.yml`: `SuspendFunSwallowedCancellation`, `InjectDispatcher`, `SwallowedException` (logging the exception counts as handling it; `catch (_: ...)` does not), `TooGenericExceptionThrown`, `UnsafeCallOnNullableType`. Existing findings are in `config/detekt/baseline-debug.xml`: hard-coded dispatchers, `!!` in `Units.kt`/`IngredientAggregation.kt`, and catch blocks the cancellation rule flags although they are fine (cleanup then rethrow, or log-and-continue inside `NonCancellable`). Don't add to it; regenerate it with `./gradlew :app:detektBaselineDebug` only after fixing entries. Use `detektDebug`; the plain `detekt` task (part of `check`) runs without type resolution or this baseline. detekt excludes generated sources, so `detektDebug` gets the compiled `BuildConfig` on its classpath (`detektBuildConfigClasses` in `app/build.gradle.kts`); its analysis also doesn't run the kotlinx.serialization compiler plugin, so call the reified `json.decodeFromString<T>()`/`encodeToString(value)` rather than the plugin-generated `T.serializer()`, or detekt reports "compiler errors found during analysis" and loses type information there.
 - **Layer rules** (`LayerDependencyTest`): scans imports under `app/src/main/kotlin`. Domain may not use `android.*`, `androidx.*` (except `androidx.annotation`), `com.anthropic`, Firebase or `..data..`; UI may not use WorkManager or `..data.local..`; data may not use `..ui..`, `..worker..` or `..imports..`; `imports` and `worker` may not use `..ui..` (and `worker` not `..imports..`). `KNOWN_VIOLATIONS` lists today's exceptions; the test fails on new violations and on entries that are no longer needed, so the list only shrinks.
 - **DTO drift** (`DtoFieldDriftTest`, `DomainFixturesTest`, `RecipeDtoRoundTripIntegrationTest`): every `Recipe` / `MealPlanEntry` field needs a DTO field, the `RecipeFields` / `MealPlanFields` constants must be keys Firestore actually writes, and the round-trip fixtures in `testutil/DomainFixtures.kt` must set every field (including nested ones) to a non-default value.
-- **AI schema** (`RecipeResponseSchemaTest`): property names and required fields in `AnthropicService.RECIPE_RESPONSE_SCHEMA` must match the serializers of `RecipeParseResponse` and the classes it contains.
+- **AI schema** (`RecipeResponseSchemaTest`): property names and required fields in `RecipeOutputSchema.RECIPE_RESPONSE_SCHEMA` must match the serializers of `RecipeParseResponse` and the classes it contains.
 - **Edit/regenerate preservation** (`RecipeRegeneratedContentTest`): every non-AI field of `Recipe` survives `withRegeneratedContent`.
 - **Persisted work data** (`WorkContractTest`, `PendingImportStatusTest`): every worker Progress/Outcome variant round-trips through its contract, and data and statuses written by earlier versions (pinned as literal strings) still decode.
 - **Room migrations** (`RecipeDatabaseMigrationTest`): `MigrationTestHelper` runs `RecipeDatabaseMigrations` against the exported schemas in `app/schemas`. Add a step for every new migration.
@@ -476,7 +504,8 @@ Static checks and tests that catch whole classes of bugs. All run in `./ci-local
 - `Ingredient.format()` - quantity formatting and scaling
 - Repository mapping logic
 - Ingredient aggregation and unit conversion
-- Use case business logic
+- Use case business logic; the import, edit, regenerate and Paprika batch use cases run against in-memory fakes of their ports (`testutil/UseCaseFakes.kt`)
+- AI request pieces (`RecipePromptTest`, `RecipeResponseParserTest`, `RecipeResponseSchemaTest`); `LiveAnthropicTest` calls the real API and only runs when `LIVE_ANTHROPIC_KEY` is set
 
 ### Integration Tests (Future)
 - Room database operations

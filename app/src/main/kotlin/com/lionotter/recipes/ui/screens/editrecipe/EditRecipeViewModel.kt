@@ -9,9 +9,9 @@ import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
 import com.lionotter.recipes.R
 import com.lionotter.recipes.data.local.SettingsDataStore
-import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.repository.IRecipeRepository
+import com.lionotter.recipes.domain.model.AiModels
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.di.ApplicationScope
 import com.lionotter.recipes.domain.RecipeError
@@ -169,10 +169,10 @@ class EditRecipeViewModel @Inject constructor(
         initialValue = EditUiState.Idle
     )
 
-    private val _model = MutableStateFlow(AnthropicService.DEFAULT_EDIT_MODEL)
+    private val _model = MutableStateFlow(AiModels.DEFAULT_EDIT_MODEL)
     val model: StateFlow<String> = _model.asStateFlow()
 
-    private val _thinkingEnabled = MutableStateFlow(SettingsDataStore.DEFAULT_THINKING_ENABLED)
+    private val _thinkingEnabled = MutableStateFlow(AiModels.DEFAULT_THINKING_ENABLED)
     val thinkingEnabled: StateFlow<Boolean> = _thinkingEnabled.asStateFlow()
 
     /**

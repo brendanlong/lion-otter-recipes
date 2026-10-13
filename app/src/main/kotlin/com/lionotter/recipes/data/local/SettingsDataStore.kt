@@ -20,11 +20,12 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.di.ApplicationScope
+import com.lionotter.recipes.domain.model.AiModels
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
+import com.lionotter.recipes.domain.port.AiSettings
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -35,7 +36,7 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 class SettingsDataStore @Inject constructor(
     @param:ApplicationContext private val context: Context,
     @ApplicationScope appScope: CoroutineScope
-) {
+) : AiSettings {
     private object Keys {
         val AI_MODEL = stringPreferencesKey("ai_model")
         val EDIT_MODEL = stringPreferencesKey("edit_model")
@@ -115,18 +116,18 @@ class SettingsDataStore @Inject constructor(
     }
 
     /** The stored API key. Does not emit until the key has been loaded from disk. */
-    val anthropicApiKey: Flow<String?> = _anthropicApiKey.filterNotNull().map { it.value }
+    override val anthropicApiKey: Flow<String?> = _anthropicApiKey.filterNotNull().map { it.value }
 
-    val aiModel: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[Keys.AI_MODEL] ?: AnthropicService.DEFAULT_MODEL
+    override val aiModel: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[Keys.AI_MODEL] ?: AiModels.DEFAULT_MODEL
     }
 
     val editModel: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[Keys.EDIT_MODEL] ?: AnthropicService.DEFAULT_EDIT_MODEL
+        preferences[Keys.EDIT_MODEL] ?: AiModels.DEFAULT_EDIT_MODEL
     }
 
-    val thinkingEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
-        preferences[Keys.EXTENDED_THINKING_ENABLED] ?: DEFAULT_THINKING_ENABLED
+    override val thinkingEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[Keys.EXTENDED_THINKING_ENABLED] ?: AiModels.DEFAULT_THINKING_ENABLED
     }
 
     val keepScreenOn: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -209,7 +210,7 @@ class SettingsDataStore @Inject constructor(
         }
     }
 
-    val importDebuggingEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
+    override val importDebuggingEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[Keys.IMPORT_DEBUGGING_ENABLED] ?: false
     }
 
@@ -295,7 +296,6 @@ class SettingsDataStore @Inject constructor(
     }
 
     companion object {
-        const val DEFAULT_THINKING_ENABLED = false
         private const val TAG = "SettingsDataStore"
         private const val API_KEY_PREFS_FILE = "tink_encrypted_api_key"
         private const val API_KEY_PREF_KEY = "encrypted_api_key"

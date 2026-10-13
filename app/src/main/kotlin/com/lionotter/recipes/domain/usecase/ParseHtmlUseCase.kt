@@ -1,20 +1,21 @@
 package com.lionotter.recipes.domain.usecase
 
-import android.util.Log
-import com.lionotter.recipes.data.local.ImportDebugEntity
-import com.lionotter.recipes.data.local.SettingsDataStore
-import com.lionotter.recipes.data.remote.AnthropicService
-import com.lionotter.recipes.data.remote.ImageDownloadService
-import com.lionotter.recipes.data.remote.ParseResultWithUsage
-import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.ResourceLimits
-import com.lionotter.recipes.domain.toRecipeError
-import com.lionotter.recipes.data.remote.RecipeParseResult
+import com.lionotter.recipes.domain.logDescription
+import com.lionotter.recipes.domain.model.AiModels
 import com.lionotter.recipes.domain.model.Recipe
-import com.lionotter.recipes.domain.util.RecipeHtmlExtractor
+import com.lionotter.recipes.domain.port.AiSettings
+import com.lionotter.recipes.domain.port.ImageStore
+import com.lionotter.recipes.domain.port.ImportDebugLog
+import com.lionotter.recipes.domain.port.ImportDebugRecord
+import com.lionotter.recipes.domain.port.PageContentExtractor
+import com.lionotter.recipes.domain.port.ParseRequest
+import com.lionotter.recipes.domain.port.ParsedRecipe
+import com.lionotter.recipes.domain.port.ParsedRecipeWithUsage
+import com.lionotter.recipes.domain.port.RecipeParser
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
@@ -32,15 +33,13 @@ import kotlin.coroutines.coroutineContext
  * - [parseText]: parses pre-extracted text directly with AI (used by Paprika import)
  */
 class ParseHtmlUseCase @Inject constructor(
-    private val anthropicService: AnthropicService,
+    private val recipeParser: RecipeParser,
+    private val pageContentExtractor: PageContentExtractor,
     private val recipeRepository: IRecipeRepository,
-    private val importDebugRepository: ImportDebugRepository,
-    private val settingsDataStore: SettingsDataStore,
-    private val imageDownloadService: ImageDownloadService
+    private val importDebugLog: ImportDebugLog,
+    private val aiSettings: AiSettings,
+    private val imageStore: ImageStore
 ) {
-    companion object {
-        private const val TAG = "ParseHtmlUseCase"
-    }
     sealed class ParseProgress {
         object ExtractingContent : ParseProgress()
         object ParsingRecipe : ParseProgress()
@@ -71,7 +70,7 @@ class ParseHtmlUseCase @Inject constructor(
         onProgress: suspend (ParseProgress) -> Unit = {}
     ): Outcome<Recipe> {
         onProgress(ParseProgress.ExtractingContent)
-        val pageContent = RecipeHtmlExtractor.extract(html, sourceUrl)
+        val pageContent = pageContentExtractor.extract(html, sourceUrl)
         val extractedImageUrl = imageUrl ?: pageContent.imageUrl
 
         return parseText(
@@ -116,7 +115,7 @@ class ParseHtmlUseCase @Inject constructor(
         aiInstructions: String? = null,
         onProgress: suspend (ParseProgress) -> Unit = {}
     ): Outcome<Recipe> {
-        val apiKey = settingsDataStore.anthropicApiKey.first()
+        val apiKey = aiSettings.anthropicApiKey.first()
         if (apiKey.isNullOrBlank()) {
             return Outcome.Failure(RecipeError.NoApiKey)
         }
@@ -129,41 +128,48 @@ class ParseHtmlUseCase @Inject constructor(
             }
         }
 
-        val model = AnthropicService.normalizeModel(model ?: settingsDataStore.aiModel.first())
-        val thinkingEnabled = thinkingEnabled ?: settingsDataStore.thinkingEnabled.first()
-        val debuggingEnabled = settingsDataStore.importDebuggingEnabled.first()
+        val model = AiModels.normalizeModel(model ?: aiSettings.aiModel.first())
+        val thinkingEnabled = thinkingEnabled ?: aiSettings.thinkingEnabled.first()
+        val debuggingEnabled = aiSettings.importDebuggingEnabled.first()
 
         // Parse with AI
         onProgress(ParseProgress.ParsingRecipe)
         val startTime = System.currentTimeMillis()
-        val parseResult = anthropicService.parseRecipe(text, apiKey, model, thinkingEnabled, densityOverrides, aiInstructions)
+        val parseResult = recipeParser.parse(
+            ParseRequest(
+                content = text,
+                apiKey = apiKey,
+                model = model,
+                thinkingEnabled = thinkingEnabled,
+                densityOverrides = densityOverrides,
+                aiInstructions = aiInstructions
+            )
+        )
         val durationMs = System.currentTimeMillis() - startTime
-        if (parseResult.isFailure) {
-            val exception = parseResult.exceptionOrNull()
-            Log.w(TAG, "AI parse failed for ${sourceUrl ?: "text input"}", exception)
-
-            if (debuggingEnabled) {
-                saveDebugEntry(
-                    sourceUrl = sourceUrl,
-                    originalHtml = originalHtml,
-                    cleanedContent = text,
-                    aiOutputJson = null,
-                    inputTokens = null,
-                    outputTokens = null,
-                    aiModel = model,
-                    thinkingEnabled = thinkingEnabled,
-                    recipeId = null,
-                    recipeName = null,
-                    errorMessage = exception?.message,
-                    isError = true,
-                    durationMs = durationMs
-                )
+        val parsedWithUsage = when (parseResult) {
+            is Outcome.Success -> parseResult.value
+            is Outcome.Failure -> {
+                if (debuggingEnabled) {
+                    saveDebugEntry(
+                        sourceUrl = sourceUrl,
+                        originalHtml = originalHtml,
+                        cleanedContent = text,
+                        aiOutputJson = null,
+                        inputTokens = null,
+                        outputTokens = null,
+                        aiModel = model,
+                        thinkingEnabled = thinkingEnabled,
+                        recipeId = null,
+                        recipeName = null,
+                        errorMessage = parseResult.error.logDescription(),
+                        isError = true,
+                        durationMs = durationMs
+                    )
+                }
+                return parseResult
             }
-
-            return Outcome.Failure(exception.toRecipeError())
         }
-        val parsedWithUsage = parseResult.getOrThrow()
-        val parsed = parsedWithUsage.result
+        val parsed = parsedWithUsage.recipe
 
         // Check for cancellation before proceeding to save
         coroutineContext.ensureActive()
@@ -173,11 +179,11 @@ class ParseHtmlUseCase @Inject constructor(
 
         val recipe = if (saveRecipe) {
             // Image download is cancellable; once it's done, upload + save run to completion.
-            val downloadResult = imageUrl?.let { imageDownloadService.downloadAndStoreWithResult(it) }
+            val downloadResult = imageUrl?.let { imageStore.downloadAndStoreWithResult(it) }
             coroutineContext.ensureActive()
             onProgress(ParseProgress.SavingRecipe)
             withContext(NonCancellable) {
-                val storedImageUrl = downloadResult?.localUri?.let { imageDownloadService.storeImage(it) }
+                val storedImageUrl = downloadResult?.localUri?.let { imageStore.storeImage(it) }
                 buildRecipe(parsed, sourceUrl, storedImageUrl, downloadResult?.effectiveUrl ?: imageUrl)
                     .also { recipeRepository.saveRecipe(it) }
             }
@@ -212,7 +218,7 @@ class ParseHtmlUseCase @Inject constructor(
     /**
      * Save a pre-parsed batch result as a Recipe.
      * Used by batch import flows where the AI response has already been obtained
-     * via the Batch API and parsed into a [ParseResultWithUsage].
+     * via the Batch API and parsed into a [ParsedRecipeWithUsage].
      *
      * Handles image download, recipe creation, database save, and debug entry.
      *
@@ -228,7 +234,7 @@ class ParseHtmlUseCase @Inject constructor(
      * @return The saved Recipe, or why it couldn't be saved
      */
     suspend fun saveBatchResult(
-        parsedWithUsage: ParseResultWithUsage,
+        parsedWithUsage: ParsedRecipeWithUsage,
         recipeId: String,
         sourceUrl: String? = null,
         imageUrl: String? = null,
@@ -240,22 +246,21 @@ class ParseHtmlUseCase @Inject constructor(
     ): Outcome<Recipe> {
         val count = recipeRepository.getRecipeCount()
         if (count >= ResourceLimits.MAX_RECIPES && recipeRepository.getRecipeByIdOnce(recipeId) == null) {
-            Log.w(TAG, "Recipe limit reached ($count/${ResourceLimits.MAX_RECIPES}), skipping batch save")
             return Outcome.Failure(RecipeError.LimitReached(count, ResourceLimits.MAX_RECIPES))
         }
 
-        val parsed = parsedWithUsage.result
+        val parsed = parsedWithUsage.recipe
 
-        val downloadResult = imageUrl?.let { imageDownloadService.downloadAndStoreWithResult(it) }
+        val downloadResult = imageUrl?.let { imageStore.downloadAndStoreWithResult(it) }
         coroutineContext.ensureActive()
         val recipe = withContext(NonCancellable) {
-            val storedImageUrl = downloadResult?.localUri?.let { imageDownloadService.storeImage(it) }
+            val storedImageUrl = downloadResult?.localUri?.let { imageStore.storeImage(it) }
             buildRecipe(parsed, sourceUrl, storedImageUrl, downloadResult?.effectiveUrl ?: imageUrl, recipeId)
                 .also { recipeRepository.saveRecipe(it) }
         }
 
         // Save debug data if debugging is enabled
-        val debuggingEnabled = settingsDataStore.importDebuggingEnabled.first()
+        val debuggingEnabled = aiSettings.importDebuggingEnabled.first()
         if (debuggingEnabled) {
             saveDebugEntry(
                 sourceUrl = sourceUrl,
@@ -290,7 +295,7 @@ class ParseHtmlUseCase @Inject constructor(
         thinkingEnabled: Boolean,
         durationMs: Long? = null
     ) {
-        val debuggingEnabled = settingsDataStore.importDebuggingEnabled.first()
+        val debuggingEnabled = aiSettings.importDebuggingEnabled.first()
         if (debuggingEnabled) {
             saveDebugEntry(
                 sourceUrl = sourceUrl,
@@ -327,14 +332,11 @@ class ParseHtmlUseCase @Inject constructor(
         durationMs: Long?,
         batchMode: Boolean = false
     ) {
-        val entry = ImportDebugEntity(
-            id = UUID.randomUUID().toString(),
+        val entry = ImportDebugRecord(
             sourceUrl = sourceUrl,
             originalHtml = originalHtml,
             cleanedContent = cleanedContent,
             aiOutputJson = aiOutputJson,
-            originalLength = originalHtml?.length ?: 0,
-            cleanedLength = cleanedContent?.length ?: 0,
             inputTokens = inputTokens,
             outputTokens = outputTokens,
             aiModel = aiModel,
@@ -344,16 +346,15 @@ class ParseHtmlUseCase @Inject constructor(
             errorMessage = errorMessage,
             isError = isError,
             durationMs = durationMs,
-            createdAt = Clock.System.now().toEpochMilliseconds(),
             batchMode = batchMode
         )
         withContext(NonCancellable) {
-            importDebugRepository.saveDebugEntry(entry)
+            importDebugLog.record(entry)
         }
     }
 
     private fun buildRecipe(
-        parsed: RecipeParseResult,
+        parsed: ParsedRecipe,
         sourceUrl: String?,
         storedImageUrl: String?,
         sourceImageUrl: String?,

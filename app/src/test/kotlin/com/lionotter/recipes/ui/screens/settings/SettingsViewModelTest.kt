@@ -14,11 +14,11 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import com.lionotter.recipes.data.remote.SignOutResult
 import app.cash.turbine.test
 import com.lionotter.recipes.data.local.SettingsDataStore
-import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.remote.AccountMigrationService
 import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.AuthState
 import com.lionotter.recipes.data.repository.ImportDebugRepository
+import com.lionotter.recipes.domain.model.AiModels
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
@@ -52,9 +52,9 @@ class SettingsViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
 
     private val apiKeyFlow = MutableStateFlow<String?>(null)
-    private val aiModelFlow = MutableStateFlow(AnthropicService.DEFAULT_MODEL)
-    private val editModelFlow = MutableStateFlow(AnthropicService.DEFAULT_EDIT_MODEL)
-    private val thinkingEnabledFlow = MutableStateFlow(SettingsDataStore.DEFAULT_THINKING_ENABLED)
+    private val aiModelFlow = MutableStateFlow(AiModels.DEFAULT_MODEL)
+    private val editModelFlow = MutableStateFlow(AiModels.DEFAULT_EDIT_MODEL)
+    private val thinkingEnabledFlow = MutableStateFlow(AiModels.DEFAULT_THINKING_ENABLED)
     private val keepScreenOnFlow = MutableStateFlow(true)
     private val themeModeFlow = MutableStateFlow(ThemeMode.AUTO)
     private val importDebuggingEnabledFlow = MutableStateFlow(false)
@@ -273,7 +273,7 @@ class SettingsViewModelTest {
     fun `aiModel flow reflects datastore value`() = runTest {
         viewModel.aiModel.test {
             // Initial value (default model)
-            assertEquals(AnthropicService.DEFAULT_MODEL, awaitItem())
+            assertEquals(AiModels.DEFAULT_MODEL, awaitItem())
 
             // Update the underlying flow
             aiModelFlow.value = "claude-3-opus"

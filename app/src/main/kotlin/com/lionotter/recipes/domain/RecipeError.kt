@@ -159,6 +159,14 @@ enum class ArchiveFailure {
     WRITE_FAILED
 }
 
+/** A short English description for logs and the import debugging screen (never shown as an error message). */
+fun RecipeError.logDescription(): String = when (this) {
+    is RecipeError.NotARecipe -> "Not a recipe: $reason"
+    is RecipeError.Ai -> "AI request failed: $reason${httpStatus?.let { " (HTTP $it)" } ?: ""}"
+    is RecipeError.PageFetch -> "Page fetch failed: $reason${httpStatus?.let { " (HTTP $it)" } ?: ""}"
+    else -> toString()
+}
+
 /** An exception that knows which [RecipeError] it represents. */
 interface RecipeErrorSource {
     val recipeError: RecipeError

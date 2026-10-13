@@ -6,6 +6,8 @@ import android.util.Base64
 import android.util.Log
 import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.data.remote.dto.RecipeFields
+import com.lionotter.recipes.domain.port.DownloadedImage
+import com.lionotter.recipes.domain.port.ImageStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
@@ -48,17 +50,7 @@ class ImageDownloadService @Inject constructor(
     private val authService: AuthService,
     private val firestoreService: FirestoreService,
     private val imageUploadScheduler: ImageUploadScheduler
-) {
-    /**
-     * Result of downloading an image, containing both the local file URI
-     * and the URL that was actually used to download (which may differ from
-     * the original if an HTTP URL was upgraded to HTTPS).
-     */
-    data class DownloadResult(
-        val localUri: String,
-        val effectiveUrl: String
-    )
-
+) : ImageStore {
     companion object {
         private const val TAG = "ImageDownloadService"
 
@@ -88,7 +80,7 @@ class ImageDownloadService @Inject constructor(
      * @return A gs:// URI (e.g., "gs://bucket/users/{uid}/images/{filename}"),
      *         or the original local URI if the user is a guest or upload fails
      */
-    suspend fun storeImage(localUri: String, previousImageUrl: String? = null, recipeId: String? = null): String {
+    override suspend fun storeImage(localUri: String, previousImageUrl: String?, recipeId: String?): String {
         // Already a storage path — no need to re-upload
         if (imageSyncService.isStoragePath(localUri)) return localUri
 
@@ -200,21 +192,21 @@ class ImageDownloadService @Inject constructor(
 
     /**
      * Downloads an image from a URL and stores it locally.
-     * Returns a [DownloadResult] containing both the local file URI and the
+     * Returns a [DownloadedImage] containing both the local file URI and the
      * effective URL that was used for the download, or null if download fails.
      *
      * If the URL is already a local file URI, returns it as-is.
      * If the URL uses HTTP and the download fails, retries with HTTPS.
      */
-    suspend fun downloadAndStoreWithResult(imageUrl: String): DownloadResult? {
+    override suspend fun downloadAndStoreWithResult(imageUrl: String): DownloadedImage? {
         // Skip if already a local file
         if (imageUrl.startsWith("file://")) {
-            return DownloadResult(localUri = imageUrl, effectiveUrl = imageUrl)
+            return DownloadedImage(localUri = imageUrl, effectiveUrl = imageUrl)
         }
 
         // Firebase Storage paths are already stored — return as-is
         if (imageSyncService.isStoragePath(imageUrl)) {
-            return DownloadResult(localUri = imageUrl, effectiveUrl = imageUrl)
+            return DownloadedImage(localUri = imageUrl, effectiveUrl = imageUrl)
         }
 
         // Try the original URL first
@@ -236,9 +228,9 @@ class ImageDownloadService @Inject constructor(
     /**
      * Attempts to download an image from the given URL and store it locally.
      * Rejects non-image responses (e.g. HTML error pages) and bodies larger than
-     * [MAX_LOCAL_IMAGE_BYTES]. Returns a [DownloadResult] on success, or null on failure.
+     * [MAX_LOCAL_IMAGE_BYTES]. Returns a [DownloadedImage] on success, or null on failure.
      */
-    private suspend fun attemptDownload(imageUrl: String): DownloadResult? {
+    private suspend fun attemptDownload(imageUrl: String): DownloadedImage? {
         return try {
             httpClient.prepareGet(imageUrl) {
                 header(HttpHeaders.UserAgent, "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
@@ -269,7 +261,7 @@ class ImageDownloadService @Inject constructor(
                 val input = response.bodyAsChannel().toInputStream()
                 writeValidatedImage(input, extension)?.let { localUri ->
                     Log.d(TAG, "Downloaded image: $imageUrl -> $localUri")
-                    DownloadResult(localUri = localUri, effectiveUrl = imageUrl)
+                    DownloadedImage(localUri = localUri, effectiveUrl = imageUrl)
                 }
             }
         } catch (e: CancellationException) {
@@ -293,7 +285,7 @@ class ImageDownloadService @Inject constructor(
      * @param inputStream Source of image bytes (closed by this function)
      * @param extension File extension including the dot (e.g., ".jpg")
      */
-    suspend fun saveImageFromStream(inputStream: InputStream, extension: String = ".jpg"): String? {
+    override suspend fun saveImageFromStream(inputStream: InputStream, extension: String): String? {
         return try {
             inputStream.use { writeValidatedImage(it, extension) }
         } catch (e: CancellationException) {

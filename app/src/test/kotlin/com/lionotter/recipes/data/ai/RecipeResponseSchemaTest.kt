@@ -1,4 +1,4 @@
-package com.lionotter.recipes.data.remote
+package com.lionotter.recipes.data.ai
 
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.SerialDescriptor
@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The structured-output schema in [AnthropicService.RECIPE_RESPONSE_SCHEMA] is written by hand.
+ * The structured-output schema in [RecipeOutputSchema.RECIPE_RESPONSE_SCHEMA] is written by hand.
  * Check it against the kotlinx serializers that decode the response: every schema property must
  * exist with a compatible type, and every property without a default must be required. Optional
  * serializer properties may be left out of the schema (e.g. the non-recursive alternate shape).
@@ -18,7 +18,7 @@ class RecipeResponseSchemaTest {
     @Test
     fun `schema matches the response serializers`() {
         val problems = mutableListOf<String>()
-        check(AnthropicService.RECIPE_RESPONSE_SCHEMA, RecipeParseResponse.serializer().descriptor, "$", problems)
+        check(RecipeOutputSchema.RECIPE_RESPONSE_SCHEMA, RecipeParseResponse.serializer().descriptor, "$", problems)
         assertTrue("RECIPE_RESPONSE_SCHEMA is out of sync:\n" + problems.joinToString("\n"), problems.isEmpty())
     }
 
@@ -47,7 +47,7 @@ class RecipeResponseSchemaTest {
             @Suppress("UNCHECKED_CAST")
             (schema["items"] as? Map<String, Any>)?.let { walk(it, "$path[]") }
         }
-        walk(AnthropicService.RECIPE_RESPONSE_SCHEMA, "$")
+        walk(RecipeOutputSchema.RECIPE_RESPONSE_SCHEMA, "$")
         assertTrue("Optional properties make the schema too complex to compile: $optional", optional.isEmpty())
         assertTrue("$unions union-typed parameters; the API allows 16, keep a margin", unions <= MAX_UNIONS)
     }

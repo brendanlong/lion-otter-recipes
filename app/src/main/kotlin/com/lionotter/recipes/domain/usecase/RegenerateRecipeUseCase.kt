@@ -1,12 +1,11 @@
 package com.lionotter.recipes.domain.usecase
 
-import com.lionotter.recipes.data.remote.ImageDownloadService
-import com.lionotter.recipes.data.remote.WebScraperService
 import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.model.Recipe
-import com.lionotter.recipes.domain.toRecipeError
+import com.lionotter.recipes.domain.port.ImageStore
+import com.lionotter.recipes.domain.port.PageFetcher
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlin.time.Clock
@@ -15,8 +14,8 @@ import javax.inject.Inject
 class RegenerateRecipeUseCase @Inject constructor(
     private val parseHtmlUseCase: ParseHtmlUseCase,
     private val recipeRepository: IRecipeRepository,
-    private val webScraperService: WebScraperService,
-    private val imageDownloadService: ImageDownloadService
+    private val pageFetcher: PageFetcher,
+    private val imageStore: ImageStore
 ) {
     sealed class RegenerateProgress {
         object FetchingFromUrl : RegenerateProgress()
@@ -52,15 +51,14 @@ class RegenerateRecipeUseCase @Inject constructor(
 
         // Fetch fresh HTML from the source URL
         onProgress(RegenerateProgress.FetchingFromUrl)
-        val pageResult = webScraperService.fetchPage(sourceUrl)
-        if (pageResult.isFailure) {
-            return Outcome.Failure(pageResult.exceptionOrNull().toRecipeError())
+        val page = when (val pageResult = pageFetcher.fetchPage(sourceUrl)) {
+            is Outcome.Success -> pageResult.value
+            is Outcome.Failure -> return pageResult
         }
-        val page = pageResult.getOrThrow()
 
         // Re-parse with AI (don't save yet, we need to adjust the recipe)
         val parseResult = parseHtmlUseCase.parseHtml(
-            html = page.originalHtml,
+            html = page.html,
             sourceUrl = existingRecipe.sourceUrl,
             imageUrl = page.imageUrl,
             saveRecipe = false,
@@ -86,14 +84,14 @@ class RegenerateRecipeUseCase @Inject constructor(
                 val freshRecipe = recipeRepository.getRecipeByIdOnce(recipeId) ?: existingRecipe
                 val pageImageUrl = parsed.sourceImageUrl
                 val downloadedImage = if (freshRecipe.imageUrl == null && pageImageUrl != null) {
-                    imageDownloadService.downloadAndStoreWithResult(pageImageUrl)
+                    imageStore.downloadAndStoreWithResult(pageImageUrl)
                 } else {
                     null
                 }
 
                 onProgress(RegenerateProgress.SavingRecipe)
                 val regeneratedRecipe = withContext(NonCancellable) {
-                    val newImageUrl = downloadedImage?.localUri?.let { imageDownloadService.storeImage(it) }
+                    val newImageUrl = downloadedImage?.localUri?.let { imageStore.storeImage(it) }
                     freshRecipe.withRegeneratedContent(parsed, Clock.System.now()).copy(
                         imageUrl = freshRecipe.imageUrl ?: newImageUrl,
                         sourceImageUrl = downloadedImage?.effectiveUrl ?: pageImageUrl ?: freshRecipe.sourceImageUrl

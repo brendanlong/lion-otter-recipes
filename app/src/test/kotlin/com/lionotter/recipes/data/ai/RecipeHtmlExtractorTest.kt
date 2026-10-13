@@ -1,4 +1,4 @@
-package com.lionotter.recipes.domain.util
+package com.lionotter.recipes.data.ai
 
 import android.util.Log
 import io.mockk.every

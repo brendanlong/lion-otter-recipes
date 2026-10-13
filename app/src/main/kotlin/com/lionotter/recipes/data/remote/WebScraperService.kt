@@ -1,10 +1,12 @@
 package com.lionotter.recipes.data.remote
 
 import android.util.Log
+import com.lionotter.recipes.data.ai.RecipeHtmlExtractor
+import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.PageFetchFailure
 import com.lionotter.recipes.domain.RecipeError
-import com.lionotter.recipes.domain.RecipeErrorSource
-import com.lionotter.recipes.domain.util.RecipeHtmlExtractor
+import com.lionotter.recipes.domain.port.FetchedPage
+import com.lionotter.recipes.domain.port.PageFetcher
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -18,25 +20,11 @@ import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
-data class ScrapedPage(
-    val originalHtml: String,
-    val imageUrl: String? = null
-)
-
-/** A page fetch that failed. The message is for logs; the UI shows [recipeError]. */
-class PageFetchException(
-    val reason: PageFetchFailure,
-    val httpStatus: Int? = null,
-    cause: Throwable? = null
-) : Exception("Page fetch failed: $reason${httpStatus?.let { " (HTTP $it)" } ?: ""}", cause), RecipeErrorSource {
-    override val recipeError: RecipeError get() = RecipeError.PageFetch(reason, httpStatus)
-}
-
 @Singleton
 class WebScraperService @Inject constructor(
     private val httpClient: HttpClient
-) {
-    suspend fun fetchPage(url: String): Result<ScrapedPage> {
+) : PageFetcher {
+    override suspend fun fetchPage(url: String): Outcome<FetchedPage> {
         return try {
             val response = httpClient.get(url) {
                 header(HttpHeaders.UserAgent, USER_AGENT)
@@ -47,31 +35,33 @@ class WebScraperService @Inject constructor(
             if (!response.status.isSuccess()) {
                 val error = statusError(response)
                 Log.w(TAG, "Fetching $url failed: HTTP ${response.status.value}")
-                return Result.failure(error)
+                return Outcome.Failure(error)
             }
 
             val contentLength = response.headers[HttpHeaders.ContentLength]?.toLongOrNull()
             if (contentLength != null && contentLength > MAX_PAGE_BYTES) {
                 Log.w(TAG, "Page $url is too large ($contentLength bytes)")
-                return Result.failure(PageFetchException(PageFetchFailure.TOO_LARGE))
+                return Outcome.Failure(RecipeError.PageFetch(PageFetchFailure.TOO_LARGE))
             }
 
             val html = response.bodyAsText().let {
                 if (it.length > MAX_PAGE_CHARS) it.take(MAX_PAGE_CHARS) else it
             }
 
-            Result.success(ScrapedPage(
-                originalHtml = html,
-                imageUrl = RecipeHtmlExtractor.extractImageUrl(html)
-            ))
+            Outcome.Success(
+                FetchedPage(
+                    html = html,
+                    imageUrl = RecipeHtmlExtractor.extractImageUrl(html)
+                )
+            )
         } catch (e: CancellationException) {
             throw e
         } catch (e: IOException) {
             Log.w(TAG, "Network error fetching $url", e)
-            Result.failure(PageFetchException(PageFetchFailure.NETWORK, cause = e))
+            Outcome.Failure(RecipeError.PageFetch(PageFetchFailure.NETWORK))
         } catch (e: Exception) {
             Log.w(TAG, "Failed to fetch $url", e)
-            Result.failure(PageFetchException(PageFetchFailure.UNKNOWN, cause = e))
+            Outcome.Failure(RecipeError.PageFetch(PageFetchFailure.UNKNOWN))
         }
     }
 
@@ -84,7 +74,7 @@ class WebScraperService @Inject constructor(
         ""
     }
 
-    private suspend fun statusError(response: HttpResponse): PageFetchException {
+    private suspend fun statusError(response: HttpResponse): RecipeError.PageFetch {
         val code = response.status.value
         val isBotCheck = response.headers["cf-mitigated"] != null ||
             (code == 403 || code == 503) && errorBodyPrefix(response)
@@ -99,7 +89,7 @@ class WebScraperService @Inject constructor(
             code >= 500 -> PageFetchFailure.SERVER_ERROR
             else -> PageFetchFailure.HTTP_ERROR
         }
-        return PageFetchException(reason, code)
+        return RecipeError.PageFetch(reason, code)
     }
 
     companion object {
