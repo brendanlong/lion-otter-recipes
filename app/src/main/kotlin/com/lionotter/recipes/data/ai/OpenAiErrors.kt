@@ -17,8 +17,8 @@ object OpenAiErrors {
 
     /** The error for an HTTP error response with [body]. */
     fun forResponse(json: Json, status: HttpStatusCode, body: String): RecipeError.Ai {
-        val code = try {
-            json.decodeFromString<ErrorResponse>(body).error?.code
+        val error = try {
+            json.decodeFromString<ErrorResponse>(body).error
         } catch (e: SerializationException) {
             Log.w(TAG, "Error response isn't JSON", e)
             null
@@ -26,12 +26,15 @@ object OpenAiErrors {
             Log.w(TAG, "Error response isn't JSON", e)
             null
         }
-        return error(forCode(code) ?: forStatus(status), status.value)
+        return error(forCode(error?.code) ?: forCode(error?.type) ?: forStatus(status), status.value)
     }
 
-    /** The failure for an error [code] in a response body or stream event; null if the code doesn't say. */
+    /**
+     * The failure for an error code (or, failing that, error type) in a response body or stream
+     * event; null if it doesn't say.
+     */
     fun forCode(code: String?): AiFailure? = when (code) {
-        "insufficient_quota", "billing_hard_limit_reached" -> AiFailure.OUT_OF_CREDITS
+        "insufficient_quota", "billing_hard_limit_reached", "credit_balance_exhausted" -> AiFailure.OUT_OF_CREDITS
         "moderation_blocked", "content_policy_violation" -> AiFailure.REFUSED
         "rate_limit_exceeded" -> AiFailure.RATE_LIMITED
         "model_not_found" -> AiFailure.MODEL_UNAVAILABLE
@@ -55,5 +58,5 @@ object OpenAiErrors {
     private data class ErrorResponse(val error: ErrorBody? = null)
 
     @Serializable
-    private data class ErrorBody(val code: String? = null)
+    private data class ErrorBody(val code: String? = null, val type: String? = null)
 }

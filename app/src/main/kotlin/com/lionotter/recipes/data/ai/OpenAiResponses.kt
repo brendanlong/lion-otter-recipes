@@ -131,14 +131,18 @@ class OpenAiResponses @Inject constructor(
                 Outcome.Failure(OpenAiErrors.error(AiFailure.UNREADABLE_RESPONSE))
             }
         }
-        "response.failed" -> streamError(event.obj("response")?.obj("error")?.string("code"))
-        "error" -> streamError(event.string("code") ?: event.obj("error")?.string("code"))
+        "response.failed" -> streamError(event.obj("response")?.obj("error"))
+        // The error is nested in newer events and top-level in older ones
+        "error" -> streamError(event.obj("error") ?: event)
         else -> null
     }
 
-    private fun streamError(code: String?): Outcome.Failure {
-        Log.w(TAG, "The response failed (code=$code)")
-        return Outcome.Failure(OpenAiErrors.error(OpenAiErrors.forCode(code) ?: AiFailure.UNKNOWN))
+    private fun streamError(error: JsonObject?): Outcome.Failure {
+        val code = error?.string("code")
+        val type = error?.string("type")
+        Log.w(TAG, "The response failed (code=$code, type=$type)")
+        val failure = OpenAiErrors.forCode(code) ?: OpenAiErrors.forCode(type) ?: AiFailure.UNKNOWN
+        return Outcome.Failure(OpenAiErrors.error(failure))
     }
 
     companion object {
