@@ -134,6 +134,7 @@ subgraph app["Android App"]
     import_queue -->|enqueue, cancel| work_scheduler
     import_queue -->|stage input files| import_input_store
     import_queue -->|insert / retry / delete rows| pending_import_repo
+    import_queue -->|cancel batch once| import_paprika
     import_monitor -->|observes import work| worker
     import_monitor -->|name/image, failures, remove finished| pending_import_repo
 
@@ -197,7 +198,8 @@ subgraph app["Android App"]
         subgraph usecases["Use Cases"]
             uc_import["ImportRecipeUseCase"]
             parse_html["ParseHtmlUseCase"]
-            import_paprika["ImportPaprikaUseCase"]
+            import_paprika["PaprikaImportSteps<br/>(state machine: Preparing → Submitted → Polling → SavingResults → Done / Failed)"]
+            paprika_state["PaprikaImportStateStore<br/>(batch.json, processed.log, poll_failures, photos/, cancelled)"]
             export_zip["ExportToZipUseCase"]
             export_single["ExportSingleRecipeUseCase"]
             import_zip["ImportFromZipUseCase"]
@@ -271,7 +273,8 @@ subgraph app["Android App"]
         parse_html -->|parse| port_parser
         parse_html -->|API key, model, thinking| port_settings
         parse_html -->|download, store image| port_images
-        import_paprika -->|runStep, persists batch.json| import_input_store
+        import_paprika -->|resume / advance, persists state| paprika_state
+        paprika_state -->|files in| import_input_store
         regenerate -->|uses| parse_html
         edit_recipe -->|uses| parse_html
         parse_html -->|save debug data| port_debug
@@ -441,7 +444,7 @@ subgraph app["Android App"]
     regenerate_worker -->|execute| regenerate
     edit_worker -->|execute| edit_recipe
     edit_recipe -->|store copy image| port_images
-    paprika_import_worker -->|execute| import_paprika
+    paprika_import_worker -->|run until waiting or done| import_paprika
     zip_export_worker -->|execute| export_zip
     zip_import_worker -->|execute| import_zip
 
@@ -539,9 +542,9 @@ subgraph legend["Data Flow"]
 
     subgraph paprika_flow["Paprika Import Flow"]
         p1["1. User picks .paprikarecipes file, selects recipes (PaprikaParser.parseIndex streams the index)"]
-        p2["2. File staged in ImportInputStore; PaprikaImportWorker runs short self-rescheduling steps"]
-        p3["3. Multiple recipes: batch via Message Batches API (50% cheaper), state in batch.json"]
-        p4["4. Each step polls batch, streams results, saves to Firestore"]
+        p2["2. File staged in ImportInputStore; PaprikaImportWorker runs short self-rescheduling steps (PaprikaImportSteps.run)"]
+        p3["3. Multiple recipes: batch via Message Batches API (50% cheaper), created and saved to batch.json in one NonCancellable block"]
+        p4["4. Each run polls the batch; once ended, streams results and saves each once (deterministic IDs + processed.log)"]
         p5["5. Images from Paprika data or source page; single = sequential"]
         p1 --> p2 --> p3 --> p4 --> p5
     end

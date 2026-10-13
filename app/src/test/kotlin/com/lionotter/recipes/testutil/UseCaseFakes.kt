@@ -17,6 +17,8 @@ import com.lionotter.recipes.domain.port.ImportDebugRecord
 import com.lionotter.recipes.domain.port.PageContent
 import com.lionotter.recipes.domain.port.PageContentExtractor
 import com.lionotter.recipes.domain.port.PageFetcher
+import com.lionotter.recipes.domain.port.PaprikaExportReader
+import com.lionotter.recipes.domain.port.PaprikaExportRecipe
 import com.lionotter.recipes.domain.port.ParseRequest
 import com.lionotter.recipes.domain.port.ParsedRecipe
 import com.lionotter.recipes.domain.port.ParsedRecipeWithUsage
@@ -25,6 +27,7 @@ import com.lionotter.recipes.domain.port.RecipeParser
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.io.File
+import java.io.IOException
 import java.io.InputStream
 
 /** In-memory fakes of the ports the AI use cases depend on. */
@@ -48,6 +51,11 @@ class FakeRecipeBatchParser : RecipeBatchParser {
     val created = mutableListOf<List<BatchParseRequest>>()
     val cancelled = mutableListOf<String>()
     var createResult: Outcome<String> = Outcome.Success("batch-1")
+    var cancelResult: Outcome<Unit> = Outcome.Success(Unit)
+    var statusPolls = 0
+
+    /** Runs while the batch is being created, e.g. to cancel the caller. */
+    var onCreate: suspend () -> Unit = {}
     var status: Outcome<BatchStatus> = Outcome.Success(BatchStatus(ended = true, succeeded = 0, processing = 0))
     var results: List<BatchItemOutcome> = emptyList()
     var resultsError: Outcome.Failure? = null
@@ -59,10 +67,14 @@ class FakeRecipeBatchParser : RecipeBatchParser {
         thinkingEnabled: Boolean
     ): Outcome<String> {
         created += requests
+        onCreate()
         return createResult
     }
 
-    override suspend fun getBatchStatus(batchId: String, apiKey: String): Outcome<BatchStatus> = status
+    override suspend fun getBatchStatus(batchId: String, apiKey: String): Outcome<BatchStatus> {
+        statusPolls++
+        return status
+    }
 
     override suspend fun forEachResult(
         batchId: String,
@@ -77,7 +89,25 @@ class FakeRecipeBatchParser : RecipeBatchParser {
 
     override suspend fun cancelBatch(batchId: String, apiKey: String): Outcome<Unit> {
         cancelled += batchId
-        return Outcome.Success(Unit)
+        return cancelResult
+    }
+}
+
+/** "Reads" [recipes], then reports each of [unreadableEntries] as unreadable. */
+class FakePaprikaExportReader(
+    private val recipes: List<PaprikaExportRecipe>,
+    private val unreadableEntries: List<String> = emptyList()
+) : PaprikaExportReader {
+    var reads = 0
+
+    override fun readRecipes(
+        inputStream: InputStream,
+        onError: (entryName: String, error: Exception) -> Unit,
+        onRecipe: (PaprikaExportRecipe) -> Unit
+    ) {
+        reads++
+        recipes.forEach(onRecipe)
+        unreadableEntries.forEach { onError(it, IOException("Corrupt entry")) }
     }
 }
 
@@ -138,9 +168,13 @@ class FakeImageStore(private val failingUrls: Set<String> = emptySet()) : ImageS
     /** Sizes of the images saved with [saveImageFromStream]. */
     val savedStreams = mutableListOf<Int>()
 
+    /** The local URI [saveImageFromStream] returns for an image of the given size. */
+    var streamUri: (size: Int, extension: String) -> String = { _, extension -> "file:///images/stream$extension" }
+
     override suspend fun saveImageFromStream(inputStream: InputStream, extension: String): String? {
-        savedStreams += inputStream.use { it.readBytes() }.size
-        return "file:///images/stream$extension"
+        val size = inputStream.use { it.readBytes() }.size
+        savedStreams += size
+        return streamUri(size, extension)
     }
 
     override suspend fun downloadImageIfNeeded(imageUrl: String?): String? = when {

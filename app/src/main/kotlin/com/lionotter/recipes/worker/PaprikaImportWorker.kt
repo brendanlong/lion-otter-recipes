@@ -8,29 +8,31 @@ import androidx.work.Data
 import androidx.work.WorkInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.lionotter.recipes.data.local.PendingImportStatus
 import com.lionotter.recipes.data.repository.PendingImportRepository
 import com.lionotter.recipes.domain.ArchiveFailure
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.RecipeErrorException
-import com.lionotter.recipes.domain.usecase.ImportPaprikaUseCase
+import com.lionotter.recipes.domain.usecase.paprika.PaprikaImportProgress
+import com.lionotter.recipes.domain.usecase.paprika.PaprikaImportState
+import com.lionotter.recipes.domain.usecase.paprika.PaprikaImportSteps
 import com.lionotter.recipes.notification.RecipeNotificationHelper
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 
 /**
- * Runs one step of a Paprika import (see [ImportPaprikaUseCase.runStep]). While the AI batch is
- * still processing, the worker schedules a delayed copy of itself and exits, instead of holding
- * a foreground service for hours.
+ * Drives a Paprika import ([PaprikaImportSteps.run]) one short run at a time. While the AI batch
+ * is still processing, the worker schedules a delayed copy of itself and exits, instead of
+ * holding a foreground service for hours.
  */
 @HiltWorker
 class PaprikaImportWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted workerParams: WorkerParameters,
-    private val importPaprikaUseCase: ImportPaprikaUseCase,
+    private val importSteps: PaprikaImportSteps,
     private val inputStore: ImportInputStore,
     private val scheduler: RecipeWorkScheduler,
     private val pendingImportRepository: PendingImportRepository,
@@ -53,17 +55,17 @@ class PaprikaImportWorker @AssistedInject constructor(
             ?: return errorResult(RecipeError.Unexpected, "no import ID provided")
         // Held until this run (including any batch submission) has fully stopped, so
         // ImportQueue.cancelImport can wait before cleaning up the batch and files.
-        return inputStore.withImportLock(importId) { runImportStep(importId) }
+        return inputStore.withImportLock(importId) { runImport(importId) }
     }
 
-    private suspend fun runImportStep(importId: String): Result {
-        val workDir = inputStore.importDir(importId)
+    private suspend fun runImport(importId: String): Result {
+        val store = importSteps.store(inputStore.importDir(importId))
         val sourceFile = inputStore.sourceFile(importId)
         val selectedUids = inputStore.readSelection(importId)
 
-        val step = try {
-            importPaprikaUseCase.runStep(
-                workDir = workDir,
+        val state = try {
+            importSteps.run(
+                store = store,
                 openSource = {
                     if (!sourceFile.exists()) {
                         throw RecipeErrorException(RecipeError.Archive(ArchiveFailure.MISSING))
@@ -73,40 +75,36 @@ class PaprikaImportWorker @AssistedInject constructor(
                 selectedUids = selectedUids,
                 onProgress = { progress -> reportProgress(progress) }
             )
-        } catch (e: CancellationException) {
+        } finally {
             // Below API 31 the stop reason is unavailable; ImportQueue.cancelImport
             // cancels the batch for user cancellations in that case.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && stopReason == WorkInfo.STOP_REASON_CANCELLED_BY_APP) {
-                // The user cancelled: stop paying for a batch nobody will collect. A failure here
-                // must not replace the cancellation, or the user would see an error notification.
-                try {
-                    withContext(NonCancellable) { importPaprikaUseCase.cancelBatch(workDir) }
-                } catch (cancelError: Exception) {
-                    Log.w(TAG, "Failed to cancel batch for import $importId", cancelError)
-                }
+            if (isStopped && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                stopReason == WorkInfo.STOP_REASON_CANCELLED_BY_APP
+            ) {
+                // The user cancelled: stop paying for a batch nobody will collect.
+                withContext(NonCancellable) { importSteps.cancel(store) }
             }
-            throw e
         }
 
-        return when (step) {
-            ImportPaprikaUseCase.StepResult.PollAgain -> scheduleNextPoll(importId)
-            is ImportPaprikaUseCase.StepResult.Finished -> when (val result = step.result) {
-                is Outcome.Success -> {
-                    val summary = result.value
-                    inputStore.deleteImport(importId)
-                    notificationHelper.showSummaryNotification(
-                        key = importId,
-                        title = "Paprika Import Complete",
-                        message = notificationHelper.paprikaImportMessage(summary.importedCount, summary.failedCount)
-                    )
-                    successResult(
-                        PaprikaImportWork.Outcome.Success(importId, summary.importedCount, summary.failedCount)
-                    )
-                }
-                is Outcome.Failure -> errorResult(
-                    PaprikaImportWork.Outcome.Failed(result.error, importId),
-                    retryable = result.error.retryable && step.allowRetry
+        return when (state) {
+            is PaprikaImportState.Submitted, is PaprikaImportState.Polling -> scheduleNextPoll(importId)
+            is PaprikaImportState.Done -> {
+                val summary = state.summary
+                inputStore.deleteImport(importId)
+                notificationHelper.showSummaryNotification(
+                    key = importId,
+                    title = "Paprika Import Complete",
+                    message = notificationHelper.paprikaImportMessage(summary.importedCount, summary.failedCount)
                 )
+                successResult(PaprikaImportWork.Outcome.Success(importId, summary.importedCount, summary.failedCount))
+            }
+            is PaprikaImportState.Failed -> errorResult(
+                PaprikaImportWork.Outcome.Failed(state.error, importId),
+                retryable = state.error.retryable && state.allowRetry
+            )
+            PaprikaImportState.Preparing, is PaprikaImportState.SavingResults -> {
+                Log.w(TAG, "Import $importId stopped in unexpected state $state")
+                errorResult(PaprikaImportWork.Outcome.Failed(RecipeError.Unexpected, importId))
             }
         }
     }
@@ -122,27 +120,31 @@ class PaprikaImportWorker @AssistedInject constructor(
             // Point the pending import at the new request before this one finishes, so the UI
             // keeps tracking the import rather than treating this run's success as completion.
             pendingImportRepository.updateWorkManagerId(importId, next.id.toString())
+            // Recorded here rather than left to ImportMonitor: this run's "waiting" progress is
+            // usually never observed before the row is pointed at the next request. Written after
+            // repointing, so ImportMonitor no longer mirrors this run's progress over it.
+            pendingImportRepository.updateStatus(importId, PendingImportStatus.WAITING_FOR_BATCH)
             scheduler.enqueueImportContinuation(importId, next)
         }
         Log.d(TAG, "Batch for import $importId still processing; next poll scheduled")
         return successResult(PaprikaImportWork.Outcome.Continued(importId))
     }
 
-    private suspend fun reportProgress(progress: ImportPaprikaUseCase.ImportProgress) {
+    private suspend fun reportProgress(progress: PaprikaImportProgress) {
         when (progress) {
-            is ImportPaprikaUseCase.ImportProgress.Parsing -> {
+            is PaprikaImportProgress.Parsing -> {
                 setProgress(PaprikaImportWork.Progress.Parsing.toData())
                 setForegroundProgress("Reading Paprika export...")
             }
-            is ImportPaprikaUseCase.ImportProgress.SubmittingBatch -> {
+            is PaprikaImportProgress.SubmittingBatch -> {
                 setProgress(PaprikaImportWork.Progress.SubmittingBatch(progress.total).toData())
                 setForegroundProgress("Submitting ${progress.total} recipes for AI processing...")
             }
-            is ImportPaprikaUseCase.ImportProgress.WaitingForBatch -> {
+            is PaprikaImportProgress.WaitingForBatch -> {
                 // Polling is quick; don't promote to a foreground service just for this.
                 setProgress(PaprikaImportWork.Progress.WaitingForBatch(progress.total, progress.succeeded).toData())
             }
-            is ImportPaprikaUseCase.ImportProgress.ImportingRecipe -> {
+            is PaprikaImportProgress.ImportingRecipe -> {
                 setProgress(
                     PaprikaImportWork.Progress.ImportingRecipe(
                         recipeName = progress.recipeName,
