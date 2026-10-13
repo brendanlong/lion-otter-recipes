@@ -56,7 +56,7 @@ class RecipePromptTest {
     @Test
     fun `user message lists the existing tags before the content, and the system prompt doesn't`() {
         val message = RecipePrompt.buildUserMessage("RECIPE TEXT", existingTags = listOf("Dessert", "Quick & easy"))
-        assertTrue(message.contains("Dessert, Quick & easy"))
+        assertTrue(message.contains("\nDessert\nQuick & easy\n"))
         assertTrue(message.indexOf("Dessert") < message.indexOf("RECIPE TEXT"))
         assertFalse(RecipePrompt.systemPrompt.contains("Quick & easy"))
         assertFalse(RecipePrompt.buildUserMessage("RECIPE TEXT").contains("already uses"))

@@ -1,5 +1,6 @@
 package com.lionotter.recipes.ui.screens.tags
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.toggleable
@@ -31,6 +33,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,11 +41,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -64,6 +71,9 @@ fun ManageTagsScreen(
     val resources = LocalResources.current
     val snackbarHostState = remember { SnackbarHostState() }
     var editingTag by rememberSaveable { mutableStateOf<String?>(null) }
+
+    val reviewing = (uiState as? ManageTagsUiState.Loaded)?.suggestions is TagSuggestions.Review
+    BackHandler(enabled = reviewing, onBack = viewModel::discardSuggestions)
 
     CollectEvents(viewModel.events) { message ->
         snackbarHostState.showSnackbar(message.resolve(resources))
@@ -244,7 +254,7 @@ private fun SuggestionReview(
                 modifier = Modifier.weight(1f)
             ) {
                 if (applying) {
-                    CircularProgressIndicator(modifier = Modifier.padding(2.dp))
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                 } else {
                     val count = review.selected.size
                     Text(pluralStringResource(R.plurals.tag_cleanup_apply, count, count))
@@ -278,7 +288,10 @@ private fun EditTagDialog(
     onDelete: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    var name by rememberSaveable(tag.name) { mutableStateOf(tag.name) }
+    var name by rememberSaveable(tag.name, stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(tag.name, selection = TextRange(tag.name.length)))
+    }
+    val focusRequester = remember { FocusRequester() }
     var confirmingDelete by rememberSaveable(tag.name) { mutableStateOf(false) }
     val recipes = pluralStringResource(R.plurals.tag_recipe_count, tag.recipeCount, tag.recipeCount)
 
@@ -297,7 +310,9 @@ private fun EditTagDialog(
         return
     }
 
-    val canRename = name.isNotBlank() && name.trim() != tag.name
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    val newName = name.text.trim()
+    val canRename = newName.isNotEmpty() && newName != tag.name
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.edit_tag)) },
@@ -309,7 +324,9 @@ private fun EditTagDialog(
                     label = { Text(stringResource(R.string.tag_name)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester)
                 )
                 Text(
                     text = stringResource(R.string.edit_tag_hint, recipes),
@@ -319,7 +336,7 @@ private fun EditTagDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onRename(name.trim()) }, enabled = canRename) {
+            TextButton(onClick = { onRename(newName) }, enabled = canRename) {
                 Text(stringResource(R.string.save))
             }
         },

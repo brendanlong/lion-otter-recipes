@@ -189,4 +189,14 @@ class ManageTagsViewModelTest {
         assertTrue(!subject.state.applying)
         assertEquals(listOf(UserMessage(R.string.tags_update_failed)), subject.events)
     }
+
+    @Test
+    fun `a manual change of a tag that is gone is reported`() = runTest {
+        val subject = subject()
+
+        subject.viewModel.renameTag("Vanished", "Other")
+
+        assertTrue(repository.tagUpdates.isEmpty())
+        assertEquals(listOf(UserMessage(R.string.tags_update_failed)), subject.events)
+    }
 }

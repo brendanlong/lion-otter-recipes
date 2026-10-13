@@ -181,10 +181,15 @@ class FirestoreRecipeRepository @Inject constructor(
             }
         }
 
-    /** @throws Exception if recipes could not be read */
+    /**
+     * Read from the local cache (what [getAllRecipes] shows), so it never waits for the network
+     * and costs no server reads.
+     *
+     * @throws Exception if recipes could not be read
+     */
     override suspend fun getAllRecipeTags(): Map<String, List<String>> =
         logFailure(TAG, "Error fetching recipe tags") {
-            val snapshot = firestoreService.recipesCollection(authService.awaitUid()).get().await()
+            val snapshot = firestoreService.recipesCollection(authService.awaitUid()).get(Source.CACHE).await()
             snapshot.documents.associate { doc ->
                 doc.id to (doc.get(RecipeFields.TAGS) as? List<*>).orEmpty().filterIsInstance<String>()
             }

@@ -21,6 +21,7 @@ import com.lionotter.recipes.util.IoDispatcher
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -70,6 +71,8 @@ class AnthropicTagOrganizer @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            // Closing the stream on cancellation surfaces as an I/O error; that's not a failure
+            currentCoroutineContext().ensureActive()
             ErrorLog.e(TAG, "Tag cleanup request failed (model=$model)", e)
             Outcome.Failure(AnthropicErrorMapper.toRecipeError(e))
         }
@@ -85,7 +88,12 @@ class AnthropicTagOrganizer @Inject constructor(
             .outputConfig(
                 OutputConfig.builder()
                     .format(outputFormat)
-                    .effort(if (config.effort == Effort.MEDIUM) OutputConfig.Effort.MEDIUM else OutputConfig.Effort.LOW)
+                    .effort(
+                        when (config.effort) {
+                            Effort.LOW -> OutputConfig.Effort.LOW
+                            Effort.MEDIUM -> OutputConfig.Effort.MEDIUM
+                        }
+                    )
                     .build()
             )
         if (config.adaptiveThinking) builder.thinking(ThinkingConfigAdaptive.builder().build())

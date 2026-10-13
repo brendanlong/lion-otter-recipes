@@ -27,7 +27,7 @@ interface RecipeRepository {
     fun setTags(id: String, tags: List<String>)
     suspend fun getAllRecipeIdsAndNames(): List<RecipeIdAndName>
 
-    /** Every recipe's tags, by recipe ID. */
+    /** Every recipe's tags, by recipe ID, as stored on this device (never waits for the network). */
     suspend fun getAllRecipeTags(): Map<String, List<String>>
     suspend fun getRecipeCount(): Int
 

@@ -137,6 +137,7 @@ class ParseHtmlUseCase @Inject constructor(
 
         // Parse with AI
         onProgress(ParseProgress.ParsingRecipe)
+        val existingTags = existingTagVocabulary()
         val startTime = System.currentTimeMillis()
         val parseResult = recipeParser.parse(
             ParseRequest(
@@ -146,7 +147,7 @@ class ParseHtmlUseCase @Inject constructor(
                 thinkingEnabled = thinkingEnabled,
                 densityOverrides = densityOverrides,
                 aiInstructions = aiInstructions,
-                existingTags = existingTagVocabulary()
+                existingTags = existingTags
             )
         )
         val durationMs = System.currentTimeMillis() - startTime

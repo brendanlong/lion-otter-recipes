@@ -125,8 +125,14 @@ class ManageTagsViewModel @Inject constructor(
 
     private fun applyManual(mapping: TagMapping) {
         val state = loaded ?: return
-        if (state.suggestions != TagSuggestions.None) return
-        apply(planTagChanges(state.tags, listOf(mapping)), clearSuggestions = false)
+        if (state.suggestions != TagSuggestions.None || applying.value) return
+        val changes = planTagChanges(state.tags, listOf(mapping))
+        if (changes.isEmpty()) {
+            // The tag is gone (e.g. changed on another device) or the name is unchanged
+            eventChannel.trySend(UserMessage(R.string.tags_update_failed))
+            return
+        }
+        apply(changes, clearSuggestions = false)
     }
 
     private fun apply(changes: List<TagChange>, clearSuggestions: Boolean) {

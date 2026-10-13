@@ -62,7 +62,7 @@ class TagChangesTest {
     }
 
     @Test
-    fun `drops unknown tags, no-ops and repeated mappings, and treats a blank target as delete`() {
+    fun `drops unknown tags, no-ops, blank targets and repeated mappings`() {
         val changes = planTagChanges(
             usage,
             listOf(
@@ -72,7 +72,7 @@ class TagChangesTest {
                 TagMapping("Baking", "Bakes")
             )
         )
-        assertEquals(listOf(TagChange("Baking", null, 1, Kind.DELETE)), changes)
+        assertEquals(listOf(TagChange("Baking", "Bakes", 1, Kind.RENAME)), changes)
     }
 
     @Test
@@ -121,9 +121,22 @@ class TagChangesTest {
     }
 
     @Test
-    fun `cycles terminate`() {
-        val changes = planTagChanges(usage, listOf(TagMapping("Quick", "Sweets"), TagMapping("Sweets", "Quick")))
-        assertEquals(2, changes.size)
+    fun `a cycle merges into its most used tag`() {
+        val changes = planTagChanges(
+            usage,
+            listOf(TagMapping("Dessert", "Desserts"), TagMapping("Desserts", "Sweets"), TagMapping("Sweets", "dessert"))
+        )
+        assertEquals(
+            listOf(TagChange("Desserts", "Dessert", 1, Kind.MERGE), TagChange("Sweets", "Dessert", 1, Kind.MERGE)),
+            changes
+        )
+    }
+
+    @Test
+    fun `applying only part of a chain still uses the chain's end`() {
+        val changes = planTagChanges(usage, listOf(TagMapping("Sweets", "Desserts"), TagMapping("Desserts", "Dessert")))
+        val sweetsOnly = changes.filter { it.from == "Sweets" }.associateBy { it.key }
+        assertEquals(listOf("Dessert", "Desserts"), applyTagChanges(listOf("Sweets", "Desserts"), sweetsOnly))
     }
 
     @Test

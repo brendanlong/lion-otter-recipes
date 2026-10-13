@@ -175,9 +175,9 @@ ADDITIONAL GUIDELINES:
         existingTags: List<String> = emptyList()
     ): String = buildString {
         if (existingTags.isNotEmpty()) {
-            append("Tags the user already uses for their recipes, most used first:\n")
-            append(existingTags.joinToString(", "))
-            append("\n\nUse these exact tags (same spelling and case) wherever they fit this recipe. ")
+            append("Tags the user already uses for their recipes, one per line, most used first:\n")
+            existingTags.forEach { append(it).append('\n') }
+            append("\nUse these exact tags (same spelling and case) wherever they fit this recipe. ")
             append("Only add a new tag when none of them describes something important about the recipe.\n\n")
         }
         if (!densityOverrides.isNullOrEmpty()) {

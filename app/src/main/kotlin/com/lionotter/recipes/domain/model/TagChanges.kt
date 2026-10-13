@@ -27,26 +27,32 @@ data class TagChange(
 
 /**
  * Turns [mappings] (e.g. the AI's suggestions) into changes to the tags in [usage]. Mappings for
- * tags nobody uses, and ones that change nothing, are dropped; a tag mapped twice keeps its first
- * mapping. Chains are followed (a → b, b → c becomes a → c and b → c; a chain ending in a
- * deletion deletes), so applying any subset of the changes never leaves a tag that another
- * change was meant to replace.
+ * tags nobody uses, to a blank name, or that change nothing are dropped; a tag mapped twice keeps
+ * its first mapping. Chains are followed (a → b, b → c becomes a → c and b → c; a chain ending in
+ * a deletion deletes; a cycle merges into its most used tag), so applying any subset of the
+ * changes never leaves a tag that another change was meant to replace.
  */
 fun planTagChanges(usage: List<TagUsage>, mappings: List<TagMapping>): List<TagChange> {
     val usageByKey = usage.associateBy { tagKey(it.name) }
     val targets = linkedMapOf<String, String?>()
     for (mapping in mappings) {
         val key = tagKey(mapping.from)
-        if (key !in usageByKey || key in targets) continue
-        targets[key] = mapping.to?.trim()?.takeIf { it.isNotEmpty() }
+        val to = mapping.to?.trim()
+        if (key !in usageByKey || key in targets || to?.isEmpty() == true) continue
+        targets[key] = to
     }
 
     fun resolve(start: String?): String? {
         var target = start
-        val seen = mutableSetOf<String>()
+        val path = mutableListOf<String>()
         while (target != null) {
             val key = tagKey(target)
-            if (key !in targets || !seen.add(key)) break
+            if (key !in targets) break
+            if (key in path) {
+                // A cycle (a → b, b → a) merges its tags into the most used one
+                return path.drop(path.indexOf(key)).map(usageByKey::getValue).maxBy { it.recipeCount }.name
+            }
+            path += key
             val next = targets[key]
             // A tag mapped to (a spelling of) itself ends the chain there
             if (next != null && tagKey(next) == key) return next

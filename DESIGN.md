@@ -139,7 +139,7 @@ Behavior:
 4. Generate relevant tags
 5. Prefer schema.org JSON-LD data when present alongside the page text
 
-Imports, edits, regeneration and Paprika batches also pass the user's 100 most used tags (`tagVocabulary`, read with `RecipeRepository.getAllRecipeTags`; a read failure only drops the hint) with an instruction to reuse them and only add a new tag when none fits. They go in the user message, never the system prompt, so the system prompt stays identical for every request and is served from the prompt cache (`RecipePromptTest` pins its hash).
+Imports, edits, regeneration and Paprika batches also pass the user's 100 most used tags (`tagVocabulary`, read with `RecipeRepository.getAllRecipeTags`, which reads the local Firestore cache so it never waits for the network or costs server reads; a read failure only drops the hint) with an instruction to reuse them and only add a new tag when none fits. They go in the user message, never the system prompt, so the system prompt stays identical for every request and is served from the prompt cache (`RecipePromptTest` pins its hash).
 
 ### Repository
 
@@ -274,7 +274,7 @@ Selects the top 10 tags that maximize recipe coverage (an ILP, with a greedy set
 
 #### TagCleanupUseCase
 
-`suggestChanges()` sends every tag with its count to the `TagOrganizer` using the edit model (Haiku by default) and the thinking setting, and turns the answer into `TagChange`s (`RENAME`, `MERGE` into an existing tag, or `DELETE`, each with its recipe count) with `planTagChanges` (`domain/model/TagChanges.kt`): mappings of unknown tags and no-ops are dropped and chains are followed (a → b, b → c becomes a → c), so any subset the user accepts is consistent. No API key fails with `NoApiKey` before anything is read; no tags means no AI call. `applyChanges(changes)` reads every recipe's tags and calls `setTags` for each recipe that changes (`applyTagChanges`, which also drops duplicates a merge creates), inside `NonCancellable`, so leaving the screen never leaves a batch half applied. The manual rename / merge / delete on the tags screen goes through the same planning and apply.
+`suggestChanges()` sends every tag with its count to the `TagOrganizer` using the edit model (Haiku by default) and the thinking setting, and turns the answer into `TagChange`s (`RENAME`, `MERGE` into an existing tag, or `DELETE`, each with its recipe count) with `planTagChanges` (`domain/model/TagChanges.kt`): mappings of unknown tags and no-ops are dropped and chains are followed (a → b, b → c becomes a → c; a cycle merges into its most used tag), so any subset the user accepts is consistent. No API key fails with `NoApiKey` before anything is read; no tags means no AI call. `applyChanges(changes)` reads every recipe's tags and calls `setTags` for each recipe that changes (`applyTagChanges`, which also drops duplicates a merge creates), inside `NonCancellable`, so leaving the screen never leaves a batch half applied. The manual rename / merge / delete on the tags screen goes through the same planning and apply.
 
 #### Edit and regenerate
 
@@ -404,7 +404,7 @@ External intents are turned into `AppIntentEvent`s (`ImportUrl`, `ImportFile`, `
 
 #### ManageTagsScreen
 
-- Lists every tag with its recipe count (`tagUsage` over the recipes flow); tapping one opens a dialog to rename it (renaming to an existing tag's name merges them) or delete it (with confirmation)
+- Lists every tag with its recipe count (`tagUsage` over the recipes flow); tapping one opens a dialog to rename it (renaming to an existing tag's name merges them) or delete it (with confirmation). Back while reviewing discards the suggestions
 - "Suggest tag cleanup" calls `TagCleanupUseCase.suggestChanges()`; `TagSuggestions` is `None | Loading | Review(changes, selected)`. The review lists renames, merges and deletions with their recipe counts, all checked; the user unchecks what they don't want and applies the rest, or discards them. Results, "nothing to change" and errors are `UserMessage` events shown as snackbars
 
 ### ViewModels
