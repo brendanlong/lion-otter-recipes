@@ -1,12 +1,11 @@
 package com.lionotter.recipes.domain.util
 
-import android.util.Log
-import com.lionotter.recipes.data.remote.ImageDownloadService
-import com.lionotter.recipes.data.repository.IMealPlanRepository
-import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.ResourceLimits
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.port.ImageStore
+import com.lionotter.recipes.domain.repository.MealPlanRepository
+import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.util.ErrorLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -32,11 +31,11 @@ data class ZipRecipeIndexEntry(val id: String, val name: String)
  * newer ones append a short ID to keep them unique).
  */
 class ZipImportHelper @Inject constructor(
-    private val recipeRepository: IRecipeRepository,
+    private val recipeRepository: RecipeRepository,
     private val recipeSerializer: RecipeSerializer,
-    private val mealPlanRepository: IMealPlanRepository,
+    private val mealPlanRepository: MealPlanRepository,
     private val json: Json,
-    private val imageDownloadService: ImageDownloadService
+    private val imageStore: ImageStore
 ) {
     companion object {
         private const val TAG = "ZipImportHelper"
@@ -78,7 +77,7 @@ class ZipImportHelper @Inject constructor(
                 } catch (e: ArchiveTooLargeException) {
                     throw e
                 } catch (e: Exception) {
-                    Log.w(TAG, "Skipping unreadable recipe in $folder", e)
+                    ErrorLog.w(TAG, "Skipping unreadable recipe in $folder", e)
                 }
             }
         }
@@ -132,7 +131,7 @@ class ZipImportHelper @Inject constructor(
             } else if (recipe == null && folderHadBadJson && selectedRecipeIds == null) {
                 failed++
             }
-            folderImage?.let { imageDownloadService.deleteLocalImage(it) }
+            folderImage?.let { imageStore.deleteLocalImage(it) }
             folderRecipe = null
             folderImage = null
             folderHadBadJson = false
@@ -147,7 +146,7 @@ class ZipImportHelper @Inject constructor(
                     } catch (e: ArchiveTooLargeException) {
                         throw e
                     } catch (e: Exception) {
-                        Log.w(TAG, "Failed to read meal plan file $fileName", e)
+                        ErrorLog.w(TAG, "Failed to read meal plan file $fileName", e)
                     }
                 }
                 return@forEachEntrySuspend
@@ -162,7 +161,7 @@ class ZipImportHelper @Inject constructor(
                 } catch (e: ArchiveTooLargeException) {
                     throw e
                 } catch (e: Exception) {
-                    Log.w(TAG, "Failed to read recipe in folder $folder", e)
+                    ErrorLog.w(TAG, "Failed to read recipe in folder $folder", e)
                     folderHadBadJson = true
                 }
                 isImageFile(fileName) && folderImage == null -> {
@@ -170,7 +169,7 @@ class ZipImportHelper @Inject constructor(
                     val wanted = known == null || selectedRecipeIds == null || known.id in selectedRecipeIds
                     if (wanted) {
                         val extension = ".${fileName.substringAfterLast('.', "jpg")}"
-                        folderImage = imageDownloadService.saveImageFromStream(
+                        folderImage = imageStore.saveImageFromStream(
                             BoundedInputStream(zipIn, ResourceLimits.MAX_IMAGE_SIZE_BYTES, budget),
                             extension
                         )
@@ -197,16 +196,16 @@ class ZipImportHelper @Inject constructor(
 
             val count = recipeRepository.getRecipeCount()
             if (count >= ResourceLimits.MAX_RECIPES) {
-                Log.w(TAG, "Recipe limit reached ($count/${ResourceLimits.MAX_RECIPES})")
+                ErrorLog.w(TAG, "Recipe limit reached ($count/${ResourceLimits.MAX_RECIPES})")
                 return SingleRecipeResult.LimitReached
             }
 
             val localImageUrl = bundledImageUri
-                ?: recipe.sourceImageUrl?.takeIf { it.isNotBlank() }?.let { imageDownloadService.downloadAndStore(it) }
-                ?: imageDownloadService.downloadImageIfNeeded(recipe.imageUrl)
+                ?: recipe.sourceImageUrl?.takeIf { it.isNotBlank() }?.let { imageStore.downloadAndStoreWithResult(it)?.localUri }
+                ?: imageStore.downloadImageIfNeeded(recipe.imageUrl)
 
             withContext(NonCancellable) {
-                val storedImageUrl = localImageUrl?.let { imageDownloadService.storeImage(it) }
+                val storedImageUrl = localImageUrl?.let { imageStore.storeImage(it) }
                 recipeRepository.saveRecipe(
                     recipe.copy(updatedAt = Clock.System.now(), imageUrl = storedImageUrl)
                 )
@@ -228,7 +227,7 @@ class ZipImportHelper @Inject constructor(
                     mealPlanRepository.saveMealPlan(entry)
                     imported++
                 } catch (e: Exception) {
-                    Log.w(TAG, "Failed to import meal plan entry ${entry.id}", e)
+                    ErrorLog.w(TAG, "Failed to import meal plan entry ${entry.id}", e)
                 }
             }
         }

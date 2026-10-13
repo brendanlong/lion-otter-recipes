@@ -1,28 +1,41 @@
 package com.lionotter.recipes.util
 
-import android.util.Log
+/** Where [ErrorLog] writes log lines. The app installs one backed by `android.util.Log`. */
+fun interface LogSink {
+    fun log(level: LogLevel, tag: String, message: String, throwable: Throwable?)
+}
+
+enum class LogLevel { DEBUG, INFO, WARN, ERROR }
 
 /**
- * Logs errors and forwards their exceptions to crash reporting as non-fatals.
+ * Logging for code that must not depend on Android (the domain layer), plus crash reporting:
+ * [e] also forwards its exception to crash reporting as a non-fatal.
  *
- * Only the exception is recorded, not [message], since messages often include
- * recipe names or URLs. [recorder] is installed by the Application in release
- * builds; tests and other builds leave it unset.
+ * Only the exception is recorded, not the message, since messages often include recipe names
+ * or URLs. [sink] defaults to stderr (unit tests); the Application installs the Android one.
+ * [recorder] is installed by the Application in release builds; tests and other builds leave it
+ * unset.
  */
 object ErrorLog {
     @Volatile
+    var sink: LogSink = StderrSink
+
+    @Volatile
     var recorder: ((Throwable) -> Unit)? = null
 
+    fun d(tag: String, message: String) = sink.log(LogLevel.DEBUG, tag, message, null)
+
+    fun i(tag: String, message: String) = sink.log(LogLevel.INFO, tag, message, null)
+
+    fun w(tag: String, message: String, throwable: Throwable? = null) = sink.log(LogLevel.WARN, tag, message, throwable)
+
     fun e(tag: String, message: String, throwable: Throwable? = null) {
-        if (throwable == null) {
-            Log.e(tag, message)
-            return
-        }
-        Log.e(tag, message, throwable)
+        sink.log(LogLevel.ERROR, tag, message, throwable)
+        if (throwable == null) return
         try {
             recorder?.invoke(withoutUserContent(throwable))
         } catch (e: Exception) {
-            Log.w(tag, "Failed to record error for crash reporting", e)
+            w(tag, "Failed to record error for crash reporting", e)
         }
     }
 
@@ -52,4 +65,11 @@ object ErrorLog {
     private const val MAX_CAUSE_DEPTH = 10
 
     class ScrubbedException(message: String, cause: Throwable?) : Exception(message, cause)
+
+    private object StderrSink : LogSink {
+        override fun log(level: LogLevel, tag: String, message: String, throwable: Throwable?) {
+            System.err.println("${level.name.first()}/$tag: $message")
+            throwable?.printStackTrace()
+        }
+    }
 }

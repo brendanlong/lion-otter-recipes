@@ -1,14 +1,9 @@
 package com.lionotter.recipes.ui.screens.recipedetail
 
-import com.lionotter.recipes.messages.UserMessage
-import com.lionotter.recipes.R
-import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.navigation.testing.invoke
 import app.cash.turbine.test
-import com.lionotter.recipes.data.local.SettingsDataStore
-import com.lionotter.recipes.data.repository.IMealPlanRepository
-import com.lionotter.recipes.data.repository.IRecipeRepository
+import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.Amount
 import com.lionotter.recipes.domain.model.Ingredient
 import com.lionotter.recipes.domain.model.InstructionSection
@@ -20,24 +15,19 @@ import com.lionotter.recipes.domain.model.createInstructionIngredientKey
 import com.lionotter.recipes.domain.usecase.CalculateIngredientUsageUseCase
 import com.lionotter.recipes.domain.usecase.ExportSingleRecipeUseCase
 import com.lionotter.recipes.domain.util.RecipeSerializer
+import com.lionotter.recipes.messages.UserMessage
+import com.lionotter.recipes.testutil.FakeAppSettings
+import com.lionotter.recipes.testutil.FakeImageStore
+import com.lionotter.recipes.testutil.FakeMealPlanRepository
+import com.lionotter.recipes.testutil.FakeRecipeRepository
 import com.lionotter.recipes.ui.navigation.Route
-import io.mockk.coEvery
-import io.mockk.coVerify
-import io.mockk.every
-import io.mockk.just
-import io.mockk.mockk
-import io.mockk.mockkStatic
-import io.mockk.unmockkStatic
-import io.mockk.runs
-import io.mockk.verify
+import com.lionotter.recipes.util.AppJson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
-import kotlin.time.Instant
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -47,6 +37,8 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import kotlin.time.Instant
 
 // Robolectric: building a SavedStateHandle from a typed route encodes it with android.net.Uri.
 @RunWith(RobolectricTestRunner::class)
@@ -54,11 +46,15 @@ import org.robolectric.RobolectricTestRunner
 class RecipeDetailViewModelTest {
 
     private lateinit var savedStateHandle: SavedStateHandle
-    private lateinit var recipeRepository: IRecipeRepository
-    private lateinit var mealPlanRepository: IMealPlanRepository
-    private lateinit var settingsDataStore: SettingsDataStore
+    private lateinit var recipeRepository: FakeRecipeRepository
+    private val mealPlanRepository = FakeMealPlanRepository()
+    private val settings = FakeAppSettings(apiKey = "test-api-key").apply {
+        volumeUnitSystemFlow.value = UnitSystem.CUSTOMARY
+        weightUnitSystemFlow.value = UnitSystem.METRIC
+    }
     private lateinit var viewModel: RecipeDetailViewModel
     private val testDispatcher = StandardTestDispatcher()
+    private val recipeSerializer = RecipeSerializer(AppJson)
 
     private fun createTestRecipe(
         id: String = "recipe-1",
@@ -77,28 +73,17 @@ class RecipeDetailViewModelTest {
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
-        mockkStatic(Log::class)
-        every { Log.e(any(), any(), any()) } returns 0
-        every { Log.w(any(), any<String>(), any()) } returns 0
         savedStateHandle = SavedStateHandle(route = Route.RecipeDetail("recipe-1"))
-        recipeRepository = mockk()
-        mealPlanRepository = mockk()
-        settingsDataStore = mockk()
+        recipeRepository = FakeRecipeRepository(createTestRecipe())
+    }
 
-        // Default mock setup
-        every { recipeRepository.getRecipeById("recipe-1") } returns flowOf(createTestRecipe())
-        every { settingsDataStore.keepScreenOn } returns flowOf(true)
-        every { settingsDataStore.volumeUnitSystem } returns flowOf(UnitSystem.CUSTOMARY)
-        every { settingsDataStore.weightUnitSystem } returns flowOf(UnitSystem.METRIC)
-        every { settingsDataStore.aiModel } returns flowOf("claude-sonnet-4-5")
-        every { settingsDataStore.thinkingEnabled } returns flowOf(true)
-        every { settingsDataStore.anthropicApiKey } returns flowOf("test-api-key")
+    private fun givenRecipe(recipe: Recipe) {
+        recipeRepository.recipes.value = mapOf(recipe.id to recipe)
     }
 
     @After
     fun tearDown() {
         Dispatchers.resetMain()
-        unmockkStatic(Log::class)
     }
 
     private fun createViewModel(): RecipeDetailViewModel {
@@ -106,11 +91,12 @@ class RecipeDetailViewModelTest {
             savedStateHandle = savedStateHandle,
             recipeRepository = recipeRepository,
             mealPlanRepository = mealPlanRepository,
-            settingsDataStore = settingsDataStore,
+            settings = settings,
             calculateIngredientUsage = CalculateIngredientUsageUseCase(),
-            exportSingleRecipeUseCase = mockk<ExportSingleRecipeUseCase>(),
-            recipeSerializer = mockk<RecipeSerializer>(),
-            applicationContext = mockk(relaxed = true)
+            exportSingleRecipeUseCase = ExportSingleRecipeUseCase(recipeSerializer, FakeImageStore()),
+            recipeSerializer = recipeSerializer,
+            applicationContext = RuntimeEnvironment.getApplication(),
+            ioDispatcher = testDispatcher
         )
     }
 
@@ -310,8 +296,7 @@ class RecipeDetailViewModelTest {
     @Test
     fun `toggleFavorite calls repository with toggled value`() = runTest {
         val recipe = createTestRecipe(isFavorite = false)
-        every { recipeRepository.getRecipeById("recipe-1") } returns flowOf(recipe)
-        every { recipeRepository.setFavorite("recipe-1", true) } just runs
+        givenRecipe(recipe)
 
         viewModel = createViewModel()
         testDispatcher.scheduler.advanceUntilIdle()
@@ -319,14 +304,13 @@ class RecipeDetailViewModelTest {
         viewModel.toggleFavorite()
         testDispatcher.scheduler.advanceUntilIdle()
 
-        verify { recipeRepository.setFavorite("recipe-1", true) }
+        assertEquals(listOf("recipe-1" to true), recipeRepository.favoriteUpdates)
     }
 
     @Test
     fun `toggleFavorite toggles from true to false`() = runTest {
         val recipe = createTestRecipe(isFavorite = true)
-        every { recipeRepository.getRecipeById("recipe-1") } returns flowOf(recipe)
-        every { recipeRepository.setFavorite("recipe-1", false) } just runs
+        givenRecipe(recipe)
 
         viewModel = createViewModel()
         testDispatcher.scheduler.advanceUntilIdle()
@@ -334,13 +318,11 @@ class RecipeDetailViewModelTest {
         viewModel.toggleFavorite()
         testDispatcher.scheduler.advanceUntilIdle()
 
-        verify { recipeRepository.setFavorite("recipe-1", false) }
+        assertEquals(listOf("recipe-1" to false), recipeRepository.favoriteUpdates)
     }
 
     @Test
     fun `deleteRecipe calls repository and emits event`() = runTest {
-        coEvery { mealPlanRepository.deleteMealPlansByRecipeId("recipe-1") } just runs
-        every { recipeRepository.deleteRecipe("recipe-1") } just runs
 
         viewModel = createViewModel()
 
@@ -352,14 +334,14 @@ class RecipeDetailViewModelTest {
             cancelAndIgnoreRemainingEvents()
         }
 
-        coVerify { mealPlanRepository.deleteMealPlansByRecipeId("recipe-1") }
-        verify { recipeRepository.deleteRecipe("recipe-1") }
+        assertEquals(listOf("recipe-1"), mealPlanRepository.deletedForRecipes)
+        assertEquals(listOf("recipe-1"), recipeRepository.deleted)
     }
 
     @Test
     fun `supportsConversion is false for empty recipe`() = runTest {
         val recipe = createTestRecipe(instructionSections = emptyList())
-        every { recipeRepository.getRecipeById("recipe-1") } returns flowOf(recipe)
+        givenRecipe(recipe)
 
         viewModel = createViewModel()
 
@@ -390,7 +372,7 @@ class RecipeDetailViewModelTest {
                 )
             )
         )
-        every { recipeRepository.getRecipeById("recipe-1") } returns flowOf(recipe)
+        givenRecipe(recipe)
 
         viewModel = createViewModel()
         testDispatcher.scheduler.advanceUntilIdle()
@@ -461,7 +443,7 @@ class RecipeDetailViewModelTest {
 
     @Test
     fun `uiState is NotFound when recipe does not exist`() = runTest {
-        every { recipeRepository.getRecipeById("recipe-1") } returns flowOf(null)
+        recipeRepository.recipes.value = emptyMap()
         viewModel = createViewModel()
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -478,7 +460,7 @@ class RecipeDetailViewModelTest {
 
     @Test
     fun `deleteRecipe failure reports error instead of navigating away`() = runTest {
-        coEvery { mealPlanRepository.deleteMealPlansByRecipeId("recipe-1") } throws IllegalStateException("offline")
+        mealPlanRepository.deleteByRecipeError = IllegalStateException("offline")
 
         viewModel = createViewModel()
 
@@ -489,13 +471,12 @@ class RecipeDetailViewModelTest {
             expectNoEvents()
             cancelAndIgnoreRemainingEvents()
         }
-        verify(exactly = 0) { recipeRepository.deleteRecipe(any()) }
+        assertEquals(emptyList<String>(), recipeRepository.deleted)
     }
 
     @Test
     fun `incrementScale adds one serving when servings are known`() = runTest {
-        every { recipeRepository.getRecipeById("recipe-1") } returns
-            flowOf(createTestRecipe().copy(servings = 4))
+        givenRecipe(createTestRecipe().copy(servings = 4))
         viewModel = createViewModel()
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -509,8 +490,7 @@ class RecipeDetailViewModelTest {
 
     @Test
     fun `decrementScale does not go below one serving`() = runTest {
-        every { recipeRepository.getRecipeById("recipe-1") } returns
-            flowOf(createTestRecipe().copy(servings = 2))
+        givenRecipe(createTestRecipe().copy(servings = 2))
         viewModel = createViewModel()
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -532,34 +512,31 @@ class RecipeDetailViewModelTest {
 
     @Test
     fun `notes are saved after typing stops`() = runTest {
-        every { recipeRepository.setUserNotes(any(), any()) } just runs
         viewModel = createViewModel()
         testDispatcher.scheduler.advanceUntilIdle()
 
         viewModel.onNotesChange("Less salt")
         testDispatcher.scheduler.advanceTimeBy(RecipeDetailViewModel.NOTES_SAVE_DEBOUNCE_MS / 2)
-        verify(exactly = 0) { recipeRepository.setUserNotes(any(), any()) }
+        assertEquals(emptyList<Any>(), recipeRepository.notesUpdates)
 
         testDispatcher.scheduler.advanceUntilIdle()
-        verify(exactly = 1) { recipeRepository.setUserNotes("recipe-1", "Less salt") }
+        assertEquals(listOf("recipe-1" to "Less salt"), recipeRepository.notesUpdates)
         assertEquals("Less salt", viewModel.notesDraft)
     }
 
     @Test
     fun `flushNotes saves pending notes immediately`() = runTest {
-        every { recipeRepository.setUserNotes(any(), any()) } just runs
         viewModel = createViewModel()
         testDispatcher.scheduler.advanceUntilIdle()
 
         viewModel.onNotesChange("Double the garlic")
         viewModel.flushNotes()
 
-        verify(exactly = 1) { recipeRepository.setUserNotes("recipe-1", "Double the garlic") }
+        assertEquals(listOf("recipe-1" to "Double the garlic"), recipeRepository.notesUpdates)
     }
 
     @Test
     fun `notes draft survives recreation`() = runTest {
-        every { recipeRepository.setUserNotes(any(), any()) } just runs
         viewModel = createViewModel()
         viewModel.onNotesChange("Half-typed")
 

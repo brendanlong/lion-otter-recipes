@@ -21,17 +21,26 @@ class LayerDependencyTest {
     }
 
     private val rules = listOf(
+        // The domain is plain Kotlin: no Android, SDK or data-layer types.
         Rule(
             layer = "domain",
-            forbidden = listOf(
-                "android.",
-                "androidx.",
-                "com.anthropic.",
-                "com.google.firebase.",
-                "com.lionotter.recipes.data.",
+            forbidden = listOf(ANYTHING),
+            allowed = listOf(
+                "kotlin.",
+                "kotlinx.",
+                "java.",
+                "javax.inject.",
+                "com.lionotter.recipes.domain.",
+                // Plain-Kotlin helpers shared with the other layers (checked by the "util" rule).
+                "com.lionotter.recipes.util.",
+                // Pure-JVM linear programming solver used by GetTagsUseCase.
+                "org.ojalgo.",
             ),
-            // Plain JVM annotations, safe for a pure-Kotlin domain.
-            allowed = listOf("androidx.annotation."),
+        ),
+        Rule(
+            layer = "util",
+            forbidden = listOf(ANYTHING),
+            allowed = listOf("kotlin.", "kotlinx.", "java.", "javax.inject.", "com.lionotter.recipes.util."),
         ),
         Rule(
             layer = "ui",
@@ -108,6 +117,7 @@ class LayerDependencyTest {
             val import = IMPORT.matchEntire(line)
             when {
                 import != null -> refs += import.groupValues[1]
+                line.startsWith("package ") -> Unit
                 line.startsWith("//") || line.startsWith("*") || line.startsWith("/*") -> Unit
                 else -> QUALIFIED.findAll(line.substringBefore("//")).forEach { refs += it.value }
             }
@@ -116,53 +126,22 @@ class LayerDependencyTest {
     }
 
     companion object {
-        private val IMPORT = Regex("""import\s+([\w.]+)(\s+as\s+\w+)?""")
+        /** Matches every reference; use with an `allowed` list. */
+        private const val ANYTHING = ""
+
+        private val IMPORT = Regex("""import\s+([\w.]+(?:\.\*)?)(\s+as\s+\w+)?""")
         private val QUALIFIED =
             Regex("""(?<![\w.])(android|androidx|com\.anthropic|com\.google\.firebase|com\.lionotter\.recipes)(\.\w+)+""")
 
         /** Violations that exist today. Remove entries as the code is fixed; don't add new ones. */
         private val KNOWN_VIOLATIONS = listOf(
-            // Compose stability annotations on domain models
-            "domain/model/IngredientUsage.kt" to "androidx.compose.runtime.Immutable",
-            "domain/model/MealPlan.kt" to "androidx.compose.runtime.Immutable",
-            "domain/model/Recipe.kt" to "androidx.compose.runtime.Immutable",
-            "domain/model/Recipe.kt" to "androidx.compose.runtime.Stable",
-            // android.util logging/Base64 in domain
-            "domain/usecase/GetTagsUseCase.kt" to "android.util.Log",
-            "domain/usecase/ImportPaprikaUseCase.kt" to "android.util.Base64",
-            "domain/usecase/ImportPaprikaUseCase.kt" to "android.util.Log",
-            "domain/util/ZipImportHelper.kt" to "android.util.Log",
-            // domain -> data
-            "domain/usecase/EditRecipeUseCase.kt" to "com.lionotter.recipes.data.repository.IRecipeRepository",
-            "domain/usecase/ExportSingleRecipeUseCase.kt" to "com.lionotter.recipes.data.remote.ImageDownloadService",
-            "domain/usecase/ExportSingleRecipeUseCase.kt" to "com.lionotter.recipes.data.remote.ImageSyncService",
-            "domain/usecase/ExportSingleRecipeUseCase.kt" to "com.lionotter.recipes.data.repository.IRecipeRepository",
-            "domain/usecase/ExportToZipUseCase.kt" to "com.lionotter.recipes.data.remote.ImageDownloadService",
-            "domain/usecase/ExportToZipUseCase.kt" to "com.lionotter.recipes.data.remote.ImageSyncService",
-            "domain/usecase/ExportToZipUseCase.kt" to "com.lionotter.recipes.data.repository.IMealPlanRepository",
-            "domain/usecase/ExportToZipUseCase.kt" to "com.lionotter.recipes.data.repository.IRecipeRepository",
-            "domain/usecase/ImportPaprikaUseCase.kt" to "com.lionotter.recipes.data.paprika.PaprikaParser",
-            "domain/usecase/ImportPaprikaUseCase.kt" to "com.lionotter.recipes.data.repository.IRecipeRepository",
-            "domain/usecase/ParseHtmlUseCase.kt" to "com.lionotter.recipes.data.repository.IRecipeRepository",
-            "domain/usecase/RegenerateRecipeUseCase.kt" to "com.lionotter.recipes.data.repository.IRecipeRepository",
-            "domain/util/ZipImportHelper.kt" to "com.lionotter.recipes.data.remote.ImageDownloadService",
-            "domain/util/ZipImportHelper.kt" to "com.lionotter.recipes.data.repository.IMealPlanRepository",
-            "domain/util/ZipImportHelper.kt" to "com.lionotter.recipes.data.repository.IRecipeRepository",
             // ui -> data.local
-            "ui/screens/addrecipe/AddRecipeViewModel.kt" to "com.lionotter.recipes.data.local.SettingsDataStore",
-            "ui/screens/editrecipe/EditRecipeViewModel.kt" to "com.lionotter.recipes.data.local.SettingsDataStore",
-            "ui/screens/grocerylist/GroceryListViewModel.kt" to "com.lionotter.recipes.data.local.GroceryListStateStore",
-            "ui/screens/grocerylist/GroceryListViewModel.kt" to "com.lionotter.recipes.data.local.SavedGroceryListState",
-            "ui/screens/grocerylist/GroceryListViewModel.kt" to "com.lionotter.recipes.data.local.SettingsDataStore",
             "ui/screens/importdebug/ImportDebugDetailScreen.kt" to "com.lionotter.recipes.data.local.ImportDebugSummary",
             "ui/screens/importdebug/ImportDebugDetailViewModel.kt" to "com.lionotter.recipes.data.local.ImportDebugDao",
             "ui/screens/importdebug/ImportDebugDetailViewModel.kt" to "com.lionotter.recipes.data.local.ImportDebugSummary",
             "ui/screens/importdebug/ImportDebugListScreen.kt" to "com.lionotter.recipes.data.local.ImportDebugSummary",
             "ui/screens/importdebug/ImportDebugListViewModel.kt" to "com.lionotter.recipes.data.local.ImportDebugDao",
             "ui/screens/importdebug/ImportDebugListViewModel.kt" to "com.lionotter.recipes.data.local.ImportDebugSummary",
-            "ui/screens/mealplan/MealPlanViewModel.kt" to "com.lionotter.recipes.data.local.SettingsDataStore",
-            "ui/screens/recipedetail/RecipeDetailViewModel.kt" to "com.lionotter.recipes.data.local.SettingsDataStore",
-            "ui/screens/settings/SettingsViewModel.kt" to "com.lionotter.recipes.data.local.SettingsDataStore",
         )
     }
 }

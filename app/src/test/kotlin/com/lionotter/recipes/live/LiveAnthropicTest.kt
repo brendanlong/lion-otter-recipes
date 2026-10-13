@@ -5,6 +5,7 @@ import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.model.AiModels
 import com.lionotter.recipes.domain.port.ParseRequest
 import com.lionotter.recipes.util.AppJson
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -35,7 +36,7 @@ class LiveAnthropicTest {
     fun parse() = runBlocking {
         val key = System.getenv("LIVE_ANTHROPIC_KEY")
         assumeTrue(key != null)
-        val parser = AnthropicRecipeParser(AppJson)
+        val parser = AnthropicRecipeParser(AppJson, Dispatchers.IO)
         for (model in listOf(AiModels.MODEL_SONNET, AiModels.MODEL_HAIKU)) {
             for (thinking in listOf(false, true)) {
                 val result = parser.parse(ParseRequest(html, key!!, model, thinking))

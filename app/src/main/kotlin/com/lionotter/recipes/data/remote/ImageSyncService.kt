@@ -12,12 +12,14 @@ import com.google.firebase.firestore.Source
 import com.google.firebase.storage.StorageException
 import com.google.firebase.storage.storage
 import com.google.firebase.storage.storageMetadata
+import com.lionotter.recipes.util.DefaultDispatcher
 import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.data.remote.dto.RecipeFields
 import com.lionotter.recipes.data.remote.dto.MealPlanFields
+import com.lionotter.recipes.util.IoDispatcher
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -52,41 +54,42 @@ object ImageCacheConfig {
      * renamed, so a partially downloaded file is never served from the cache.
      * Returns `null` on failure.
      */
-    suspend fun resolveToFile(gsUri: String, context: Context): File? = withContext(Dispatchers.IO) {
-        val dir = getImageCacheDir(context)
-        val cacheFile = File(dir, gsUri.substringAfterLast("/"))
+    suspend fun resolveToFile(gsUri: String, context: Context, ioDispatcher: CoroutineDispatcher): File? =
+        withContext(ioDispatcher) {
+            val dir = getImageCacheDir(context)
+            val cacheFile = File(dir, gsUri.substringAfterLast("/"))
 
-        if (cacheFile.exists() && cacheFile.length() > 0) {
-            return@withContext cacheFile
-        }
-
-        val tempFile = File(dir, ".${UUID.randomUUID()}.tmp")
-        try {
-            Firebase.storage.getReferenceFromUrl(gsUri).getFile(tempFile).await()
-            if (tempFile.length() == 0L || !tempFile.renameTo(cacheFile)) {
-                throw IOException("Failed to store downloaded image in cache")
+            if (cacheFile.exists() && cacheFile.length() > 0) {
+                return@withContext cacheFile
             }
-            Log.d(TAG, "Downloaded $gsUri to cache (${cacheFile.length()} bytes)")
-            cacheFile
-        } catch (e: StorageException) {
-            if (e.errorCode == StorageException.ERROR_OBJECT_NOT_FOUND) {
-                Log.d(TAG, "Image not found in storage: $gsUri")
-            } else {
+
+            val tempFile = File(dir, ".${UUID.randomUUID()}.tmp")
+            try {
+                Firebase.storage.getReferenceFromUrl(gsUri).getFile(tempFile).await()
+                if (tempFile.length() == 0L || !tempFile.renameTo(cacheFile)) {
+                    throw IOException("Failed to store downloaded image in cache")
+                }
+                Log.d(TAG, "Downloaded $gsUri to cache (${cacheFile.length()} bytes)")
+                cacheFile
+            } catch (e: StorageException) {
+                if (e.errorCode == StorageException.ERROR_OBJECT_NOT_FOUND) {
+                    Log.d(TAG, "Image not found in storage: $gsUri")
+                } else {
+                    Log.w(TAG, "Failed to download image: $gsUri", e)
+                }
+                null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
                 Log.w(TAG, "Failed to download image: $gsUri", e)
+                null
+            } finally {
+                if (tempFile.exists()) tempFile.delete()
             }
-            null
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to download image: $gsUri", e)
-            null
-        } finally {
-            if (tempFile.exists()) tempFile.delete()
         }
-    }
 
     /** Deletes every file in the local image cache. */
-    suspend fun clearCache(context: Context) = withContext(Dispatchers.IO) {
+    suspend fun clearCache(context: Context, ioDispatcher: CoroutineDispatcher) = withContext(ioDispatcher) {
         try {
             val files = getImageCacheDir(context).listFiles() ?: return@withContext
             val deletedCount = files.count { it.delete() }
@@ -118,7 +121,9 @@ object ImageCacheConfig {
 @Singleton
 class ImageSyncService @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    private val firestoreService: FirestoreService
+    private val firestoreService: FirestoreService,
+    @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher,
+    @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
 ) {
     companion object {
         private const val TAG = "ImageSyncService"
@@ -156,7 +161,7 @@ class ImageSyncService @Inject constructor(
      * @return A gs:// URI (e.g., "gs://bucket/users/{uid}/images/{filename}")
      *         or null if upload fails
      */
-    suspend fun uploadImage(localUri: String): String? = withContext(Dispatchers.IO) {
+    suspend fun uploadImage(localUri: String): String? = withContext(ioDispatcher) {
         if (!localUri.startsWith("file://")) {
             Log.w(TAG, "Not a local file URI: $localUri")
             return@withContext null
@@ -195,7 +200,7 @@ class ImageSyncService @Inject constructor(
      * The recipe is only pointed at the upload if its image is still the local file, so a
      * newer image picked meanwhile is never reverted.
      */
-    suspend fun uploadPendingLocalImages(): LocalImageUploadResult = withContext(NonCancellable + Dispatchers.IO) {
+    suspend fun uploadPendingLocalImages(): LocalImageUploadResult = withContext(NonCancellable + ioDispatcher) {
         pendingUploadMutex.withLock {
             val uid = googleUid()
             if (uid == null) {
@@ -250,7 +255,7 @@ class ImageSyncService @Inject constructor(
      * (a `file://` that exists locally), i.e. would be lost by clearing local data.
      * Returns true if this can't be determined.
      */
-    suspend fun hasPendingLocalImages(): Boolean = withContext(Dispatchers.IO) {
+    suspend fun hasPendingLocalImages(): Boolean = withContext(ioDispatcher) {
         val uid = googleUid() ?: return@withContext false
         try {
             firestoreService.recipesCollection(uid).get(Source.CACHE).await().documents.any { doc ->
@@ -307,17 +312,20 @@ class ImageSyncService @Inject constructor(
 
         if (imageUrl.startsWith("file://")) {
             val path = imageUrl.removePrefix("file://")
-            return if (withContext(Dispatchers.IO) { File(path).exists() }) imageUrl else null
+            return if (withContext(ioDispatcher) { File(path).exists() }) imageUrl else null
         }
 
         if (isStoragePath(imageUrl)) {
-            val cacheFile = ImageCacheConfig.resolveToFile(imageUrl, context) ?: return null
+            val cacheFile = ImageCacheConfig.resolveToFile(imageUrl, context, ioDispatcher) ?: return null
             return "file://${cacheFile.absolutePath}"
         }
 
         // Remote URL — not handled here (ImageDownloadService handles these)
         return null
     }
+
+    /** Deletes every file in the local image cache. */
+    suspend fun clearLocalCache() = ImageCacheConfig.clearCache(context, ioDispatcher)
 
     /**
      * Delete an image from Firebase Storage.
@@ -353,7 +361,7 @@ class ImageSyncService @Inject constructor(
      *
      * @throws IOException if the image can't be decoded or compressed small enough
      */
-    internal suspend fun prepareForUpload(file: File): PreparedImage = withContext(Dispatchers.Default) {
+    internal suspend fun prepareForUpload(file: File): PreparedImage = withContext(defaultDispatcher) {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.absolutePath, bounds)
         val width = bounds.outWidth

@@ -5,7 +5,7 @@ import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.AuthState
 import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.remote.ImageSyncService
-import com.lionotter.recipes.data.repository.RecipeRepository
+import com.lionotter.recipes.data.repository.FirestoreRecipeRepository
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -324,7 +324,7 @@ class FirestoreListenerSpikeTest {
         // Full integration: fire-and-forget write → pumpLooper → suspend read via looper pumping
         val testFirestoreService = TestFirestoreService()
         val context = RuntimeEnvironment.getApplication()
-        val imageSyncService = ImageSyncService(context, testFirestoreService)
+        val imageSyncService = ImageSyncService(context, testFirestoreService, Dispatchers.IO, Dispatchers.Default)
         val httpClient = HttpClient(MockEngine) {
             engine { addHandler { respond("", HttpStatusCode.NotFound) } }
         }
@@ -332,12 +332,13 @@ class FirestoreListenerSpikeTest {
         every { authService.authState } returns MutableStateFlow<AuthState>(AuthState.Guest(uid = "test-user"))
         every { authService.isGoogleUser() } returns false
         coEvery { authService.awaitUid() } returns "test-user"
-        val imageDownloadService = ImageDownloadService(context, httpClient, imageSyncService, authService, testFirestoreService, {})
-        val recipeRepo = RecipeRepository(
+        val imageDownloadService = ImageDownloadService(context, httpClient, imageSyncService, authService, testFirestoreService, {}, Dispatchers.IO, Dispatchers.Default)
+        val recipeRepo = FirestoreRecipeRepository(
             testFirestoreService,
             imageDownloadService,
             authService,
-            CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            CoroutineScope(SupervisorJob() + Dispatchers.Default),
+            Dispatchers.Default
         )
 
         val recipe = com.lionotter.recipes.domain.model.Recipe(

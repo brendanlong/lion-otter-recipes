@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.AuthCredential
 import com.lionotter.recipes.R
-import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.ai.ApiKeyProblem
 import com.lionotter.recipes.data.ai.ApiKeyValidator
 import com.lionotter.recipes.data.remote.AccountMigrationService
@@ -20,6 +19,7 @@ import com.lionotter.recipes.domain.model.AiModels
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
+import com.lionotter.recipes.domain.port.AppSettings
 import com.lionotter.recipes.messages.UserMessage
 import com.lionotter.recipes.util.ErrorLog
 import androidx.credentials.exceptions.GetCredentialCancellationException
@@ -40,7 +40,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    private val settingsDataStore: SettingsDataStore,
+    private val settings: AppSettings,
     private val importDebugRepository: ImportDebugRepository,
     private val authService: AuthService,
     private val accountMigrationService: AccountMigrationService,
@@ -53,84 +53,84 @@ class SettingsViewModel @Inject constructor(
 
     val authState: StateFlow<AuthState> = authService.authState
 
-    val apiKey: StateFlow<String?> = settingsDataStore.anthropicApiKey
+    val apiKey: StateFlow<String?> = settings.anthropicApiKey
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = null
         )
 
-    val aiModel: StateFlow<String> = settingsDataStore.aiModel
+    val aiModel: StateFlow<String> = settings.aiModel
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = AiModels.DEFAULT_MODEL
         )
 
-    val editModel: StateFlow<String> = settingsDataStore.editModel
+    val editModel: StateFlow<String> = settings.editModel
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = AiModels.DEFAULT_EDIT_MODEL
         )
 
-    val thinkingEnabled: StateFlow<Boolean> = settingsDataStore.thinkingEnabled
+    val thinkingEnabled: StateFlow<Boolean> = settings.thinkingEnabled
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = AiModels.DEFAULT_THINKING_ENABLED
         )
 
-    val keepScreenOn: StateFlow<Boolean> = settingsDataStore.keepScreenOn
+    val keepScreenOn: StateFlow<Boolean> = settings.keepScreenOn
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = true
         )
 
-    val themeMode: StateFlow<ThemeMode> = settingsDataStore.themeMode
+    val themeMode: StateFlow<ThemeMode> = settings.themeMode
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = ThemeMode.AUTO
         )
 
-    val volumeUnitSystem: StateFlow<UnitSystem> = settingsDataStore.volumeUnitSystem
+    val volumeUnitSystem: StateFlow<UnitSystem> = settings.volumeUnitSystem
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = UnitSystem.localeDefault()
         )
 
-    val weightUnitSystem: StateFlow<UnitSystem> = settingsDataStore.weightUnitSystem
+    val weightUnitSystem: StateFlow<UnitSystem> = settings.weightUnitSystem
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = UnitSystem.localeDefault()
         )
 
-    val groceryVolumeUnitSystem: StateFlow<UnitSystem> = settingsDataStore.groceryVolumeUnitSystem
+    val groceryVolumeUnitSystem: StateFlow<UnitSystem> = settings.groceryVolumeUnitSystem
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = UnitSystem.localeDefault()
         )
 
-    val groceryWeightUnitSystem: StateFlow<UnitSystem> = settingsDataStore.groceryWeightUnitSystem
+    val groceryWeightUnitSystem: StateFlow<UnitSystem> = settings.groceryWeightUnitSystem
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = UnitSystem.localeDefault()
         )
 
-    val startOfWeek: StateFlow<StartOfWeek> = settingsDataStore.startOfWeek
+    val startOfWeek: StateFlow<StartOfWeek> = settings.startOfWeek
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = StartOfWeek.LOCALE_DEFAULT
         )
 
-    val importDebuggingEnabled: StateFlow<Boolean> = settingsDataStore.importDebuggingEnabled
+    val importDebuggingEnabled: StateFlow<Boolean> = settings.importDebuggingEnabled
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
@@ -166,7 +166,7 @@ class SettingsViewModel @Inject constructor(
             null -> viewModelScope.launch {
                 try {
                     withContext(NonCancellable) {
-                        settingsDataStore.setAnthropicApiKey(key)
+                        settings.setAnthropicApiKey(key)
                     }
                     _apiKeyInput.value = ""
                     _apiKeyError.value = null
@@ -181,7 +181,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun clearApiKey() {
-        launchSettingWrite("clear API key") { settingsDataStore.clearAnthropicApiKey() }
+        launchSettingWrite("clear API key") { settings.clearAnthropicApiKey() }
     }
 
     /**
@@ -202,38 +202,38 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setAiModel(model: String) =
-        launchSettingWrite("set AI model") { settingsDataStore.setAiModel(model) }
+        launchSettingWrite("set AI model") { settings.setAiModel(model) }
 
     fun setEditModel(model: String) =
-        launchSettingWrite("set edit model") { settingsDataStore.setEditModel(model) }
+        launchSettingWrite("set edit model") { settings.setEditModel(model) }
 
     fun setThinkingEnabled(enabled: Boolean) =
-        launchSettingWrite("set thinking mode") { settingsDataStore.setThinkingEnabled(enabled) }
+        launchSettingWrite("set thinking mode") { settings.setThinkingEnabled(enabled) }
 
     fun setKeepScreenOn(enabled: Boolean) =
-        launchSettingWrite("set keep screen on") { settingsDataStore.setKeepScreenOn(enabled) }
+        launchSettingWrite("set keep screen on") { settings.setKeepScreenOn(enabled) }
 
     fun setThemeMode(mode: ThemeMode) =
-        launchSettingWrite("set theme") { settingsDataStore.setThemeMode(mode) }
+        launchSettingWrite("set theme") { settings.setThemeMode(mode) }
 
     fun setVolumeUnitSystem(system: UnitSystem) =
-        launchSettingWrite("set volume units") { settingsDataStore.setVolumeUnitSystem(system) }
+        launchSettingWrite("set volume units") { settings.setVolumeUnitSystem(system) }
 
     fun setWeightUnitSystem(system: UnitSystem) =
-        launchSettingWrite("set weight units") { settingsDataStore.setWeightUnitSystem(system) }
+        launchSettingWrite("set weight units") { settings.setWeightUnitSystem(system) }
 
     fun setGroceryVolumeUnitSystem(system: UnitSystem) =
         launchSettingWrite("set grocery volume units") {
-            settingsDataStore.setGroceryVolumeUnitSystem(system)
+            settings.setGroceryVolumeUnitSystem(system)
         }
 
     fun setGroceryWeightUnitSystem(system: UnitSystem) =
         launchSettingWrite("set grocery weight units") {
-            settingsDataStore.setGroceryWeightUnitSystem(system)
+            settings.setGroceryWeightUnitSystem(system)
         }
 
     fun setStartOfWeek(startOfWeek: StartOfWeek) =
-        launchSettingWrite("set start of week") { settingsDataStore.setStartOfWeek(startOfWeek) }
+        launchSettingWrite("set start of week") { settings.setStartOfWeek(startOfWeek) }
 
     /**
      * Enables or disables import debugging. Disabling also deletes all stored debug entries,
@@ -241,7 +241,7 @@ class SettingsViewModel @Inject constructor(
      */
     fun setImportDebuggingEnabled(enabled: Boolean) =
         launchSettingWrite("set import debugging") {
-            settingsDataStore.setImportDebuggingEnabled(enabled)
+            settings.setImportDebuggingEnabled(enabled)
             if (!enabled) {
                 importDebugRepository.deleteAllDebugEntries()
             }

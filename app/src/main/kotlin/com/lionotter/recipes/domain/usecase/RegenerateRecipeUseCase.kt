@@ -1,11 +1,11 @@
 package com.lionotter.recipes.domain.usecase
 
-import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.port.ImageStore
 import com.lionotter.recipes.domain.port.PageFetcher
+import com.lionotter.recipes.domain.repository.RecipeRepository
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlin.time.Clock
@@ -13,7 +13,7 @@ import javax.inject.Inject
 
 class RegenerateRecipeUseCase @Inject constructor(
     private val parseHtmlUseCase: ParseHtmlUseCase,
-    private val recipeRepository: IRecipeRepository,
+    private val recipeRepository: RecipeRepository,
     private val pageFetcher: PageFetcher,
     private val imageStore: ImageStore
 ) {

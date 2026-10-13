@@ -4,10 +4,12 @@ import android.content.Context
 import android.graphics.BitmapFactory
 import android.util.Base64
 import android.util.Log
+import com.lionotter.recipes.util.DefaultDispatcher
 import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.data.remote.dto.RecipeFields
 import com.lionotter.recipes.domain.port.DownloadedImage
 import com.lionotter.recipes.domain.port.ImageStore
+import com.lionotter.recipes.util.IoDispatcher
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
@@ -20,7 +22,7 @@ import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.jvm.javaio.toInputStream
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -49,7 +51,9 @@ class ImageDownloadService @Inject constructor(
     private val imageSyncService: ImageSyncService,
     private val authService: AuthService,
     private val firestoreService: FirestoreService,
-    private val imageUploadScheduler: ImageUploadScheduler
+    private val imageUploadScheduler: ImageUploadScheduler,
+    @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher,
+    @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
 ) : ImageStore {
     companion object {
         private const val TAG = "ImageDownloadService"
@@ -127,7 +131,7 @@ class ImageDownloadService @Inject constructor(
         if (imageSyncService.isStoragePath(imageUrl)) {
             imageSyncService.deleteRemoteImage(imageUrl)
             val filename = imageUrl.substringAfterLast("/")
-            withContext(Dispatchers.IO) {
+            withContext(ioDispatcher) {
                 val cacheFile = File(ImageCacheConfig.getImageCacheDir(context), filename)
                 if (cacheFile.exists() && !cacheFile.delete()) {
                     Log.w(TAG, "Failed to delete cached image: ${cacheFile.path}")
@@ -168,11 +172,11 @@ class ImageDownloadService @Inject constructor(
      *   returns the URI if it exists or null if not
      * - Remote URL: downloads and stores locally via [downloadAndStore]
      */
-    suspend fun downloadImageIfNeeded(imageUrl: String?): String? {
+    override suspend fun downloadImageIfNeeded(imageUrl: String?): String? {
         if (imageUrl == null) return null
         if (imageUrl.startsWith("file://")) {
             val path = imageUrl.removePrefix("file://")
-            return if (withContext(Dispatchers.IO) { File(path).exists() }) imageUrl else null
+            return if (withContext(ioDispatcher) { File(path).exists() }) imageUrl else null
         }
         // Firebase Storage paths are already stored — return as-is
         if (imageSyncService.isStoragePath(imageUrl)) return imageUrl
@@ -302,7 +306,7 @@ class ImageDownloadService @Inject constructor(
      */
     suspend fun saveImageFromBase64(base64Data: String, extension: String = ".jpg"): String? {
         return try {
-            val bytes = withContext(Dispatchers.Default) { Base64.decode(base64Data, Base64.DEFAULT) }
+            val bytes = withContext(defaultDispatcher) { Base64.decode(base64Data, Base64.DEFAULT) }
             if (bytes.isEmpty()) {
                 Log.w(TAG, "Base64 image data decoded to empty bytes")
                 return null
@@ -322,7 +326,7 @@ class ImageDownloadService @Inject constructor(
      */
     suspend fun saveImageFromContentUri(contentUri: android.net.Uri): String? {
         return try {
-            val saved = withContext(Dispatchers.IO) {
+            val saved = withContext(ioDispatcher) {
                 val extension = when (context.contentResolver.getType(contentUri)) {
                     "image/png" -> ".png"
                     "image/webp" -> ".webp"
@@ -349,7 +353,7 @@ class ImageDownloadService @Inject constructor(
      * and checking the result decodes as an image. Returns the file:// URI, or null.
      */
     private suspend fun writeValidatedImage(input: InputStream, extension: String): String? =
-        withContext(Dispatchers.IO) {
+        withContext(ioDispatcher) {
             val imageFile = File(ImageCacheConfig.getImageCacheDir(context), "${UUID.randomUUID()}$extension")
             try {
                 imageFile.outputStream().use { output ->
@@ -400,12 +404,15 @@ class ImageDownloadService @Inject constructor(
         return if (file.exists() && file.parentFile?.name == ImageCacheConfig.IMAGE_CACHE_DIR) file else null
     }
 
+    override suspend fun localImageFile(imageUrl: String): File? =
+        imageSyncService.ensureLocalImage(imageUrl)?.let { getLocalImageFile(it) }
+
     /**
      * Deletes a locally stored image file.
      */
-    suspend fun deleteLocalImage(localUri: String) {
+    override suspend fun deleteLocalImage(localUri: String) {
         if (!localUri.startsWith("file://")) return
-        withContext(Dispatchers.IO) {
+        withContext(ioDispatcher) {
             try {
                 val file = File(localUri.removePrefix("file://"))
                 if (file.exists() && file.parentFile?.name == ImageCacheConfig.IMAGE_CACHE_DIR) {

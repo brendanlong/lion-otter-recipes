@@ -1,9 +1,9 @@
 package com.lionotter.recipes.domain.usecase
 
-import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -23,7 +23,7 @@ import javax.inject.Inject
  */
 class EditRecipeUseCase @Inject constructor(
     private val parseHtmlUseCase: ParseHtmlUseCase,
-    private val recipeRepository: IRecipeRepository
+    private val recipeRepository: RecipeRepository
 ) {
     sealed class EditProgress {
         object ParsingRecipe : EditProgress()

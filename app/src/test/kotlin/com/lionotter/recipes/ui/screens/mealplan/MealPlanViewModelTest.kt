@@ -1,27 +1,18 @@
 package com.lionotter.recipes.ui.screens.mealplan
 
-import kotlinx.coroutines.flow.first
 import app.cash.turbine.test
-import com.lionotter.recipes.data.local.SettingsDataStore
-import com.lionotter.recipes.data.repository.IMealPlanRepository
-import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.model.MealType
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.usecase.GetTagsUseCase
-import io.mockk.coEvery
-import io.mockk.coVerify
-import io.mockk.every
-import io.mockk.just
-import io.mockk.mockk
-import io.mockk.runs
-import io.mockk.slot
-import io.mockk.verify
+import com.lionotter.recipes.testutil.FakeAppSettings
+import com.lionotter.recipes.testutil.FakeMealPlanRepository
+import com.lionotter.recipes.testutil.FakeRecipeRepository
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -44,9 +35,8 @@ import kotlin.time.Instant
 class MealPlanViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
-    private lateinit var mealPlanRepository: IMealPlanRepository
-    private lateinit var recipeRepository: IRecipeRepository
-    private lateinit var settingsDataStore: SettingsDataStore
+    private val mealPlanRepository = FakeMealPlanRepository()
+    private val settings = FakeAppSettings().apply { startOfWeekFlow.value = StartOfWeek.MONDAY }
 
     private val recipe = Recipe(
         id = "r1",
@@ -58,14 +48,6 @@ class MealPlanViewModelTest {
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
-        mealPlanRepository = mockk()
-        recipeRepository = mockk()
-        settingsDataStore = mockk()
-        every { settingsDataStore.startOfWeek } returns flowOf(StartOfWeek.MONDAY)
-        every { recipeRepository.getAllRecipes() } returns flowOf(listOf(recipe))
-        every { mealPlanRepository.getMealPlansForDateRange(any(), any()) } returns flowOf(emptyList())
-        every { mealPlanRepository.saveMealPlan(any()) } just runs
-        every { mealPlanRepository.deleteMealPlan(any()) } just runs
     }
 
     @After
@@ -75,9 +57,10 @@ class MealPlanViewModelTest {
 
     private fun createViewModel() = MealPlanViewModel(
         mealPlanRepository = mealPlanRepository,
-        recipeRepository = recipeRepository,
+        recipeRepository = FakeRecipeRepository(recipe),
         getTagsUseCase = GetTagsUseCase(),
-        settingsDataStore = settingsDataStore
+        settings = settings,
+        defaultDispatcher = testDispatcher
     )
 
     private val today: LocalDate get() = Clock.System.todayIn(TimeZone.currentSystemDefault())
@@ -111,18 +94,18 @@ class MealPlanViewModelTest {
 
     @Test
     fun `double tapping a recipe only adds one meal`() = runTest {
-        val countGate = CompletableDeferred<Int>()
-        coEvery { mealPlanRepository.getMealPlanCount() } coAnswers { countGate.await() }
+        val countGate = CompletableDeferred<Unit>()
+        mealPlanRepository.beforeCount = { countGate.await() }
         val viewModel = createViewModel()
         viewModel.openAddDialog()
 
         viewModel.addRecipeToMealPlan(recipe)
         viewModel.addRecipeToMealPlan(recipe)
         advanceUntilIdle()
-        countGate.complete(0)
+        countGate.complete(Unit)
         advanceUntilIdle()
 
-        verify(exactly = 1) { mealPlanRepository.saveMealPlan(any()) }
+        assertEquals(1, mealPlanRepository.entries.value.size)
         assertFalse(viewModel.showAddDialog.value)
         assertFalse(viewModel.isSaving.value)
     }
@@ -142,18 +125,20 @@ class MealPlanViewModelTest {
         )
         val viewModel = createViewModel()
 
+        mealPlanRepository.saveMealPlan(entry)
+        mealPlanRepository.countCalls = 0
+
         viewModel.deleteMealPlan(entry)
         advanceUntilIdle()
         assertEquals(MealPlanEvent.MealRemoved(entry), viewModel.events.first())
+        assertEquals(emptyMap<String, MealPlanEntry>(), mealPlanRepository.entries.value)
 
-        val saved = slot<MealPlanEntry>()
-        every { mealPlanRepository.saveMealPlan(capture(saved)) } just runs
         viewModel.undoDelete(entry)
         advanceUntilIdle()
 
-        verify { mealPlanRepository.deleteMealPlan("e1") }
-        assertEquals(entry.copy(id = saved.captured.id), saved.captured)
-        assertNotEquals("e1", saved.captured.id)
-        coVerify(exactly = 0) { mealPlanRepository.getMealPlanCount() }
+        val restored = mealPlanRepository.entries.value.values.single()
+        assertEquals(entry.copy(id = restored.id), restored)
+        assertNotEquals("e1", restored.id)
+        assertEquals(0, mealPlanRepository.countCalls)
     }
 }

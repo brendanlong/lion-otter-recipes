@@ -10,8 +10,10 @@ import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.AuthState
 import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.remote.ImageSyncService
-import com.lionotter.recipes.data.repository.MealPlanRepository
-import com.lionotter.recipes.data.repository.RecipeRepository
+import com.lionotter.recipes.data.repository.FirestoreMealPlanRepository
+import com.lionotter.recipes.data.repository.FirestoreRecipeRepository
+import com.lionotter.recipes.domain.repository.MealPlanRepository
+import com.lionotter.recipes.domain.repository.RecipeRepository
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -83,7 +85,7 @@ abstract class FirestoreIntegrationTest {
         db.disableNetwork()
 
         firestoreService = TestFirestoreService()
-        val imageSyncService = ImageSyncService(context, firestoreService)
+        val imageSyncService = ImageSyncService(context, firestoreService, Dispatchers.IO, Dispatchers.Default)
         val httpClient = HttpClient(MockEngine) {
             engine { addHandler { respond("", HttpStatusCode.NotFound) } }
         }
@@ -91,10 +93,10 @@ abstract class FirestoreIntegrationTest {
         every { authService.authState } returns authState
         every { authService.isGoogleUser() } returns false
         coEvery { authService.awaitUid() } coAnswers { authState.first { it !is AuthState.Loading }.uid!! }
-        val imageDownloadService = ImageDownloadService(context, httpClient, imageSyncService, authService, firestoreService, {})
+        val imageDownloadService = ImageDownloadService(context, httpClient, imageSyncService, authService, firestoreService, {}, Dispatchers.IO, Dispatchers.Default)
         val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        recipeRepository = RecipeRepository(firestoreService, imageDownloadService, authService, appScope)
-        mealPlanRepository = MealPlanRepository(firestoreService, authService, appScope)
+        recipeRepository = FirestoreRecipeRepository(firestoreService, imageDownloadService, authService, appScope, Dispatchers.Default)
+        mealPlanRepository = FirestoreMealPlanRepository(firestoreService, authService, appScope, Dispatchers.Default)
     }
 
     @After

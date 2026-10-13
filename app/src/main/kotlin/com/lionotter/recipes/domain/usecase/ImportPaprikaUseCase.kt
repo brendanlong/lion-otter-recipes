@@ -1,9 +1,5 @@
 package com.lionotter.recipes.domain.usecase
 
-import android.util.Base64
-import android.util.Log
-import com.lionotter.recipes.data.paprika.PaprikaParser
-import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.ArchiveFailure
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
@@ -15,11 +11,14 @@ import com.lionotter.recipes.domain.port.BatchItemOutcome
 import com.lionotter.recipes.domain.port.BatchParseRequest
 import com.lionotter.recipes.domain.port.ImageStore
 import com.lionotter.recipes.domain.port.PageFetcher
+import com.lionotter.recipes.domain.port.PaprikaExportReader
 import com.lionotter.recipes.domain.port.RecipeBatchParser
+import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.domain.util.ArchiveTooLargeException
 import com.lionotter.recipes.util.ErrorLog
+import com.lionotter.recipes.util.IoDispatcher
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -34,6 +33,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.InputStream
+import java.util.Base64
 import java.util.UUID
 import javax.inject.Inject
 import kotlin.coroutines.coroutineContext
@@ -53,14 +53,15 @@ import kotlin.coroutines.coroutineContext
  * A single recipe skips batching and is parsed directly.
  */
 class ImportPaprikaUseCase @Inject constructor(
-    private val paprikaParser: PaprikaParser,
+    private val paprikaReader: PaprikaExportReader,
     private val parseHtmlUseCase: ParseHtmlUseCase,
     private val recipeBatchParser: RecipeBatchParser,
     private val aiSettings: AiSettings,
     private val pageFetcher: PageFetcher,
     private val imageStore: ImageStore,
-    private val recipeRepository: IRecipeRepository,
-    private val json: Json
+    private val recipeRepository: RecipeRepository,
+    private val json: Json,
+    @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) {
     companion object {
         private const val TAG = "ImportPaprikaUseCase"
@@ -162,11 +163,11 @@ class ImportPaprikaUseCase @Inject constructor(
         val state = loadState(workDir) ?: return
         val apiKey = aiSettings.anthropicApiKey.first()
         if (apiKey.isNullOrBlank()) {
-            Log.w(TAG, "Can't cancel batch ${state.batchId}: no API key")
+            ErrorLog.w(TAG, "Can't cancel batch ${state.batchId}: no API key")
             return
         }
         if (recipeBatchParser.cancelBatch(state.batchId, apiKey) is Outcome.Success) {
-            Log.i(TAG, "Cancelled batch ${state.batchId}")
+            ErrorLog.i(TAG, "Cancelled batch ${state.batchId}")
         }
     }
 
@@ -186,19 +187,19 @@ class ImportPaprikaUseCase @Inject constructor(
         val photosDir = File(workDir, PHOTOS_DIR).apply { mkdirs() }
         val job = coroutineContext.job
         try {
-            withContext(Dispatchers.IO) {
+            withContext(ioDispatcher) {
                 openSource().buffered().use { stream ->
-                    paprikaParser.forEachRecipe(
+                    paprikaReader.readRecipes(
                         stream,
                         onError = { entryName, e ->
-                            Log.w(TAG, "Skipping unreadable Paprika entry $entryName", e)
+                            ErrorLog.w(TAG, "Skipping unreadable Paprika entry $entryName", e)
                             if (selectedUids == null) {
                                 unreadable += entryName.substringAfterLast('/').removeSuffix(".paprikarecipe")
                             }
                         }
                     ) { recipe ->
                         job.ensureActive()
-                        if (selectedUids != null && recipe.uid !in selectedUids) return@forEachRecipe
+                        if (selectedUids != null && recipe.uid !in selectedUids) return@readRecipes
                         val index = prepared.size
                         prepared += PreparedRecipe(
                             customId = "recipe-$index",
@@ -208,7 +209,7 @@ class ImportPaprikaUseCase @Inject constructor(
                             imageUrl = recipe.imageUrl?.takeIf { it.isNotBlank() },
                             photoFile = recipe.photoData?.takeIf { it.isNotBlank() }
                                 ?.let { writePhoto(it, File(photosDir, "$index.jpg")) },
-                            contentForAi = paprikaParser.formatForAi(recipe)
+                            contentForAi = recipe.contentForAi
                         )
                     }
                 }
@@ -242,7 +243,7 @@ class ImportPaprikaUseCase @Inject constructor(
         val toImport = prepared.take(remaining)
         val preFailed = unreadable + prepared.drop(remaining).map { it.name }
         if (preFailed.size > unreadable.size) {
-            Log.w(TAG, "Only importing $remaining of ${prepared.size} recipes due to the recipe limit")
+            ErrorLog.w(TAG, "Only importing $remaining of ${prepared.size} recipes due to the recipe limit")
         }
 
         if (toImport.size == 1) {
@@ -262,7 +263,7 @@ class ImportPaprikaUseCase @Inject constructor(
             val batchId = when (created) {
                 is Outcome.Success -> created.value
                 is Outcome.Failure -> {
-                    Log.w(TAG, "Failed to submit batch: ${created.error}")
+                    ErrorLog.w(TAG, "Failed to submit batch: ${created.error}")
                     return@withContext created.error
                 }
             }
@@ -283,7 +284,7 @@ class ImportPaprikaUseCase @Inject constructor(
                 recipeBatchParser.cancelBatch(batchId, apiKey)
                 return@withContext RecipeError.Unexpected
             }
-            Log.i(TAG, "Submitted batch $batchId with ${toImport.size} recipes")
+            ErrorLog.i(TAG, "Submitted batch $batchId with ${toImport.size} recipes")
             null
         }
         if (submitError != null) return failed(submitError)
@@ -334,7 +335,7 @@ class ImportPaprikaUseCase @Inject constructor(
             return if (error.retryable) {
                 StepResult.PollAgain
             } else {
-                Log.w(TAG, "Failed to download results for batch ${state.batchId}: $error")
+                ErrorLog.w(TAG, "Failed to download results for batch ${state.batchId}: $error")
                 failed(error)
             }
         }
@@ -407,7 +408,7 @@ class ImportPaprikaUseCase @Inject constructor(
                 when (saved) {
                     is Outcome.Success -> null
                     is Outcome.Failure -> {
-                        Log.w(TAG, "Couldn't save ${recipe.name}: ${saved.error}")
+                        ErrorLog.w(TAG, "Couldn't save ${recipe.name}: ${saved.error}")
                         saved.error.toString()
                     }
                 }
@@ -419,7 +420,7 @@ class ImportPaprikaUseCase @Inject constructor(
             "Failed to save recipe: ${e.message}"
         }
         is BatchItemOutcome.Failed -> {
-            Log.w(TAG, "Batch result failed for ${recipe.name}: ${outcome.message}")
+            ErrorLog.w(TAG, "Batch result failed for ${recipe.name}: ${outcome.message}")
             parseHtmlUseCase.saveBatchErrorDebugEntry(
                 sourceUrl = recipe.sourceUrl,
                 cleanedContent = recipe.contentForAi,
@@ -450,7 +451,7 @@ class ImportPaprikaUseCase @Inject constructor(
             is Outcome.Failure -> if (preFailed.isEmpty() || parseResult.error == RecipeError.NoApiKey) {
                 failed(parseResult.error)
             } else {
-                Log.w(TAG, "Failed to import ${recipe.name}: ${parseResult.error}")
+                ErrorLog.w(TAG, "Failed to import ${recipe.name}: ${parseResult.error}")
                 finished(ImportSummary(0, preFailed.size + 1, preFailed + recipe.name))
             }
         }
@@ -463,7 +464,7 @@ class ImportPaprikaUseCase @Inject constructor(
         recipe.photoFile?.let { path ->
             val file = File(path)
             if (file.exists()) {
-                val localUri = withContext(Dispatchers.IO) {
+                val localUri = withContext(ioDispatcher) {
                     imageStore.saveImageFromStream(file.inputStream(), ".jpg")
                 }
                 if (localUri != null) return localUri
@@ -474,23 +475,23 @@ class ImportPaprikaUseCase @Inject constructor(
         return when (val page = pageFetcher.fetchPage(sourceUrl)) {
             is Outcome.Success -> page.value.imageUrl
             is Outcome.Failure -> {
-                Log.w(TAG, "Couldn't fetch image from $sourceUrl: ${page.error}")
+                ErrorLog.w(TAG, "Couldn't fetch image from $sourceUrl: ${page.error}")
                 null
             }
         }
     }
 
     private fun writePhoto(base64: String, target: File): String? = try {
-        val bytes = Base64.decode(base64, Base64.DEFAULT)
+        val bytes = Base64.getMimeDecoder().decode(base64)
         if (bytes.isEmpty() || bytes.size > ResourceLimits.MAX_IMAGE_SIZE_BYTES) {
-            Log.w(TAG, "Skipping Paprika photo of ${bytes.size} bytes")
+            ErrorLog.w(TAG, "Skipping Paprika photo of ${bytes.size} bytes")
             null
         } else {
             target.writeBytes(bytes)
             target.absolutePath
         }
     } catch (e: Exception) {
-        Log.w(TAG, "Failed to decode Paprika photo", e)
+        ErrorLog.w(TAG, "Failed to decode Paprika photo", e)
         null
     }
 

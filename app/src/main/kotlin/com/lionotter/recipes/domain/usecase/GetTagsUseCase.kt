@@ -1,8 +1,8 @@
 package com.lionotter.recipes.domain.usecase
 
-import android.util.Log
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.tagKey
+import com.lionotter.recipes.util.ErrorLog
 import org.ojalgo.optimisation.ExpressionsBasedModel
 import org.ojalgo.optimisation.Optimisation
 import javax.inject.Inject
@@ -68,7 +68,7 @@ class GetTagsUseCase @Inject constructor() {
         return try {
             solveIlp(recipes, tagToRecipes)
         } catch (e: Exception) {
-            Log.w(TAG, "ILP solver failed, falling back to greedy algorithm", e)
+            ErrorLog.w(TAG, "ILP solver failed, falling back to greedy algorithm", e)
             solveGreedy(recipes, tagToRecipes)
         }
     }

@@ -6,15 +6,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
 import com.lionotter.recipes.R
-import com.lionotter.recipes.data.local.GroceryListStateStore
-import com.lionotter.recipes.data.local.SavedGroceryListState
-import com.lionotter.recipes.data.local.SettingsDataStore
-import com.lionotter.recipes.data.repository.IMealPlanRepository
-import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.domain.model.formatIngredientTotal
+import com.lionotter.recipes.domain.port.AppSettings
+import com.lionotter.recipes.domain.port.GroceryListStateStore
+import com.lionotter.recipes.domain.port.SavedGroceryListState
+import com.lionotter.recipes.domain.repository.MealPlanRepository
+import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.domain.usecase.AggregateGroceryListUseCase
 import com.lionotter.recipes.domain.usecase.GroceryIngredientSource
 import com.lionotter.recipes.domain.usecase.GroceryItem
@@ -86,10 +86,10 @@ enum class GroceryListStep {
 @HiltViewModel
 class GroceryListViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    private val mealPlanRepository: IMealPlanRepository,
-    private val recipeRepository: IRecipeRepository,
+    private val mealPlanRepository: MealPlanRepository,
+    private val recipeRepository: RecipeRepository,
     private val aggregateGroceryListUseCase: AggregateGroceryListUseCase,
-    private val settingsDataStore: SettingsDataStore,
+    private val settings: AppSettings,
     private val groceryListStateStore: GroceryListStateStore
 ) : ViewModel() {
 
@@ -167,10 +167,10 @@ class GroceryListViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            settingsDataStore.groceryVolumeUnitSystem.collect { _volumeSystem.value = it }
+            settings.groceryVolumeUnitSystem.collect { _volumeSystem.value = it }
         }
         viewModelScope.launch {
-            settingsDataStore.groceryWeightUnitSystem.collect { _weightSystem.value = it }
+            settings.groceryWeightUnitSystem.collect { _weightSystem.value = it }
         }
         viewModelScope.launch {
             val saved = loadSavedState()

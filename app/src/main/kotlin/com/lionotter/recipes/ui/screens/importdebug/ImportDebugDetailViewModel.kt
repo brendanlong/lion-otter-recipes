@@ -9,10 +9,11 @@ import com.lionotter.recipes.data.local.ImportDebugDao
 import com.lionotter.recipes.data.local.ImportDebugSummary
 import com.lionotter.recipes.ui.navigation.Route
 import com.lionotter.recipes.util.ErrorLog
+import com.lionotter.recipes.util.IoDispatcher
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -50,7 +51,8 @@ sealed interface ImportDebugDetailState {
 class ImportDebugDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val importDebugDao: ImportDebugDao,
-    @param:ApplicationContext private val appContext: Context
+    @param:ApplicationContext private val appContext: Context,
+    @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : ViewModel() {
 
     private val entryId: String = savedStateHandle.toRoute<Route.ImportDebugDetail>().debugEntryId
@@ -91,7 +93,7 @@ class ImportDebugDetailViewModel @Inject constructor(
      * Writes the full content of [field] to a shareable cache file, reading it from the
      * database in chunks that fit in a CursorWindow.
      */
-    suspend fun writeFullContentToFile(field: DebugContentField): File = withContext(Dispatchers.IO) {
+    suspend fun writeFullContentToFile(field: DebugContentField): File = withContext(ioDispatcher) {
         val dir = File(appContext.cacheDir, SHARE_DIR).apply { mkdirs() }
         val extension = if (field == DebugContentField.AI_OUTPUT) "json" else "txt"
         val file = File(dir, "import-debug-${field.column}.$extension")

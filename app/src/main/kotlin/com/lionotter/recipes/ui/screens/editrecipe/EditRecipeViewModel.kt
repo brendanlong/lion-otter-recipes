@@ -8,18 +8,19 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
 import com.lionotter.recipes.R
-import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.ImageDownloadService
-import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.AiModels
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.di.ApplicationScope
 import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.port.AppSettings
+import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
 import com.lionotter.recipes.messages.UserMessage
 import com.lionotter.recipes.messages.toUserMessage
 import com.lionotter.recipes.ui.navigation.Route
 import com.lionotter.recipes.util.ErrorLog
+import com.lionotter.recipes.util.IoDispatcher
 import com.lionotter.recipes.worker.RecipeEditWork
 import com.lionotter.recipes.worker.RecipeRegenerateWork
 import com.lionotter.recipes.worker.RecipeWorkScheduler
@@ -27,6 +28,7 @@ import com.lionotter.recipes.worker.WorkStatus
 import com.lionotter.recipes.worker.WorkTracker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -63,11 +65,12 @@ sealed interface EditRecipeEvent {
 @HiltViewModel
 class EditRecipeViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
-    private val recipeRepository: IRecipeRepository,
-    private val settingsDataStore: SettingsDataStore,
+    private val recipeRepository: RecipeRepository,
+    private val settings: AppSettings,
     private val imageDownloadService: ImageDownloadService,
     private val recipeWorkScheduler: RecipeWorkScheduler,
-    @param:ApplicationScope private val appScope: CoroutineScope
+    @param:ApplicationScope private val appScope: CoroutineScope,
+    @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : ViewModel() {
 
     private val recipeId: String = savedStateHandle.toRoute<Route.EditRecipe>().recipeId
@@ -231,7 +234,7 @@ class EditRecipeViewModel @Inject constructor(
     fun onImageSelected(contentUri: Uri) {
         viewModelScope.launch {
             try {
-                val localUri = withContext(Dispatchers.IO) {
+                val localUri = withContext(ioDispatcher) {
                     imageDownloadService.saveImageFromContentUri(contentUri)
                 }
                 if (localUri != null) {
@@ -432,7 +435,7 @@ class EditRecipeViewModel @Inject constructor(
 
     /** Enqueues the AI edit and tracks it. Its input is written to disk on the IO dispatcher. */
     private suspend fun startEditWork(request: EditRequest): UUID {
-        val work = withContext(Dispatchers.IO) {
+        val work = withContext(ioDispatcher) {
             recipeWorkScheduler.prepareEdit(
                 recipeId = recipeId,
                 markdownText = request.markdown,
@@ -493,8 +496,8 @@ class EditRecipeViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 // Load settings defaults
-                _model.value = settingsDataStore.editModel.first()
-                _thinkingEnabled.value = settingsDataStore.thinkingEnabled.first()
+                _model.value = settings.editModel.first()
+                _thinkingEnabled.value = settings.thinkingEnabled.first()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

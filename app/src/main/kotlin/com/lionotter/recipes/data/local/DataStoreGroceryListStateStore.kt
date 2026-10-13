@@ -8,6 +8,8 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.lionotter.recipes.domain.port.GroceryListStateStore
+import com.lionotter.recipes.domain.port.SavedGroceryListState
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
 import kotlinx.datetime.LocalDate
@@ -16,21 +18,11 @@ import javax.inject.Singleton
 
 private val Context.groceryListDataStore: DataStore<Preferences> by preferencesDataStore(name = "grocery_list_state")
 
-/**
- * Per-week grocery list state, persisted so the generated list and checked-off items
- * survive leaving the screen and process death (e.g. while shopping).
- */
-data class SavedGroceryListState(
-    val selectedEntryIds: Set<String>,
-    val showingList: Boolean,
-    val checkedItems: Set<String>,
-    val checkedSources: Set<String>
-)
-
+/** [GroceryListStateStore] in its own Preferences DataStore, keeping the most recent weeks. */
 @Singleton
-class GroceryListStateStore @Inject constructor(
+class DataStoreGroceryListStateStore @Inject constructor(
     @param:ApplicationContext private val context: Context
-) {
+) : GroceryListStateStore {
     private class WeekKeys(weekStart: LocalDate) {
         val prefix = "$KEY_PREFIX${weekStart}_"
         val showingList = booleanPreferencesKey("${prefix}showing_list")
@@ -39,7 +31,7 @@ class GroceryListStateStore @Inject constructor(
         val checkedSources = stringSetPreferencesKey("${prefix}checked_sources")
     }
 
-    suspend fun load(weekStart: LocalDate): SavedGroceryListState? {
+    override suspend fun load(weekStart: LocalDate): SavedGroceryListState? {
         val keys = WeekKeys(weekStart)
         val prefs = context.groceryListDataStore.data.first()
         val showingList = prefs[keys.showingList] ?: return null
@@ -51,7 +43,7 @@ class GroceryListStateStore @Inject constructor(
         )
     }
 
-    suspend fun save(weekStart: LocalDate, state: SavedGroceryListState) {
+    override suspend fun save(weekStart: LocalDate, state: SavedGroceryListState) {
         val keys = WeekKeys(weekStart)
         context.groceryListDataStore.edit { prefs ->
             prefs[keys.showingList] = state.showingList

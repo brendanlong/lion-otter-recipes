@@ -1,27 +1,16 @@
 package com.lionotter.recipes.domain.util
 
-import android.util.Log
-import com.lionotter.recipes.data.remote.ImageDownloadService
-import com.lionotter.recipes.data.repository.IMealPlanRepository
-import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.model.MealType
 import com.lionotter.recipes.domain.model.Recipe
-import io.mockk.coEvery
-import io.mockk.coVerify
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.mockkStatic
-import io.mockk.slot
-import io.mockk.unmockkStatic
-import io.mockk.verify
+import com.lionotter.recipes.testutil.FakeImageStore
+import com.lionotter.recipes.testutil.FakeMealPlanRepository
+import com.lionotter.recipes.testutil.FakeRecipeRepository
 import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.LocalDate
 import kotlinx.serialization.json.Json
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
-import org.junit.Before
 import org.junit.Test
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -39,46 +28,12 @@ class ZipImportHelperTest {
     private val serializer = RecipeSerializer(json)
     private val now = Instant.fromEpochMilliseconds(1_700_000_000_000)
 
-    private lateinit var recipeRepository: IRecipeRepository
-    private lateinit var mealPlanRepository: IMealPlanRepository
-    private lateinit var imageDownloadService: ImageDownloadService
-    private lateinit var helper: ZipImportHelper
-    private val savedRecipes = mutableListOf<Recipe>()
-    private val savedMealPlans = mutableListOf<MealPlanEntry>()
-
-    @Before
-    fun setUp() {
-        mockkStatic(Log::class)
-        every { Log.w(any<String>(), any<String>()) } returns 0
-        every { Log.w(any<String>(), any<String>(), any()) } returns 0
-        every { Log.e(any<String>(), any<String>(), any()) } returns 0
-
-        recipeRepository = mockk(relaxed = true) {
-            coEvery { getRecipeByIdOnce(any()) } answers { savedRecipes.firstOrNull { it.id == firstArg() } }
-            coEvery { getRecipeCount() } answers { savedRecipes.size }
-            val recipeSlot = slot<Recipe>()
-            every { saveRecipe(capture(recipeSlot)) } answers { savedRecipes.add(recipeSlot.captured) }
-        }
-        mealPlanRepository = mockk(relaxed = true) {
-            val mealSlot = slot<MealPlanEntry>()
-            every { saveMealPlan(capture(mealSlot)) } answers { savedMealPlans.add(mealSlot.captured) }
-        }
-        imageDownloadService = mockk(relaxed = true) {
-            coEvery { downloadAndStore(any()) } returns null
-            coEvery { downloadImageIfNeeded(any()) } returns null
-            coEvery { saveImageFromStream(any(), any()) } answers {
-                firstArg<java.io.InputStream>().readBytes()
-                "file:///cache/image.jpg"
-            }
-            coEvery { storeImage(any(), any()) } answers { firstArg() }
-        }
-        helper = ZipImportHelper(recipeRepository, serializer, mealPlanRepository, json, imageDownloadService)
-    }
-
-    @After
-    fun tearDown() {
-        unmockkStatic(Log::class)
-    }
+    private val recipeRepository = FakeRecipeRepository()
+    private val mealPlanRepository = FakeMealPlanRepository()
+    private val imageStore = FakeImageStore()
+    private val helper = ZipImportHelper(recipeRepository, serializer, mealPlanRepository, json, imageStore)
+    private val savedRecipes get() = recipeRepository.saved
+    private val savedMealPlans get() = mealPlanRepository.entries.value.values
 
     private fun recipe(id: String, name: String) = Recipe(
         id = id,
@@ -140,7 +95,8 @@ class ZipImportHelperTest {
         assertEquals(1, summary.failedCount)
         assertEquals(2, summary.mealPlansImported)
         assertEquals(setOf("m1", "m2"), savedMealPlans.map { it.id }.toSet())
-        assertEquals("file:///cache/image.jpg", savedRecipes.first { it.id == "id-a" }.imageUrl)
+        assertEquals("gs://bucket/stream.jpg", savedRecipes.first { it.id == "id-a" }.imageUrl)
+        assertEquals(listOf(3), imageStore.savedStreams)
     }
 
     @Test
@@ -152,12 +108,12 @@ class ZipImportHelperTest {
         assertEquals(listOf("id-b"), savedRecipes.map { it.id })
         assertEquals(listOf("m2"), savedMealPlans.map { it.id })
         // The unselected recipe's image follows its recipe.json, so it is never written to disk.
-        coVerify(exactly = 0) { imageDownloadService.saveImageFromStream(any(), any()) }
+        assertEquals(emptyList<Int>(), imageStore.savedStreams)
     }
 
     @Test
     fun `importFromZip skips recipes that already exist but keeps their meal plans`() = runTest {
-        savedRecipes.add(recipe("id-a", "Pancakes"))
+        recipeRepository.recipes.value = mapOf("id-a" to recipe("id-a", "Pancakes"))
 
         val summary = helper.importFromZip(ByteArrayInputStream(sampleZip()), selectedRecipeIds = null)
 

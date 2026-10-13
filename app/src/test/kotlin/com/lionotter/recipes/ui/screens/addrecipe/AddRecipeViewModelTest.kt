@@ -1,16 +1,14 @@
 package com.lionotter.recipes.ui.screens.addrecipe
 
-import com.lionotter.recipes.messages.UserMessage
-import com.lionotter.recipes.domain.RecipeError
-import com.lionotter.recipes.domain.PageFetchFailure
-import com.lionotter.recipes.R
 import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
-import com.lionotter.recipes.data.local.SettingsDataStore
+import com.lionotter.recipes.R
 import com.lionotter.recipes.data.repository.PendingImportRepository
+import com.lionotter.recipes.domain.PageFetchFailure
+import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.imports.FakeImportWork
 import com.lionotter.recipes.imports.FakePendingImportDao
 import com.lionotter.recipes.imports.ImportMonitor
@@ -19,6 +17,8 @@ import com.lionotter.recipes.imports.ImportStage
 import com.lionotter.recipes.imports.pendingImport
 import com.lionotter.recipes.imports.testAppScope
 import com.lionotter.recipes.imports.workInfo
+import com.lionotter.recipes.messages.UserMessage
+import com.lionotter.recipes.testutil.FakeAiSettings
 import com.lionotter.recipes.worker.RecipeImportWork
 import com.lionotter.recipes.worker.RecipeImportWorker
 import com.lionotter.recipes.worker.RecipeWorkScheduler
@@ -49,9 +49,7 @@ class AddRecipeViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
     private val dao = FakePendingImportDao()
     private val work = FakeImportWork()
-    private val settingsDataStore: SettingsDataStore = mockk {
-        every { anthropicApiKey } returns flowOf("sk-ant-test")
-    }
+    private val aiSettings = FakeAiSettings()
     private val scheduler: RecipeWorkScheduler = mockk {
         every { buildUrlImportRequest(any(), any()) } answers { OneTimeWorkRequestBuilder<RecipeImportWorker>().build() }
         coEvery { enqueueImport(any(), any()) } answers {
@@ -88,7 +86,7 @@ class AddRecipeViewModelTest {
             importPaprikaUseCase = mockk(),
             monitor = monitor
         )
-        return AddRecipeViewModel(handle, queue, monitor, settingsDataStore)
+        return AddRecipeViewModel(handle, queue, monitor, aiSettings)
     }
 
     private fun startedWorkId(): UUID = UUID.fromString(dao.rows.value.single().workManagerId)

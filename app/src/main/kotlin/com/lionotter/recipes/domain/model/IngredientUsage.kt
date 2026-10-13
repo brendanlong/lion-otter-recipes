@@ -1,6 +1,5 @@
 package com.lionotter.recipes.domain.model
 
-import androidx.compose.runtime.Immutable
 
 /**
  * Represents the usage status of a global ingredient based on instruction step usage.
@@ -10,7 +9,6 @@ import androidx.compose.runtime.Immutable
  * with no density), [remainingAmounts] lists every remaining amount; format it with
  * [formatAmounts] to show e.g. "1/2 cup + 50 g".
  */
-@Immutable
 data class IngredientUsageStatus(
     val totalAmount: Double?,
     val usedAmount: Double,
