@@ -1,6 +1,6 @@
 package com.lionotter.recipes.di
 
-import com.lionotter.recipes.data.remote.ImageUploadScheduler
+import com.lionotter.recipes.data.image.ImageUploadScheduler
 import com.lionotter.recipes.worker.WorkManagerImageUploadScheduler
 import dagger.Binds
 import dagger.Module

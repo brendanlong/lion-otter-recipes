@@ -488,7 +488,7 @@ class PaprikaImportSteps @Inject constructor(
             val file = File(path)
             if (file.exists()) {
                 val localUri = withContext(ioDispatcher) {
-                    imageStore.saveImageFromStream(file.inputStream(), ".jpg")
+                    imageStore.saveImage(file.inputStream(), ".jpg")
                 }
                 if (localUri != null) return localUri
             }

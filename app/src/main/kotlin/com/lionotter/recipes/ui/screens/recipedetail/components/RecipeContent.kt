@@ -49,7 +49,7 @@ import androidx.core.net.toUri
 import coil3.compose.SubcomposeAsyncImage
 import coil3.compose.SubcomposeAsyncImageContent
 import com.lionotter.recipes.R
-import com.lionotter.recipes.data.remote.imageModel
+import com.lionotter.recipes.data.image.imageModel
 import com.lionotter.recipes.domain.model.IngredientUsageStatus
 import com.lionotter.recipes.domain.model.InstructionIngredientKey
 import com.lionotter.recipes.domain.model.MeasurementPreference

@@ -83,18 +83,19 @@ class RegenerateRecipeUseCase @Inject constructor(
                 // Re-read in case the user changed the image while this was running.
                 val freshRecipe = recipeRepository.getRecipeByIdOnce(recipeId) ?: existingRecipe
                 val pageImageUrl = parsed.sourceImageUrl
-                val downloadedImage = if (freshRecipe.imageUrl == null && pageImageUrl != null) {
-                    imageStore.downloadAndStoreWithResult(pageImageUrl)
+                // A recipe without an image gets the page's
+                val pageImage = if (freshRecipe.imageUrl == null && pageImageUrl != null) {
+                    imageStore.importFromUrl(pageImageUrl)
                 } else {
                     null
                 }
 
                 onProgress(RegenerateProgress.SavingRecipe)
                 val regeneratedRecipe = withContext(NonCancellable) {
-                    val newImageUrl = downloadedImage?.localUri?.let { imageStore.storeImage(it) }
+                    val newImageUrl = pageImage?.let { imageStore.attach(it.uri, recipeId = recipeId) }
                     freshRecipe.withRegeneratedContent(parsed, Clock.System.now()).copy(
                         imageUrl = freshRecipe.imageUrl ?: newImageUrl,
-                        sourceImageUrl = downloadedImage?.effectiveUrl ?: pageImageUrl ?: freshRecipe.sourceImageUrl
+                        sourceImageUrl = pageImage?.sourceUrl ?: pageImageUrl ?: freshRecipe.sourceImageUrl
                     ).also { recipeRepository.saveRecipe(it) }
                 }
 

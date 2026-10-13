@@ -131,7 +131,7 @@ class ZipImportHelper @Inject constructor(
             } else if (recipe == null && folderHadBadJson && selectedRecipeIds == null) {
                 failed++
             }
-            folderImage?.let { imageStore.deleteLocalImage(it) }
+            folderImage?.let { imageStore.discardLocalImage(it) }
             folderRecipe = null
             folderImage = null
             folderHadBadJson = false
@@ -169,7 +169,7 @@ class ZipImportHelper @Inject constructor(
                     val wanted = known == null || selectedRecipeIds == null || known.id in selectedRecipeIds
                     if (wanted) {
                         val extension = ".${fileName.substringAfterLast('.', "jpg")}"
-                        folderImage = imageStore.saveImageFromStream(
+                        folderImage = imageStore.saveImage(
                             BoundedInputStream(zipIn, ResourceLimits.MAX_IMAGE_SIZE_BYTES, budget),
                             extension
                         )
@@ -200,12 +200,14 @@ class ZipImportHelper @Inject constructor(
                 return SingleRecipeResult.LimitReached
             }
 
+            // The bundled image, else the original web image, else the exported recipe's own image
+            // (usable if it is stored in this account or still on this device)
             val localImageUrl = bundledImageUri
-                ?: recipe.sourceImageUrl?.takeIf { it.isNotBlank() }?.let { imageStore.downloadAndStoreWithResult(it)?.localUri }
-                ?: imageStore.downloadImageIfNeeded(recipe.imageUrl)
+                ?: recipe.sourceImageUrl?.takeIf { it.isNotBlank() }?.let { imageStore.importFromUrl(it)?.uri }
+                ?: recipe.imageUrl?.let { imageStore.importFromUrl(it)?.uri }
 
             withContext(NonCancellable) {
-                val storedImageUrl = localImageUrl?.let { imageStore.storeImage(it) }
+                val storedImageUrl = localImageUrl?.let { imageStore.attach(it, recipeId = recipe.id) }
                 recipeRepository.saveRecipe(
                     recipe.copy(updatedAt = Clock.System.now(), imageUrl = storedImageUrl)
                 )

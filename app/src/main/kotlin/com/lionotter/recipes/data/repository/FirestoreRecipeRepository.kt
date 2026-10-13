@@ -3,11 +3,11 @@ package com.lionotter.recipes.data.repository
 import android.util.Log
 import com.google.android.gms.tasks.Task
 import com.google.firebase.firestore.FieldPath
+import com.google.firebase.firestore.Source
 import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.DataFailure
 import com.lionotter.recipes.data.remote.DataOp
 import com.lionotter.recipes.data.remote.FirestoreService
-import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.data.remote.dto.MealPlanFields
 import com.lionotter.recipes.data.remote.dto.RecipeDto
 import com.lionotter.recipes.data.remote.dto.RecipeFields
@@ -21,7 +21,6 @@ import com.lionotter.recipes.util.DefaultDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
@@ -32,7 +31,6 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -42,7 +40,6 @@ import javax.inject.Singleton
 @Singleton
 class FirestoreRecipeRepository @Inject constructor(
     private val firestoreService: FirestoreService,
-    private val imageDownloadService: ImageDownloadService,
     private val authService: AuthService,
     @param:ApplicationScope private val appScope: CoroutineScope,
     @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
@@ -123,26 +120,8 @@ class FirestoreRecipeRepository @Inject constructor(
             .reportFailure(DataOp.SAVE_RECIPE, recipe.id)
     }
 
+    /** Only the document: the recipe's image is released by `DeleteRecipeUseCase`. */
     override fun deleteRecipe(id: String) = write(DataOp.DELETE_RECIPE, id) { uid ->
-        // Read the recipe's image URL first, then delete everything.
-        firestoreService.recipesCollection(uid).document(id).get()
-            .addOnSuccessListener { snapshot ->
-                val imageUrl = snapshot.getString(RecipeFields.IMAGE_URL)
-                if (imageUrl != null) {
-                    appScope.launch {
-                        withContext(NonCancellable) { imageDownloadService.cleanupImage(imageUrl, recipeId = id) }
-                    }
-                }
-                deleteRecipeDocuments(uid, id)
-            }
-            .addOnFailureListener { e ->
-                Log.w(TAG, "Could not read recipe image before delete: $id", e)
-                // Still delete the recipe even if we couldn't read the image URL
-                deleteRecipeDocuments(uid, id)
-            }
-    }
-
-    private fun deleteRecipeDocuments(uid: String, id: String) {
         firestoreService.recipesCollection(uid).document(id).delete()
             .reportFailure(DataOp.DELETE_RECIPE, id)
     }
@@ -201,4 +180,44 @@ class FirestoreRecipeRepository @Inject constructor(
         logFailure(TAG, "Error fetching recipe count") {
             firestoreService.recipesCollection(authService.awaitUid()).get().await().size()
         }
+
+    // The image queries below are called by the image layer, which logs failures (often just
+    // being offline) at warning level, so they aren't reported to crash reporting here.
+
+    /** @throws Exception if recipes could not be read */
+    override suspend fun isImageReferenced(imageUrl: String, excludingRecipeId: String?): Boolean =
+        firestoreService.recipesCollection(authService.awaitUid())
+            .whereEqualTo(RecipeFields.IMAGE_URL, imageUrl)
+            .get()
+            .await()
+            .documents
+            .any { it.id != excludingRecipeId }
+
+    /** Reads only the local cache, so it is fast and works offline. @throws Exception if it could not be read */
+    override suspend fun getImageUrl(id: String): String? =
+        firestoreService.recipesCollection(authService.awaitUid())
+            .whereEqualTo(FieldPath.documentId(), id)
+            .limit(1)
+            .get(Source.CACHE)
+            .await()
+            .documents
+            .firstOrNull()
+            ?.getString(RecipeFields.IMAGE_URL)
+
+    /** @throws Exception if recipes could not be read */
+    override suspend fun getImageUrlsByRecipeId(localOnly: Boolean): Map<String, String> {
+        val recipes = firestoreService.recipesCollection(authService.awaitUid())
+        val snapshot = (if (localOnly) recipes.get(Source.CACHE) else recipes.get()).await()
+        return snapshot.documents.mapNotNull { doc -> doc.getString(RecipeFields.IMAGE_URL)?.let { doc.id to it } }.toMap()
+    }
+
+    /** @throws Exception if the transaction failed (e.g. offline) */
+    override suspend fun replaceImageUrl(id: String, expected: String, replacement: String): Boolean {
+        val ref = firestoreService.recipesCollection(authService.awaitUid()).document(id)
+        return ref.firestore.runTransaction { tx ->
+            val current = tx.get(ref).getString(RecipeFields.IMAGE_URL)
+            if (current == expected) tx.update(ref, RecipeFields.IMAGE_URL, replacement)
+            current == expected
+        }.await()
+    }
 }

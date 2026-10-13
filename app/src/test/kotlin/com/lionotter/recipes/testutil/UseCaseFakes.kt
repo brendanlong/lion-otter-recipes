@@ -9,11 +9,11 @@ import com.lionotter.recipes.domain.port.AiSettings
 import com.lionotter.recipes.domain.port.BatchItemOutcome
 import com.lionotter.recipes.domain.port.BatchParseRequest
 import com.lionotter.recipes.domain.port.BatchStatus
-import com.lionotter.recipes.domain.port.DownloadedImage
 import com.lionotter.recipes.domain.port.FetchedPage
 import com.lionotter.recipes.domain.port.ImageStore
 import com.lionotter.recipes.domain.port.ImportDebugLog
 import com.lionotter.recipes.domain.port.ImportDebugRecord
+import com.lionotter.recipes.domain.port.ImportedImage
 import com.lionotter.recipes.domain.port.PageContent
 import com.lionotter.recipes.domain.port.PageContentExtractor
 import com.lionotter.recipes.domain.port.PageFetcher
@@ -147,40 +147,56 @@ class FakeAiSettings(
 }
 
 /**
- * Downloads succeed unless the URL is in [failingUrls]; an `http://` URL is "upgraded" to
- * `https://`. Stored images get a `gs://` URL.
+ * Web downloads succeed unless the URL is in [failingUrls]; an `http://` URL is "upgraded" to
+ * `https://`. Local and stored images are imported as is. Attached images get a `gs://` URL.
  */
 class FakeImageStore(private val failingUrls: Set<String> = emptySet()) : ImageStore {
     val downloaded = mutableListOf<String>()
-    val stored = mutableListOf<String>()
 
-    override suspend fun downloadAndStoreWithResult(imageUrl: String): DownloadedImage? {
+    /** Local URIs [importPickedImage] returns, by picked `content://` URI. */
+    val pickedImages = mutableMapOf<String, String>()
+
+    override suspend fun importPickedImage(contentUri: String): String? = pickedImages[contentUri]
+
+    override suspend fun importFromUrl(imageUrl: String): ImportedImage? {
+        if (imageUrl.startsWith("file://") || imageUrl.startsWith("gs://")) return ImportedImage(imageUrl, imageUrl)
         downloaded += imageUrl
         if (imageUrl in failingUrls) return null
-        return DownloadedImage(localUri = localUri(imageUrl), effectiveUrl = imageUrl.replaceFirst("http://", "https://"))
+        return ImportedImage(uri = localUri(imageUrl), sourceUrl = imageUrl.replaceFirst("http://", "https://"))
     }
 
-    override suspend fun storeImage(localUri: String, previousImageUrl: String?, recipeId: String?): String {
+    val stored = mutableListOf<String>()
+
+    /** When set, [attach] fails with it. */
+    var attachError: Throwable? = null
+
+    /** (image, recipe, previous image) of each [attach]. */
+    val attached = mutableListOf<Triple<String, String?, String?>>()
+
+    override suspend fun attach(localUri: String, recipeId: String?, previousImageUrl: String?): String {
+        attachError?.let { throw it }
         stored += localUri
-        return "gs://bucket/" + localUri.substringAfterLast('/')
+        attached += Triple(localUri, recipeId, previousImageUrl)
+        return if (localUri.startsWith("gs://")) localUri else "gs://bucket/" + localUri.substringAfterLast('/')
     }
 
-    /** Sizes of the images saved with [saveImageFromStream]. */
+    /** (image, recipe) of each [release]. */
+    val released = mutableListOf<Pair<String, String>>()
+
+    override fun release(imageUrl: String, recipeId: String) {
+        released += imageUrl to recipeId
+    }
+
+    /** Sizes of the images saved with [saveImage]. */
     val savedStreams = mutableListOf<Int>()
 
-    /** The local URI [saveImageFromStream] returns for an image of the given size. */
+    /** The local URI [saveImage] returns for an image of the given size. */
     var streamUri: (size: Int, extension: String) -> String = { _, extension -> "file:///images/stream$extension" }
 
-    override suspend fun saveImageFromStream(inputStream: InputStream, extension: String): String? {
+    override suspend fun saveImage(inputStream: InputStream, extension: String): String? {
         val size = inputStream.use { it.readBytes() }.size
         savedStreams += size
         return streamUri(size, extension)
-    }
-
-    override suspend fun downloadImageIfNeeded(imageUrl: String?): String? = when {
-        imageUrl == null -> null
-        imageUrl.startsWith("file://") || imageUrl.startsWith("gs://") -> imageUrl
-        else -> downloadAndStoreWithResult(imageUrl)?.localUri
     }
 
     /** Local images copied with [copyLocalImage]. */
@@ -193,7 +209,7 @@ class FakeImageStore(private val failingUrls: Set<String> = emptySet()) : ImageS
 
     val deletedLocal = mutableListOf<String>()
 
-    override suspend fun deleteLocalImage(localUri: String) {
+    override suspend fun discardLocalImage(localUri: String) {
         deletedLocal += localUri
     }
 

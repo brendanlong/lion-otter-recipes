@@ -1,5 +1,6 @@
 package com.lionotter.recipes.data.repository
 
+import android.util.Log
 import com.google.firebase.firestore.DocumentSnapshot
 import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.DataFailure
@@ -161,4 +162,21 @@ class FirestoreMealPlanRepository @Inject constructor(
                 }
             }
         }
+
+    /**
+     * The updates are applied to the local cache at once and synced in the background; a sync
+     * failure is logged (the meal plan keeps showing the old image until the next change).
+     *
+     * @throws Exception if the meal plans could not be queried (the caller logs it)
+     */
+    override suspend fun replaceRecipeImageUrl(oldUrl: String, newUrl: String) {
+        val snapshot = firestoreService.mealPlansCollection(authService.awaitUid())
+            .whereEqualTo(MealPlanFields.RECIPE_IMAGE_URL, oldUrl)
+            .get()
+            .await()
+        for (doc in snapshot.documents) {
+            doc.reference.update(MealPlanFields.RECIPE_IMAGE_URL, newUrl)
+                .addOnFailureListener { e -> Log.w(TAG, "Failed to update meal plan image ${doc.id}", e) }
+        }
+    }
 }

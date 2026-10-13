@@ -112,7 +112,7 @@ class EditRecipeUseCase @Inject constructor(
                             imageUrl = when (copyImage) {
                                 null -> freshRecipe.imageUrl
                                 ImageChange.Remove -> null
-                                is ImageChange.Replace -> imageStore.storeImage(copyImage.localUri, recipeId = copyId)
+                                is ImageChange.Replace -> imageStore.attach(copyImage.localUri, recipeId = copyId)
                             },
                             sourceImageUrl = freshRecipe.sourceImageUrl
                         )

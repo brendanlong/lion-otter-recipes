@@ -9,6 +9,8 @@ import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.firestore
+import com.lionotter.recipes.data.image.LocalImageFiles
+import com.lionotter.recipes.data.image.RemoteImageStorage
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.dto.RecipeFields
 import com.lionotter.recipes.data.repository.ImportDebugRepository
@@ -40,7 +42,8 @@ import javax.inject.Singleton
 @Singleton
 class AccountDeletionService @Inject constructor(
     private val firestoreService: FirestoreService,
-    private val imageSyncService: ImageSyncService,
+    private val remoteImageStorage: RemoteImageStorage,
+    private val localImageFiles: LocalImageFiles,
     private val importDebugRepository: ImportDebugRepository,
     private val settingsDataStore: SettingsDataStore
 ) {
@@ -87,7 +90,7 @@ class AccountDeletionService @Inject constructor(
         val mealPlans = readFromServer(firestoreService.mealPlansCollection(uid))
 
         val imageUrls = recipes.mapNotNull { doc ->
-            doc.getString(RecipeFields.IMAGE_URL)?.takeIf { imageSyncService.isStoragePath(it) }
+            doc.getString(RecipeFields.IMAGE_URL)?.takeIf { RemoteImageStorage.isStorageUrl(it) }
         }.distinct()
 
         // Documents first: if a batch fails, the remaining recipes still have their images.
@@ -184,7 +187,7 @@ class AccountDeletionService @Inject constructor(
         var deletedCount = 0
         for (url in imageUrls) {
             try {
-                imageSyncService.deleteRemoteImage(url)
+                remoteImageStorage.delete(url)
                 deletedCount++
             } catch (e: CancellationException) {
                 throw e
@@ -196,7 +199,7 @@ class AccountDeletionService @Inject constructor(
     }
 
     private suspend fun clearLocalUserData() {
-        imageSyncService.clearLocalCache()
+        localImageFiles.clear()
         try {
             importDebugRepository.deleteAllDebugEntries()
         } catch (e: CancellationException) {

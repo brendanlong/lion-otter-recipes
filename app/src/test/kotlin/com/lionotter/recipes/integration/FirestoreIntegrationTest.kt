@@ -8,8 +8,6 @@ import com.google.firebase.firestore.firestore
 import com.google.firebase.firestore.firestoreSettings
 import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.AuthState
-import com.lionotter.recipes.data.remote.ImageDownloadService
-import com.lionotter.recipes.data.remote.ImageSyncService
 import com.lionotter.recipes.data.repository.FirestoreMealPlanRepository
 import com.lionotter.recipes.data.repository.FirestoreRecipeRepository
 import com.lionotter.recipes.domain.repository.MealPlanRepository
@@ -21,10 +19,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import com.lionotter.recipes.data.remote.uid
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.mock.MockEngine
-import io.ktor.client.engine.mock.respond
-import io.ktor.http.HttpStatusCode
 import com.lionotter.recipes.testutil.TestFirestoreService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -85,17 +79,12 @@ abstract class FirestoreIntegrationTest {
         db.disableNetwork()
 
         firestoreService = TestFirestoreService()
-        val imageSyncService = ImageSyncService(context, firestoreService, Dispatchers.IO, Dispatchers.Default)
-        val httpClient = HttpClient(MockEngine) {
-            engine { addHandler { respond("", HttpStatusCode.NotFound) } }
-        }
         val authService: AuthService = mockk()
         every { authService.authState } returns authState
         every { authService.isGoogleUser() } returns false
         coEvery { authService.awaitUid() } coAnswers { authState.first { it !is AuthState.Loading }.uid!! }
-        val imageDownloadService = ImageDownloadService(context, httpClient, imageSyncService, authService, firestoreService, {}, Dispatchers.IO, Dispatchers.Default)
         val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        recipeRepository = FirestoreRecipeRepository(firestoreService, imageDownloadService, authService, appScope, Dispatchers.Default)
+        recipeRepository = FirestoreRecipeRepository(firestoreService, authService, appScope, Dispatchers.Default)
         mealPlanRepository = FirestoreMealPlanRepository(firestoreService, authService, appScope, Dispatchers.Default)
     }
 

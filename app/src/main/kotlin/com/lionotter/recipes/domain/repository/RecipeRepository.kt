@@ -26,4 +26,22 @@ interface RecipeRepository {
     fun updateTitleAndUrl(id: String, name: String, sourceUrl: String?)
     suspend fun getAllRecipeIdsAndNames(): List<RecipeIdAndName>
     suspend fun getRecipeCount(): Int
+
+    /** True if a recipe other than [excludingRecipeId] has [imageUrl] as its image. */
+    suspend fun isImageReferenced(imageUrl: String, excludingRecipeId: String? = null): Boolean
+
+    /** Recipe [id]'s image URL as stored on this device (no server round trip), or null. */
+    suspend fun getImageUrl(id: String): String?
+
+    /**
+     * The image URL of every recipe that has one, by recipe ID. With [localOnly], only what is
+     * already on this device is read (no server round trip).
+     */
+    suspend fun getImageUrlsByRecipeId(localOnly: Boolean = false): Map<String, String>
+
+    /**
+     * Sets recipe [id]'s image to [replacement] only if it is still [expected], atomically on the
+     * server (so it needs to be online). Returns whether it was replaced.
+     */
+    suspend fun replaceImageUrl(id: String, expected: String, replacement: String): Boolean
 }

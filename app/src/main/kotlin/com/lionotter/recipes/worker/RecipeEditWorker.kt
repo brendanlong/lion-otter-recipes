@@ -104,7 +104,7 @@ class RecipeEditWorker @AssistedInject constructor(
             val cancelledByUser = isStopped && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
                 stopReason == WorkInfo.STOP_REASON_CANCELLED_BY_APP
             if ((releaseCopyImage || cancelledByUser) && copyImage is ImageChange.Replace) {
-                withContext(NonCancellable) { imageStore.deleteLocalImage(copyImage.localUri) }
+                withContext(NonCancellable) { imageStore.discardLocalImage(copyImage.localUri) }
             }
         }
     }

@@ -12,8 +12,8 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-import com.lionotter.recipes.data.remote.ImageSyncService
-import com.lionotter.recipes.data.remote.ImageUploadScheduler
+import com.lionotter.recipes.data.image.ImageUploadScheduler
+import com.lionotter.recipes.data.image.LocalImageUploader
 import com.lionotter.recipes.util.ErrorLog
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -31,7 +31,7 @@ import javax.inject.Provider
 class LocalImageUploadWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted workerParams: WorkerParameters,
-    private val imageSyncService: ImageSyncService
+    private val localImageUploader: LocalImageUploader
 ) : CoroutineWorker(context, workerParams) {
 
     companion object {
@@ -55,7 +55,7 @@ class LocalImageUploadWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result {
         return try {
-            val result = imageSyncService.uploadPendingLocalImages()
+            val result = localImageUploader.uploadPendingLocalImages()
             when {
                 result.failed == 0 -> Result.success(workDataOf(KEY_UPLOADED_COUNT to result.uploaded))
                 runAttemptCount + 1 < MAX_ATTEMPTS -> {

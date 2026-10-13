@@ -80,6 +80,35 @@ class FakeRecipeRepository(vararg initial: Recipe) : RecipeRepository {
 
     override suspend fun getRecipeCount(): Int = countOverride ?: recipes.value.size
 
+    /** When set, the image queries ([isImageReferenced], [getImageUrlsByRecipeId], [replaceImageUrl]) fail with it. */
+    var imageQueryError: Throwable? = null
+
+    /** Runs inside [replaceImageUrl] before it compares, e.g. to change the image concurrently. */
+    var beforeReplaceImageUrl: (id: String) -> Unit = {}
+
+    override suspend fun isImageReferenced(imageUrl: String, excludingRecipeId: String?): Boolean {
+        imageQueryError?.let { throw it }
+        return recipes.value.values.any { it.imageUrl == imageUrl && it.id != excludingRecipeId }
+    }
+
+    override suspend fun getImageUrl(id: String): String? {
+        imageQueryError?.let { throw it }
+        return recipes.value[id]?.imageUrl
+    }
+
+    override suspend fun getImageUrlsByRecipeId(localOnly: Boolean): Map<String, String> {
+        imageQueryError?.let { throw it }
+        return recipes.value.values.mapNotNull { recipe -> recipe.imageUrl?.let { recipe.id to it } }.toMap()
+    }
+
+    override suspend fun replaceImageUrl(id: String, expected: String, replacement: String): Boolean {
+        imageQueryError?.let { throw it }
+        beforeReplaceImageUrl(id)
+        if (recipes.value[id]?.imageUrl != expected) return false
+        update(id) { it.copy(imageUrl = replacement) }
+        return true
+    }
+
     private fun update(id: String, change: (Recipe) -> Recipe) {
         recipes.value[id]?.let { recipes.value += id to change(it) }
     }
@@ -137,6 +166,12 @@ class FakeMealPlanRepository(vararg initial: MealPlanEntry) : MealPlanRepository
         countCalls++
         beforeCount()
         return entries.value.size
+    }
+
+    override suspend fun replaceRecipeImageUrl(oldUrl: String, newUrl: String) {
+        entries.value = entries.value.mapValues { (_, entry) ->
+            if (entry.recipeImageUrl == oldUrl) entry.copy(recipeImageUrl = newUrl) else entry
+        }
     }
 }
 

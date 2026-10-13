@@ -4,24 +4,20 @@ import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.navigation.testing.invoke
 import com.lionotter.recipes.R
-import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.model.ImageChange
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.messages.UserMessage
 import com.lionotter.recipes.testutil.FakeAppSettings
+import com.lionotter.recipes.testutil.FakeImageStore
 import com.lionotter.recipes.testutil.FakeRecipeRepository
 import com.lionotter.recipes.ui.navigation.Route
 import com.lionotter.recipes.worker.PendingWork
 import com.lionotter.recipes.worker.RecipeEditWork
 import com.lionotter.recipes.worker.RecipeWorkScheduler
 import com.lionotter.recipes.worker.WorkStatus
-import io.mockk.coEvery
-import io.mockk.coVerify
 import io.mockk.every
-import io.mockk.just
 import io.mockk.mockk
-import io.mockk.runs
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -59,7 +55,8 @@ class EditRecipeViewModelTest {
         editModelFlow.value = "model"
         thinkingFlow.value = false
     }
-    private lateinit var imageDownloadService: ImageDownloadService
+    private lateinit var imageStore: FakeImageStore
+    private val contentUri = Uri.parse("content://media/picked/1")
 
     private val recipe = Recipe(
         id = "r1",
@@ -74,8 +71,8 @@ class EditRecipeViewModelTest {
     fun setup() {
         Dispatchers.setMain(testDispatcher)
         recipeRepository = FakeRecipeRepository(recipe)
-        imageDownloadService = mockk()
-        coEvery { imageDownloadService.deleteLocalImage(any()) } just runs
+        imageStore = FakeImageStore()
+        imageStore.pickedImages[contentUri.toString()] = "file:///new.jpg"
     }
 
     @After
@@ -90,7 +87,7 @@ class EditRecipeViewModelTest {
         handle,
         recipeRepository,
         settings,
-        imageDownloadService,
+        imageStore,
         scheduler,
         TestScope(UnconfinedTestDispatcher()),
         testDispatcher
@@ -120,9 +117,6 @@ class EditRecipeViewModelTest {
         } returns PendingWork(workId) {}
         every { scheduler.observeEdit(workId) } returns
             flowOf(WorkStatus.Finished(RecipeEditWork.Outcome.Success("r1", "Pasta", newRecipeId = "copy1")))
-        coEvery { imageDownloadService.copyLocalImage("file:///new.jpg") } returns "file:///new-copy.jpg"
-        val contentUri = mockk<Uri>()
-        coEvery { imageDownloadService.saveImageFromContentUri(contentUri) } returns "file:///new.jpg"
         val viewModel = createViewModel(scheduler = scheduler)
         advanceUntilIdle()
         viewModel.onImageSelected(contentUri)
@@ -133,7 +127,8 @@ class EditRecipeViewModelTest {
         assertEquals(EditRecipeEvent.Saved(newRecipeId = "copy1"), viewModel.events.first())
         assertEquals(emptyList<Any>(), recipeRepository.imageUrlUpdates)
         assertEquals("file:///new.jpg", viewModel.imageUrl.value)
-        coVerify(exactly = 0) { imageDownloadService.deleteLocalImage(any()) }
+        assertEquals(listOf("file:///new.jpg"), imageStore.copied)
+        assertEquals(emptyList<String>(), imageStore.deletedLocal)
     }
 
     @Test
@@ -153,9 +148,6 @@ class EditRecipeViewModelTest {
     fun `the image copy is deleted if the copy work can't be started`() = runTest {
         val scheduler = mockk<RecipeWorkScheduler>()
         every { scheduler.prepareEdit(any(), any(), any(), any(), any(), any(), any()) } throws IOException("disk full")
-        coEvery { imageDownloadService.copyLocalImage("file:///new.jpg") } returns "file:///new-copy.jpg"
-        val contentUri = mockk<Uri>()
-        coEvery { imageDownloadService.saveImageFromContentUri(contentUri) } returns "file:///new.jpg"
         val viewModel = createViewModel(scheduler = scheduler)
         advanceUntilIdle()
         viewModel.onImageSelected(contentUri)
@@ -164,7 +156,7 @@ class EditRecipeViewModelTest {
         viewModel.saveAsCopy()
         advanceUntilIdle()
 
-        coVerify { imageDownloadService.deleteLocalImage("file:///new-copy.jpg") }
+        assertEquals(listOf("file:///new-copy.jpg"), imageStore.deletedLocal)
         assertEquals(EditUiState.Error(UserMessage(R.string.error_save_changes)), viewModel.editState.value)
         assertEquals("file:///new.jpg", viewModel.imageUrl.value)
     }
@@ -235,9 +227,7 @@ class EditRecipeViewModelTest {
 
     @Test
     fun `a failed in-place save keeps the picked image pending`() = runTest {
-        val contentUri = mockk<Uri>()
-        coEvery { imageDownloadService.saveImageFromContentUri(contentUri) } returns "file:///new.jpg"
-        coEvery { imageDownloadService.storeImage(any(), any(), any()) } throws IOException("disk full")
+        imageStore.attachError = IOException("disk full")
         val viewModel = createViewModel()
         advanceUntilIdle()
         viewModel.onImageSelected(contentUri)
@@ -359,9 +349,6 @@ class EditRecipeViewModelTest {
 
     @Test
     fun `picked image is pending until save`() = runTest {
-        val contentUri = mockk<Uri>()
-        coEvery { imageDownloadService.saveImageFromContentUri(contentUri) } returns "file:///new.jpg"
-        coEvery { imageDownloadService.storeImage("file:///new.jpg", "file:///old.jpg", "r1") } returns "gs://new"
         val viewModel = createViewModel()
         advanceUntilIdle()
 
@@ -374,13 +361,13 @@ class EditRecipeViewModelTest {
         viewModel.saveEdits()
         advanceUntilIdle()
 
-        assertEquals(listOf("r1" to "gs://new"), recipeRepository.imageUrlUpdates)
+        assertEquals(listOf(Triple("file:///new.jpg", "r1", "file:///old.jpg")), imageStore.attached)
+        assertEquals(listOf("r1" to "gs://bucket/new.jpg"), recipeRepository.imageUrlUpdates)
         assertEquals(EditRecipeEvent.Saved(newRecipeId = null), viewModel.events.first())
     }
 
     @Test
     fun `removing image is applied on save`() = runTest {
-        coEvery { imageDownloadService.cleanupImage("file:///old.jpg", "r1") } just runs
         val viewModel = createViewModel()
         advanceUntilIdle()
 
@@ -392,7 +379,7 @@ class EditRecipeViewModelTest {
         viewModel.saveEdits()
         advanceUntilIdle()
 
-        coVerify { imageDownloadService.cleanupImage("file:///old.jpg", "r1") }
+        assertEquals(listOf("file:///old.jpg" to "r1"), imageStore.released)
         assertEquals(listOf("r1" to null), recipeRepository.imageUrlUpdates)
     }
 }

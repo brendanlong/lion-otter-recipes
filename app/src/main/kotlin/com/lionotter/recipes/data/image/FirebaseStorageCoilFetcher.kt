@@ -1,6 +1,5 @@
-package com.lionotter.recipes.data.remote
+package com.lionotter.recipes.data.image
 
-import android.content.Context
 import coil3.ImageLoader
 import coil3.decode.DataSource
 import coil3.decode.ImageSource
@@ -9,7 +8,6 @@ import coil3.fetch.Fetcher
 import coil3.fetch.SourceFetchResult
 import coil3.key.Keyer
 import coil3.request.Options
-import kotlinx.coroutines.CoroutineDispatcher
 import okio.Path.Companion.toOkioPath
 import java.io.IOException
 
@@ -33,7 +31,7 @@ data class FirebaseStorageUri(val uri: String)
  */
 fun imageModel(imageUrl: String?): Any? {
     if (imageUrl == null) return null
-    return if (imageUrl.startsWith("gs://")) FirebaseStorageUri(imageUrl) else imageUrl
+    return if (RemoteImageStorage.isStorageUrl(imageUrl)) FirebaseStorageUri(imageUrl) else imageUrl
 }
 
 /**
@@ -49,17 +47,16 @@ class FirebaseStorageKeyer : Keyer<FirebaseStorageUri> {
  * Coil [Fetcher] that handles Firebase Storage images referenced by `gs://` URIs
  * (e.g., `gs://bucket/users/{uid}/images/{filename}`).
  *
- * Downloads are delegated to [ImageCacheConfig.resolveToFile], which shares
- * the same local cache used by [ImageSyncService] for export/import flows.
+ * Downloads go through [RemoteImageStorage.cachedFile], so they share the local cache used
+ * for export and are only downloaded once.
  */
 class FirebaseStorageCoilFetcher(
     private val storageUri: String,
-    private val context: Context,
-    private val ioDispatcher: CoroutineDispatcher
+    private val remoteImageStorage: RemoteImageStorage
 ) : Fetcher {
 
     override suspend fun fetch(): FetchResult {
-        val cacheFile = ImageCacheConfig.resolveToFile(storageUri, context, ioDispatcher)
+        val cacheFile = remoteImageStorage.cachedFile(storageUri)
             ?: throw IOException("Failed to download image: $storageUri")
 
         return SourceFetchResult(
@@ -76,11 +73,10 @@ class FirebaseStorageCoilFetcher(
      * Factory that creates [FirebaseStorageCoilFetcher] for [FirebaseStorageUri] data.
      */
     class Factory(
-        private val context: Context,
-        private val ioDispatcher: CoroutineDispatcher
+        private val remoteImageStorage: RemoteImageStorage
     ) : Fetcher.Factory<FirebaseStorageUri> {
         override fun create(data: FirebaseStorageUri, options: Options, imageLoader: ImageLoader): Fetcher {
-            return FirebaseStorageCoilFetcher(data.uri, context, ioDispatcher)
+            return FirebaseStorageCoilFetcher(data.uri, remoteImageStorage)
         }
     }
 }

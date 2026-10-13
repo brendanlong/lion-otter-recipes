@@ -29,7 +29,7 @@ class AuthServiceMergeTest {
     fun setup() {
         firestoreService = mockk(relaxed = true)
         coEvery { firestoreService.clearLocalData(any()) } returns true
-        authService = AuthService(RuntimeEnvironment.getApplication(), firestoreService, mockk(), mockk())
+        authService = AuthService(RuntimeEnvironment.getApplication(), firestoreService, mockk(), mockk(), { mockk() })
         guestUid = (authService.authState.value as AuthState.Guest).uid
     }
 

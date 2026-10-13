@@ -3,8 +3,6 @@ package com.lionotter.recipes.spike
 import android.util.Log
 import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.AuthState
-import com.lionotter.recipes.data.remote.ImageDownloadService
-import com.lionotter.recipes.data.remote.ImageSyncService
 import com.lionotter.recipes.data.repository.FirestoreRecipeRepository
 import io.mockk.coEvery
 import io.mockk.every
@@ -28,10 +26,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLooper
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.mock.MockEngine
-import io.ktor.client.engine.mock.respond
-import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.concurrent.CountDownLatch
@@ -323,19 +317,12 @@ class FirestoreListenerSpikeTest {
     fun `real repository getRecipeByIdOnce works with looper pumping`() {
         // Full integration: fire-and-forget write → pumpLooper → suspend read via looper pumping
         val testFirestoreService = TestFirestoreService()
-        val context = RuntimeEnvironment.getApplication()
-        val imageSyncService = ImageSyncService(context, testFirestoreService, Dispatchers.IO, Dispatchers.Default)
-        val httpClient = HttpClient(MockEngine) {
-            engine { addHandler { respond("", HttpStatusCode.NotFound) } }
-        }
         val authService: AuthService = mockk()
         every { authService.authState } returns MutableStateFlow<AuthState>(AuthState.Guest(uid = "test-user"))
         every { authService.isGoogleUser() } returns false
         coEvery { authService.awaitUid() } returns "test-user"
-        val imageDownloadService = ImageDownloadService(context, httpClient, imageSyncService, authService, testFirestoreService, {}, Dispatchers.IO, Dispatchers.Default)
         val recipeRepo = FirestoreRecipeRepository(
             testFirestoreService,
-            imageDownloadService,
             authService,
             CoroutineScope(SupervisorJob() + Dispatchers.Default),
             Dispatchers.Default

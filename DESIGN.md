@@ -40,7 +40,7 @@ Where a use case needs something the data layer provides, the domain owns an int
 | `PageContentExtractor` | `RecipeHtmlExtractor` | page HTML → `PageContent` for the AI, page title |
 | `AiSettings` | `SettingsDataStore` | read-only API key, import model, thinking, import debugging |
 | `AppSettings` | `SettingsDataStore` | all settings as flows (each one, and `settings: Flow<Settings>` with all of them once read) plus setters (extends `AiSettings`); what ViewModels use |
-| `ImageStore` | `ImageDownloadService` | download / save / copy / store recipe images, delete unused local ones, a recipe image as a local file (export) |
+| `ImageStore` | `RecipeImageStore` | recipe image lifecycle: `importFromUrl` (web, local or stored URLs only) / `importPickedImage` (`content://` from the picker) / `saveImage` / `copyLocalImage` bring an image onto the device, `attach` makes it a recipe's image (uploading it for Google users), `release` deletes an image no recipe uses any more, `discardLocalImage`, `localImageFile` (export); see Images |
 | `PaprikaExportReader` | `PaprikaParser` | stream a Paprika export as `PaprikaExportRecipe`s (`PaprikaImportSteps`) |
 | `GroceryListStateStore` | `DataStoreGroceryListStateStore` | per-week grocery list selection, whether the list is shown, and checked sources |
 | `ImportDebugLog` | `ImportDebugRepository` | record an `ImportDebugRecord` for the import debugging screen |
@@ -73,8 +73,27 @@ Migrations live in `RecipeDatabaseMigrations` (10→11 drops the Firestore-era t
 
 #### Local files
 
-- Local image cache (`ImageDownloadService`, `ImageSyncService`): images are cached on disk and uploaded to Firebase Storage. Images saved while signed out of Google stay local until `ImageSyncService.uploadPendingLocalImages()` runs.
+- Recipe images (`LocalImageFiles`, see Images below): `files/recipe_images/` holds images that only exist on the device (`file://` URLs) and cached copies of images in Firebase Storage.
 - `ImportInputStore`: staged import inputs under `files/imports/<importId>/` (copied source file, selection, `ImportKind`, and the Paprika import state, see `PaprikaImportStateStore`). Orphans are cleaned up at startup.
+
+### Images (`data/image`)
+
+Recipes reference their image by URL: a `file://` image only on this device (guests, or a failed upload), or a `gs://` Firebase Storage object for Google users. The image layer is split by what each part talks to:
+
+- `LocalImageFiles`: the device only. Saves streams / `content://` picks (validated as decodable images, at most 25 MB), copies, deletes (only inside `recipe_images/`), the cached copy of a stored image (named after the object, so an uploaded local file doubles as its cache entry), `clear()` (sign-out and account deletion). Files appear atomically (`writeAtomically`: temp file, then rename).
+- `ImageDownloader`: web images over Ktor (content-type and size checks, HTTP → HTTPS retry) into `LocalImageFiles`.
+- `RemoteImageStorage` (`FirebaseImageStorage`): upload (resized/EXIF-rotated by `ImageUploadPreparer`), delete, and `cachedFile` (download into the local cache; also used by the Coil `FirebaseStorageCoilFetcher`).
+- `RecipeImageStore` (the `ImageStore` port): the facade the use cases and `EditRecipeViewModel` use. The usual sequence is `importFromUrl` (cancellable) and then, under `NonCancellable` together with saving the recipe, `attach`.
+- `LocalImageUploader`: uploads recipes' remaining `file://` images once the user is signed in with Google (waiting out an auth transition first; run by `LocalImageUploadWorker`, scheduled through `ImageUploadScheduler`), and tells `AuthService.signOut` whether images would be lost.
+
+Where an image is still used is answered by the repositories (`RecipeRepository.isImageReferenced`, `getImageUrl`, `getImageUrlsByRecipeId`, `replaceImageUrl`; `MealPlanRepository.replaceRecipeImageUrl`), not by raw queries in the image code.
+
+Lifecycle rules (tested in `RecipeImageStoreTest` / `LocalImageUploaderTest`):
+- An image is deleted (from Storage and the local cache, or the local file) only when no other recipe references it, e.g. a recipe and its "Save as copy" share an image. If that can't be determined, it is kept. `release` runs in the background (`@ApplicationScope`), like the repository writes.
+- Replacing an image (`attach` with `previousImageUrl`) releases the old one only after the new one is stored. If a Google user's upload fails, the local file is used, the old image kept, and an upload pass scheduled.
+- The upload pass only points a recipe at its upload if the recipe's image is still that local file (a transaction); otherwise the upload is deleted. Failed uploads keep the local file and make the worker retry. Meal plans keep a copy of the recipe image URL (`recipeImageUrl`), updated by `setImageUrl` and by the upload pass.
+- Deleting a recipe goes through `DeleteRecipeUseCase`: it reads the image URL from the local cache (`RecipeRepository.getImageUrl`, no server round trip), deletes the meal plans, then the recipe, then `release`s the image. If the URL can't be read the recipe is still deleted (the image is left behind).
+- Only files inside `recipe_images/` are ever deleted, and `importFromUrl` never reads `content://` URLs (those could come from imported files); picked images go through `importPickedImage`.
 
 ### Remote Services
 
@@ -132,7 +151,7 @@ interface RecipeRepository {
 }
 ```
 
-- **Write contract.** The non-suspending writes (`saveRecipe`, `deleteRecipe`, `setFavorite`, `setUserNotes`, `setImageUrl`, `updateTitleAndUrl`, `saveMealPlan`, `updateMealPlan`, `deleteMealPlan`) apply to the local cache immediately, so flows show the change at once (also offline), and never throw. They sync in the background; a failure (or a failure to start the write) is reported asynchronously as a typed `DataFailure(op: DataOp, entityId)` through `FirestoreService.failures`. Callers need no try/catch, `NonCancellable` or error state for them. The suspending functions (reads, counts, `deleteMealPlansByRecipeId`, which must query first) do throw. Writes waiting for an auth transition and the shared listeners run in the injected `@ApplicationScope` (with its logging exception handler); repositories and `SettingsDataStore` don't create scopes of their own.
+- **Write contract.** The non-suspending writes (`saveRecipe`, `deleteRecipe`, `setFavorite`, `setUserNotes`, `setImageUrl`, `updateTitleAndUrl`, `saveMealPlan`, `updateMealPlan`, `deleteMealPlan`) apply to the local cache immediately, so flows show the change at once (also offline), and never throw. They sync in the background; a failure (or a failure to start the write) is reported asynchronously as a typed `DataFailure(op: DataOp, entityId)` through `FirestoreService.failures`. Callers need no try/catch, `NonCancellable` or error state for them. The suspending functions (reads, counts, `deleteMealPlansByRecipeId` and `replaceRecipeImageUrl`, which must query first, and the `replaceImageUrl` transaction) do throw. `deleteRecipe` only deletes the document; `DeleteRecipeUseCase` also deletes the meal plans and releases the image. Writes waiting for an auth transition and the shared listeners run in the injected `@ApplicationScope` (with its logging exception handler); repositories and `SettingsDataStore` don't create scopes of their own.
 - `FirestoreService.failures` is a `Channel` (up to 32 queued, oldest dropped) read with `receiveAsFlow`: each failure is delivered once, and failures while the app is in the background wait until `MainActivity` collects again (it collects while STARTED and toasts `DataFailure.toUserMessage()`). Snapshot listener errors arrive the same way (`LOAD_RECIPES` / `LOAD_MEAL_PLANS`), as does a failure to clear the previous account's local data (`CLEAR_PREVIOUS_ACCOUNT`). `deleteMealPlansByRecipeId` commits its batch through `FirestoreService.batch()`.
 - Both repositories re-subscribe when the auth state (`AuthService.authState`) or the Firestore instance generation (`FirestoreService.generation`) changes, so a sign-in, sign-out or local-data clear swaps the listener to the right user.
 - `data/repository/FirestoreFlows.kt` provides the shared helpers: an error-tolerant snapshot `Flow` (errors are reported as a `DataFailure` instead of killing the collector), incremental decoding that only re-decodes changed documents and skips undecodable ones, and `writeForCurrentUser` / `reportFailureTo` for the write contract.
@@ -143,10 +162,10 @@ interface RecipeRepository {
 
 - `AuthService` resolves auth state synchronously at startup. `LionOtterApp` injects it eagerly so state is known (and Firestore network access is disabled for guests) before any Activity or WorkManager job touches Firestore; `MainActivity` does no auth work. There is no login screen: every user starts as a local-only **guest**, and `AuthState` is `Loading`, `Guest(uid)` or `Google(uid, email)`.
 - Code that needs a uid off the main path calls `awaitUid()`, which waits (without timeout) while the state is `Loading`. Fire-and-forget repository writes made while `Loading` likewise wait and then go to the resulting account.
-- `signInWithGoogle` gets a credential; `mergeGuestIntoGoogle { migrate }` then holds the auth transition lock with the state `Loading` while `AccountMigrationService` copies guest data (server calls have timeouts) and signs in, clears the guest cache, and switches to `Google` (or restores the guest on failure). After a successful Google sign-in, `SettingsViewModel` schedules an upload through `ImageUploadScheduler` (`LocalImageUploadWorker`), which calls `ImageSyncService.uploadPendingLocalImages()`.
-- `ImageDownloadService.storeImage` keeps the local file and schedules `LocalImageUploadWorker` (through the `ImageUploadScheduler` interface, bound in `SchedulerModule`, so the data layer doesn't depend on workers) when a Google user's upload fails (the worker retries while any upload fails, and only replaces a recipe's image if it is still that local file). Images are only deleted from Storage when no other recipe (e.g. a "Save as copy") references them, and changing a recipe's image also updates its meal plans' `recipeImageUrl`.
+- `signInWithGoogle` gets a credential; `mergeGuestIntoGoogle { migrate }` then holds the auth transition lock with the state `Loading` while `AccountMigrationService` copies guest data (server calls have timeouts) and signs in, clears the guest cache, and switches to `Google` (or restores the guest on failure). After a successful Google sign-in, `SettingsViewModel` schedules an upload through `ImageUploadScheduler` (`LocalImageUploadWorker`), which calls `LocalImageUploader.uploadPendingLocalImages()`.
+- `RecipeImageStore.attach` keeps the local file and schedules `LocalImageUploadWorker` (through the `ImageUploadScheduler` interface, bound in `SchedulerModule`, so the data layer doesn't depend on workers) when a Google user's upload fails; see Images for the image lifecycle. `AuthService` gets `LocalImageUploader` through a `Provider`, since the uploader reads recipes through the repository, which depends on `AuthService`.
 - `signOut(force)` returns `SignOutResult.Success` or `SignOutResult.PendingWrites` when changes have not reached the server or recipe images are still only on the device; Settings warns about unsynced changes and the user may sign out anyway (`force = true`).
-- `AccountDeletionService` (depends on `FirestoreService`, `ImageSyncService`, `ImportDebugRepository`, `SettingsDataStore`) first checks the server is reachable and re-authenticates, reads recipes and meal plans from the server (not the cache), deletes Firestore documents, then deletes Storage images individually (failures leave orphaned images, never recipes pointing at deleted images), clears local images, debug data and the API key, and finally deletes the Firebase Auth account.
+- `AccountDeletionService` (depends on `FirestoreService`, `RemoteImageStorage`, `LocalImageFiles`, `ImportDebugRepository`, `SettingsDataStore`) first checks the server is reachable and re-authenticates, reads recipes and meal plans from the server (not the cache), deletes Firestore documents, then deletes Storage images individually (failures leave orphaned images, never recipes pointing at deleted images), clears local images, debug data and the API key, and finally deletes the Firebase Auth account.
 
 ### Error Reporting
 
@@ -237,7 +256,7 @@ Orchestrates the full import flow:
 6. Save to Firestore (and download the image)
 ```
 
-Reports progress via callback for UI updates and returns `Outcome<Recipe>` (`Success(value)` or `Failure(RecipeError)`); `ParseHtmlUseCase`, `EditRecipeUseCase`, `RegenerateRecipeUseCase`, `ImportFromZipUseCase` and `ExportToZipUseCase` do the same. Other use cases: `PaprikaImportSteps` (batch Paprika import as a resumable state machine, see Background Work), `ImportFromZipUseCase` / `ExportToZipUseCase` / `ExportSingleRecipeUseCase` (`.lorecipes` files), `RegenerateRecipeUseCase`, `EditRecipeUseCase`, `AggregateGroceryListUseCase`, `CalculateIngredientUsageUseCase`.
+Reports progress via callback for UI updates and returns `Outcome<Recipe>` (`Success(value)` or `Failure(RecipeError)`); `ParseHtmlUseCase`, `EditRecipeUseCase`, `RegenerateRecipeUseCase`, `ImportFromZipUseCase` and `ExportToZipUseCase` do the same. Other use cases: `PaprikaImportSteps` (batch Paprika import as a resumable state machine, see Background Work), `ImportFromZipUseCase` / `ExportToZipUseCase` / `ExportSingleRecipeUseCase` (`.lorecipes` files), `DeleteRecipeUseCase`, `RegenerateRecipeUseCase`, `EditRecipeUseCase`, `AggregateGroceryListUseCase`, `CalculateIngredientUsageUseCase`.
 
 #### Archive handling
 
@@ -337,7 +356,7 @@ External intents are turned into `AppIntentEvent`s (`ImportUrl`, `ImportFile`, `
 - Image, title and URL changes are staged and applied on save without the AI; body edits or AI instructions enqueue `RecipeEditWorker`
 - The edit and regenerate work are followed with `WorkTracker`s and folded into one `editState` (`Loading(@StringRes progress)`, `Error(UserMessage)`; a missing API key shows `EditUiState.NoApiKey`). A successful save is the one-off `EditRecipeEvent.Saved(newRecipeId)`, sent once and the work then untracked
 - The recipe is `RecipeLoadState` (`Loading | NotFound | Loaded`); unsaved changes are checked against the latest loaded version, and fields the user hasn't touched follow later versions (so saving never reverts a change made elsewhere). The model and thinking choices are stored in `SavedStateHandle` and fall back to the settings
-- Save preserves metadata, Save as Copy creates a new recipe. A picked image for the copy is copied (`ImageStore.copyLocalImage`) and handed to `RecipeEditWorker` in its input (`ImageChange`); `EditRecipeUseCase` stores it for the copy, and the worker deletes it once no run will create the copy (final failure, or cancelled by the user on API 31+). The screen keeps its own file, so the image is still there if the copy fails. An in-place save takes the picked file over before applying it, so leaving the screen never deletes a file in use
+- Save preserves metadata, Save as Copy creates a new recipe. A picked image for the copy is copied (`ImageStore.copyLocalImage`) and handed to `RecipeEditWorker` in its input (`ImageChange`); `EditRecipeUseCase` attaches it to the copy, and the worker deletes it once no run will create the copy (final failure, or cancelled by the user on API 31+). The screen keeps its own file, so the image is still there if the copy fails. An in-place save takes the picked file over before applying it, so leaving the screen never deletes a file in use
 
 #### ImportSelectionScreen
 
@@ -421,6 +440,9 @@ Hilt modules provide:
 
 ### SchedulerModule
 - Binds `ImageUploadScheduler` (data layer port) to `WorkManagerImageUploadScheduler`
+
+### ImageModule
+- Binds `RemoteImageStorage` to `FirebaseImageStorage`
 
 ## Data Flow
 
