@@ -20,7 +20,6 @@ import com.anthropic.models.beta.messages.BetaOutputConfig
 import com.anthropic.models.beta.messages.BetaStopReason
 import com.anthropic.models.beta.messages.BetaTextBlockParam
 import com.anthropic.models.beta.messages.BetaThinkingConfigAdaptive
-import com.anthropic.models.beta.messages.BetaThinkingConfigEnabled
 import com.anthropic.models.messages.CacheControlEphemeral
 import com.anthropic.models.messages.JsonOutputFormat
 import com.anthropic.models.messages.Message
@@ -28,7 +27,6 @@ import com.anthropic.models.messages.OutputConfig
 import com.anthropic.models.messages.StopReason
 import com.anthropic.models.messages.TextBlockParam
 import com.anthropic.models.messages.ThinkingConfigAdaptive
-import com.anthropic.models.messages.ThinkingConfigEnabled
 import com.anthropic.models.messages.batches.BatchCreateParams
 import com.anthropic.models.beta.messages.MessageCreateParams as BetaMessageCreateParams
 import com.anthropic.models.messages.batches.MessageBatch
@@ -97,9 +95,6 @@ class AnthropicService @Inject constructor(
                 .systemOfBetaTextBlockParams(BETA_SYSTEM_BLOCKS)
                 .addUserMessage(buildUserMessage(html, densityOverrides, aiInstructions))
                 .outputConfig(requestConfig.toBetaOutputConfig())
-            requestConfig.thinkingBudgetTokens?.let {
-                paramsBuilder.thinking(BetaThinkingConfigEnabled.builder().budgetTokens(it).build())
-            }
             if (requestConfig.adaptiveThinking) {
                 paramsBuilder.thinking(BetaThinkingConfigAdaptive.builder().build())
             }
@@ -176,9 +171,6 @@ class AnthropicService @Inject constructor(
                     .systemOfTextBlockParams(system)
                     .addUserMessage(buildUserMessage(request.text, request.densityOverrides, null))
                     .outputConfig(requestConfig.toOutputConfig())
-                requestConfig.thinkingBudgetTokens?.let {
-                    paramsBuilder.thinking(ThinkingConfigEnabled.builder().budgetTokens(it).build())
-                }
                 if (requestConfig.adaptiveThinking) {
                     paramsBuilder.thinking(ThinkingConfigAdaptive.builder().build())
                 }
@@ -364,11 +356,12 @@ class AnthropicService @Inject constructor(
             val parseResponse = json.decodeFromString<RecipeParseResponse>(jsonContent)
 
             if (!parseResponse.success) {
-                val errorMessage = parseResponse.error ?: "Failed to parse recipe"
+                val errorMessage = parseResponse.error?.takeIf { it.isNotBlank() } ?: "Failed to parse recipe"
                 return Result.failure(RecipeParseException(errorMessage))
             }
 
             val recipeResult = parseResponse.recipe
+                ?.takeIf { it.name.isNotBlank() && it.instructionSections.any { section -> section.steps.isNotEmpty() } }
                 ?: return Result.failure(RecipeParseException("No recipe data in response"))
 
             Result.success(ParseResultWithUsage(
@@ -429,16 +422,14 @@ class AnthropicService @Inject constructor(
 
     /** Model-specific thinking/effort settings, applied to both the beta (streaming) and batch APIs. */
     internal data class RequestConfig(
-        val thinkingBudgetTokens: Long?,
         val adaptiveThinking: Boolean,
-        val effort: Effort?
+        val effort: Effort
     ) {
         fun toOutputConfig(): OutputConfig {
             val builder = OutputConfig.builder().format(RECIPE_OUTPUT_FORMAT)
             when (effort) {
                 Effort.LOW -> builder.effort(OutputConfig.Effort.LOW)
                 Effort.MEDIUM -> builder.effort(OutputConfig.Effort.MEDIUM)
-                null -> {}
             }
             return builder.build()
         }
@@ -448,7 +439,6 @@ class AnthropicService @Inject constructor(
             when (effort) {
                 Effort.LOW -> builder.effort(BetaOutputConfig.Effort.LOW)
                 Effort.MEDIUM -> builder.effort(BetaOutputConfig.Effort.MEDIUM)
-                null -> {}
             }
             return builder.build()
         }
@@ -459,17 +449,16 @@ class AnthropicService @Inject constructor(
 
         const val MODEL_OPUS = "claude-opus-5-5"
         const val MODEL_SONNET = "claude-sonnet-5-5"
-        const val MODEL_HAIKU = "claude-haiku-4-5"
+        const val MODEL_HAIKU = "claude-haiku-5-5"
         const val MODEL_FABLE = "claude-fable-5-1"
 
-        const val DEFAULT_MODEL = MODEL_OPUS
-        const val DEFAULT_EDIT_MODEL = MODEL_SONNET
+        const val DEFAULT_MODEL = MODEL_SONNET
+        const val DEFAULT_EDIT_MODEL = MODEL_HAIKU
 
         val SUPPORTED_MODELS = listOf(MODEL_OPUS, MODEL_SONNET, MODEL_HAIKU, MODEL_FABLE)
 
         private const val API_KEY_PREFIX = "sk-ant-"
         private const val MAX_OUTPUT_TOKENS = 32_000L
-        private const val HAIKU_THINKING_BUDGET = 8_000L
         private const val SERVER_SIDE_FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
         /**
@@ -489,32 +478,19 @@ class AnthropicService @Inject constructor(
             }
         }
 
-        /** Haiku 4.5 still uses extended thinking with budget_tokens and has no effort control. */
-        private fun usesBudgetThinking(model: String): Boolean = model.startsWith("claude-haiku-4")
-
         private fun supportsServerSideFallback(model: String): Boolean =
-            model == MODEL_OPUS || model == MODEL_SONNET || model == MODEL_FABLE
+            model in SUPPORTED_MODELS
 
         /**
-         * Thinking/effort settings per model:
-         * - Haiku 4.5: thinking via budget_tokens when enabled, omitted otherwise.
-         * - Opus 5.5 / Sonnet 5.5 / Fable 5.1: thinking can't be explicitly disabled, so the
-         *   "thinking" toggle maps to effort (medium when on, low when off).
+         * All supported models take adaptive thinking and an effort level; none accept a fixed
+         * thinking budget. The "thinking" toggle maps to effort (medium when on, low when off).
+         * Fable always thinks, and rejects an explicit thinking config.
          */
-        internal fun requestConfigFor(model: String, thinkingEnabled: Boolean): RequestConfig {
-            if (usesBudgetThinking(model)) {
-                return RequestConfig(
-                    thinkingBudgetTokens = if (thinkingEnabled) HAIKU_THINKING_BUDGET else null,
-                    adaptiveThinking = false,
-                    effort = null
-                )
-            }
-            return RequestConfig(
-                thinkingBudgetTokens = null,
+        internal fun requestConfigFor(model: String, thinkingEnabled: Boolean): RequestConfig =
+            RequestConfig(
                 adaptiveThinking = thinkingEnabled && model != MODEL_FABLE,
                 effort = if (thinkingEnabled) Effort.MEDIUM else Effort.LOW
             )
-        }
 
         /**
          * Map an exception from the SDK to a user-facing [AnthropicRequestException].
@@ -579,28 +555,43 @@ class AnthropicService @Inject constructor(
         private val INTEGER = mapOf("type" to "integer")
         private val BOOLEAN = mapOf("type" to "boolean")
         private fun arrayOf(items: Map<String, Any>) = mapOf("type" to "array", "items" to items)
+        private fun nullable(primitive: Map<String, Any>) = mapOf("type" to listOf(primitive["type"], "null"))
+        private fun nullableObject(objectSchema: Map<String, Any>) =
+            mapOf("anyOf" to listOf(objectSchema, mapOf("type" to "null")))
 
         /**
-         * JSON schema for [RecipeParseResponse]. Structured outputs don't allow recursive schemas
-         * and cap optional properties at 24, so alternates are a non-recursive ingredient shape and
-         * fields with natural defaults (optional, yields, lists) are required.
+         * JSON schema for [RecipeParseResponse].
+         *
+         * The API compiles this into a grammar with an undocumented size limit, and optional
+         * properties nested inside arrays grow that grammar fastest (with alternates as optional
+         * ingredient objects, every request failed with "Schema is too complex"). So every property
+         * is required, with absent values expressed as null. Nullable properties count toward the
+         * API's limit of 16 union-typed parameters (inline copies such as amount count once per
+         * use); this schema uses 14, so adding another nullable field needs care.
+         * Alternates are a non-recursive ingredient subset.
+         * On failure the model still returns a placeholder recipe, which is ignored.
          */
         internal val RECIPE_RESPONSE_SCHEMA: Map<String, Any> by lazy {
-            val amount = obj(mapOf("value" to NUMBER, "unit" to STRING), listOf("value"))
+            val amount = obj(mapOf("value" to NUMBER, "unit" to nullable(STRING)), listOf("value", "unit"))
             val alternate = obj(
-                mapOf("name" to STRING, "amount" to amount, "density" to NUMBER, "notes" to STRING),
-                listOf("name")
+                mapOf(
+                    "name" to STRING,
+                    "amount" to nullableObject(amount),
+                    "density" to nullable(NUMBER),
+                    "notes" to nullable(STRING)
+                ),
+                listOf("name", "amount", "density", "notes")
             )
             val ingredient = obj(
                 mapOf(
                     "name" to STRING,
-                    "amount" to amount,
-                    "density" to NUMBER,
-                    "notes" to STRING,
+                    "amount" to nullableObject(amount),
+                    "density" to nullable(NUMBER),
+                    "notes" to nullable(STRING),
                     "optional" to BOOLEAN,
                     "alternates" to arrayOf(alternate)
                 ),
-                listOf("name", "optional", "alternates")
+                listOf("name", "amount", "density", "notes", "optional", "alternates")
             )
             val step = obj(
                 mapOf(
@@ -612,24 +603,30 @@ class AnthropicService @Inject constructor(
                 ),
                 listOf("stepNumber", "instruction", "ingredients", "yields", "optional")
             )
-            val section = obj(mapOf("name" to STRING, "steps" to arrayOf(step)), listOf("steps"))
+            val section = obj(
+                mapOf("name" to nullable(STRING), "steps" to arrayOf(step)),
+                listOf("name", "steps")
+            )
             val recipe = obj(
                 mapOf(
                     "name" to STRING,
-                    "story" to STRING,
-                    "servings" to INTEGER,
-                    "prepTime" to STRING,
-                    "cookTime" to STRING,
-                    "totalTime" to STRING,
+                    "story" to nullable(STRING),
+                    "servings" to nullable(INTEGER),
+                    "prepTime" to nullable(STRING),
+                    "cookTime" to nullable(STRING),
+                    "totalTime" to nullable(STRING),
                     "instructionSections" to arrayOf(section),
                     "equipment" to arrayOf(STRING),
                     "tags" to arrayOf(STRING)
                 ),
-                listOf("name", "instructionSections", "equipment", "tags")
+                listOf(
+                    "name", "story", "servings", "prepTime", "cookTime", "totalTime",
+                    "instructionSections", "equipment", "tags"
+                )
             )
             obj(
                 mapOf("success" to BOOLEAN, "error" to STRING, "recipe" to recipe),
-                listOf("success")
+                listOf("success", "error", "recipe")
             )
         }
 
@@ -658,9 +655,10 @@ You are a recipe parser. Extract structured recipe data from web page content an
 
 Your response must always be wrapped in a success/error structure.
 
-For successful parsing, return:
+For successful parsing, return (every field is always present; use null where a value is absent):
 {
   "success": true,
+  "error": "",
   "recipe": {
     "name": "Recipe Name",
     "story": "Brief summary (1-2 sentences)",
@@ -683,8 +681,8 @@ For successful parsing, return:
             "stepNumber": 2,
             "instruction": "Mix dry ingredients together.",
             "ingredients": [
-              { "name": "all-purpose flour", "amount": { "value": 2, "unit": "cup" }, "density": 0.51, "optional": false, "alternates": [] },
-              { "name": "granulated sugar", "amount": { "value": 1, "unit": "cup" }, "density": 0.84, "optional": false, "alternates": [] }
+              { "name": "all-purpose flour", "amount": { "value": 2, "unit": "cup" }, "density": 0.51, "notes": null, "optional": false, "alternates": [] },
+              { "name": "granulated sugar", "amount": { "value": 1, "unit": "cup" }, "density": 0.84, "notes": null, "optional": false, "alternates": [] }
             ],
             "yields": 1,
             "optional": false
@@ -694,14 +692,15 @@ For successful parsing, return:
             "instruction": "Add wet ingredients and mix until combined.",
             "ingredients": [
               { "name": "butter", "amount": { "value": 8, "unit": "oz" }, "density": 0.96, "notes": "melted", "optional": false, "alternates": [] },
-              { "name": "eggs", "amount": { "value": 3 }, "notes": "room temperature", "optional": false, "alternates": [] },
+              { "name": "eggs", "amount": { "value": 3, "unit": null }, "density": null, "notes": "room temperature", "optional": false, "alternates": [] },
               {
                 "name": "kosher salt",
                 "amount": { "value": 1, "unit": "tsp" },
                 "density": 0.54,
+                "notes": null,
                 "optional": false,
                 "alternates": [
-                  { "name": "table salt", "amount": { "value": 0.5, "unit": "tsp" }, "density": 1.22 }
+                  { "name": "table salt", "amount": { "value": 0.5, "unit": "tsp" }, "density": 1.22, "notes": null }
                 ]
               }
             ],
@@ -712,7 +711,7 @@ For successful parsing, return:
             "stepNumber": 4,
             "instruction": "Form into a ball, coat with olive oil, and place in a covered bowl.",
             "ingredients": [
-              { "name": "olive oil", "amount": { "value": 1, "unit": "tsp" }, "density": 0.84, "optional": false, "alternates": [] }
+              { "name": "olive oil", "amount": { "value": 1, "unit": "tsp" }, "density": 0.84, "notes": null, "optional": false, "alternates": [] }
             ],
             "yields": 2,
             "optional": false
@@ -725,10 +724,11 @@ For successful parsing, return:
   }
 }
 
-If you cannot parse the content as a recipe, return an error response:
+If you cannot parse the content as a recipe, return an error response with a placeholder recipe (it is ignored):
 {
   "success": false,
-  "error": "Human-readable explanation of why parsing failed"
+  "error": "Human-readable explanation of why parsing failed",
+  "recipe": { "name": "", "story": null, "servings": null, "prepTime": null, "cookTime": null, "totalTime": null, "instructionSections": [], "equipment": [], "tags": [] }
 }
 
 Return an error response when:
@@ -741,27 +741,28 @@ The content may include structured recipe data (schema.org JSON-LD) extracted fr
 
 INGREDIENT FORMAT:
 - Each ingredient has a single "amount" object with "value" (number, integer or decimal) and "unit" (string).
-- For countable items (eggs, lemons, cloves), omit the "unit" field — just include "value".
+- For countable items (eggs, lemons, cloves), set "unit" to null.
+- If there is no quantity at all (e.g., "salt to taste"), set "amount" to null.
 - ALWAYS include a "density" field (g/mL) for ANY ingredient measured by weight or volume. The app uses density to let users convert between weight and volume, so density is required regardless of which unit the recipe uses. For example, "8 oz butter" still needs "density": 0.96 so the app can show the equivalent volume.
-- Only omit "density" for countable items (no unit) or ingredients with no meaningful density (e.g., "a pinch of saffron threads").
+- Set "density" to null only for countable items (no unit) or ingredients with no meaningful density (e.g., "a pinch of saffron threads").
 - If the recipe provides both weight and volume, prefer weight.
 - Use the density reference table below. For ingredients not listed, estimate a reasonable density — cooking precision doesn't require exactness.
 
 SUPPORTED UNITS:
 - Weight: mg, g, kg, oz, lb
 - Volume: mL, L, tsp, tbsp, cup, fl_oz, pint, quart, gal
-- Count: omit unit field
-- Other: You may use other unit strings when appropriate (e.g., "dash" for cocktail bitters, "pinch", "drop", "sprig", "slice"). These won't support weight/volume conversion but will display correctly. Omit "density" for these units.
+- Count: "unit": null
+- Other: You may use other unit strings when appropriate (e.g., "dash" for cocktail bitters, "pinch", "drop", "sprig", "slice"). These won't support weight/volume conversion but will display correctly. Use null "density" for these units.
 
 INGREDIENT DENSITIES (g/mL — use these when known):
 %DENSITY_TABLE%
 
-OPTIONAL FIELDS:
-- Omit optional fields that have no value rather than inventing one ("notes", "density", "amount", section "name", "story", times, "servings").
+ABSENT VALUES:
+- Use null for fields that have no value rather than inventing one ("notes", "density", "amount", section "name", "story", times, "servings").
 - "optional" is false unless the ingredient or step is optional.
 - "yields" is 1 unless the step is performed multiple times.
 - "alternates" is an empty array unless the recipe lists substitutes.
-- Omit section "name" for single-section recipes.
+- Use null section "name" for single-section recipes.
 
 YIELDS FIELD:
 - If a step is performed multiple times (e.g., "form 2 dough balls"), set "yields" to the count (e.g., 2).
@@ -787,9 +788,9 @@ EQUIPMENT:
 ADDITIONAL GUIDELINES:
 - If the recipe has distinct sections (e.g., cake and frosting), create separate instructionSections.
 - Extract quantities as numbers: use integers for whole amounts (e.g., 1, 2, 3) and decimals for fractions (e.g., 0.5 for 1/2, 0.25 for 1/4).
-- Include "notes" for ingredient modifications like "room temperature", "divided", etc. Notes must NOT repeat information already captured in the "name", "amount", or "unit" fields (e.g., if the amount is 1 with no unit, do not put "1 standard ice cube" in notes — use "standard ice cube" or omit notes if no extra info).
+- Include "notes" for ingredient modifications like "room temperature", "divided", etc. Notes must NOT repeat information already captured in the "name", "amount", or "unit" fields (e.g., if the amount is 1 with no unit, do not put "1 standard ice cube" in notes — use "standard ice cube", or null notes if there is no extra info).
 - For ingredient alternates/substitutes (indicated by "or" in the recipe): extract the first option as the main ingredient, subsequent options as "alternates" array items.
-- For ingredients marked "to taste", "as needed", or similar: omit "amount" entirely and put the phrase in "notes".
+- For ingredients marked "to taste", "as needed", or similar: set "amount" to null and put the phrase in "notes".
 - Rephrase instruction text to remove quantity mentions — quantities are shown separately from the ingredient list. Example: "Add 2 cups flour" → instruction: "Add flour", with amount on the ingredient.
 - Mark optional ingredients and steps with "optional": true (for garnish, decorative, "if desired" items).
 - Generate relevant tags based on recipe type, cuisine, dietary restrictions, etc.

@@ -102,27 +102,16 @@ class AnthropicServiceTest {
         assertEquals(AnthropicService.MODEL_OPUS, AnthropicService.normalizeModel("claude-opus-4-6"))
         assertEquals(AnthropicService.MODEL_SONNET, AnthropicService.normalizeModel("claude-sonnet-4-5"))
         assertEquals(AnthropicService.MODEL_HAIKU, AnthropicService.normalizeModel("claude-haiku-4-5-20251001"))
+        assertEquals(AnthropicService.MODEL_HAIKU, AnthropicService.normalizeModel("claude-haiku-4-5"))
         assertEquals(AnthropicService.MODEL_SONNET, AnthropicService.normalizeModel("gpt-4", AnthropicService.MODEL_SONNET))
         assertEquals(AnthropicService.DEFAULT_MODEL, AnthropicService.normalizeModel(null))
     }
 
     @Test
-    fun `haiku uses budget thinking only when enabled and no effort`() {
-        val on = AnthropicService.requestConfigFor(AnthropicService.MODEL_HAIKU, true)
-        assertTrue(on.thinkingBudgetTokens != null)
-        assertFalse(on.adaptiveThinking)
-        assertFalse(on.toOutputConfig().effort().isPresent)
-        assertFalse(on.toBetaOutputConfig().effort().isPresent)
-        val off = AnthropicService.requestConfigFor(AnthropicService.MODEL_HAIKU, false)
-        assertNull(off.thinkingBudgetTokens)
-    }
-
-    @Test
-    fun `adaptive models never send budget thinking`() {
-        listOf(AnthropicService.MODEL_OPUS, AnthropicService.MODEL_SONNET, AnthropicService.MODEL_FABLE).forEach { model ->
+    fun `every supported model gets effort and structured output`() {
+        AnthropicService.SUPPORTED_MODELS.forEach { model ->
             listOf(true, false).forEach { enabled ->
                 val config = AnthropicService.requestConfigFor(model, enabled)
-                assertNull(config.thinkingBudgetTokens)
                 assertTrue(config.toOutputConfig().effort().isPresent)
                 assertTrue(config.toOutputConfig().format().isPresent)
                 assertTrue(config.toBetaOutputConfig().effort().isPresent)
@@ -131,6 +120,8 @@ class AnthropicServiceTest {
         }
         assertFalse(AnthropicService.requestConfigFor(AnthropicService.MODEL_FABLE, true).adaptiveThinking)
         assertTrue(AnthropicService.requestConfigFor(AnthropicService.MODEL_OPUS, true).adaptiveThinking)
+        assertTrue(AnthropicService.requestConfigFor(AnthropicService.MODEL_HAIKU, true).adaptiveThinking)
+        assertFalse(AnthropicService.requestConfigFor(AnthropicService.MODEL_HAIKU, false).adaptiveThinking)
     }
 
     private val service = AnthropicService(Json { ignoreUnknownKeys = true })
@@ -149,7 +140,7 @@ class AnthropicServiceTest {
     private val fallbackBlock =
         """{"type":"fallback","from":{"model":"claude-opus-5-5"},"to":{"model":"claude-opus-4-8"}}"""
 
-    private val recipeJson = """{"success":true,"recipe":{"name":"Toast","instructionSections":[],"equipment":[],"tags":[]}}"""
+    private val recipeJson = """{"success":true,"recipe":{"name":"Toast","instructionSections":[{"steps":[{"stepNumber":1,"instruction":"Toast the bread."}]}],"equipment":[],"tags":[]}}"""
 
     @Test
     fun `beta message with pre-output fallback block parses`() = withMockedLog {
@@ -206,5 +197,13 @@ class AnthropicServiceTest {
     fun `friendly exception marks network errors transient`() {
         val e = AnthropicService.toFriendlyException(java.io.IOException("boom"))
         assertTrue(e is AnthropicRequestException && e.isTransient)
+    }
+
+    @Test
+    fun `success with only the placeholder recipe is rejected`() {
+        val placeholder = """{"success":true,"error":"","recipe":{"name":"","story":null,"servings":null,""" +
+            """"prepTime":null,"cookTime":null,"totalTime":null,"instructionSections":[],"equipment":[],"tags":[]}}"""
+        val result = service.parseBetaMessageResult(betaMessage("end_turn", textBlock(placeholder)))
+        assertTrue(result.isFailure)
     }
 }

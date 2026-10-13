@@ -78,4 +78,97 @@ class RecipeHtmlExtractorTest {
         val body = Jsoup.parse("<div>Step one<br>Step two</div><p>Next <b>bold</b> word</p>").body()
         assertEquals("Step one\nStep two\nNext bold word", RecipeHtmlExtractor.htmlToText(body))
     }
+
+    @Test
+    fun `keeps ingredient tables that Readability would drop`() {
+        val html = """
+            <html><head><title>Banana Bread</title></head><body>
+            <nav>Home | Recipes</nav>
+            <article>
+              <h1>Banana Bread</h1>
+              <p>This is a basic, reliable banana bread recipe. The perfect thing to do with over-ripe bananas,
+              and it keeps for days wrapped on the counter. ${"Filler text about bananas. ".repeat(30)}</p>
+              <h2>Ingredients</h2>
+              <table>
+                <tr><th>Ingredient</th><th>Volume</th><th>Weight</th></tr>
+                <tr><td>White sugar</td><td>1 cup</td><td>200 g</td></tr>
+                <tr><td>Butter, softened</td><td>½ cup</td><td>113 g</td></tr>
+              </table>
+              <h2>Procedure</h2>
+              <ol><li>Preheat oven to 350°F.</li><li>Combine all ingredients.</li></ol>
+            </article>
+            <footer>Copyright</footer>
+            </body></html>
+        """.trimIndent()
+
+        val text = RecipeHtmlExtractor.extract(html, "https://example.com/banana-bread").text
+
+        assertTrue(text, text.contains("White sugar | 1 cup | 200 g"))
+        assertTrue(text, text.contains("Butter, softened | ½ cup | 113 g"))
+        assertTrue(text, text.contains("- Preheat oven to 350°F."))
+        assertFalse(text, text.contains("Copyright"))
+    }
+
+    @Test
+    fun `keeps recipes wrapped in a form or header`() {
+        val html = """
+            <html><body><form id="aspnetForm">
+              <header><h1>Grandma's Pancakes</h1></header>
+              <p>${"These pancakes are fluffy and quick. ".repeat(20)}</p>
+              <ul><li>1 cup flour</li><li>1 egg</li></ul>
+            </form></body></html>
+        """.trimIndent()
+
+        val text = RecipeHtmlExtractor.extract(html, "https://example.com/pancakes").text
+
+        assertTrue(text, text.contains("Grandma's Pancakes"))
+        assertTrue(text, text.contains("- 1 cup flour"))
+    }
+
+    @Test
+    fun `table cells with block content stay on one row`() {
+        val html = """
+            <html><body><p>${"Intro text. ".repeat(60)}</p><table>
+              <tr><td><p>Flour</p></td><td><div>2 cups</div></td></tr>
+              <tr><td></td><td>1 tsp</td></tr>
+            </table></body></html>
+        """.trimIndent()
+
+        val text = RecipeHtmlExtractor.extract(html, null).text
+
+        assertTrue(text, text.contains("Flour | 2 cups"))
+        assertTrue(text, text.contains("\n| 1 tsp"))
+    }
+
+    @Test
+    fun `drops comments and sidebars`() {
+        val html = """
+            <html><body><article><p>${"Recipe intro. ".repeat(60)}</p><ul><li>2 eggs</li></ul></article>
+            <aside>Popular posts: Lasagna</aside>
+            <div id="comments">I used 3 eggs instead and it was great</div>
+            </body></html>
+        """.trimIndent()
+
+        val text = RecipeHtmlExtractor.extract(html, null).text
+
+        assertTrue(text, text.contains("- 2 eggs"))
+        assertFalse(text, text.contains("Lasagna"))
+        assertFalse(text, text.contains("3 eggs instead"))
+    }
+
+    @Test
+    fun `uses the recipe card when the page is over budget`() {
+        val filler = "Long story about my summer. ".repeat(RecipeHtmlExtractor.MAX_CONTENT_CHARS / 20)
+        val html = """
+            <html><body><p>$filler</p>
+            <div class="wprm-recipe-container"><h2>Lemon Bars</h2><p>${"Bright and tangy. ".repeat(30)}</p>
+              <ul><li>1 cup lemon juice</li></ul></div>
+            </body></html>
+        """.trimIndent()
+
+        val text = RecipeHtmlExtractor.extract(html, null).text
+
+        assertTrue(text, text.contains("- 1 cup lemon juice"))
+        assertFalse(text, text.contains("[content truncated]"))
+    }
 }

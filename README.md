@@ -157,10 +157,10 @@ Client-side limits are defined in `ResourceLimits.kt`. Exceeding a limit shows a
 2. Go to **Settings** (gear icon in top right)
 3. Enter your Anthropic API key
 4. Optionally select your preferred Claude model:
-   - **Claude Opus 5.5**: Best quality (default for imports)
-   - **Claude Sonnet 5.5**: Balanced speed/quality (default for edits)
-   - **Claude Haiku 4.5**: Fastest, lowest cost
-   - **Claude Fable 5.1**
+   - **Claude Opus 5.5**: Best quality
+   - **Claude Sonnet 5.5**: Balanced speed/quality (default for imports)
+   - **Claude Haiku 5.5**: Fastest, lowest cost (default for edits)
+   - **Claude Fable 5.1**: Most capable, most expensive
 5. Optionally sign in with Google (Settings > Account) to sync recipes across devices
 
 ## Usage
