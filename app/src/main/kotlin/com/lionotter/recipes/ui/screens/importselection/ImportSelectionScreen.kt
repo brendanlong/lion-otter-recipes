@@ -44,8 +44,8 @@ import com.lionotter.recipes.ui.components.ErrorCard
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 
 /**
- * Import selection destination. [ImportSelectionViewModel] reads the "importType" and "uri"
- * arguments from its SavedStateHandle and parses the file once, so selections survive rotation.
+ * Import selection destination. [ImportSelectionViewModel] reads its
+ * [com.lionotter.recipes.ui.navigation.Route.ImportSelection] arguments from its SavedStateHandle and parses the file once, so selections survive rotation.
  */
 @Composable
 fun ImportSelectionRoute(

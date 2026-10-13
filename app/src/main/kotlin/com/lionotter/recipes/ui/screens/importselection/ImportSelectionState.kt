@@ -1,5 +1,7 @@
 package com.lionotter.recipes.ui.screens.importselection
 
+import androidx.annotation.Keep
+
 /**
  * Represents a recipe candidate for the import selection screen.
  *
@@ -16,11 +18,19 @@ data class ImportSelectionItem(
 )
 
 /**
- * Import type enum used by ImportSelectionViewModel.
+ * Kind of recipe export being imported. Passed to the import selection route as a hint; the
+ * actual type is detected from the file contents.
  */
+@Keep // Route.ImportSelection argument; navigation looks up its serializer reflectively.
 enum class ImportType {
     PAPRIKA,
-    LORECIPES
+    LORECIPES;
+
+    companion object {
+        /** Guesses the type from the file name, which content URIs don't always include. */
+        fun guessFromUri(uri: String): ImportType =
+            if (uri.lowercase().endsWith(".paprikarecipes")) PAPRIKA else LORECIPES
+    }
 }
 
 /**

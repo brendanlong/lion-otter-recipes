@@ -39,6 +39,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
+import com.lionotter.recipes.ui.screens.importselection.ImportType
 import com.lionotter.recipes.ui.screens.settings.components.AboutSection
 import com.lionotter.recipes.ui.screens.settings.components.AccountSection
 import com.lionotter.recipes.ui.screens.settings.components.ApiKeySection
@@ -55,7 +56,7 @@ fun SettingsScreen(
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
     onNavigateToImportDebug: () -> Unit = {},
-    onNavigateToImportSelection: (importType: String, uri: Uri) -> Unit = { _, _ -> },
+    onNavigateToImportSelection: (importType: ImportType, uri: Uri) -> Unit = { _, _ -> },
     viewModel: SettingsViewModel = hiltViewModel(),
     zipViewModel: ZipExportImportViewModel = hiltViewModel()
 ) {
@@ -145,13 +146,7 @@ fun SettingsScreen(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
-            val uriString = uri.toString().lowercase()
-            val importType = if (uriString.endsWith(".paprikarecipes")) {
-                "paprika"
-            } else {
-                "lorecipes"
-            }
-            onNavigateToImportSelection(importType, uri)
+            onNavigateToImportSelection(ImportType.guessFromUri(uri.toString()), uri)
         }
     }
 

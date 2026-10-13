@@ -5,11 +5,13 @@ import androidx.core.net.toUri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.navigation.toRoute
 import com.lionotter.recipes.data.paprika.PaprikaParser
 import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.util.RecipeSerializer
 import com.lionotter.recipes.domain.util.ZipImportHelper
 import com.lionotter.recipes.imports.ImportQueue
+import com.lionotter.recipes.ui.navigation.Route
 import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.worker.ImportInputStore
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -41,8 +43,6 @@ class ImportSelectionViewModel @Inject constructor(
 
     companion object {
         private const val TAG = "ImportSelectionVM"
-        private const val ARG_IMPORT_TYPE = "importType"
-        private const val ARG_URI = "uri"
         private const val KEY_SELECTED_IDS = "import_selection_selected_ids"
         private const val KEY_STAGED_IMPORT_ID = "import_selection_staged_id"
         const val NOT_AN_EXPORT_MESSAGE = "This file isn't a Lion+Otter or Paprika recipe export."
@@ -83,11 +83,9 @@ class ImportSelectionViewModel @Inject constructor(
      * since content URIs often have opaque paths that don't reflect the file extension.
      */
     private fun loadFile() {
-        val uriArg = savedStateHandle.get<String>(ARG_URI) ?: return
-        val typeHint = when (savedStateHandle.get<String>(ARG_IMPORT_TYPE)) {
-            "paprika" -> ImportType.PAPRIKA
-            else -> ImportType.LORECIPES
-        }
+        val route = savedStateHandle.toRoute<Route.ImportSelection>()
+        val uriArg = route.uri
+        val typeHint = route.importType
         viewModelScope.launch {
             val importId = try {
                 stageFile(uriArg)

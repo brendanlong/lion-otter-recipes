@@ -52,9 +52,8 @@ class RecipeListViewModel @Inject constructor(
     companion object {
         private const val TAG = "RecipeListViewModel"
 
-        /** SavedStateHandle keys; also set by the nav graph to filter the list by a tag. */
-        const val KEY_SEARCH_QUERY = "search_query"
-        const val KEY_SELECTED_TAG = "selected_tag"
+        private const val KEY_SEARCH_QUERY = "search_query"
+        private const val KEY_SELECTED_TAG = "selected_tag"
     }
 
     val searchQuery: StateFlow<String> = savedStateHandle.getStateFlow(KEY_SEARCH_QUERY, "")
@@ -177,6 +176,12 @@ class RecipeListViewModel @Inject constructor(
 
     fun onTagSelected(tag: String?) {
         savedStateHandle[KEY_SELECTED_TAG] = if (selectedTag.value == tag) null else tag
+    }
+
+    /** Shows only recipes with [tag], e.g. after tapping a tag on a recipe. */
+    fun showOnlyTag(tag: String) {
+        savedStateHandle[KEY_SEARCH_QUERY] = ""
+        savedStateHandle[KEY_SELECTED_TAG] = tag
     }
 
     fun clearFilters() {

@@ -2,6 +2,7 @@ package com.lionotter.recipes.ui.screens.recipedetail
 
 import android.util.Log
 import androidx.lifecycle.SavedStateHandle
+import androidx.navigation.testing.invoke
 import app.cash.turbine.test
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.repository.IMealPlanRepository
@@ -17,6 +18,7 @@ import com.lionotter.recipes.domain.model.createInstructionIngredientKey
 import com.lionotter.recipes.domain.usecase.CalculateIngredientUsageUseCase
 import com.lionotter.recipes.domain.usecase.ExportSingleRecipeUseCase
 import com.lionotter.recipes.domain.util.RecipeSerializer
+import com.lionotter.recipes.ui.navigation.Route
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -41,7 +43,11 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+// Robolectric: building a SavedStateHandle from a typed route encodes it with android.net.Uri.
+@RunWith(RobolectricTestRunner::class)
 @OptIn(ExperimentalCoroutinesApi::class)
 class RecipeDetailViewModelTest {
 
@@ -72,7 +78,7 @@ class RecipeDetailViewModelTest {
         mockkStatic(Log::class)
         every { Log.e(any(), any(), any()) } returns 0
         every { Log.w(any(), any<String>(), any()) } returns 0
-        savedStateHandle = SavedStateHandle(mapOf("recipeId" to "recipe-1"))
+        savedStateHandle = SavedStateHandle(route = Route.RecipeDetail("recipe-1"))
         recipeRepository = mockk()
         mealPlanRepository = mockk()
         settingsDataStore = mockk()

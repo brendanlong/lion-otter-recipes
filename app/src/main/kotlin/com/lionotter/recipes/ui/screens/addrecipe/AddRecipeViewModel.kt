@@ -3,6 +3,7 @@ package com.lionotter.recipes.ui.screens.addrecipe
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.navigation.toRoute
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.extractFirstUrl
 import com.lionotter.recipes.imports.ImportFailure
@@ -10,6 +11,7 @@ import com.lionotter.recipes.imports.ImportMonitor
 import com.lionotter.recipes.imports.ImportQueue
 import com.lionotter.recipes.imports.ImportStage
 import com.lionotter.recipes.imports.ImportState
+import com.lionotter.recipes.ui.navigation.Route
 import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -39,9 +41,8 @@ class AddRecipeViewModel @Inject constructor(
     private var cancelRequested = false
 
     companion object {
-        // "url" is the nav argument pre-filled from a share; edits are saved separately so they
-        // survive rotation and process death without being overwritten by the argument.
-        private const val KEY_URL_ARG = "url"
+        // The route's url pre-fills the field (e.g. from a share); edits are saved separately so
+        // they survive rotation and process death without being overwritten by the argument.
         private const val KEY_URL_INPUT = "url_input"
         /** The import started from this screen, kept so its progress is shown again after process death. */
         private const val KEY_IMPORT_ID = "import_id"
@@ -50,7 +51,7 @@ class AddRecipeViewModel @Inject constructor(
 
     val url: StateFlow<String> = savedStateHandle.getStateFlow(
         KEY_URL_INPUT,
-        savedStateHandle.get<String>(KEY_URL_ARG) ?: ""
+        savedStateHandle.toRoute<Route.AddRecipe>().url ?: ""
     )
 
     /** State before an import is being tracked: idle, validation errors, or starting. */

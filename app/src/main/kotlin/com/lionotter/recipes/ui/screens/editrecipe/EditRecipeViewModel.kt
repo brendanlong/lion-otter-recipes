@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.navigation.toRoute
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.AnthropicService
 import com.lionotter.recipes.data.remote.ImageDownloadService
@@ -12,6 +13,7 @@ import com.lionotter.recipes.data.repository.IRecipeRepository
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.di.ApplicationScope
 import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
+import com.lionotter.recipes.ui.navigation.Route
 import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.worker.RecipeEditWork
 import com.lionotter.recipes.worker.RecipeRegenerateWork
@@ -56,8 +58,7 @@ class EditRecipeViewModel @Inject constructor(
     @param:ApplicationScope private val appScope: CoroutineScope
 ) : ViewModel() {
 
-    private val recipeId: String = savedStateHandle.get<String>("recipeId")
-        ?: throw IllegalArgumentException("EditRecipeViewModel requires a 'recipeId' argument in SavedStateHandle")
+    private val recipeId: String = savedStateHandle.toRoute<Route.EditRecipe>().recipeId
 
     /** True once the recipe flow has emitted at least once (so null means "not found"). */
     private val _recipeLoaded = MutableStateFlow(false)

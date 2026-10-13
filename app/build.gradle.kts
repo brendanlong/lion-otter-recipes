@@ -158,6 +158,25 @@ detekt {
     parallel = true
 }
 
+// detekt skips generated sources, so give type resolution the compiled BuildConfig as well.
+// Setting the classpath replaces the plugin's convention, so the compile classpath is re-added.
+val detektBuildConfigClasses = tasks.register<Sync>("detektBuildConfigClasses") {
+    from(tasks.named<JavaCompile>("compileDebugJavaWithJavac").flatMap { it.destinationDirectory }) {
+        include("**/BuildConfig.class")
+    }
+    into(layout.buildDirectory.dir("detekt/buildConfigClasses"))
+}
+fun detektDebugClasspath() = files(
+    tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileDebugKotlin").map { it.libraries },
+    detektBuildConfigClasses,
+)
+tasks.withType<dev.detekt.gradle.Detekt>().matching { it.name == "detektDebug" }.configureEach {
+    classpath.from(detektDebugClasspath())
+}
+tasks.withType<dev.detekt.gradle.DetektCreateBaselineTask>().matching { it.name == "detektBaselineDebug" }.configureEach {
+    classpath.from(detektDebugClasspath())
+}
+
 dependencies {
     // Core Android
     implementation(libs.androidx.core.ktx)
@@ -247,6 +266,7 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
     testImplementation(libs.turbine)
+    testImplementation(libs.androidx.navigation.testing)
 
     // Robolectric + Compose UI Testing
     testImplementation(libs.robolectric)

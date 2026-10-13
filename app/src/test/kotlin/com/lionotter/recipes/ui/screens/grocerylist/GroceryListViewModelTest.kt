@@ -2,11 +2,13 @@ package com.lionotter.recipes.ui.screens.grocerylist
 
 import android.util.Log
 import androidx.lifecycle.SavedStateHandle
+import androidx.navigation.testing.invoke
 import app.cash.turbine.test
 import com.lionotter.recipes.R
 import com.lionotter.recipes.data.local.GroceryListStateStore
 import com.lionotter.recipes.data.local.SavedGroceryListState
 import com.lionotter.recipes.data.local.SettingsDataStore
+import com.lionotter.recipes.ui.navigation.Route
 import io.mockk.coVerify
 import io.mockk.just
 import io.mockk.mockkStatic
@@ -47,7 +49,11 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+// Robolectric: building a SavedStateHandle from a typed route encodes it with android.net.Uri.
+@RunWith(RobolectricTestRunner::class)
 @OptIn(ExperimentalCoroutinesApi::class)
 class GroceryListViewModelTest {
 
@@ -126,7 +132,7 @@ class GroceryListViewModelTest {
     ): GroceryListViewModel {
         every { mealPlanRepository.getMealPlansForDateRange(testWeekStart, testWeekEnd) } returns flowOf(entries)
         coEvery { groceryListStateStore.load(testWeekStart) } returns savedState
-        val savedStateHandle = SavedStateHandle(mapOf("weekStart" to testWeekStart.toString()))
+        val savedStateHandle = SavedStateHandle(route = Route.GroceryList(testWeekStart))
         return GroceryListViewModel(
             savedStateHandle = savedStateHandle,
             mealPlanRepository = mealPlanRepository,
@@ -273,7 +279,7 @@ class GroceryListViewModelTest {
             flowOf(emptyList(), entries)
         coEvery { groceryListStateStore.load(testWeekStart) } returns null
         val viewModel = GroceryListViewModel(
-            savedStateHandle = SavedStateHandle(mapOf("weekStart" to testWeekStart.toString())),
+            savedStateHandle = SavedStateHandle(route = Route.GroceryList(testWeekStart)),
             mealPlanRepository = mealPlanRepository,
             recipeRepository = recipeRepository,
             aggregateGroceryListUseCase = AggregateGroceryListUseCase(),
@@ -306,7 +312,7 @@ class GroceryListViewModelTest {
             flow { throw IllegalStateException("boom") }
         coEvery { groceryListStateStore.load(testWeekStart) } returns null
         val viewModel = GroceryListViewModel(
-            savedStateHandle = SavedStateHandle(mapOf("weekStart" to testWeekStart.toString())),
+            savedStateHandle = SavedStateHandle(route = Route.GroceryList(testWeekStart)),
             mealPlanRepository = mealPlanRepository,
             recipeRepository = recipeRepository,
             aggregateGroceryListUseCase = AggregateGroceryListUseCase(),
