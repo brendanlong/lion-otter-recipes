@@ -69,6 +69,20 @@ class RecipeResponseParserTest {
     }
 
     @Test
+    fun `ingredient modifiers are kept and blank ones become null`() {
+        val json = """{"success":true,"error":"","recipe":{"name":"Mash","instructionSections":[{"steps":[{"stepNumber":1,"instruction":"Mash.","ingredients":[
+            {"name":"bananas","modifier":"mashed","alternates":[]},
+            {"name":"butter","modifier":" ","alternates":[{"name":"coconut oil","modifier":""},{"name":"ghee","modifier":"melted"}]}
+            ]}]}],"equipment":[],"tags":[]}}"""
+
+        val ingredients = parser.parseMessage(message("end_turn", textBlock(json))).value()
+            .recipe.instructionSections.single().steps.single().ingredients
+
+        assertEquals(listOf("mashed", null), ingredients.map { it.modifier })
+        assertEquals(listOf(null, "melted"), ingredients[1].alternates.map { it.modifier })
+    }
+
+    @Test
     fun `JSON inside a markdown code block is accepted`() {
         val result = parser.parseMessage(message("end_turn", textBlock("Here you go:\n```json\n$recipeJson\n```")))
         assertEquals("Toast", result.value().recipe.name)

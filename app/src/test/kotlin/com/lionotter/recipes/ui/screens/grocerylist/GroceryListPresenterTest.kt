@@ -68,6 +68,17 @@ class GroceryListPresenterTest {
     }
 
     @Test
+    fun `merged items show modifiers on source lines but not in the header`() {
+        val item = display(
+            recipe("a", Ingredient(name = "apple", amount = Amount(value = 2.0), modifier = "peeled")),
+            recipe("b", Ingredient(name = "apples", amount = Amount(value = 1.0), modifier = "chopped"))
+        ).single()
+
+        assertEquals("3 apple", presenter.aggregateHeaderText(item, "+ more"))
+        assertEquals(listOf("2 apple, peeled", "1 apples, chopped"), item.sources.map { it.displayText })
+    }
+
+    @Test
     fun `sources without an amount mark the total as partial`() {
         val item = display(
             recipe("a", Ingredient(name = "salt", amount = Amount(value = 1.0, unit = "tsp"))),

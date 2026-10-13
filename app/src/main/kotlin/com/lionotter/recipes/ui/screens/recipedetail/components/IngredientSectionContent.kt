@@ -29,8 +29,8 @@ import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.domain.model.formatAmount
 
 /** Key for an ingredient checked off in the aggregated ingredient list. */
-internal fun aggregateIngredientKey(sectionName: String?, ingredientName: String): String =
-    "${sectionName.orEmpty()}|${ingredientName.lowercase()}"
+internal fun aggregateIngredientKey(sectionName: String?, ingredient: Ingredient): String =
+    "${sectionName.orEmpty()}|${ingredient.aggregationKey}"
 
 /**
  * An aggregated ingredient section. When [onToggleChecked] is provided, each ingredient is a
@@ -59,7 +59,7 @@ internal fun IngredientSectionContent(
         }
 
         section.ingredients.forEach { ingredient ->
-            val key = aggregateIngredientKey(section.name, ingredient.name)
+            val key = aggregateIngredientKey(section.name, ingredient)
             val isChecked = key in checkedIngredients
             val rowModifier = if (onToggleChecked != null) {
                 Modifier
@@ -99,7 +99,7 @@ internal fun IngredientSectionContent(
                     IngredientLine(
                         ingredient = ingredient,
                         prefix = null,
-                        usage = ingredientUsage[ingredient.name.lowercase()],
+                        usage = ingredientUsage[ingredient.aggregationKey],
                         forceStruck = isChecked,
                         scale = scale,
                         measurementPreference = measurementPreference,
@@ -110,7 +110,7 @@ internal fun IngredientSectionContent(
                         IngredientLine(
                             ingredient = alternate,
                             prefix = stringResource(R.string.or),
-                            usage = ingredientUsage[alternate.name.lowercase()],
+                            usage = ingredientUsage[alternate.aggregationKey],
                             forceStruck = isChecked,
                             scale = scale,
                             measurementPreference = measurementPreference,

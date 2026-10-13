@@ -234,6 +234,19 @@ class AmountMathTest {
     }
 
     @Test
+    fun `different modifiers are listed separately and the same modifier is summed`() {
+        val recipe = recipeOf(
+            listOf(Ingredient(name = "butter", amount = Amount(0.5, "cup"), modifier = "softened")),
+            listOf(Ingredient(name = "butter", amount = Amount(2.0, "tbsp"), modifier = "melted")),
+            listOf(Ingredient(name = "Butter", amount = Amount(0.25, "cup"), modifier = "Softened"))
+        )
+        assertEquals(
+            listOf("3/4 cup butter, softened", "2 tbsp butter, melted"),
+            recipe.aggregatedLines()
+        )
+    }
+
+    @Test
     fun `yields multiply amounts`() {
         val recipe = recipeOf(
             listOf(Ingredient(name = "flour", amount = Amount(100.0, "g"))),

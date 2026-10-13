@@ -53,7 +53,8 @@ data class Recipe(
 
     /**
      * Aggregates all ingredients from all steps across all instruction sections.
-     * Combines amounts for the same ingredient name (case-insensitive) within each section,
+     * Combines amounts for the same ingredient name and modifier (case-insensitive, see
+     * [Ingredient.aggregationKey]) within each section,
      * respecting the yields multiplier on each step.
      *
      * See [aggregateIngredientOccurrences] for how amounts in different units are combined.
@@ -106,6 +107,15 @@ data class Amount(
     val unit: String? = null
 )
 
+/**
+ * An ingredient used by a step.
+ *
+ * @param modifier how the ingredient is prepared ("peeled", "chopped", "melted", "room
+ *   temperature"). It is not part of what the ingredient is: the grocery list buys "apple"
+ *   whether the recipe peels it or not. Null when there is none, and for recipes parsed before
+ *   this field existed, which keep any preparation in [name] or [notes].
+ * @param notes any other remark ("divided", "to taste", "plus more for dusting")
+ */
 @Serializable
 data class Ingredient(
     val name: String,
@@ -113,8 +123,24 @@ data class Ingredient(
     val alternates: List<Ingredient> = emptyList(),
     val amount: Amount? = null,
     val density: Double? = null,
-    val optional: Boolean = false
+    val optional: Boolean = false,
+    val modifier: String? = null
 ) {
+    /**
+     * Identifies the same ingredient prepared the same way, for combining amounts within a
+     * recipe: "butter, softened" and "butter, melted" are listed separately.
+     */
+    val aggregationKey: String
+        get() {
+            val base = name.trim().lowercase()
+            val preparation = modifier?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return base
+            return "$base, $preparation"
+        }
+
+    /** The name followed by the modifier and notes, e.g. "apple, peeled, divided". */
+    fun describe(): String =
+        (listOf(name) + listOfNotNull(modifier, notes).filter { it.isNotBlank() }).joinToString(", ")
+
     /**
      * Format the ingredient for display.
      */
@@ -125,20 +151,8 @@ data class Ingredient(
         weightSystem: UnitSystem = UnitSystem.localeDefault()
     ): String {
         val displayAmount = getDisplayAmount(scale, preference, volumeSystem, weightSystem)
-            ?: return name + (notes?.let { ", $it" } ?: "")
-
-        val value = displayAmount.value
-            ?: return name + (notes?.let { ", $it" } ?: "")
-
-        return buildString {
-            append(formatAmount(value, displayAmount.unit))
-            append(" ")
-            append(name)
-            notes?.let {
-                append(", ")
-                append(it)
-            }
-        }
+        val value = displayAmount?.value ?: return describe()
+        return "${formatAmount(value, displayAmount.unit)} ${describe()}"
     }
 
     /**

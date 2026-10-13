@@ -130,13 +130,8 @@ object RecipeMarkdownFormatter {
             formatAmount(amount)?.let { append("$it ") }
         }
 
-        // Ingredient name
-        append(ingredient.name)
-
-        // Notes
-        ingredient.notes?.let { notes ->
-            append(", $notes")
-        }
+        // Name, modifier and notes
+        append(ingredient.describe())
 
         // Optional marker
         if (ingredient.optional) {
@@ -151,8 +146,7 @@ object RecipeMarkdownFormatter {
                     alt.amount?.let { amount ->
                         formatAmount(amount)?.let { append("$it ") }
                     }
-                    append(alt.name)
-                    alt.notes?.let { append(", $it") }
+                    append(alt.describe())
                 }
             })
         }

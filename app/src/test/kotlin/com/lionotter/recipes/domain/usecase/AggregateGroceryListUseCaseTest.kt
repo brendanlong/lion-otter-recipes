@@ -103,6 +103,40 @@ class AggregateGroceryListUseCaseTest {
     }
 
     @Test
+    fun `the same ingredient with different modifiers is one item whose sources keep their modifiers`() {
+        val bread = recipe("bread", "Banana Bread", null to listOf(Ingredient(name = "bananas", amount = Amount(3.0), modifier = "mashed")))
+        val salad = recipe("salad", "Fruit Salad", null to listOf(Ingredient(name = "banana", amount = Amount(2.0), modifier = "sliced")))
+
+        val item = useCase.execute(listOf(entry("e1", bread) to bread, entry("e2", salad) to salad)).single()
+
+        assertEquals("bananas", item.normalizedName)
+        assertEquals(
+            listOf("3 bananas, mashed", "2 banana, sliced"),
+            item.sources.map { it.ingredient.format() }
+        )
+    }
+
+    @Test
+    fun `different modifiers in one recipe become distinct sources`() {
+        val cake = recipe(
+            "cake", "Cake",
+            "Cake" to listOf(Ingredient(name = "butter", amount = Amount(0.5, "cup"), modifier = "softened")),
+            "Glaze" to listOf(Ingredient(name = "butter", amount = Amount(2.0, "tbsp"), modifier = "melted"))
+        )
+
+        val sources = useCase.execute(listOf(entry("e1", cake) to cake)).single().sources
+
+        assertEquals(listOf("softened", "melted"), sources.map { it.ingredient.modifier })
+        assertNotEquals(sources[0].key, sources[1].key)
+    }
+
+    @Test
+    fun `source key is unchanged for ingredients without a modifier`() {
+        val source = GroceryIngredientSource("Cake", Ingredient(name = "Flour", amount = Amount(1.0, "cup")), 1.0, "cake")
+        assertEquals("cake\u0000flour\u0000cup", source.key)
+    }
+
+    @Test
     fun `plural and singular names are grouped`() {
         val a = recipe("a", "A", null to listOf(Ingredient(name = "chilies", amount = Amount(2.0))))
         val b = recipe("b", "B", null to listOf(Ingredient(name = "chili", amount = Amount(1.0))))

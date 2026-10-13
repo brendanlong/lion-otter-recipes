@@ -66,6 +66,37 @@ class CalculateIngredientUsageUseCaseTest {
         useCase = CalculateIngredientUsageUseCase()
     }
 
+    @Test
+    fun `usage is tracked per modifier like the aggregated ingredient list`() {
+        val recipe = recipe(
+            listOf(
+                section(
+                    listOf(
+                        step(1, listOf(Ingredient(name = "butter", amount = Amount(0.5, "cup"), modifier = "softened"))),
+                        step(2, listOf(Ingredient(name = "butter", amount = Amount(2.0, "tbsp"), modifier = "melted")))
+                    )
+                )
+            )
+        )
+
+        val usage = useCase.execute(
+            recipe,
+            setOf(createInstructionIngredientKey(0, 0, 0)),
+            1.0,
+            MeasurementPreference.DEFAULT,
+            UnitSystem.CUSTOMARY,
+            UnitSystem.CUSTOMARY
+        ).unnamed()
+
+        assertEquals(setOf("butter, softened", "butter, melted"), usage.keys)
+        assertTrue(usage.getValue("butter, softened").isFullyUsed)
+        assertFalse(usage.getValue("butter, melted").isFullyUsed)
+        assertEquals(
+            recipe.aggregateIngredients().single().ingredients.map { it.aggregationKey }.toSet(),
+            usage.keys
+        )
+    }
+
     // --- Bug #137: Mixed volume units not summed correctly ---
 
     @Test

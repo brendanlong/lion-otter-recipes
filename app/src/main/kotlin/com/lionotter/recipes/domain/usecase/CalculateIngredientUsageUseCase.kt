@@ -70,7 +70,7 @@ class CalculateIngredientUsageUseCase @Inject constructor() {
         volumeSystem: UnitSystem,
         weightSystem: UnitSystem
     ) {
-        val tally = tallies.getOrPut(ingredient.name.lowercase()) { UsageTally() }
+        val tally = tallies.getOrPut(ingredient.aggregationKey) { UsageTally() }
         // Apply the measurement preference per occurrence so totals match what the user sees
         val displayAmount = ingredient.getDisplayAmount(
             scale = 1.0,

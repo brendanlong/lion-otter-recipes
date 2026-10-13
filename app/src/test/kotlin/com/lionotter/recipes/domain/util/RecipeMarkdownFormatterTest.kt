@@ -220,6 +220,37 @@ class RecipeMarkdownFormatterTest {
     }
 
     @Test
+    fun `ingredient modifiers appear in the shared and edit markdown`() {
+        val recipe = createTestRecipe(
+            instructionSections = listOf(
+                InstructionSection(
+                    steps = listOf(
+                        InstructionStep(
+                            stepNumber = 1,
+                            instruction = "Mix",
+                            ingredients = listOf(
+                                Ingredient(
+                                    name = "butter",
+                                    amount = Amount(value = 1.0, unit = "cup"),
+                                    modifier = "melted",
+                                    notes = "divided",
+                                    alternates = listOf(
+                                        Ingredient(name = "coconut oil", amount = Amount(value = 1.0, unit = "cup"), modifier = "melted")
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        val expected = "1 cup butter, melted, divided OR 1 cup coconut oil, melted"
+
+        assertTrue(RecipeMarkdownFormatter.format(recipe).contains("- $expected"))
+        assertTrue(RecipeMarkdownFormatter.formatBody(recipe).contains("   - $expected"))
+    }
+
+    @Test
     fun `format marks optional ingredients`() {
         val recipe = createTestRecipe(
             instructionSections = listOf(
