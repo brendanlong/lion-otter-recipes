@@ -10,7 +10,7 @@ import com.lionotter.recipes.di.ApplicationScope
 import com.lionotter.recipes.domain.ArchiveFailure
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.RecipeErrorException
-import com.lionotter.recipes.domain.usecase.ImportPaprikaUseCase
+import com.lionotter.recipes.domain.usecase.paprika.PaprikaImportSteps
 import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.worker.ImportInputStore
 import com.lionotter.recipes.worker.ImportKind
@@ -45,7 +45,7 @@ class ImportQueue @Inject constructor(
     @param:ApplicationScope private val appScope: CoroutineScope,
     private val scheduler: RecipeWorkScheduler,
     private val inputStore: ImportInputStore,
-    private val importPaprikaUseCase: ImportPaprikaUseCase,
+    private val paprikaImportSteps: PaprikaImportSteps,
     private val monitor: ImportMonitor
 ) {
     companion object {
@@ -216,7 +216,7 @@ class ImportQueue @Inject constructor(
             if (stopped == null) Log.w(TAG, "Worker for import $id didn't stop in time; cleaning up anyway")
             if (inputStore.readKind(id) == ImportKind.PAPRIKA) {
                 try {
-                    importPaprikaUseCase.cancelBatch(inputStore.importDir(id))
+                    paprikaImportSteps.cancel(paprikaImportSteps.store(inputStore.importDir(id)))
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {

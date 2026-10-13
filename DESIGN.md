@@ -41,7 +41,7 @@ Where a use case needs something the data layer provides, the domain owns an int
 | `AiSettings` | `SettingsDataStore` | read-only API key, import model, thinking, import debugging |
 | `AppSettings` | `SettingsDataStore` | all settings as flows (each one, and `settings: Flow<Settings>` with all of them once read) plus setters (extends `AiSettings`); what ViewModels use |
 | `ImageStore` | `ImageDownloadService` | download / save / copy / store recipe images, delete unused local ones, a recipe image as a local file (export) |
-| `PaprikaExportReader` | `PaprikaParser` | stream a Paprika export as `PaprikaExportRecipe`s (`ImportPaprikaUseCase`) |
+| `PaprikaExportReader` | `PaprikaParser` | stream a Paprika export as `PaprikaExportRecipe`s (`PaprikaImportSteps`) |
 | `GroceryListStateStore` | `DataStoreGroceryListStateStore` | per-week grocery list selection, whether the list is shown, and checked sources |
 | `ImportDebugLog` | `ImportDebugRepository` | record an `ImportDebugRecord` for the import debugging screen |
 
@@ -74,7 +74,7 @@ Migrations live in `RecipeDatabaseMigrations` (10→11 drops the Firestore-era t
 #### Local files
 
 - Local image cache (`ImageDownloadService`, `ImageSyncService`): images are cached on disk and uploaded to Firebase Storage. Images saved while signed out of Google stay local until `ImageSyncService.uploadPendingLocalImages()` runs.
-- `ImportInputStore`: staged import inputs under `files/imports/<importId>/` (copied source file, selection, `ImportKind`, `batch.json` for Paprika batches). Orphans are cleaned up at startup.
+- `ImportInputStore`: staged import inputs under `files/imports/<importId>/` (copied source file, selection, `ImportKind`, and the Paprika import state, see `PaprikaImportStateStore`). Orphans are cleaned up at startup.
 
 ### Remote Services
 
@@ -237,7 +237,7 @@ Orchestrates the full import flow:
 6. Save to Firestore (and download the image)
 ```
 
-Reports progress via callback for UI updates and returns `Outcome<Recipe>` (`Success(value)` or `Failure(RecipeError)`); `ParseHtmlUseCase`, `EditRecipeUseCase`, `RegenerateRecipeUseCase`, `ImportPaprikaUseCase` (`Outcome<ImportSummary>`), `ImportFromZipUseCase` and `ExportToZipUseCase` do the same. Other use cases: `ImportPaprikaUseCase` (batch Paprika import, runs in short resumable steps), `ImportFromZipUseCase` / `ExportToZipUseCase` / `ExportSingleRecipeUseCase` (`.lorecipes` files), `RegenerateRecipeUseCase`, `EditRecipeUseCase`, `AggregateGroceryListUseCase`, `CalculateIngredientUsageUseCase`.
+Reports progress via callback for UI updates and returns `Outcome<Recipe>` (`Success(value)` or `Failure(RecipeError)`); `ParseHtmlUseCase`, `EditRecipeUseCase`, `RegenerateRecipeUseCase`, `ImportFromZipUseCase` and `ExportToZipUseCase` do the same. Other use cases: `PaprikaImportSteps` (batch Paprika import as a resumable state machine, see Background Work), `ImportFromZipUseCase` / `ExportToZipUseCase` / `ExportSingleRecipeUseCase` (`.lorecipes` files), `RegenerateRecipeUseCase`, `EditRecipeUseCase`, `AggregateGroceryListUseCase`, `CalculateIngredientUsageUseCase`.
 
 #### Archive handling
 
@@ -282,8 +282,9 @@ ImportMonitor ── combine(pending rows, import WorkInfos) ──> inProgressR
 - `ImportMonitor` derives each import's `ImportState` (`Running(ImportStage)`, `Failed(message, reason)`, `Succeeded(recipeId)`, `Cancelled`) from its row plus its WorkInfo (`ImportWorkDecoder`). Live stages come from WorkInfo progress instead of being written to Room on every tick; the row only gets what must outlive a worker run: the page title / recipe name and image once known, `WAITING_FOR_BATCH` between Paprika polls, and terminal failures. `importState(importId)` follows the import's unique work, so `AddRecipeViewModel` still sees `Succeeded(recipeId)` after the row is removed, and shows a running import again after process death.
 - `ImportSelectionViewModel` copies the picked/shared file into `ImportInputStore` when the screen opens (the import ID is kept in `SavedStateHandle`), so the screen and the workers never depend on a content URI grant surviving process death. The queue row is inserted only after all inputs are written.
 - Cancelling an import cancels its unique work, then waits (up to 30 s) for the worker to release the import's in-process lock before cancelling any Paprika batch and deleting files.
-- Paprika batch submission and `batch.json` are written in one `NonCancellable` block; batch results are saved under IDs derived from import ID + custom_id so a resumed run overwrites rather than duplicates.
-- `PaprikaImportWorker` runs as a chain of short, self-rescheduling steps (`ImportPaprikaUseCase.runStep`). Batch state (custom_id to recipe mapping, batch ID) is saved in `batch.json` so a restarted worker resumes.
+- **Paprika import** (`domain/usecase/paprika`): `PaprikaImportSteps` is a state machine over `PaprikaImportState` — `Preparing` (read the export, store photos, check the recipe limit, submit) → `Submitted(batchId)` → `Polling(batch)` → `SavingResults(batch)` → `Done(summary)`, with `Failed(error, allowRetry)` from any step (a single recipe is parsed directly: `Preparing` → `Done`). `resume(store)` derives the state from the files alone (the `cancelled` marker → `Failed(Interrupted)`; an unreadable `batch.json` → `Failed(Unexpected)`, both without retries; no `batch.json` → `Preparing`; `batch.json` → `Polling`; a `processed.log` → `SavingResults`, since results only exist once the batch has ended), and `advance` runs one step. `PaprikaImportWorker` calls `run`, which advances until the import has to wait (`Submitted` / `Polling`: the worker schedules a delayed copy of itself and exits, so no foreground service is held for hours) or is finished, inside the import lock.
+- `PaprikaImportStateStore` owns the import's files: `batch.json` (`PaprikaBatch`: batch ID, model, custom_id → recipe mapping, recipes never submitted), `processed.log` (`customId` or `customId<TAB>error` per handled result), `poll_failures`, `photos/<index>.jpg` and a `cancelled` marker. `batch.json` and `poll_failures` are written to a temp file, synced and renamed; log lines are synced and only newline-terminated lines count. The layout and `PaprikaBatch` field names are what earlier versions wrote, so imports in flight across an update resume (`PaprikaImportStepsTest` loads an old `batch.json`).
+- Invariants (tested in `PaprikaImportStepsTest` by restarting with fresh instances over the same directory, and in `ImportQueueTest` for cancelling): a batch is created and its `batch.json` written in one `NonCancellable` block, and `Preparing` never runs once `batch.json` exists, so a worker stopped by WorkManager never submits twice (only a process kill in the instant between creating the batch and the rename could); an unreadable `batch.json` fails the import rather than submitting again. Results are saved under IDs derived from import ID + custom_id and logged afterwards, so a resumed run overwrites rather than duplicates. `cancel` cancels a still-running batch at most once successfully (the worker on a user stop, and `ImportQueue.cancelImport`, both call it; the marker makes the second a no-op) and a cancelled import doesn't resume. Permanent poll errors, or more than 30 consecutive transient ones (counted across runs), fail without retries.
 - Failed imports stay visible in the recipe list with Retry and Dismiss actions.
 - `RecipeNotificationHelper` owns two channels: `recipe_import` (low-importance progress) and `recipe_import_results` (completed/failed imports). Tapping a notification delivers a `recipe_id` to `MainActivity.onNewIntent`.
 

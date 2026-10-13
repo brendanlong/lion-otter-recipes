@@ -7,6 +7,19 @@ import androidx.work.WorkInfo
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.data.local.PendingImportStatus
 import com.lionotter.recipes.data.repository.PendingImportRepository
+import com.lionotter.recipes.domain.usecase.ParseHtmlUseCase
+import com.lionotter.recipes.domain.usecase.paprika.PaprikaBatch
+import com.lionotter.recipes.domain.usecase.paprika.PaprikaImportSteps
+import com.lionotter.recipes.testutil.FakeAiSettings
+import com.lionotter.recipes.testutil.FakeImageStore
+import com.lionotter.recipes.testutil.FakeImportDebugLog
+import com.lionotter.recipes.testutil.FakePageContentExtractor
+import com.lionotter.recipes.testutil.FakePageFetcher
+import com.lionotter.recipes.testutil.FakePaprikaExportReader
+import com.lionotter.recipes.testutil.FakeRecipeBatchParser
+import com.lionotter.recipes.testutil.FakeRecipeParser
+import com.lionotter.recipes.testutil.FakeRecipeRepository
+import com.lionotter.recipes.util.AppJson
 import com.lionotter.recipes.worker.ImportInputStore
 import com.lionotter.recipes.worker.ImportKind
 import com.lionotter.recipes.worker.RecipeImportWorker
@@ -18,6 +31,7 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
 import io.mockk.verify
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -30,7 +44,9 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import java.util.UUID
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -39,6 +55,25 @@ class ImportQueueTest {
     private val dao = FakePendingImportDao()
     private val work = FakeImportWork()
     private val inputStore: ImportInputStore = mockk(relaxed = true)
+    private val batchParser = FakeRecipeBatchParser()
+    private val settings = FakeAiSettings()
+    private val repository = FakeRecipeRepository()
+    private val paprikaSteps = PaprikaImportSteps(
+        paprikaReader = FakePaprikaExportReader(emptyList()),
+        parseHtmlUseCase = ParseHtmlUseCase(
+            FakeRecipeParser(), FakePageContentExtractor(), repository, FakeImportDebugLog(), settings, FakeImageStore()
+        ),
+        recipeBatchParser = batchParser,
+        aiSettings = settings,
+        pageFetcher = FakePageFetcher(),
+        imageStore = FakeImageStore(),
+        recipeRepository = repository,
+        json = AppJson,
+        ioDispatcher = Dispatchers.Unconfined
+    )
+
+    @get:Rule
+    val tempFolder = TemporaryFolder()
     private val scheduler: RecipeWorkScheduler = mockk {
         every { buildUrlImportRequest(any(), any()) } answers { OneTimeWorkRequestBuilder<RecipeImportWorker>().build() }
         coEvery { enqueueImport(any(), any()) } answers {
@@ -71,7 +106,7 @@ class ImportQueueTest {
             appScope = scope,
             scheduler = scheduler,
             inputStore = inputStore,
-            importPaprikaUseCase = mockk(relaxed = true),
+            paprikaImportSteps = paprikaSteps,
             monitor = ImportMonitor(work.workManager, repository, scope)
         )
     }
@@ -173,6 +208,30 @@ class ImportQueueTest {
         assertTrue(dao.rows.value.isEmpty())
         verify { work.workManager.cancelUniqueWork(RecipeWorkScheduler.importWorkName("import-1")) }
         verify { work.workManager.cancelWorkById(workId) }
+    }
+
+    @Test
+    fun `cancelling a Paprika import cancels its batch once, even after the worker did`() = runTest {
+        val dir = tempFolder.newFolder("import-1")
+        paprikaSteps.store(dir).writeBatch(
+            PaprikaBatch("batch-1", "model", thinkingEnabled = false, submittedAtMillis = 0, recipes = emptyList())
+        )
+        every { inputStore.hasImport("import-1") } returns true
+        every { inputStore.readKind("import-1") } returns ImportKind.PAPRIKA
+        every { inputStore.importDir("import-1") } returns dir
+        coEvery { inputStore.withImportLock<Unit>("import-1", any()) } returns Unit
+        dao.rows.value = listOf(pendingImport("import-1", UUID.randomUUID().toString()))
+        val queue = createQueue()
+
+        queue.cancelImport("import-1")
+        advanceUntilIdle()
+        assertEquals(listOf("batch-1"), batchParser.cancelled)
+
+        // The worker (API 31+) cancelled first: the queue doesn't cancel again
+        queue.cancelImport("import-1")
+        advanceUntilIdle()
+        assertEquals(listOf("batch-1"), batchParser.cancelled)
+        verify(exactly = 2) { inputStore.deleteImport("import-1") }
     }
 
     @Test

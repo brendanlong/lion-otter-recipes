@@ -83,7 +83,7 @@ class AddRecipeViewModelTest {
             appScope = scope,
             scheduler = scheduler,
             inputStore = mockk(relaxed = true),
-            importPaprikaUseCase = mockk(),
+            paprikaImportSteps = mockk(),
             monitor = monitor
         )
         return AddRecipeViewModel(handle, queue, monitor, aiSettings)
