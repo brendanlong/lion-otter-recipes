@@ -20,8 +20,9 @@ class ZipImportWorker @AssistedInject constructor(
     @Assisted workerParams: WorkerParameters,
     private val importFromZipUseCase: ImportFromZipUseCase,
     private val inputStore: ImportInputStore,
-    notificationHelper: RecipeNotificationHelper
-) : BaseRecipeWorker(context, workerParams, notificationHelper) {
+    notificationHelper: RecipeNotificationHelper,
+    runningWork: RunningAccountWork
+) : BaseRecipeWorker(context, workerParams, notificationHelper, runningWork) {
 
     override val notificationTitle = "Importing recipes"
     override val errorTitle = "Import Failed"

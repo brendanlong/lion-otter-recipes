@@ -24,8 +24,28 @@ import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Firestore's on-device cache as account transitions see it (implemented by [FirestoreService]).
+ */
+interface FirestoreCache {
+    /** True if all pending local writes reached the server within [timeoutMs]. */
+    suspend fun awaitPendingWrites(timeoutMs: Long): Boolean
+
+    /**
+     * Clears the on-device cache (pending writes included). Returns false if that failed.
+     * @param enableNetwork whether the fresh instance is online (Google user) or offline (guest)
+     */
+    suspend fun clearLocalData(enableNetwork: Boolean): Boolean
+
+    /** Turns network access back on (for a Google user). */
+    suspend fun enableNetwork()
+
+    /** Logs [failure] (with [cause]) and queues it for the UI. */
+    fun reportFailure(failure: DataFailure, cause: Throwable? = null)
+}
+
 @Singleton
-open class FirestoreService @Inject constructor() {
+open class FirestoreService @Inject constructor() : FirestoreCache {
 
     companion object {
         private const val TAG = "FirestoreService"
@@ -81,7 +101,7 @@ open class FirestoreService @Inject constructor() {
     open fun batch(): WriteBatch = Firebase.firestore.batch()
 
     /** Logs [failure] (with [cause]) and queues it for [failures]. */
-    fun reportFailure(failure: DataFailure, cause: Throwable? = null) {
+    override fun reportFailure(failure: DataFailure, cause: Throwable?) {
         ErrorLog.e(TAG, "Background ${failure.op} failed${failure.entityId?.let { " for $it" } ?: ""}", cause)
         _failures.trySend(failure)
     }
@@ -100,7 +120,7 @@ open class FirestoreService @Inject constructor() {
     }
 
     /** Enable Firestore network access (when user signs in with Google). */
-    suspend fun enableNetwork() {
+    override suspend fun enableNetwork() {
         try {
             Firebase.firestore.enableNetwork().await()
             _isNetworkEnabled.value = true
@@ -124,7 +144,7 @@ open class FirestoreService @Inject constructor() {
      *        or offline (guest).
      * @return true if the local cache was cleared
      */
-    suspend fun clearLocalData(enableNetwork: Boolean): Boolean {
+    override suspend fun clearLocalData(enableNetwork: Boolean): Boolean {
         var cleared = false
         try {
             for (attempt in 1..CLEAR_PERSISTENCE_ATTEMPTS) {
@@ -154,7 +174,7 @@ open class FirestoreService @Inject constructor() {
      * Waits for all pending local writes to be acknowledged by the server.
      * @return true if all writes were acknowledged within [timeoutMs].
      */
-    suspend fun awaitPendingWrites(timeoutMs: Long): Boolean {
+    override suspend fun awaitPendingWrites(timeoutMs: Long): Boolean {
         return try {
             withTimeoutOrNull(timeoutMs) {
                 Firebase.firestore.waitForPendingWrites().await()

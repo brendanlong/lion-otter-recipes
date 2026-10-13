@@ -21,8 +21,9 @@ class RecipeRegenerateWorker @AssistedInject constructor(
     @Assisted workerParams: WorkerParameters,
     private val regenerateRecipeUseCase: RegenerateRecipeUseCase,
     private val inputStore: ImportInputStore,
-    notificationHelper: RecipeNotificationHelper
-) : BaseRecipeWorker(context, workerParams, notificationHelper) {
+    notificationHelper: RecipeNotificationHelper,
+    runningWork: RunningAccountWork
+) : BaseRecipeWorker(context, workerParams, notificationHelper, runningWork) {
 
     override val notificationTitle = "Regenerating Recipe"
     override val errorTitle = "Regeneration Failed"

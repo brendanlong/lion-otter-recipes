@@ -147,6 +147,16 @@ class ImportInputStore @Inject constructor(
     }
 
     /**
+     * Deletes every import's files. One-off work inputs are left to the work using them.
+     * @throws IOException if some could not be deleted
+     */
+    fun deleteAllImports() {
+        if (importsRoot.exists() && !importsRoot.deleteRecursively()) {
+            throw IOException("Failed to delete import files")
+        }
+    }
+
+    /**
      * Delete import directories that no pending import refers to, and stale one-off work
      * inputs, left behind by cancelled or crashed work. Recently modified files are kept so an
      * import that is still being set up isn't removed.

@@ -188,7 +188,8 @@ class AccountMigrationService @Inject constructor(
      * times out is undone, in case it completes later.
      *
      * Firestore cache clearing and network enabling are NOT done here; the caller
-     * ([AuthService.mergeGuestIntoGoogle]) does them while auth is still Loading.
+     * ([com.lionotter.recipes.data.account.AccountLifecycle.mergeGuestIntoGoogle]) does them while
+     * auth is still Loading.
      */
     private suspend fun completeSignIn(credential: AuthCredential): Result<Unit> {
         val signIn = Firebase.auth.signInWithCredential(credential)

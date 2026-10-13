@@ -7,12 +7,13 @@ import com.google.firebase.auth.AuthCredential
 import com.lionotter.recipes.R
 import com.lionotter.recipes.data.ai.ApiKeyProblem
 import com.lionotter.recipes.data.ai.ApiKeyValidator
+import com.lionotter.recipes.data.account.AccountLifecycle
 import com.lionotter.recipes.data.image.ImageUploadScheduler
 import com.lionotter.recipes.data.remote.AccountMigrationService
 import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.AuthState
 import com.lionotter.recipes.data.remote.ReauthenticationRequiredException
-import com.lionotter.recipes.data.remote.SignOutResult
+import com.lionotter.recipes.data.account.SignOutResult
 import com.lionotter.recipes.data.remote.AccountDeletionService
 import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.domain.model.Settings
@@ -49,6 +50,7 @@ class SettingsViewModel @Inject constructor(
     private val settings: AppSettings,
     private val importDebugRepository: ImportDebugRepository,
     private val authService: AuthService,
+    private val accountLifecycle: AccountLifecycle,
     private val accountMigrationService: AccountMigrationService,
     private val imageUploadScheduler: ImageUploadScheduler
 ) : ViewModel() {
@@ -203,7 +205,7 @@ class SettingsViewModel @Inject constructor(
         if (!begin(AccountOp.SIGNING_OUT)) return
         viewModelScope.launch {
             try {
-                val result = withContext(NonCancellable) { authService.signOut(force) }
+                val result = withContext(NonCancellable) { accountLifecycle.signOut(force) }
                 if (result is SignOutResult.PendingWrites) _showUnsyncedSignOutWarning.value = true
             } catch (e: CancellationException) {
                 throw e
@@ -254,7 +256,7 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 withContext(NonCancellable) {
-                    authService.deleteAccountAndData(credential)
+                    accountLifecycle.deleteAccountAndData(credential)
                 }
                 _events.send(UserMessage(R.string.delete_account_success))
             } catch (e: CancellationException) {
@@ -325,7 +327,7 @@ class SettingsViewModel @Inject constructor(
     private suspend fun performMigration(credential: AuthCredential) {
         val message = try {
             val result = withContext(NonCancellable) {
-                authService.mergeGuestIntoGoogle { guestUid ->
+                accountLifecycle.mergeGuestIntoGoogle { guestUid ->
                     accountMigrationService.migrateGuestData(credential, guestUid)
                 }
             }

@@ -112,7 +112,7 @@ class LocalImageFilesTest {
         val cached = files.cacheFileFor("gs://bucket/users/u1/images/a.jpg").apply { writeText("x") }
         assertEquals("a.jpg", cached.name)
 
-        files.clear()
+        files.clearUserData()
 
         assertFalse(cached.exists())
         assertFalse(fileOf(local).exists())

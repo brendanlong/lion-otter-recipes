@@ -271,6 +271,63 @@ class ImportQueueTest {
     }
 
     @Test
+    fun `stopping background work cancels every import but keeps the queue`() = runTest {
+        val workId = UUID.randomUUID()
+        dao.rows.value = listOf(pendingImport("import-1", workId.toString()))
+        val queue = createQueue()
+
+        queue.stopBackgroundWork()
+
+        verify { work.workManager.cancelUniqueWork(RecipeWorkScheduler.importWorkName("import-1")) }
+        verify { work.workManager.cancelWorkById(workId) }
+        assertEquals(1, dao.rows.value.size)
+    }
+
+    @Test
+    fun `clearing user data cancels every import and deletes the queue and its files`() = runTest {
+        val runningWork = UUID.randomUUID()
+        work.put(workInfo(runningWork, WorkInfo.State.RUNNING))
+        stageZipImport("zip-1")
+        dao.rows.value = listOf(
+            pendingImport("url-1", runningWork.toString()),
+            pendingImport("zip-1", null, url = "", status = PendingImportStatus.FAILED),
+        )
+        val queue = createQueue()
+
+        queue.clearUserData()
+
+        assertTrue(dao.rows.value.isEmpty())
+        verify { work.workManager.cancelWorkById(runningWork) }
+        verify { work.workManager.cancelUniqueWork(RecipeWorkScheduler.importWorkName("url-1")) }
+        verify { work.workManager.cancelUniqueWork(RecipeWorkScheduler.importWorkName("zip-1")) }
+        verify { inputStore.deleteImport("zip-1") }
+        verify { inputStore.deleteAllImports() }
+    }
+
+    @Test
+    fun `an import that can't be cleaned up doesn't stop the rest`() = runTest {
+        stageZipImport("zip-1")
+        every { inputStore.deleteImport("zip-1") } throws IllegalStateException("disk error")
+        dao.rows.value = listOf(
+            pendingImport("zip-1", null, url = ""),
+            pendingImport("url-1", UUID.randomUUID().toString()),
+        )
+        val queue = createQueue()
+
+        val result = runCatching { queue.clearUserData() }
+
+        assertTrue(result.exceptionOrNull() is IllegalStateException)
+        assertTrue(dao.rows.value.isEmpty())
+        verify { inputStore.deleteAllImports() }
+    }
+
+    private fun stageZipImport(id: String) {
+        every { inputStore.hasImport(id) } returns true
+        every { inputStore.readKind(id) } returns ImportKind.ZIP
+        coEvery { inputStore.withImportLock<Unit>(id, any()) } returns Unit
+    }
+
+    @Test
     fun `cancelImport without a work ID still removes the row`() = runTest {
         dao.rows.value = listOf(pendingImport("import-1", null, status = PendingImportStatus.FAILED))
         val queue = createQueue()

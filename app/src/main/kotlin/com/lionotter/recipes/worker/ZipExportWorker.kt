@@ -21,8 +21,9 @@ class ZipExportWorker @AssistedInject constructor(
     @Assisted private val context: Context,
     @Assisted workerParams: WorkerParameters,
     private val exportToZipUseCase: ExportToZipUseCase,
-    notificationHelper: RecipeNotificationHelper
-) : BaseRecipeWorker(context, workerParams, notificationHelper) {
+    notificationHelper: RecipeNotificationHelper,
+    runningWork: RunningAccountWork
+) : BaseRecipeWorker(context, workerParams, notificationHelper, runningWork) {
 
     override val notificationTitle = "Exporting recipes"
     override val errorTitle = "Export Failed"

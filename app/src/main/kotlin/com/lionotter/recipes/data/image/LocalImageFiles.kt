@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
+import com.lionotter.recipes.data.local.LocalDataScope
+import com.lionotter.recipes.data.local.PerUserLocalData
 import com.lionotter.recipes.util.IoDispatcher
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
@@ -28,7 +30,9 @@ import javax.inject.Singleton
 class LocalImageFiles @Inject constructor(
     @param:ApplicationContext private val context: Context,
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
-) {
+) : PerUserLocalData {
+    override val scope = LocalDataScope.ACCOUNT
+
     companion object {
         private const val TAG = "LocalImageFiles"
         const val IMAGE_DIR = "recipe_images"
@@ -149,15 +153,15 @@ class LocalImageFiles @Inject constructor(
         }
     }
 
-    /** Deletes every file in the image directory (local-only images and cached copies). */
-    suspend fun clear() = withContext(ioDispatcher) {
-        try {
-            val files = dir.listFiles() ?: return@withContext
-            val deletedCount = files.count { it.delete() }
-            Log.d(TAG, "Cleared $deletedCount files from the local image directory")
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to clear the local image directory", e)
-        }
+    /**
+     * Deletes every file in the image directory (local-only images and cached copies).
+     * @throws IOException if some files could not be deleted
+     */
+    override suspend fun clearUserData(): Unit = withContext(ioDispatcher) {
+        val files = dir.listFiles() ?: return@withContext
+        val failed = files.count { !it.deleteRecursively() }
+        Log.d(TAG, "Cleared ${files.size - failed} files from the local image directory")
+        if (failed > 0) throw IOException("Failed to delete $failed files from the local image directory")
     }
 
     /**
