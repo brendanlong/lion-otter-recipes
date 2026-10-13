@@ -19,7 +19,8 @@ private fun shownIcon(eink: Boolean): String = if (eink) EINK_ICON else DEFAULT_
  * Android has no resource qualifier for this, so the manifest has a launcher entry (an
  * activity-alias of RecipesActivity) per icon, and this enables one. Without the e-ink theme both
  * are left as the manifest has them, so nothing changes for anyone who never picks it. Swapping
- * drops shortcuts pinned to the old entry.
+ * drops shortcuts pinned to the old entry. Start RecipesActivity by its class, never by an alias
+ * name, since either alias may be disabled.
  */
 fun Context.useLauncherIcon(eink: Boolean) {
     val shown = shownIcon(eink)

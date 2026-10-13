@@ -18,6 +18,11 @@ enum class MealType(val displayOrder: Int) {
 
 /**
  * A single entry in the meal plan: a recipe assigned to a date and meal type.
+ *
+ * @property recipeImageUrl a copy of the recipe's image URL, kept current by
+ *   `RecipeRepository.setImageUrl` and the local image upload pass
+ * @property servings a scale multiplier for the recipe (1.0 = as written), not a serving count
+ *   like `Recipe.servings`
  */
 @Serializable
 data class MealPlanEntry(

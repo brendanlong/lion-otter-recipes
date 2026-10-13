@@ -21,6 +21,12 @@ import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Downloads a recipe page. Many big recipe sites answer non-browser fetches with a 403 bot check,
+ * so interactive imports capture the page in the in-app browser instead; this is used for "Import
+ * without the browser", work enqueued by older versions, Paprika source images, and regenerating a
+ * recipe whose source isn't a web URL.
+ */
 @Singleton
 class WebScraperService @Inject constructor(
     private val httpClient: HttpClient
