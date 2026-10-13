@@ -21,6 +21,25 @@ class IngredientTest {
     }
 
     @Test
+    fun `format shows the modifier before the notes`() {
+        val ingredient = Ingredient(
+            name = "apple",
+            amount = Amount(value = 2.0),
+            modifier = "peeled",
+            notes = "divided"
+        )
+        assertEquals("2 apple, peeled, divided", ingredient.format())
+        assertEquals("salt, finely ground", Ingredient(name = "salt", modifier = "finely ground").format())
+    }
+
+    @Test
+    fun `aggregation key includes the modifier only when present`() {
+        assertEquals("butter", Ingredient(name = " Butter ").aggregationKey)
+        assertEquals("butter", Ingredient(name = "butter", modifier = " ").aggregationKey)
+        assertEquals("butter, melted", Ingredient(name = "Butter", modifier = "Melted").aggregationKey)
+    }
+
+    @Test
     fun `format without notes`() {
         val ingredient = Ingredient(
             name = "sugar",

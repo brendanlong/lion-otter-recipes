@@ -31,7 +31,7 @@ import org.robolectric.annotation.Config
 class LiveAnthropicTest {
     private val html = """
         <html><body><h1>Simple Banana Bread</h1><p>Serves 8. Prep 15 min, bake 60 min.</p>
-        <h2>Ingredients</h2><ul><li>3 ripe bananas</li><li>1/3 cup melted butter</li><li>3/4 cup sugar</li>
+        <h2>Ingredients</h2><ul><li>3 bananas, mashed</li><li>1/3 cup melted butter</li><li>3/4 cup sugar</li>
         <li>1 egg</li><li>1 tsp vanilla</li><li>1 tsp baking soda</li><li>pinch of salt</li><li>1 1/2 cups flour</li></ul>
         <h2>Steps</h2><ol><li>Heat oven to 350F. Mash bananas with butter.</li><li>Mix in sugar, egg, vanilla.</li>
         <li>Stir in baking soda, salt, then flour.</li><li>Bake in a loaf pan 60 minutes.</li></ol></body></html>
@@ -48,7 +48,13 @@ class LiveAnthropicTest {
                 val parsed = (result as? Outcome.Success)?.value?.recipe
                 assertNotNull("$model (thinking=$thinking): $result", parsed)
                 assertEquals("Simple Banana Bread", parsed!!.name)
-                assertTrue(parsed.instructionSections.flatMap { it.steps }.flatMap { it.ingredients }.size >= 8)
+                val ingredients = parsed.instructionSections.flatMap { it.steps }.flatMap { it.ingredients }
+                assertTrue(ingredients.size >= 8)
+                val bananas = ingredients.single { it.name.contains("banana", ignoreCase = true) }
+                assertEquals("$model (thinking=$thinking): $bananas", "mashed", bananas.modifier?.lowercase())
+                val butter = ingredients.single { it.name.contains("butter", ignoreCase = true) }
+                assertEquals("$model (thinking=$thinking): $butter", "melted", butter.modifier?.lowercase())
+                assertTrue(ingredients.none { it.name.contains("mashed") || it.name.contains("melted") })
             }
         }
     }

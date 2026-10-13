@@ -1,5 +1,6 @@
 package com.lionotter.recipes.data.ai
 
+import com.lionotter.recipes.domain.model.Ingredient
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.port.ParsedRecipe
 import kotlinx.serialization.Serializable
@@ -35,8 +36,20 @@ data class RecipeParseResult(
         prepTime = prepTime,
         cookTime = cookTime,
         totalTime = totalTime,
-        instructionSections = instructionSections,
+        instructionSections = instructionSections.map { section ->
+            section.copy(
+                steps = section.steps.map { step ->
+                    step.copy(ingredients = step.ingredients.map { it.withBlankModifiersRemoved() })
+                }
+            )
+        },
         equipment = equipment,
         tags = tags
     )
 }
+
+/** The schema requires a modifier string, with "" meaning none; the app stores none as null. */
+private fun Ingredient.withBlankModifiersRemoved(): Ingredient = copy(
+    modifier = modifier?.trim()?.takeIf { it.isNotEmpty() },
+    alternates = alternates.map { it.withBlankModifiersRemoved() }
+)

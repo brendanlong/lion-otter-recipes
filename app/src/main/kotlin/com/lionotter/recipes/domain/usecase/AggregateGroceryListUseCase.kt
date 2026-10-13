@@ -12,16 +12,23 @@ import javax.inject.Inject
  * [ingredient] is the recipe's total for this ingredient across all of its sections, and [scale]
  * is the sum of the meal plan servings multipliers for that recipe.
  * [key] uniquely identifies this source within its [GroceryItem]; use it for check-off state
- * (recipe names are not unique, and one recipe can contribute two sources for the same
- * ingredient when its amounts can't be combined, e.g. "1 cup" and "50 g" with no density).
+ * (recipe names are not unique, and one recipe can contribute several sources for the same
+ * ingredient: one per modifier, e.g. "butter, softened" and "butter, melted", and one per kind
+ * of amount when its amounts can't be combined, e.g. "1 cup" and "50 g" with no density).
  */
 data class GroceryIngredientSource(
     val recipeName: String,
     val ingredient: Ingredient,
     val scale: Double,
     val recipeId: String = recipeName,
-    val key: String = "$recipeId\u0000${ingredient.name.lowercase()}\u0000${ingredient.amount?.unit.orEmpty()}"
+    val key: String = sourceKey(recipeId, ingredient)
 )
+
+private fun sourceKey(recipeId: String, ingredient: Ingredient): String {
+    val base = "$recipeId\u0000${ingredient.name.lowercase()}\u0000${ingredient.amount?.unit.orEmpty()}"
+    val modifier = ingredient.modifier?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return base
+    return "$base\u0000$modifier"
+}
 
 /**
  * An aggregated grocery item that combines the same ingredient across multiple recipes.
@@ -37,9 +44,10 @@ data class GroceryItem(
  * Deduplication strategy:
  * - Normalize ingredient names by removing size prefixes (small, medium, large),
  *   lowercasing, and singularizing
- * - Group same ingredients across recipes
- * - Within one recipe, combine the same ingredient across sections by summing amounts
- *   (e.g. butter in both the cake and the frosting)
+ * - Group same ingredients across recipes, ignoring the modifier (an apple is bought the same
+ *   way whether it will be peeled or chopped); each source keeps its modifier for display
+ * - Within one recipe, combine the same ingredient with the same modifier across sections by
+ *   summing amounts (e.g. butter in both the cake and the frosting)
  * - The same recipe planned several times (matched by recipe ID) becomes one source whose
  *   scale is the sum of the planned servings multipliers
  */

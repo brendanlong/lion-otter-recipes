@@ -129,10 +129,11 @@ class AmountAccumulator {
 }
 
 /**
- * Combine ingredient occurrences (ingredient, step yields) into one entry per ingredient name
- * (case-insensitive), summing amounts with [AmountAccumulator].
+ * Combine ingredient occurrences (ingredient, step yields) into one entry per
+ * [Ingredient.aggregationKey] (name and modifier, case-insensitive), summing amounts with
+ * [AmountAccumulator].
  *
- * Usually returns one [Ingredient] per name. When the amounts can't be honestly combined
+ * Usually returns one [Ingredient] per key. When the amounts can't be honestly combined
  * (e.g. "1 cup butter" and "50 g butter" with no density, or "2 cloves garlic" and
  * "1 tsp garlic"), the ingredient is returned once per kind of amount, in first-seen order.
  * Alternates are aggregated the same way.
@@ -140,7 +141,7 @@ class AmountAccumulator {
 fun aggregateIngredientOccurrences(occurrences: List<Pair<Ingredient, Int>>): List<Ingredient> {
     val groups = linkedMapOf<String, MutableList<Pair<Ingredient, Int>>>()
     for (occurrence in occurrences) {
-        groups.getOrPut(occurrence.first.name.trim().lowercase()) { mutableListOf() }.add(occurrence)
+        groups.getOrPut(occurrence.first.aggregationKey) { mutableListOf() }.add(occurrence)
     }
 
     return groups.values.flatMap { group ->
@@ -155,6 +156,7 @@ fun aggregateIngredientOccurrences(occurrences: List<Pair<Ingredient, Int>>): Li
         val template = Ingredient(
             name = first.name,
             notes = group.firstNotNullOfOrNull { it.first.notes },
+            modifier = first.modifier,
             alternates = alternates,
             amount = null,
             density = group.firstNotNullOfOrNull { it.first.density },

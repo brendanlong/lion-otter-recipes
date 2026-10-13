@@ -35,7 +35,8 @@ object DomainFixtures {
                         ingredients = listOf(
                             Ingredient(
                                 name = "flour",
-                                notes = "sifted",
+                                modifier = "sifted",
+                                notes = "divided",
                                 amount = Amount(value = 250.0, unit = "g"),
                                 density = 0.53,
                                 alternates = listOf(Ingredient(name = "cake flour")),

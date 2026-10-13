@@ -26,7 +26,8 @@ object RecipeOutputSchema {
      * ingredient objects, every request failed with "Schema is too complex"). So every property
      * is required, with absent values expressed as null. Nullable properties count toward the
      * API's limit of 16 union-typed parameters (inline copies such as amount count once per
-     * use); this schema uses 14, so adding another nullable field needs care.
+     * use); this schema uses 14, so adding another nullable field needs care. That is why the
+     * ingredient "modifier" is a plain string with "" for none (mapped to null when parsed).
      * Alternates are a non-recursive ingredient subset.
      * On failure the model still returns a placeholder recipe, which is ignored.
      */
@@ -35,22 +36,24 @@ object RecipeOutputSchema {
         val alternate = obj(
             mapOf(
                 "name" to STRING,
+                "modifier" to STRING,
                 "amount" to nullableObject(amount),
                 "density" to nullable(NUMBER),
                 "notes" to nullable(STRING)
             ),
-            listOf("name", "amount", "density", "notes")
+            listOf("name", "modifier", "amount", "density", "notes")
         )
         val ingredient = obj(
             mapOf(
                 "name" to STRING,
+                "modifier" to STRING,
                 "amount" to nullableObject(amount),
                 "density" to nullable(NUMBER),
                 "notes" to nullable(STRING),
                 "optional" to BOOLEAN,
                 "alternates" to arrayOf(alternate)
             ),
-            listOf("name", "amount", "density", "notes", "optional", "alternates")
+            listOf("name", "modifier", "amount", "density", "notes", "optional", "alternates")
         )
         val step = obj(
             mapOf(

@@ -35,8 +35,8 @@ For successful parsing, return (every field is always present; use null where a 
             "stepNumber": 2,
             "instruction": "Mix dry ingredients together.",
             "ingredients": [
-              { "name": "all-purpose flour", "amount": { "value": 2, "unit": "cup" }, "density": 0.51, "notes": null, "optional": false, "alternates": [] },
-              { "name": "granulated sugar", "amount": { "value": 1, "unit": "cup" }, "density": 0.84, "notes": null, "optional": false, "alternates": [] }
+              { "name": "all-purpose flour", "modifier": "", "amount": { "value": 2, "unit": "cup" }, "density": 0.51, "notes": null, "optional": false, "alternates": [] },
+              { "name": "granulated sugar", "modifier": "", "amount": { "value": 1, "unit": "cup" }, "density": 0.84, "notes": null, "optional": false, "alternates": [] }
             ],
             "yields": 1,
             "optional": false
@@ -45,16 +45,17 @@ For successful parsing, return (every field is always present; use null where a 
             "stepNumber": 3,
             "instruction": "Add wet ingredients and mix until combined.",
             "ingredients": [
-              { "name": "butter", "amount": { "value": 8, "unit": "oz" }, "density": 0.96, "notes": "melted", "optional": false, "alternates": [] },
-              { "name": "eggs", "amount": { "value": 3, "unit": null }, "density": null, "notes": "room temperature", "optional": false, "alternates": [] },
+              { "name": "butter", "modifier": "melted", "amount": { "value": 8, "unit": "oz" }, "density": 0.96, "notes": null, "optional": false, "alternates": [] },
+              { "name": "eggs", "modifier": "room temperature", "amount": { "value": 3, "unit": null }, "density": null, "notes": null, "optional": false, "alternates": [] },
               {
                 "name": "kosher salt",
+                "modifier": "",
                 "amount": { "value": 1, "unit": "tsp" },
                 "density": 0.54,
                 "notes": null,
                 "optional": false,
                 "alternates": [
-                  { "name": "table salt", "amount": { "value": 0.5, "unit": "tsp" }, "density": 1.22, "notes": null }
+                  { "name": "table salt", "modifier": "", "amount": { "value": 0.5, "unit": "tsp" }, "density": 1.22, "notes": null }
                 ]
               }
             ],
@@ -65,7 +66,7 @@ For successful parsing, return (every field is always present; use null where a 
             "stepNumber": 4,
             "instruction": "Form into a ball, coat with olive oil, and place in a covered bowl.",
             "ingredients": [
-              { "name": "olive oil", "amount": { "value": 1, "unit": "tsp" }, "density": 0.84, "notes": null, "optional": false, "alternates": [] }
+              { "name": "olive oil", "modifier": "", "amount": { "value": 1, "unit": "tsp" }, "density": 0.84, "notes": null, "optional": false, "alternates": [] }
             ],
             "yields": 2,
             "optional": false
@@ -102,6 +103,13 @@ INGREDIENT FORMAT:
 - If the recipe provides both weight and volume, prefer weight.
 - Use the density reference table below. For ingredients not listed, estimate a reasonable density — cooking precision doesn't require exactness.
 
+INGREDIENT NAME, MODIFIER AND NOTES:
+- "name" is what you buy, with no preparation: "1 apple, peeled and diced" → "name": "apple", "modifier": "peeled and diced". Keep words that change what is bought in the name ("unsalted butter", "dark brown sugar", "canned chickpeas").
+- "modifier" is how the ingredient is prepared or its state before use: "peeled", "chopped", "finely diced", "mashed", "melted", "softened", "room temperature", "sifted", "packed", "beaten", "drained and rinsed". Use "" when there is none. Preparation written before the name also goes here: "3 mashed ripe bananas" → "name": "ripe bananas", "modifier": "mashed".
+- "notes" is any other remark: "divided", "to taste", "plus more for dusting", "about 3 medium", "or more as needed". Use null when there is none.
+- Alternates follow the same rules.
+- Density table entries like "walnuts (chopped)" are lookup labels; still use "name": "walnuts", "modifier": "chopped".
+
 SUPPORTED UNITS:
 - Weight: mg, g, kg, oz, lb
 - Volume: mL, L, tsp, tbsp, cup, fl_oz, pint, quart, gal
@@ -113,6 +121,7 @@ INGREDIENT DENSITIES (g/mL — use these when known):
 
 ABSENT VALUES:
 - Use null for fields that have no value rather than inventing one ("notes", "density", "amount", section "name", "story", times, "servings").
+- "modifier" is "" unless the ingredient has a preparation.
 - "optional" is false unless the ingredient or step is optional.
 - "yields" is 1 unless the step is performed multiple times.
 - "alternates" is an empty array unless the recipe lists substitutes.
@@ -142,7 +151,7 @@ EQUIPMENT:
 ADDITIONAL GUIDELINES:
 - If the recipe has distinct sections (e.g., cake and frosting), create separate instructionSections.
 - Extract quantities as numbers: use integers for whole amounts (e.g., 1, 2, 3) and decimals for fractions (e.g., 0.5 for 1/2, 0.25 for 1/4).
-- Include "notes" for ingredient modifications like "room temperature", "divided", etc. Notes must NOT repeat information already captured in the "name", "amount", or "unit" fields (e.g., if the amount is 1 with no unit, do not put "1 standard ice cube" in notes — use "standard ice cube", or null notes if there is no extra info).
+- "modifier" and "notes" must NOT repeat information already captured in the "name", "amount", or "unit" fields, or each other (e.g., if the amount is 1 with no unit, do not put "1 standard ice cube" in notes — use "standard ice cube", or null notes if there is no extra info).
 - For ingredient alternates/substitutes (indicated by "or" in the recipe): extract the first option as the main ingredient, subsequent options as "alternates" array items.
 - For ingredients marked "to taste", "as needed", or similar: set "amount" to null and put the phrase in "notes".
 - Rephrase instruction text to remove quantity mentions — quantities are shown separately from the ingredient list. Example: "Add 2 cups flour" → instruction: "Add flour", with amount on the ingredient.
