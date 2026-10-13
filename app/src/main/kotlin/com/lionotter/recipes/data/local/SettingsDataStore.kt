@@ -18,12 +18,15 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.lionotter.recipes.di.ApplicationScope
 import com.lionotter.recipes.domain.model.AiModels
+import com.lionotter.recipes.domain.model.Settings
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
@@ -120,101 +123,55 @@ class SettingsDataStore @Inject constructor(
     /** The stored API key. Does not emit until the key has been loaded from disk. */
     override val anthropicApiKey: Flow<String?> = _anthropicApiKey.filterNotNull().map { it.value }
 
-    override val aiModel: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[Keys.AI_MODEL] ?: AiModels.DEFAULT_MODEL
-    }
+    private fun Preferences.aiModel() = this[Keys.AI_MODEL] ?: AiModels.DEFAULT_MODEL
+    private fun Preferences.editModel() = this[Keys.EDIT_MODEL] ?: AiModels.DEFAULT_EDIT_MODEL
+    private fun Preferences.thinkingEnabled() = this[Keys.EXTENDED_THINKING_ENABLED] ?: AiModels.DEFAULT_THINKING_ENABLED
+    private fun Preferences.keepScreenOn() = this[Keys.KEEP_SCREEN_ON] ?: true
+    private fun Preferences.themeMode() = this[Keys.THEME_MODE]?.let { enumOrNull<ThemeMode>(it) } ?: ThemeMode.AUTO
+    private fun Preferences.unitSystem(key: Preferences.Key<String>) = this[key]?.let { enumOrNull<UnitSystem>(it) }
+    private fun Preferences.volumeUnitSystem() = unitSystem(Keys.VOLUME_UNIT_SYSTEM) ?: UnitSystem.localeDefault()
+    private fun Preferences.weightUnitSystem() = unitSystem(Keys.WEIGHT_UNIT_SYSTEM) ?: UnitSystem.localeDefault()
 
-    override val editModel: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[Keys.EDIT_MODEL] ?: AiModels.DEFAULT_EDIT_MODEL
-    }
+    /** Falls back to the recipe volume unit system when no grocery-specific one has been set. */
+    private fun Preferences.groceryVolumeUnitSystem() = unitSystem(Keys.GROCERY_VOLUME_UNIT_SYSTEM) ?: volumeUnitSystem()
 
-    override val thinkingEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
-        preferences[Keys.EXTENDED_THINKING_ENABLED] ?: AiModels.DEFAULT_THINKING_ENABLED
-    }
+    /** Falls back to the recipe weight unit system when no grocery-specific one has been set. */
+    private fun Preferences.groceryWeightUnitSystem() = unitSystem(Keys.GROCERY_WEIGHT_UNIT_SYSTEM) ?: weightUnitSystem()
+    private fun Preferences.startOfWeek() =
+        this[Keys.START_OF_WEEK]?.let { enumOrNull<StartOfWeek>(it) } ?: StartOfWeek.LOCALE_DEFAULT
+    private fun Preferences.importDebuggingEnabled() = this[Keys.IMPORT_DEBUGGING_ENABLED] ?: false
 
-    override val keepScreenOn: Flow<Boolean> = context.dataStore.data.map { preferences ->
-        preferences[Keys.KEEP_SCREEN_ON] ?: true
-    }
+    private fun <T> setting(read: Preferences.() -> T): Flow<T> =
+        context.dataStore.data.map { it.read() }.distinctUntilChanged()
 
-    override val themeMode: Flow<ThemeMode> = context.dataStore.data.map { preferences ->
-        val value = preferences[Keys.THEME_MODE]
-        if (value != null) {
-            enumOrNull<ThemeMode>(value) ?: ThemeMode.AUTO
-        } else {
-            ThemeMode.AUTO
-        }
-    }
+    override val aiModel: Flow<String> = setting { aiModel() }
+    override val editModel: Flow<String> = setting { editModel() }
+    override val thinkingEnabled: Flow<Boolean> = setting { thinkingEnabled() }
+    override val keepScreenOn: Flow<Boolean> = setting { keepScreenOn() }
+    override val themeMode: Flow<ThemeMode> = setting { themeMode() }
+    override val volumeUnitSystem: Flow<UnitSystem> = setting { volumeUnitSystem() }
+    override val weightUnitSystem: Flow<UnitSystem> = setting { weightUnitSystem() }
+    override val groceryVolumeUnitSystem: Flow<UnitSystem> = setting { groceryVolumeUnitSystem() }
+    override val groceryWeightUnitSystem: Flow<UnitSystem> = setting { groceryWeightUnitSystem() }
+    override val startOfWeek: Flow<StartOfWeek> = setting { startOfWeek() }
+    override val importDebuggingEnabled: Flow<Boolean> = setting { importDebuggingEnabled() }
 
-    override val volumeUnitSystem: Flow<UnitSystem> = context.dataStore.data.map { preferences ->
-        val value = preferences[Keys.VOLUME_UNIT_SYSTEM]
-        if (value != null) {
-            enumOrNull<UnitSystem>(value) ?: UnitSystem.localeDefault()
-        } else {
-            UnitSystem.localeDefault()
-        }
-    }
-
-    override val weightUnitSystem: Flow<UnitSystem> = context.dataStore.data.map { preferences ->
-        val value = preferences[Keys.WEIGHT_UNIT_SYSTEM]
-        if (value != null) {
-            enumOrNull<UnitSystem>(value) ?: UnitSystem.localeDefault()
-        } else {
-            UnitSystem.localeDefault()
-        }
-    }
-
-    /**
-     * Grocery list volume unit system. Falls back to the recipe volume unit system
-     * when no grocery-specific preference has been set.
-     */
-    override val groceryVolumeUnitSystem: Flow<UnitSystem> = context.dataStore.data.map { preferences ->
-        val groceryValue = preferences[Keys.GROCERY_VOLUME_UNIT_SYSTEM]
-        if (groceryValue != null) {
-            enumOrNull<UnitSystem>(groceryValue)
-        } else {
-            null
-        } ?: run {
-            val recipeValue = preferences[Keys.VOLUME_UNIT_SYSTEM]
-            if (recipeValue != null) {
-                enumOrNull<UnitSystem>(recipeValue) ?: UnitSystem.localeDefault()
-            } else {
-                UnitSystem.localeDefault()
-            }
-        }
-    }
-
-    /**
-     * Grocery list weight unit system. Falls back to the recipe weight unit system
-     * when no grocery-specific preference has been set.
-     */
-    override val groceryWeightUnitSystem: Flow<UnitSystem> = context.dataStore.data.map { preferences ->
-        val groceryValue = preferences[Keys.GROCERY_WEIGHT_UNIT_SYSTEM]
-        if (groceryValue != null) {
-            enumOrNull<UnitSystem>(groceryValue)
-        } else {
-            null
-        } ?: run {
-            val recipeValue = preferences[Keys.WEIGHT_UNIT_SYSTEM]
-            if (recipeValue != null) {
-                enumOrNull<UnitSystem>(recipeValue) ?: UnitSystem.localeDefault()
-            } else {
-                UnitSystem.localeDefault()
-            }
-        }
-    }
-
-    override val startOfWeek: Flow<StartOfWeek> = context.dataStore.data.map { preferences ->
-        val value = preferences[Keys.START_OF_WEEK]
-        if (value != null) {
-            enumOrNull<StartOfWeek>(value) ?: StartOfWeek.LOCALE_DEFAULT
-        } else {
-            StartOfWeek.LOCALE_DEFAULT
-        }
-    }
-
-    override val importDebuggingEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
-        preferences[Keys.IMPORT_DEBUGGING_ENABLED] ?: false
-    }
+    override val settings: Flow<Settings> = combine(context.dataStore.data, anthropicApiKey) { prefs, apiKey ->
+        Settings(
+            anthropicApiKey = apiKey,
+            aiModel = prefs.aiModel(),
+            editModel = prefs.editModel(),
+            thinkingEnabled = prefs.thinkingEnabled(),
+            keepScreenOn = prefs.keepScreenOn(),
+            themeMode = prefs.themeMode(),
+            volumeUnitSystem = prefs.volumeUnitSystem(),
+            weightUnitSystem = prefs.weightUnitSystem(),
+            groceryVolumeUnitSystem = prefs.groceryVolumeUnitSystem(),
+            groceryWeightUnitSystem = prefs.groceryWeightUnitSystem(),
+            startOfWeek = prefs.startOfWeek(),
+            importDebuggingEnabled = prefs.importDebuggingEnabled()
+        )
+    }.distinctUntilChanged()
 
     override suspend fun setAnthropicApiKey(apiKey: String) {
         withContext(ioDispatcher) {

@@ -1,44 +1,39 @@
 package com.lionotter.recipes.ui.screens.grocerylist
 
-import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
-import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.MealPlanEntry
-import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.UnitSystem
-import com.lionotter.recipes.domain.model.formatIngredientTotal
 import com.lionotter.recipes.domain.port.AppSettings
 import com.lionotter.recipes.domain.port.GroceryListStateStore
 import com.lionotter.recipes.domain.port.SavedGroceryListState
 import com.lionotter.recipes.domain.repository.MealPlanRepository
 import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.domain.usecase.AggregateGroceryListUseCase
-import com.lionotter.recipes.domain.usecase.GroceryIngredientSource
 import com.lionotter.recipes.domain.usecase.GroceryItem
-import com.lionotter.recipes.messages.UserMessage
 import com.lionotter.recipes.ui.navigation.Route
 import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.datetime.DateTimeUnit
@@ -54,150 +49,147 @@ data class SelectableMealPlanEntry(
     val isSelected: Boolean
 )
 
-/**
- * A displayable grocery item with check-off state.
- *
- * @param totalAmount sum of the unchecked sources' amounts, possibly several parts joined
- *   with " + " when they can't be converted to one unit (e.g. "200 g + 2 cups")
- * @param totalIsPartial true if some unchecked sources had no usable amount, so
- *   [totalAmount] doesn't cover everything
- */
-data class DisplayGroceryItem(
-    val key: String,
-    val displayText: String,
-    val totalAmount: String?,
-    val isChecked: Boolean,
-    val sources: List<DisplayGrocerySource>,
-    val totalIsPartial: Boolean = false
-)
+sealed interface GroceryListUiState {
+    data object Loading : GroceryListUiState
 
-data class DisplayGrocerySource(
-    val key: String,
-    val displayText: String,
-    val recipeName: String,
-    val isChecked: Boolean
-)
+    /**
+     * Choosing which of the week's meals go on the list.
+     *
+     * @param loadFailed the week's meal plans couldn't be loaded
+     */
+    data class SelectRecipes(
+        val entriesByDate: Map<LocalDate, List<SelectableMealPlanEntry>>,
+        val loadFailed: Boolean = false
+    ) : GroceryListUiState {
+        val hasSelection: Boolean get() = entriesByDate.values.any { day -> day.any { it.isSelected } }
+    }
 
-enum class GroceryListStep {
-    SELECT_RECIPES,
-    VIEW_LIST
+    /**
+     * The generated list, kept up to date as the selected meals and their recipes change.
+     *
+     * @param items null while the recipes load
+     * @param skippedRecipeNames selected meals whose recipe doesn't exist (any more)
+     * @param failed the list couldn't be built
+     */
+    data class ViewList(
+        val items: List<DisplayGroceryItem>?,
+        val skippedRecipeNames: List<String> = emptyList(),
+        val failed: Boolean = false
+    ) : GroceryListUiState
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class GroceryListViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    private val mealPlanRepository: MealPlanRepository,
-    private val recipeRepository: RecipeRepository,
-    private val aggregateGroceryListUseCase: AggregateGroceryListUseCase,
-    private val settings: AppSettings,
+    mealPlanRepository: MealPlanRepository,
+    recipeRepository: RecipeRepository,
+    aggregateGroceryListUseCase: AggregateGroceryListUseCase,
+    settings: AppSettings,
     private val groceryListStateStore: GroceryListStateStore
 ) : ViewModel() {
 
     private val weekStart: LocalDate = savedStateHandle.toRoute<Route.GroceryList>().weekStartDate
     private val weekEnd: LocalDate = weekStart.plus(6, DateTimeUnit.DAY)
 
-    private val _step = MutableStateFlow(GroceryListStep.SELECT_RECIPES)
-    val step: StateFlow<GroceryListStep> = _step.asStateFlow()
+    private sealed interface MealPlans {
+        data class Loaded(val entries: List<MealPlanEntry>) : MealPlans
+        data object Failed : MealPlans
+    }
 
-    /** Meal plan entries for the week, or null while loading. */
-    private val _mealPlanEntries = MutableStateFlow<List<MealPlanEntry>?>(null)
-
-    private val _selectedEntryIds = MutableStateFlow<Set<String>>(emptySet())
-
-    private val _isGenerating = MutableStateFlow(false)
-    val isGenerating: StateFlow<Boolean> = _isGenerating.asStateFlow()
-
-    /** Errors to show. */
-    private val _events = Channel<UserMessage>(Channel.BUFFERED)
-    val events: Flow<UserMessage> = _events.receiveAsFlow()
-
-    /** Names of selected meals whose recipe couldn't be found when generating the list. */
-    private val _skippedRecipeNames = MutableStateFlow<List<String>>(emptyList())
-    val skippedRecipeNames: StateFlow<List<String>> = _skippedRecipeNames.asStateFlow()
-
-    /** Selectable entries grouped by date, or null while loading. */
-    val selectableEntries: StateFlow<Map<LocalDate, List<SelectableMealPlanEntry>>?> = combine(
-        _mealPlanEntries,
-        _selectedEntryIds
-    ) { entries, selectedIds ->
-        entries?.map { entry ->
-            SelectableMealPlanEntry(
-                entry = entry,
-                isSelected = entry.id in selectedIds
-            )
-        }?.groupBy { it.entry.date }
-            ?.mapValues { (_, entries) ->
+    /** The week's meal plans, or null while loading. */
+    private val mealPlans: StateFlow<MealPlans?> = mealPlanRepository.getMealPlansForDateRange(weekStart, weekEnd)
+        .map<List<MealPlanEntry>, MealPlans> { entries ->
+            MealPlans.Loaded(
                 entries.sortedWith(
-                    compareBy<SelectableMealPlanEntry> { it.entry.mealType.displayOrder }
-                        .thenBy { it.entry.recipeName }
+                    compareBy<MealPlanEntry> { it.date }
+                        .thenBy { it.mealType.displayOrder }
+                        .thenBy { it.recipeName }
                 )
-            }?.toSortedMap()
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = null
-    )
+            )
+        }
+        .catch { e ->
+            ErrorLog.e(TAG, "Failed to load meal plans for $weekStart", e)
+            emit(MealPlans.Failed)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    // Grocery list state
-    private val _groceryItems = MutableStateFlow<List<GroceryItem>>(emptyList())
-    private val _checkedItems = MutableStateFlow<Set<String>>(emptySet())
-    private val _checkedSources = MutableStateFlow<Set<String>>(emptySet())
+    /**
+     * Selection, step and check-offs: the only state this screen owns, persisted on every change.
+     * Null until restored from [groceryListStateStore].
+     */
+    private val listState = MutableStateFlow<SavedGroceryListState?>(null)
 
-    private val _volumeSystem = MutableStateFlow(UnitSystem.localeDefault())
-    private val _weightSystem = MutableStateFlow(UnitSystem.localeDefault())
+    private sealed interface GroceryContent {
+        data class Built(val items: List<GroceryItem>, val skippedRecipeNames: List<String>) : GroceryContent
+        data object Failed : GroceryContent
+    }
 
-    val displayGroceryItems: StateFlow<List<DisplayGroceryItem>> = combine(
-        _groceryItems,
-        _checkedItems,
-        _checkedSources,
-        _volumeSystem,
-        _weightSystem
-    ) { items, checkedItems, checkedSources, volumeSystem, weightSystem ->
-        items.map { item ->
-            buildDisplayItem(item, checkedItems, checkedSources, volumeSystem, weightSystem)
-        }.sortedWith(
-            compareBy<DisplayGroceryItem> { it.isChecked }
-                .thenBy { it.displayText.lowercase() }
-        )
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
-    )
+    /** The aggregated list for the selected meals, rebuilt when they or their recipes change. */
+    private val groceryContent: Flow<GroceryContent?> = combine(
+        mealPlans,
+        listState.map { state -> state?.takeIf { it.showingList }?.selectedEntryIds }.distinctUntilChanged()
+    ) { plans, selectedIds ->
+        if (plans !is MealPlans.Loaded || selectedIds == null) null
+        else plans.entries.filter { it.id in selectedIds }
+    }
+        .distinctUntilChanged()
+        .flatMapLatest { selectedEntries ->
+            if (selectedEntries == null) {
+                flowOf(null)
+            } else {
+                recipeRepository.getAllRecipes()
+                    .map<_, GroceryContent?> { recipes ->
+                        val recipesById = recipes.associateBy { it.id }
+                        val withRecipes = selectedEntries.mapNotNull { entry ->
+                            recipesById[entry.recipeId]?.let { entry to it }
+                        }
+                        GroceryContent.Built(
+                            items = aggregateGroceryListUseCase.execute(withRecipes),
+                            skippedRecipeNames = selectedEntries
+                                .filter { it.recipeId !in recipesById }
+                                .map { it.recipeName }
+                                .distinct()
+                        )
+                    }
+                    .catch { e ->
+                        ErrorLog.e(TAG, "Failed to generate grocery list", e)
+                        emit(GroceryContent.Failed)
+                    }
+            }
+        }
+
+    private val unitSystems = combine(
+        settings.groceryVolumeUnitSystem,
+        settings.groceryWeightUnitSystem
+    ) { volume, weight -> volume to weight }
+
+    val uiState: StateFlow<GroceryListUiState> = combine(
+        mealPlans,
+        listState,
+        groceryContent,
+        unitSystems
+    ) { plans, state, content, (volumeSystem, weightSystem) ->
+        when (plans) {
+            null -> GroceryListUiState.Loading
+            MealPlans.Failed -> GroceryListUiState.SelectRecipes(emptyMap(), loadFailed = true)
+            is MealPlans.Loaded -> when {
+                state == null && plans.entries.isNotEmpty() -> GroceryListUiState.Loading
+                state?.showingList == true -> viewList(content, state.checkedSources, volumeSystem, weightSystem)
+                else -> GroceryListUiState.SelectRecipes(
+                    selectableEntries(plans.entries, state?.selectedEntryIds.orEmpty())
+                )
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), GroceryListUiState.Loading)
 
     init {
         viewModelScope.launch {
-            settings.groceryVolumeUnitSystem.collect { _volumeSystem.value = it }
-        }
-        viewModelScope.launch {
-            settings.groceryWeightUnitSystem.collect { _weightSystem.value = it }
-        }
-        viewModelScope.launch {
-            val saved = loadSavedState()
-            var restored = false
-            mealPlanRepository.getMealPlansForDateRange(weekStart, weekEnd)
-                .map { entries ->
-                    entries.sortedWith(
-                        compareBy<MealPlanEntry> { it.date }
-                            .thenBy { it.mealType.displayOrder }
-                            .thenBy { it.recipeName }
-                    )
-                }
-                .catch { e ->
-                    ErrorLog.e(TAG, "Failed to load meal plans for $weekStart", e)
-                    _events.send(UserMessage(R.string.grocery_list_load_failed))
-                    emit(emptyList())
-                }
-                .collect { entries ->
-                    _mealPlanEntries.value = entries
-                    // An empty first snapshot may just be a cold cache (offline, or right after
-                    // sign-in); restoring then would persist an empty selection or prune
-                    // check-offs, so wait for meal plans to arrive.
-                    if (!restored && entries.isNotEmpty()) {
-                        restored = true
-                        restoreState(saved, entries)
-                    }
-                }
+            listState.value = loadSavedState() ?: defaultState()
+            listState.filterNotNull()
+                .distinctUntilChanged()
+                .conflate()
+                .collect { save(it) }
         }
     }
 
@@ -206,296 +198,92 @@ class GroceryListViewModel @Inject constructor(
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        Log.w(TAG, "Failed to load saved grocery list state", e)
+        ErrorLog.w(TAG, "Failed to load saved grocery list state", e)
         null
     }
 
-    private fun restoreState(saved: SavedGroceryListState?, entries: List<MealPlanEntry>) {
-        if (saved == null) {
-            // Select all by default on first visit
-            _selectedEntryIds.value = entries.map { it.id }.toSet()
-        } else {
-            _selectedEntryIds.value = saved.selectedEntryIds
-            _checkedItems.value = saved.checkedItems
-            _checkedSources.value = saved.checkedSources
-            if (saved.showingList) {
-                _step.value = GroceryListStep.VIEW_LIST
-                generateGroceryList()
-            }
-        }
-        persistStateChanges()
+    /**
+     * Everything selected on the first visit. Waits for meal plans to arrive: an empty first
+     * snapshot may just be a cold cache (offline, or right after sign-in), and persisting an
+     * empty selection then would stick.
+     */
+    private suspend fun defaultState(): SavedGroceryListState {
+        val entries = mealPlans
+            .map { (it as? MealPlans.Loaded)?.entries }
+            .first { !it.isNullOrEmpty() }
+            .orEmpty()
+        return SavedGroceryListState(
+            selectedEntryIds = entries.map { it.id }.toSet(),
+            showingList = false,
+            checkedSources = emptySet()
+        )
     }
 
-    private fun persistStateChanges() {
-        viewModelScope.launch {
-            combine(
-                _selectedEntryIds,
-                _step,
-                _checkedItems,
-                _checkedSources
-            ) { selected, step, checkedItems, checkedSources ->
-                SavedGroceryListState(
-                    selectedEntryIds = selected,
-                    showingList = step == GroceryListStep.VIEW_LIST,
-                    checkedItems = checkedItems,
-                    checkedSources = checkedSources
-                )
-            }
-                .distinctUntilChanged()
-                .conflate()
-                .collect { state ->
-                    try {
-                        withContext(NonCancellable) { groceryListStateStore.save(weekStart, state) }
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to save grocery list state", e)
-                    }
-                }
+    private suspend fun save(state: SavedGroceryListState) {
+        try {
+            withContext(NonCancellable) { groceryListStateStore.save(weekStart, state) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ErrorLog.w(TAG, "Failed to save grocery list state", e)
         }
     }
 
-    fun toggleEntrySelection(entryId: String) {
-        val current = _selectedEntryIds.value
-        _selectedEntryIds.value = if (entryId in current) {
-            current - entryId
-        } else {
-            current + entryId
-        }
+    fun setEntrySelected(entryId: String, selected: Boolean) = listState.update { state ->
+        state?.copy(
+            selectedEntryIds = if (selected) state.selectedEntryIds + entryId else state.selectedEntryIds - entryId
+        )
     }
 
     fun selectAll() {
-        _selectedEntryIds.value = _mealPlanEntries.value.orEmpty().map { it.id }.toSet()
+        val entries = (mealPlans.value as? MealPlans.Loaded)?.entries.orEmpty()
+        listState.update { it?.copy(selectedEntryIds = entries.map { entry -> entry.id }.toSet()) }
     }
 
-    fun deselectAll() {
-        _selectedEntryIds.value = emptySet()
+    fun deselectAll() = listState.update { it?.copy(selectedEntryIds = emptySet()) }
+
+    /** Shows the list for the selected meals; it stays in sync with them and their recipes. */
+    fun generateGroceryList() = listState.update { it?.copy(showingList = true) }
+
+    fun backToSelection() = listState.update { it?.copy(showingList = false) }
+
+    fun setItemChecked(item: DisplayGroceryItem, checked: Boolean) = listState.update { state ->
+        state?.copy(checkedSources = GroceryListPresenter.setItemChecked(state.checkedSources, item, checked))
     }
 
-    /**
-     * Loads the selected meals' recipes in parallel and aggregates their ingredients.
-     * Checked-off state is pruned to items still on the list, unless a recipe failed to load.
-     */
-    fun generateGroceryList() {
-        if (_isGenerating.value) return
-        _isGenerating.value = true
-        viewModelScope.launch {
-            try {
-                val selectedIds = _selectedEntryIds.value
-                val selectedEntries = _mealPlanEntries.value.orEmpty().filter { it.id in selectedIds }
-
-                val recipesById: Map<String, Recipe?> = selectedEntries
-                    .map { it.recipeId }
-                    .distinct()
-                    .map { recipeId -> async { recipeId to loadRecipe(recipeId) } }
-                    .awaitAll()
-                    .toMap()
-
-                val entriesWithRecipes = selectedEntries.mapNotNull { entry ->
-                    recipesById[entry.recipeId]?.let { entry to it }
-                }
-                _skippedRecipeNames.value = selectedEntries
-                    .filter { recipesById[it.recipeId] == null }
-                    .map { it.recipeName }
-                    .distinct()
-
-                val items = aggregateGroceryListUseCase.execute(entriesWithRecipes)
-                val itemKeys = items.map { it.normalizedName.lowercase() }.toSet()
-                val sourceKeys = items.flatMap { item ->
-                    val itemKey = item.normalizedName.lowercase()
-                    item.sources.map { sourceKey(itemKey, it) }
-                }.toSet()
-                // Keep check-offs if any recipe couldn't be loaded: its items are missing from
-                // this list but may come back once it loads.
-                if (recipesById.values.none { it == null }) {
-                    _checkedItems.value = _checkedItems.value intersect itemKeys
-                    _checkedSources.value = _checkedSources.value intersect sourceKeys
-                }
-                _groceryItems.value = items
-                _step.value = GroceryListStep.VIEW_LIST
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                ErrorLog.e(TAG, "Failed to generate grocery list", e)
-                _events.send(UserMessage(R.string.grocery_list_generate_failed))
-                _step.value = GroceryListStep.SELECT_RECIPES
-            } finally {
-                _isGenerating.value = false
-            }
-        }
+    fun setSourceChecked(sourceKey: String, checked: Boolean) = listState.update { state ->
+        state?.copy(checkedSources = GroceryListPresenter.setSourceChecked(state.checkedSources, sourceKey, checked))
     }
 
-    private suspend fun loadRecipe(recipeId: String): Recipe? = try {
-        recipeRepository.getRecipeByIdOnce(recipeId)
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        Log.w(TAG, "Failed to load recipe $recipeId for grocery list", e)
-        null
-    }
-
-    fun backToSelection() {
-        _step.value = GroceryListStep.SELECT_RECIPES
-    }
-
-    fun toggleItemChecked(key: String) {
-        val current = _checkedItems.value
-        val isNowChecked = key !in current
-        _checkedItems.value = if (isNowChecked) {
-            current + key
-        } else {
-            current - key
-        }
-        // Synchronize all sub-sources with the parent state
-        val item = _groceryItems.value.find { it.normalizedName.lowercase() == key }
-        if (item != null) {
-            val sourceKeys = item.sources.map { sourceKey(key, it) }.toSet()
-            _checkedSources.value = if (isNowChecked) {
-                _checkedSources.value + sourceKeys
-            } else {
-                _checkedSources.value - sourceKeys
-            }
-        }
-    }
-
-    fun toggleSourceChecked(key: String) {
-        val current = _checkedSources.value
-        val isNowChecked = key !in current
-        _checkedSources.value = if (isNowChecked) {
-            current + key
-        } else {
-            current - key
-        }
-        // Synchronize the parent item: checked if all sources checked, unchecked otherwise
-        val item = _groceryItems.value.find { groceryItem ->
-            val itemKey = groceryItem.normalizedName.lowercase()
-            groceryItem.sources.any { sourceKey(itemKey, it) == key }
-        }
-        if (item != null) {
-            val itemKey = item.normalizedName.lowercase()
-            val allSourceKeys = item.sources.map { sourceKey(itemKey, it) }
-            val updatedSources = _checkedSources.value
-            val allChecked = allSourceKeys.all { it in updatedSources }
-            _checkedItems.value = if (allChecked) {
-                _checkedItems.value + itemKey
-            } else {
-                _checkedItems.value - itemKey
-            }
-        }
-    }
-
-    /**
-     * Build a shareable Markdown string of the grocery list.
-     *
-     * @param partialTotalSuffix appended to totals that don't include every source's amount
-     */
-    fun getShareText(partialTotalSuffix: String = "+ more"): String {
-        val items = displayGroceryItems.value
-        return buildString {
-            appendLine("# Grocery List")
-            appendLine()
-            for (item in items) {
-                if (item.isChecked) continue
-                val uncheckedSources = item.sources.filter { !it.isChecked }
-                if (uncheckedSources.isEmpty()) continue
-
-                if (uncheckedSources.size == 1) {
-                    // Single source - show the detailed line
-                    val source = uncheckedSources.first()
-                    appendLine("- [ ] ${source.displayText} (${source.recipeName})")
-                } else {
-                    // Multiple sources - show aggregate header and sub-items
-                    appendLine("- [ ] ${aggregateHeaderText(item, partialTotalSuffix)}")
-                    for (source in uncheckedSources) {
-                        appendLine("  - [ ] ${source.displayText} (${source.recipeName})")
-                    }
-                }
-            }
-        }.trimEnd()
-    }
-
-    private fun buildDisplayItem(
-        item: GroceryItem,
-        checkedItems: Set<String>,
+    private fun viewList(
+        content: GroceryContent?,
         checkedSources: Set<String>,
         volumeSystem: UnitSystem,
         weightSystem: UnitSystem
-    ): DisplayGroceryItem {
-        val itemKey = item.normalizedName.lowercase()
-        val isItemChecked = itemKey in checkedItems
-
-        val displaySources = item.sources.map { source ->
-            val sourceKey = sourceKey(itemKey, source)
-            // Use the existing Ingredient.format() which correctly handles
-            // scaling, unit conversion, fractions, and pluralization
-            val ingredientText = source.ingredient.format(
-                scale = source.scale,
-                volumeSystem = volumeSystem,
-                weightSystem = weightSystem
-            )
-            DisplayGrocerySource(
-                key = sourceKey,
-                displayText = ingredientText,
-                recipeName = source.recipeName,
-                isChecked = sourceKey in checkedSources
-            )
-        }.sortedWith(
-            compareBy<DisplayGrocerySource> { it.isChecked }
-                .thenBy { it.recipeName.lowercase() }
+    ): GroceryListUiState.ViewList = when (content) {
+        null -> GroceryListUiState.ViewList(items = null)
+        GroceryContent.Failed -> GroceryListUiState.ViewList(items = emptyList(), failed = true)
+        is GroceryContent.Built -> GroceryListUiState.ViewList(
+            items = GroceryListPresenter.displayItems(content.items, checkedSources, volumeSystem, weightSystem),
+            skippedRecipeNames = content.skippedRecipeNames
         )
+    }
 
-        // Calculate total display amount for aggregate header
-        val total = if (displaySources.size > 1) {
-            calculateTotal(item.sources, itemKey, checkedSources, volumeSystem, weightSystem)
-        } else {
-            null
+    private fun selectableEntries(
+        entries: List<MealPlanEntry>,
+        selectedIds: Set<String>
+    ): Map<LocalDate, List<SelectableMealPlanEntry>> = entries
+        .map { SelectableMealPlanEntry(entry = it, isSelected = it.id in selectedIds) }
+        .groupBy { it.entry.date }
+        .mapValues { (_, day) ->
+            day.sortedWith(
+                compareBy<SelectableMealPlanEntry> { it.entry.mealType.displayOrder }
+                    .thenBy { it.entry.recipeName }
+            )
         }
-
-        return DisplayGroceryItem(
-            key = itemKey,
-            displayText = item.normalizedName,
-            totalAmount = total?.text,
-            isChecked = isItemChecked,
-            sources = displaySources,
-            totalIsPartial = total?.isPartial ?: false
-        )
-    }
-
-    private data class Total(val text: String, val isPartial: Boolean)
-
-    /**
-     * Sums the unchecked sources' amounts for the aggregate header. The total is marked
-     * partial if any unchecked source has no amount, so the header never looks complete
-     * when it isn't.
-     */
-    private fun calculateTotal(
-        sources: List<GroceryIngredientSource>,
-        itemKey: String,
-        checkedSources: Set<String>,
-        volumeSystem: UnitSystem,
-        weightSystem: UnitSystem
-    ): Total? {
-        val unchecked = sources.filter { sourceKey(itemKey, it) !in checkedSources }
-        val text = formatIngredientTotal(
-            unchecked.map { it.ingredient to it.scale },
-            volumeSystem,
-            weightSystem
-        ) ?: return null
-        return Total(text, isPartial = unchecked.any { it.ingredient.amount?.value == null })
-    }
-
-    private fun sourceKey(itemKey: String, source: GroceryIngredientSource): String {
-        return "${itemKey}_${source.key}"
-    }
+        .toSortedMap()
 
     companion object {
         private const val TAG = "GroceryListViewModel"
-
-        /** Header text for an aggregated item, e.g. "200 g + 2 cups flour (+ more)". */
-        fun aggregateHeaderText(item: DisplayGroceryItem, partialTotalSuffix: String): String {
-            val total = item.totalAmount ?: return item.displayText
-            val header = "$total ${item.displayText}"
-            return if (item.totalIsPartial) "$header $partialTotalSuffix" else header
-        }
     }
 }

@@ -6,6 +6,7 @@ import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.ResourceLimits
 import com.lionotter.recipes.domain.model.AiModels
 import com.lionotter.recipes.domain.model.Amount
+import com.lionotter.recipes.domain.model.ImageChange
 import com.lionotter.recipes.domain.model.Ingredient
 import com.lionotter.recipes.domain.model.InstructionSection
 import com.lionotter.recipes.domain.model.InstructionStep
@@ -60,7 +61,8 @@ class EditRecipeUseCaseTest {
 
     private val useCase = EditRecipeUseCase(
         ParseHtmlUseCase(parser, FakePageContentExtractor(), repository, FakeImportDebugLog(), settings, imageStore),
-        repository
+        repository,
+        imageStore
     )
 
     private fun Outcome<Recipe>.value(): Recipe =
@@ -127,6 +129,47 @@ class EditRecipeUseCaseTest {
         assertNotEquals(created, copy.createdAt)
         assertEquals(existing, repository.recipes.value["recipe-1"])
         assertEquals(copy, repository.recipes.value["copy-1"])
+    }
+
+    @Test
+    fun `save as copy with a new image stores it for the copy only`() = runTest {
+        val copy = useCase.execute(
+            recipeId = "recipe-1",
+            markdownText = "# Banana Bread",
+            saveAsCopy = true,
+            copyRecipeId = "copy-1",
+            copyImage = ImageChange.Replace("file:///images/picked.jpg")
+        ).value()
+
+        assertEquals("gs://bucket/picked.jpg", copy.imageUrl)
+        assertEquals(listOf("file:///images/picked.jpg"), imageStore.stored)
+        assertEquals("gs://bucket/old.jpg", repository.recipes.value.getValue("recipe-1").imageUrl)
+    }
+
+    @Test
+    fun `save as copy can drop the image`() = runTest {
+        val copy = useCase.execute(
+            recipeId = "recipe-1",
+            markdownText = "# Banana Bread",
+            saveAsCopy = true,
+            copyRecipeId = "copy-1",
+            copyImage = ImageChange.Remove
+        ).value()
+
+        assertEquals(null, copy.imageUrl)
+        assertEquals("gs://bucket/old.jpg", repository.recipes.value.getValue("recipe-1").imageUrl)
+    }
+
+    @Test
+    fun `a copy image is not stored when the AI fails`() = runTest {
+        parser.result = Outcome.Failure(RecipeError.Ai(AiFailure.INVALID_API_KEY, 401))
+        useCase.execute(
+            recipeId = "recipe-1",
+            markdownText = "# Banana Bread",
+            saveAsCopy = true,
+            copyImage = ImageChange.Replace("file:///images/picked.jpg")
+        )
+        assertEquals(emptyList<String>(), imageStore.stored)
     }
 
     @Test

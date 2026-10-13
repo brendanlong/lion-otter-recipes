@@ -1,6 +1,7 @@
 package com.lionotter.recipes.ui.screens.recipelist
 
 import androidx.lifecycle.SavedStateHandle
+import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.usecase.GetTagsUseCase
 import com.lionotter.recipes.imports.ImportMonitor
 import com.lionotter.recipes.testutil.FakeMealPlanRepository
@@ -15,11 +16,21 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import kotlin.time.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RecipeListViewModelTest {
+
+    private val recipeRepository = FakeRecipeRepository(
+        recipe("cake", "Chocolate Cake", "dessert"),
+        recipe("pie", "Apple Pie", "dessert"),
+        recipe("soup", "Tomato Soup", "dinner")
+    )
+    private val mealPlanRepository = FakeMealPlanRepository()
 
     @Before
     fun setup() {
@@ -31,7 +42,15 @@ class RecipeListViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun createViewModel(handle: SavedStateHandle): RecipeListViewModel {
+    private fun recipe(id: String, name: String, vararg tags: String) = Recipe(
+        id = id,
+        name = name,
+        tags = tags.toList(),
+        createdAt = Instant.fromEpochMilliseconds(1000),
+        updatedAt = Instant.fromEpochMilliseconds(1000)
+    )
+
+    private fun createViewModel(handle: SavedStateHandle = SavedStateHandle()): RecipeListViewModel {
         val importMonitor = mockk<ImportMonitor> {
             every { inProgressRecipes } returns MutableStateFlow(emptyMap())
         }
@@ -40,8 +59,8 @@ class RecipeListViewModelTest {
             GetTagsUseCase(),
             mockk(),
             importMonitor,
-            FakeRecipeRepository(),
-            FakeMealPlanRepository(),
+            recipeRepository,
+            mealPlanRepository,
             UnconfinedTestDispatcher()
         )
     }
@@ -59,5 +78,75 @@ class RecipeListViewModelTest {
         assertEquals("dessert", viewModel.selectedTag.value)
         val restored = createViewModel(SavedStateHandle(handle.keys().associateWith { handle.get<Any?>(it) }))
         assertEquals("dessert", restored.selectedTag.value)
+    }
+
+    @Test
+    fun `recipes, load state and tags come from one subscription`() {
+        val viewModel = createViewModel()
+
+        val state = viewModel.uiState.value
+        assertTrue(state.hasLoaded)
+        assertEquals(listOf("Apple Pie", "Chocolate Cake", "Tomato Soup"), state.items.map { it.name })
+        assertEquals(setOf("dessert", "dinner"), state.availableTags.toSet())
+        assertEquals(1, recipeRepository.allRecipesSubscribers)
+    }
+
+    @Test
+    fun `selection only includes recipes that are shown`() {
+        val viewModel = createViewModel()
+        viewModel.startSelection("cake")
+        viewModel.setRecipeSelected("soup", selected = true)
+        assertEquals(setOf("cake", "soup"), viewModel.uiState.value.selectedRecipeIds)
+
+        viewModel.onSearchQueryChange("cake")
+
+        assertEquals(setOf("cake"), viewModel.uiState.value.selectedRecipeIds)
+    }
+
+    @Test
+    fun `a selected recipe deleted elsewhere leaves the selection`() {
+        val viewModel = createViewModel()
+        viewModel.startSelection("cake")
+        viewModel.setRecipeSelected("pie", selected = true)
+
+        recipeRepository.recipes.value -= "pie"
+
+        assertEquals(setOf("cake"), viewModel.uiState.value.selectedRecipeIds)
+    }
+
+    @Test
+    fun `bulk delete only deletes selected recipes that are shown`() {
+        val viewModel = createViewModel()
+        viewModel.startSelection("cake")
+        viewModel.setRecipeSelected("soup", selected = true)
+        viewModel.onSearchQueryChange("chocolate")
+
+        viewModel.deleteSelectedRecipes()
+
+        assertEquals(listOf("cake"), recipeRepository.deleted)
+        assertEquals(listOf("cake"), mealPlanRepository.deletedForRecipes)
+        assertFalse(viewModel.uiState.value.isMultiSelectActive)
+    }
+
+    @Test
+    fun `deselecting the last recipe ends multi-select`() {
+        val viewModel = createViewModel()
+        viewModel.startSelection("cake")
+        assertTrue(viewModel.uiState.value.isMultiSelectActive)
+
+        viewModel.setRecipeSelected("cake", selected = false)
+
+        assertFalse(viewModel.uiState.value.isMultiSelectActive)
+    }
+
+    @Test
+    fun `setFavorite writes the value the user asked for`() {
+        val viewModel = createViewModel()
+
+        viewModel.setFavorite("cake", isFavorite = true)
+        viewModel.setFavorite("cake", isFavorite = true)
+
+        assertEquals(listOf("cake" to true, "cake" to true), recipeRepository.favoriteUpdates)
+        assertTrue(recipeRepository.recipes.value.getValue("cake").isFavorite)
     }
 }

@@ -1,5 +1,6 @@
 package com.lionotter.recipes.ui.screens.recipedetail
 
+import android.os.Bundle
 import androidx.lifecycle.SavedStateHandle
 import androidx.navigation.testing.invoke
 import app.cash.turbine.test
@@ -24,6 +25,7 @@ import com.lionotter.recipes.ui.navigation.Route
 import com.lionotter.recipes.util.AppJson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -86,6 +88,20 @@ class RecipeDetailViewModelTest {
         Dispatchers.resetMain()
     }
 
+    /** The progress once the ViewModel has caught up with the saved state. */
+    private val RecipeDetailViewModel.progress: CookingProgress
+        get() {
+            testDispatcher.scheduler.advanceUntilIdle()
+            return cookingProgress.value
+        }
+
+    /** A handle holding only what survives process death: the saved values. */
+    private fun SavedStateHandle.afterProcessDeath(): SavedStateHandle {
+        val bundle = Bundle()
+        keys().forEach { key -> bundle.putString(key, get<Any?>(key)?.toString()) }
+        return SavedStateHandle(keys().associateWith { bundle.getString(it) })
+    }
+
     private fun createViewModel(): RecipeDetailViewModel {
         return RecipeDetailViewModel(
             savedStateHandle = savedStateHandle,
@@ -101,224 +117,116 @@ class RecipeDetailViewModelTest {
     }
 
     @Test
-    fun `initial scale is 1`() = runTest {
+    fun `cooking progress starts empty at scale 1`() = runTest {
         viewModel = createViewModel()
 
-        viewModel.scale.test {
-            assertEquals(1.0, awaitItem(), 0.01)
-            cancelAndIgnoreRemainingEvents()
-        }
+        assertEquals(CookingProgress(), viewModel.progress)
+        assertFalse(viewModel.progress.hasProgress)
     }
 
     @Test
-    fun `setScale updates scale value`() = runTest {
+    fun `setScale clamps to 0_25 to 10`() = runTest {
         viewModel = createViewModel()
 
-        viewModel.scale.test {
-            assertEquals(1.0, awaitItem(), 0.01)
-
-            viewModel.setScale(2.0)
-            assertEquals(2.0, awaitItem(), 0.01)
-            cancelAndIgnoreRemainingEvents()
-        }
-    }
-
-    @Test
-    fun `setScale clamps to minimum 0 25`() = runTest {
-        viewModel = createViewModel()
-
-        viewModel.scale.test {
-            awaitItem() // Skip initial
-
-            viewModel.setScale(0.1)
-            assertEquals(0.25, awaitItem(), 0.01)
-            cancelAndIgnoreRemainingEvents()
-        }
-    }
-
-    @Test
-    fun `setScale clamps to maximum 10`() = runTest {
-        viewModel = createViewModel()
-
-        viewModel.scale.test {
-            awaitItem() // Skip initial
-
-            viewModel.setScale(15.0)
-            assertEquals(10.0, awaitItem(), 0.01)
-            cancelAndIgnoreRemainingEvents()
-        }
-    }
-
-    @Test
-    fun `incrementScale increases scale by 0 5`() = runTest {
-        viewModel = createViewModel()
-
-        viewModel.scale.test {
-            assertEquals(1.0, awaitItem(), 0.01)
-
-            viewModel.incrementScale()
-            assertEquals(1.5, awaitItem(), 0.01)
-            cancelAndIgnoreRemainingEvents()
-        }
-    }
-
-    @Test
-    fun `decrementScale decreases scale by 0 5`() = runTest {
-        viewModel = createViewModel()
-
-        viewModel.scale.test {
-            assertEquals(1.0, awaitItem(), 0.01)
-
-            viewModel.decrementScale()
-            assertEquals(0.5, awaitItem(), 0.01)
-            cancelAndIgnoreRemainingEvents()
-        }
-    }
-
-    @Test
-    fun `initial measurementPreference is DEFAULT`() = runTest {
-        viewModel = createViewModel()
-
-        viewModel.measurementPreference.test {
-            assertEquals(MeasurementPreference.DEFAULT, awaitItem())
-            cancelAndIgnoreRemainingEvents()
-        }
+        viewModel.setScale(2.5)
+        assertEquals(2.5, viewModel.progress.scale, 0.001)
+        viewModel.setScale(0.1)
+        assertEquals(0.25, viewModel.progress.scale, 0.001)
+        viewModel.setScale(15.0)
+        assertEquals(10.0, viewModel.progress.scale, 0.001)
     }
 
     @Test
     fun `setMeasurementPreference updates preference`() = runTest {
         viewModel = createViewModel()
 
-        viewModel.measurementPreference.test {
-            assertEquals(MeasurementPreference.DEFAULT, awaitItem())
+        viewModel.setMeasurementPreference(MeasurementPreference.WEIGHT)
 
-            viewModel.setMeasurementPreference(MeasurementPreference.WEIGHT)
-            assertEquals(MeasurementPreference.WEIGHT, awaitItem())
-            cancelAndIgnoreRemainingEvents()
-        }
+        assertEquals(MeasurementPreference.WEIGHT, viewModel.progress.measurementPreference)
     }
 
     @Test
-    fun `toggleInstructionIngredientUsed adds ingredient to used set`() = runTest {
+    fun `toggling an instruction ingredient marks and unmarks it`() = runTest {
         viewModel = createViewModel()
-
-        viewModel.usedInstructionIngredients.test {
-            assertTrue(awaitItem().isEmpty())
-
-            viewModel.toggleInstructionIngredientUsed(0, 0, 0)
-            val used = awaitItem()
-            assertTrue(used.contains("0-0-0"))
-            cancelAndIgnoreRemainingEvents()
-        }
-    }
-
-    @Test
-    fun `toggleInstructionIngredientUsed removes ingredient when already used`() = runTest {
-        viewModel = createViewModel()
-
-        viewModel.usedInstructionIngredients.test {
-            assertTrue(awaitItem().isEmpty())
-
-            // Add
-            viewModel.toggleInstructionIngredientUsed(0, 1, 2)
-            assertTrue(awaitItem().contains("0-1-2"))
-
-            // Remove
-            viewModel.toggleInstructionIngredientUsed(0, 1, 2)
-            assertFalse(awaitItem().contains("0-1-2"))
-            cancelAndIgnoreRemainingEvents()
-        }
-    }
-
-    @Test
-    fun `isInstructionIngredientUsed returns correct status`() = runTest {
-        viewModel = createViewModel()
-
-        assertFalse(viewModel.isInstructionIngredientUsed(0, 0, 0))
 
         viewModel.toggleInstructionIngredientUsed(0, 0, 0)
-        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.toggleInstructionIngredientUsed(0, 0, 1)
+        assertEquals(setOf("0-0-0", "0-0-1"), viewModel.progress.usedInstructionIngredients)
+        assertTrue(viewModel.progress.hasProgress)
 
-        assertTrue(viewModel.isInstructionIngredientUsed(0, 0, 0))
-        assertFalse(viewModel.isInstructionIngredientUsed(0, 0, 1))
+        viewModel.toggleInstructionIngredientUsed(0, 0, 0)
+        assertEquals(setOf("0-0-1"), viewModel.progress.usedInstructionIngredients)
+    }
+
+    @Test
+    fun `rapid toggles are not lost`() = runTest {
+        viewModel = createViewModel()
+
+        // No dispatching in between, as with taps faster than the state flow updates
+        repeat(3) { viewModel.toggleInstructionIngredientUsed(0, 0, it) }
+        viewModel.toggleAggregateIngredientChecked("|flour")
+        viewModel.incrementScale()
+
+        val progress = viewModel.progress
+        assertEquals(setOf("0-0-0", "0-0-1", "0-0-2"), progress.usedInstructionIngredients)
+        assertEquals(setOf("|flour"), progress.checkedAggregateIngredients)
+        assertEquals(1.5, progress.scale, 0.001)
     }
 
     @Test
     fun `resetIngredientUsage clears all used ingredients`() = runTest {
         viewModel = createViewModel()
+        viewModel.toggleInstructionIngredientUsed(0, 0, 0)
 
-        viewModel.usedInstructionIngredients.test {
-            assertTrue(awaitItem().isEmpty())
+        viewModel.resetIngredientUsage()
 
-            viewModel.toggleInstructionIngredientUsed(0, 0, 0)
-            viewModel.toggleInstructionIngredientUsed(0, 1, 0)
-            awaitItem()
-            val used = awaitItem()
-            assertEquals(2, used.size)
-
-            viewModel.resetIngredientUsage()
-            assertTrue(awaitItem().isEmpty())
-            cancelAndIgnoreRemainingEvents()
-        }
+        assertTrue(viewModel.progress.usedInstructionIngredients.isEmpty())
     }
 
     @Test
-    fun `toggleHighlightedInstructionStep sets highlighted step`() = runTest {
+    fun `toggling the highlighted step sets and clears it`() = runTest {
         viewModel = createViewModel()
 
-        viewModel.highlightedInstructionStep.test {
-            assertNull(awaitItem())
+        viewModel.toggleHighlightedInstructionStep(1, 2)
+        assertEquals(HighlightedInstructionStep(1, 2), viewModel.progress.highlightedStep)
 
-            viewModel.toggleHighlightedInstructionStep(1, 2)
-            val highlighted = awaitItem()
-            assertEquals(1, highlighted?.sectionIndex)
-            assertEquals(2, highlighted?.stepIndex)
-            cancelAndIgnoreRemainingEvents()
-        }
+        viewModel.toggleHighlightedInstructionStep(1, 2)
+        assertNull(viewModel.progress.highlightedStep)
     }
 
     @Test
-    fun `toggleHighlightedInstructionStep clears when same step toggled`() = runTest {
+    fun `ingredient usage follows the used ingredients and the recipe`() = runTest {
+        val flour = Ingredient(name = "flour", amount = Amount(value = 2.0, unit = "cup"))
+        fun recipeWith(vararg ingredients: Ingredient) = createTestRecipe(
+            instructionSections = listOf(
+                InstructionSection(steps = listOf(InstructionStep(stepNumber = 1, instruction = "Mix", ingredients = ingredients.toList())))
+            )
+        )
+        givenRecipe(recipeWith(flour))
         viewModel = createViewModel()
+        backgroundScope.launch { viewModel.ingredientUsageBySection.collect {} }
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertFalse(viewModel.ingredientUsageBySection.value.getValue(null).getValue("flour").isFullyUsed)
 
-        viewModel.highlightedInstructionStep.test {
-            assertNull(awaitItem())
+        viewModel.toggleInstructionIngredientUsed(0, 0, 0)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.ingredientUsageBySection.value.getValue(null).getValue("flour").isFullyUsed)
 
-            viewModel.toggleHighlightedInstructionStep(1, 2)
-            assertEquals(HighlightedInstructionStep(1, 2), awaitItem())
-
-            viewModel.toggleHighlightedInstructionStep(1, 2)
-            assertNull(awaitItem())
-            cancelAndIgnoreRemainingEvents()
-        }
+        givenRecipe(recipeWith(flour, Ingredient(name = "sugar")))
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue("sugar" in viewModel.ingredientUsageBySection.value.getValue(null))
     }
 
     @Test
-    fun `toggleFavorite calls repository with toggled value`() = runTest {
-        val recipe = createTestRecipe(isFavorite = false)
-        givenRecipe(recipe)
-
+    fun `setFavorite writes the value the user asked for`() = runTest {
+        givenRecipe(createTestRecipe(isFavorite = true))
         viewModel = createViewModel()
         testDispatcher.scheduler.advanceUntilIdle()
 
-        viewModel.toggleFavorite()
-        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setFavorite(false)
+        viewModel.setFavorite(false)
 
-        assertEquals(listOf("recipe-1" to true), recipeRepository.favoriteUpdates)
-    }
-
-    @Test
-    fun `toggleFavorite toggles from true to false`() = runTest {
-        val recipe = createTestRecipe(isFavorite = true)
-        givenRecipe(recipe)
-
-        viewModel = createViewModel()
-        testDispatcher.scheduler.advanceUntilIdle()
-
-        viewModel.toggleFavorite()
-        testDispatcher.scheduler.advanceUntilIdle()
-
-        assertEquals(listOf("recipe-1" to false), recipeRepository.favoriteUpdates)
+        assertEquals(listOf("recipe-1" to false, "recipe-1" to false), recipeRepository.favoriteUpdates)
     }
 
     @Test
@@ -411,14 +319,19 @@ class RecipeDetailViewModelTest {
         viewModel.toggleHighlightedInstructionStep(0, 3)
         viewModel.toggleAggregateIngredientChecked("|flour")
 
-        // Simulate process death: a new ViewModel gets the same saved state
+        savedStateHandle = savedStateHandle.afterProcessDeath()
         val restored = createViewModel()
 
-        assertEquals(2.0, restored.scale.value, 0.001)
-        assertEquals(MeasurementPreference.WEIGHT, restored.measurementPreference.value)
-        assertEquals(setOf("0-1-2"), restored.usedInstructionIngredients.value)
-        assertEquals(HighlightedInstructionStep(0, 3), restored.highlightedInstructionStep.value)
-        assertEquals(setOf("|flour"), restored.checkedAggregateIngredients.value)
+        assertEquals(
+            CookingProgress(
+                scale = 2.0,
+                measurementPreference = MeasurementPreference.WEIGHT,
+                usedInstructionIngredients = setOf("0-1-2"),
+                highlightedStep = HighlightedInstructionStep(0, 3),
+                checkedAggregateIngredients = setOf("|flour")
+            ),
+            restored.progress
+        )
     }
 
     @Test
@@ -431,14 +344,10 @@ class RecipeDetailViewModelTest {
 
         viewModel.resetCookingProgress()
 
-        assertTrue(viewModel.usedInstructionIngredients.value.isEmpty())
-        assertNull(viewModel.highlightedInstructionStep.value)
-        assertTrue(viewModel.checkedAggregateIngredients.value.isEmpty())
-        assertEquals(2.0, viewModel.scale.value, 0.001)
+        assertEquals(CookingProgress(scale = 2.0), viewModel.progress)
 
-        val restored = createViewModel()
-        assertTrue(restored.usedInstructionIngredients.value.isEmpty())
-        assertNull(restored.highlightedInstructionStep.value)
+        savedStateHandle = savedStateHandle.afterProcessDeath()
+        assertEquals(CookingProgress(scale = 2.0), createViewModel().progress)
     }
 
     @Test
@@ -481,11 +390,11 @@ class RecipeDetailViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         viewModel.incrementScale()
-        assertEquals(5.0 / 4, viewModel.scale.value, 0.001)
+        assertEquals(5.0 / 4, viewModel.progress.scale, 0.001)
 
         viewModel.decrementScale()
         viewModel.decrementScale()
-        assertEquals(3.0 / 4, viewModel.scale.value, 0.001)
+        assertEquals(3.0 / 4, viewModel.progress.scale, 0.001)
     }
 
     @Test
@@ -495,7 +404,7 @@ class RecipeDetailViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         repeat(5) { viewModel.decrementScale() }
-        assertEquals(0.5, viewModel.scale.value, 0.001)
+        assertEquals(0.5, viewModel.progress.scale, 0.001)
     }
 
     @Test
@@ -505,9 +414,9 @@ class RecipeDetailViewModelTest {
 
         viewModel.incrementScale()
         viewModel.incrementScale()
-        assertEquals(2.0, viewModel.scale.value, 0.001)
+        assertEquals(2.0, viewModel.progress.scale, 0.001)
         repeat(10) { viewModel.decrementScale() }
-        assertEquals(0.25, viewModel.scale.value, 0.001)
+        assertEquals(0.25, viewModel.progress.scale, 0.001)
     }
 
     @Test
@@ -521,7 +430,46 @@ class RecipeDetailViewModelTest {
 
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(listOf("recipe-1" to "Less salt"), recipeRepository.notesUpdates)
-        assertEquals("Less salt", viewModel.notesDraft)
+    }
+
+    @Test
+    fun `the draft is dropped once the recipe shows it, so later remote edits show`() = runTest {
+        viewModel = createViewModel()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.onNotesChange("Less salt")
+        assertEquals("Less salt", viewModel.notesDraft.value)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertNull(viewModel.notesDraft.value)
+
+        recipeRepository.setUserNotes("recipe-1", "Edited on another device")
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertNull(viewModel.notesDraft.value)
+        assertEquals("Edited on another device", (viewModel.uiState.value as RecipeDetailState.Loaded).recipe.userNotes)
+    }
+
+    @Test
+    fun `typing only whitespace into empty notes is kept`() = runTest {
+        viewModel = createViewModel()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.onNotesChange(" ")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(" ", viewModel.notesDraft.value)
+        assertEquals(emptyList<Any>(), recipeRepository.notesUpdates)
+    }
+
+    @Test
+    fun `an unsaved draft is kept while the recipe shows other notes`() = runTest {
+        viewModel = createViewModel()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.onNotesChange("Typing")
+        recipeRepository.setUserNotes("recipe-1", "Remote")
+        testDispatcher.scheduler.advanceTimeBy(RecipeDetailViewModel.NOTES_SAVE_DEBOUNCE_MS / 2)
+
+        assertEquals("Typing", viewModel.notesDraft.value)
     }
 
     @Test
@@ -540,7 +488,8 @@ class RecipeDetailViewModelTest {
         viewModel = createViewModel()
         viewModel.onNotesChange("Half-typed")
 
+        savedStateHandle = savedStateHandle.afterProcessDeath()
         val restored = createViewModel()
-        assertEquals("Half-typed", restored.notesDraft)
+        assertEquals("Half-typed", restored.notesDraft.value)
     }
 }

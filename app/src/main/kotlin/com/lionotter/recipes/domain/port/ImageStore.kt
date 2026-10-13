@@ -25,6 +25,9 @@ interface ImageStore {
      */
     suspend fun downloadImageIfNeeded(imageUrl: String?): String?
 
+    /** A new local file with the same content as the local image [localUri], or null if it couldn't be copied. */
+    suspend fun copyLocalImage(localUri: String): String?
+
     /** Deletes a local image that no recipe uses (e.g. one saved but never stored). */
     suspend fun deleteLocalImage(localUri: String)
 

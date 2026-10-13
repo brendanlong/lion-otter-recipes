@@ -15,7 +15,7 @@ import com.lionotter.recipes.data.remote.SignOutResult
 import com.lionotter.recipes.data.remote.AccountDeletionService
 import com.lionotter.recipes.data.remote.ImageUploadScheduler
 import com.lionotter.recipes.data.repository.ImportDebugRepository
-import com.lionotter.recipes.domain.model.AiModels
+import com.lionotter.recipes.domain.model.Settings
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
@@ -31,12 +31,18 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
+
+sealed interface SettingsUiState {
+    data object Loading : SettingsUiState
+    data class Loaded(val settings: Settings) : SettingsUiState
+}
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
@@ -53,88 +59,13 @@ class SettingsViewModel @Inject constructor(
 
     val authState: StateFlow<AuthState> = authService.authState
 
-    val apiKey: StateFlow<String?> = settings.anthropicApiKey
+    /** The settings, once read; the screen shows nothing rather than flashing defaults before that. */
+    val uiState: StateFlow<SettingsUiState> = settings.settings
+        .map<Settings, SettingsUiState> { SettingsUiState.Loaded(it) }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = null
-        )
-
-    val aiModel: StateFlow<String> = settings.aiModel
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = AiModels.DEFAULT_MODEL
-        )
-
-    val editModel: StateFlow<String> = settings.editModel
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = AiModels.DEFAULT_EDIT_MODEL
-        )
-
-    val thinkingEnabled: StateFlow<Boolean> = settings.thinkingEnabled
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = AiModels.DEFAULT_THINKING_ENABLED
-        )
-
-    val keepScreenOn: StateFlow<Boolean> = settings.keepScreenOn
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = true
-        )
-
-    val themeMode: StateFlow<ThemeMode> = settings.themeMode
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = ThemeMode.AUTO
-        )
-
-    val volumeUnitSystem: StateFlow<UnitSystem> = settings.volumeUnitSystem
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = UnitSystem.localeDefault()
-        )
-
-    val weightUnitSystem: StateFlow<UnitSystem> = settings.weightUnitSystem
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = UnitSystem.localeDefault()
-        )
-
-    val groceryVolumeUnitSystem: StateFlow<UnitSystem> = settings.groceryVolumeUnitSystem
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = UnitSystem.localeDefault()
-        )
-
-    val groceryWeightUnitSystem: StateFlow<UnitSystem> = settings.groceryWeightUnitSystem
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = UnitSystem.localeDefault()
-        )
-
-    val startOfWeek: StateFlow<StartOfWeek> = settings.startOfWeek
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = StartOfWeek.LOCALE_DEFAULT
-        )
-
-    val importDebuggingEnabled: StateFlow<Boolean> = settings.importDebuggingEnabled
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = false
+            initialValue = SettingsUiState.Loading
         )
 
     private val _apiKeyInput = MutableStateFlow("")

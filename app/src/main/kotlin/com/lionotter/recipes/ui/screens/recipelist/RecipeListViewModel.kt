@@ -1,10 +1,10 @@
 package com.lionotter.recipes.ui.screens.recipelist
 
-import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lionotter.recipes.R
+import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.hasTag
 import com.lionotter.recipes.domain.model.matchesSearch
 import com.lionotter.recipes.domain.repository.MealPlanRepository
@@ -25,17 +25,32 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.runningFold
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
+
+/**
+ * @param hasLoaded false until the first list of recipes arrives, so the empty state doesn't flash on launch
+ * @param selectedRecipeIds multi-select: the picked recipes that are currently shown
+ */
+data class RecipeListUiState(
+    val items: List<RecipeListItem> = emptyList(),
+    val hasLoaded: Boolean = false,
+    val availableTags: List<String> = emptyList(),
+    val selectedRecipeIds: Set<String> = emptySet()
+) {
+    val isMultiSelectActive: Boolean get() = selectedRecipeIds.isNotEmpty()
+}
 
 @HiltViewModel
 class RecipeListViewModel @Inject constructor(
@@ -63,41 +78,24 @@ class RecipeListViewModel @Inject constructor(
     private val _events = Channel<UserMessage>(Channel.BUFFERED)
     val events: Flow<UserMessage> = _events.receiveAsFlow()
 
-    // Multi-select state
-    private val _selectedRecipeIds = MutableStateFlow<Set<String>>(emptySet())
-    val selectedRecipeIds: StateFlow<Set<String>> = _selectedRecipeIds.asStateFlow()
+    /** Recipes the user picked in multi-select; only those still visible count (see [uiState]). */
+    private val pickedRecipeIds = MutableStateFlow<Set<String>>(emptySet())
 
-    val isMultiSelectActive: StateFlow<Boolean> = _selectedRecipeIds
-        .map { it.isNotEmpty() }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = false
-        )
-
-    /** False until the first list of recipes arrives, so the empty state doesn't flash on launch. */
-    val hasLoaded: StateFlow<Boolean> = recipeRepository.getAllRecipes()
-        .map { true }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.Eagerly,
-            initialValue = false
-        )
+    /** The one subscription to the recipes; null until the first list arrives. */
+    private val allRecipes: StateFlow<List<Recipe>?> = recipeRepository.getAllRecipes()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /**
      * Available tags derived reactively from the current recipes.
      * Only recomputed when a recipe's tags change (not e.g. on favorite toggles), and off the
      * main thread since the tag selection solves an ILP.
      */
-    val availableTags: StateFlow<List<String>> = recipeRepository.getAllRecipes()
+    private val availableTags: Flow<List<String>> = allRecipes
+        .filterNotNull()
         .distinctUntilChangedBy { recipes -> recipes.map { it.id to it.tags } }
         .map { recipes -> getTagsUseCase.execute(recipes) }
         .flowOn(defaultDispatcher)
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+        .onStart { emit(emptyList()) }
 
     /**
      * Holds the sorted order of recipe IDs from the last sort operation.
@@ -115,8 +113,8 @@ class RecipeListViewModel @Inject constructor(
         val lastTag: String? = null
     )
 
-    val recipes: StateFlow<List<RecipeListItem>> = combine(
-        recipeRepository.getAllRecipes(),
+    private val visibleItems: Flow<List<RecipeListItem>> = combine(
+        allRecipes.map { it.orEmpty() },
         importMonitor.inProgressRecipes,
         searchQuery,
         selectedTag,
@@ -164,10 +162,24 @@ class RecipeListViewModel @Inject constructor(
             Pair(prevState, ordered)
         }
     }.map { (_, items) -> items }
-    .stateIn(
+
+    val uiState: StateFlow<RecipeListUiState> = combine(
+        visibleItems,
+        allRecipes.map { it != null },
+        availableTags,
+        pickedRecipeIds
+    ) { items, hasLoaded, tags, picked ->
+        val visibleSavedIds = items.filterIsInstance<RecipeListItem.Saved>().mapTo(mutableSetOf()) { it.id }
+        RecipeListUiState(
+            items = items,
+            hasLoaded = hasLoaded,
+            availableTags = tags,
+            selectedRecipeIds = picked intersect visibleSavedIds
+        )
+    }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.Eagerly,
-        initialValue = emptyList()
+        initialValue = RecipeListUiState()
     )
 
     fun onSearchQueryChange(query: String) {
@@ -190,11 +202,8 @@ class RecipeListViewModel @Inject constructor(
     }
 
     /** Repository writes apply locally at once and report sync failures themselves. */
-    fun toggleFavorite(recipeId: String) {
-        val item = recipes.value.find { it.id == recipeId }
-        if (item is RecipeListItem.Saved) {
-            recipeRepository.setFavorite(recipeId, !item.recipe.isFavorite)
-        }
+    fun setFavorite(recipeId: String, isFavorite: Boolean) {
+        recipeRepository.setFavorite(recipeId, isFavorite)
     }
 
     /**
@@ -206,7 +215,7 @@ class RecipeListViewModel @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to count meal plans for $recipeId", e)
+            ErrorLog.w(TAG, "Failed to count meal plans for $recipeId", e)
             0
         }
     }
@@ -220,7 +229,7 @@ class RecipeListViewModel @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to count meal plans for ${recipeIds.size} recipes", e)
+            ErrorLog.w(TAG, "Failed to count meal plans for ${recipeIds.size} recipes", e)
             0
         }
     }
@@ -231,7 +240,7 @@ class RecipeListViewModel @Inject constructor(
      */
     suspend fun deleteRecipe(recipeId: String): Boolean {
         // Only delete if it's a saved recipe (not in-progress)
-        val item = recipes.value.find { it.id == recipeId }
+        val item = uiState.value.items.find { it.id == recipeId }
         if (item !is RecipeListItem.Saved) return false
         return try {
             withContext(NonCancellable) {
@@ -248,8 +257,9 @@ class RecipeListViewModel @Inject constructor(
         }
     }
 
+    /** Deletes the selected recipes; only ones currently shown are ever selected. */
     fun deleteSelectedRecipes() {
-        val ids = _selectedRecipeIds.value.toList()
+        val ids = uiState.value.selectedRecipeIds.toList()
         if (ids.isEmpty()) return
         viewModelScope.launch {
             val failures = withContext(NonCancellable) {
@@ -264,25 +274,23 @@ class RecipeListViewModel @Inject constructor(
                     }
                 }
             }
-            _selectedRecipeIds.value = emptySet()
+            pickedRecipeIds.value = emptySet()
             if (failures > 0) _events.send(UserMessage(R.string.delete_recipe_failed))
         }
     }
 
     // Multi-select operations
 
-    fun toggleRecipeSelection(recipeId: String) {
-        _selectedRecipeIds.value = _selectedRecipeIds.value.let { current ->
-            if (recipeId in current) current - recipeId else current + recipeId
-        }
+    fun setRecipeSelected(recipeId: String, selected: Boolean) {
+        pickedRecipeIds.update { if (selected) it + recipeId else it - recipeId }
     }
 
     fun startSelection(recipeId: String) {
-        _selectedRecipeIds.value = setOf(recipeId)
+        pickedRecipeIds.value = setOf(recipeId)
     }
 
     fun clearSelection() {
-        _selectedRecipeIds.value = emptySet()
+        pickedRecipeIds.value = emptySet()
     }
 
     fun cancelImport(importId: String) {

@@ -11,6 +11,7 @@ import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.domain.model.AiModels
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
+import com.lionotter.recipes.domain.port.AppSettings
 import com.lionotter.recipes.messages.UserMessage
 import com.lionotter.recipes.testutil.FakeAppSettings
 import io.mockk.coEvery
@@ -23,7 +24,9 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -181,16 +184,38 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `apiKey flow reflects the stored value`() = runTest {
-        viewModel.apiKey.test {
-            // Initial value from flow
-            assertEquals(null, awaitItem())
+    fun `settings stay Loading until read, then show the stored values`() = runTest {
+        val gate = MutableStateFlow(false)
+        val slowSettings = object : AppSettings by settings {
+            override val settings = gate.filter { it }.flatMapLatest { this@SettingsViewModelTest.settings.settings }
+        }
+        val viewModel = SettingsViewModel(slowSettings, importDebugRepository, authService, accountMigrationService, {})
+        viewModel.uiState.test {
+            assertEquals(SettingsUiState.Loading, awaitItem())
+            expectNoEvents()
 
-            // Update the underlying flow
+            gate.value = true
+            val loaded = (awaitItem() as SettingsUiState.Loaded).settings
+            assertNull(loaded.anthropicApiKey)
+            assertEquals(UnitSystem.CUSTOMARY, loaded.volumeUnitSystem)
+            assertEquals(UnitSystem.METRIC, loaded.weightUnitSystem)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `settings reflect stored changes`() = runTest {
+        viewModel.uiState.test {
+            assertEquals(SettingsUiState.Loading, awaitItem())
+            assertEquals(AiModels.DEFAULT_MODEL, (awaitItem() as SettingsUiState.Loaded).settings.aiModel)
+
+            settings.aiModelFlow.value = "claude-opus-5-5"
             settings.apiKeyFlow.value = "sk-ant-stored-key"
             testDispatcher.scheduler.advanceUntilIdle()
 
-            assertEquals("sk-ant-stored-key", awaitItem())
+            val loaded = (expectMostRecentItem() as SettingsUiState.Loaded).settings
+            assertEquals("claude-opus-5-5", loaded.aiModel)
+            assertEquals("sk-ant-stored-key", loaded.anthropicApiKey)
             cancelAndIgnoreRemainingEvents()
         }
     }
@@ -202,36 +227,6 @@ class SettingsViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertFalse(settings.thinkingFlow.value)
-    }
-
-    @Test
-    fun `thinkingEnabled flow reflects the stored value`() = runTest {
-        viewModel.thinkingEnabled.test {
-            // Initial value (default: false)
-            assertEquals(false, awaitItem())
-
-            // Update the underlying flow
-            settings.thinkingFlow.value = true
-            testDispatcher.scheduler.advanceUntilIdle()
-
-            assertEquals(true, awaitItem())
-            cancelAndIgnoreRemainingEvents()
-        }
-    }
-
-    @Test
-    fun `aiModel flow reflects the stored value`() = runTest {
-        viewModel.aiModel.test {
-            // Initial value (default model)
-            assertEquals(AiModels.DEFAULT_MODEL, awaitItem())
-
-            // Update the underlying flow
-            settings.aiModelFlow.value = "claude-3-opus"
-            testDispatcher.scheduler.advanceUntilIdle()
-
-            assertEquals("claude-3-opus", awaitItem())
-            cancelAndIgnoreRemainingEvents()
-        }
     }
 
     @Test

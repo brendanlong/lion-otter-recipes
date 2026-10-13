@@ -32,18 +32,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -53,63 +49,63 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
-import com.lionotter.recipes.messages.resolve
-import com.lionotter.recipes.ui.components.CollectEvents
 import com.lionotter.recipes.ui.format.formatScaleMultiplier
 import com.lionotter.recipes.domain.model.MealType
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.screens.mealplan.MealPlanDateFormat
 import kotlinx.datetime.LocalDate
 
-// The two steps still read the ViewModel directly; they get hoisted state when the grocery
-// list state is reworked into a single derived UI state.
-@Suppress("ComposeViewModelForwarding")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GroceryListScreen(
     onBackClick: () -> Unit,
     viewModel: GroceryListViewModel = hiltViewModel()
 ) {
-    val step by viewModel.step.collectAsStateWithLifecycle()
-    val snackbarHostState = remember { SnackbarHostState() }
-    val resources = LocalResources.current
-
-    CollectEvents(viewModel.events) { message ->
-        snackbarHostState.showSnackbar(message.resolve(resources))
-    }
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     // The list is a sub-step of this screen, so system back returns to the selection
-    BackHandler(enabled = step == GroceryListStep.VIEW_LIST) {
+    BackHandler(enabled = uiState is GroceryListUiState.ViewList) {
         viewModel.backToSelection()
     }
 
-    when (step) {
-        GroceryListStep.SELECT_RECIPES -> RecipeSelectionScreen(
-            viewModel = viewModel,
-            snackbarHostState = snackbarHostState,
-            onBackClick = onBackClick
+    when (val state = uiState) {
+        is GroceryListUiState.ViewList -> GroceryListDisplayScreen(
+            state = state,
+            onBackClick = viewModel::backToSelection,
+            onItemCheckedChange = viewModel::setItemChecked,
+            onSourceCheckedChange = viewModel::setSourceChecked
         )
-        GroceryListStep.VIEW_LIST -> GroceryListDisplayScreen(
-            viewModel = viewModel,
-            snackbarHostState = snackbarHostState,
-            onBackClick = { viewModel.backToSelection() }
+        GroceryListUiState.Loading -> RecipeSelectionScreen(
+            state = null,
+            onBackClick = onBackClick,
+            onEntrySelectedChange = viewModel::setEntrySelected,
+            onSelectAll = viewModel::selectAll,
+            onDeselectAll = viewModel::deselectAll,
+            onGenerate = viewModel::generateGroceryList
+        )
+        is GroceryListUiState.SelectRecipes -> RecipeSelectionScreen(
+            state = state,
+            onBackClick = onBackClick,
+            onEntrySelectedChange = viewModel::setEntrySelected,
+            onSelectAll = viewModel::selectAll,
+            onDeselectAll = viewModel::deselectAll,
+            onGenerate = viewModel::generateGroceryList
         )
     }
 }
 
+/** @param state null while loading */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RecipeSelectionScreen(
-    viewModel: GroceryListViewModel,
-    snackbarHostState: SnackbarHostState,
-    onBackClick: () -> Unit
+    state: GroceryListUiState.SelectRecipes?,
+    onBackClick: () -> Unit,
+    onEntrySelectedChange: (entryId: String, selected: Boolean) -> Unit,
+    onSelectAll: () -> Unit,
+    onDeselectAll: () -> Unit,
+    onGenerate: () -> Unit
 ) {
-    val loadedEntries by viewModel.selectableEntries.collectAsStateWithLifecycle()
-    val isGenerating by viewModel.isGenerating.collectAsStateWithLifecycle()
-    val selectableEntries = loadedEntries
-    val hasSelection = selectableEntries.orEmpty().values.any { entries ->
-        entries.any { it.isSelected }
-    }
+    val selectableEntries = state?.entriesByDate
 
     Scaffold(
         topBar = {
@@ -118,7 +114,6 @@ private fun RecipeSelectionScreen(
                 onBackClick = onBackClick
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             if (!selectableEntries.isNullOrEmpty()) {
                 Surface(tonalElevation = 3.dp) {
@@ -129,17 +124,10 @@ private fun RecipeSelectionScreen(
                             .padding(16.dp)
                     ) {
                         Button(
-                            onClick = { viewModel.generateGroceryList() },
-                            enabled = hasSelection && !isGenerating,
+                            onClick = onGenerate,
+                            enabled = state.hasSelection,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            if (isGenerating) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                            }
                             Text(stringResource(R.string.generate_grocery_list))
                         }
                     }
@@ -165,17 +153,25 @@ private fun RecipeSelectionScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Text(
-                    text = stringResource(R.string.no_meals_planned),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = stringResource(R.string.grocery_list_empty_hint),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                if (state.loadFailed) {
+                    Text(
+                        text = stringResource(R.string.grocery_list_load_failed),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                } else {
+                    Text(
+                        text = stringResource(R.string.no_meals_planned),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(R.string.grocery_list_empty_hint),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         } else {
             LazyColumn(
@@ -198,10 +194,10 @@ private fun RecipeSelectionScreen(
                             .padding(bottom = 8.dp),
                         horizontalArrangement = Arrangement.End
                     ) {
-                        TextButton(onClick = { viewModel.selectAll() }) {
+                        TextButton(onClick = onSelectAll) {
                             Text(stringResource(R.string.select_all))
                         }
-                        TextButton(onClick = { viewModel.deselectAll() }) {
+                        TextButton(onClick = onDeselectAll) {
                             Text(stringResource(R.string.deselect_all))
                         }
                     }
@@ -217,7 +213,7 @@ private fun RecipeSelectionScreen(
                     ) { selectable ->
                         MealPlanCheckboxRow(
                             entry = selectable,
-                            onToggle = { viewModel.toggleEntrySelection(selectable.entry.id) }
+                            onToggle = { onEntrySelectedChange(selectable.entry.id, !selectable.isSelected) }
                         )
                     }
                     item(key = "date_spacer_$date") {
@@ -290,13 +286,13 @@ private fun MealPlanCheckboxRow(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun GroceryListDisplayScreen(
-    viewModel: GroceryListViewModel,
-    snackbarHostState: SnackbarHostState,
-    onBackClick: () -> Unit
+    state: GroceryListUiState.ViewList,
+    onBackClick: () -> Unit,
+    onItemCheckedChange: (DisplayGroceryItem, Boolean) -> Unit,
+    onSourceCheckedChange: (sourceKey: String, checked: Boolean) -> Unit
 ) {
-    val items by viewModel.displayGroceryItems.collectAsStateWithLifecycle()
-    val isGenerating by viewModel.isGenerating.collectAsStateWithLifecycle()
-    val skippedRecipeNames by viewModel.skippedRecipeNames.collectAsStateWithLifecycle()
+    val items = state.items
+    val skippedRecipeNames = state.skippedRecipeNames
     val context = LocalContext.current
     val partialTotalSuffix = stringResource(R.string.grocery_total_partial_suffix)
 
@@ -308,14 +304,14 @@ private fun GroceryListDisplayScreen(
                 actions = {
                     IconButton(
                         onClick = {
-                            val shareText = viewModel.getShareText(partialTotalSuffix)
+                            val shareText = GroceryListPresenter.shareText(items.orEmpty(), partialTotalSuffix)
                             val intent = Intent(Intent.ACTION_SEND).apply {
                                 type = "text/plain"
                                 putExtra(Intent.EXTRA_TEXT, shareText)
                             }
                             context.startActivity(Intent.createChooser(intent, null))
                         },
-                        enabled = !isGenerating && items.isNotEmpty()
+                        enabled = !items.isNullOrEmpty()
                     ) {
                         Icon(
                             imageVector = Icons.Default.Share,
@@ -324,10 +320,9 @@ private fun GroceryListDisplayScreen(
                     }
                 }
             )
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        }
     ) { paddingValues ->
-        if (isGenerating) {
+        if (items == null) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -346,9 +341,11 @@ private fun GroceryListDisplayScreen(
                 verticalArrangement = Arrangement.Center
             ) {
                 Text(
-                    text = stringResource(R.string.no_ingredients),
+                    text = stringResource(
+                        if (state.failed) R.string.grocery_list_generate_failed else R.string.no_ingredients
+                    ),
                     style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (state.failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 if (skippedRecipeNames.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(16.dp))
@@ -378,8 +375,8 @@ private fun GroceryListDisplayScreen(
                     GroceryItemRow(
                         item = item,
                         partialTotalSuffix = partialTotalSuffix,
-                        onItemToggle = { viewModel.toggleItemChecked(item.key) },
-                        onSourceToggle = { sourceKey -> viewModel.toggleSourceChecked(sourceKey) }
+                        onItemToggle = { onItemCheckedChange(item, !item.isChecked) },
+                        onSourceToggle = { source -> onSourceCheckedChange(source.key, !source.isChecked) }
                     )
                 }
             }
@@ -409,21 +406,21 @@ private fun GroceryItemRow(
     item: DisplayGroceryItem,
     partialTotalSuffix: String,
     onItemToggle: () -> Unit,
-    onSourceToggle: (String) -> Unit
+    onSourceToggle: (DisplayGrocerySource) -> Unit
 ) {
     // If only one source total, show it directly
     if (item.sources.size <= 1) {
         val source = item.sources.firstOrNull() ?: return
         CheckRow(
             text = "${source.displayText} (${source.recipeName})",
-            isChecked = item.isChecked || source.isChecked,
+            isChecked = item.isChecked,
             onToggle = onItemToggle
         )
     } else {
         // Multiple sources - show aggregate header with sub-items
         Column {
             CheckRow(
-                text = GroceryListViewModel.aggregateHeaderText(item, partialTotalSuffix),
+                text = GroceryListPresenter.aggregateHeaderText(item, partialTotalSuffix),
                 isChecked = item.isChecked,
                 onToggle = onItemToggle,
                 bold = true
@@ -432,7 +429,7 @@ private fun GroceryItemRow(
                 CheckRow(
                     text = "${source.displayText} (${source.recipeName})",
                     isChecked = source.isChecked,
-                    onToggle = { onSourceToggle(source.key) },
+                    onToggle = { onSourceToggle(source) },
                     modifier = Modifier.padding(start = 40.dp),
                     small = true
                 )

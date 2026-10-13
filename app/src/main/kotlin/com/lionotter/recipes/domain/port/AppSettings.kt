@@ -1,5 +1,6 @@
 package com.lionotter.recipes.domain.port
 
+import com.lionotter.recipes.domain.model.Settings
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
@@ -7,6 +8,9 @@ import kotlinx.coroutines.flow.Flow
 
 /** All of the user's settings, readable as flows and writable (writes throw on failure). */
 interface AppSettings : AiSettings {
+    /** Everything at once; emits once the settings (including the API key) have been read. */
+    val settings: Flow<Settings>
+
     /** The model for edits and regeneration. */
     val editModel: Flow<String>
     val keepScreenOn: Flow<Boolean>

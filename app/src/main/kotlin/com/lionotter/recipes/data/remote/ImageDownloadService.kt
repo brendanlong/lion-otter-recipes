@@ -410,6 +410,23 @@ class ImageDownloadService @Inject constructor(
     /**
      * Deletes a locally stored image file.
      */
+    override suspend fun copyLocalImage(localUri: String): String? {
+        if (!localUri.startsWith("file://")) return null
+        return try {
+            val source = File(localUri.removePrefix("file://"))
+            withContext(ioDispatcher) {
+                source.takeIf { it.exists() }?.inputStream()?.use { input ->
+                    saveImageFromStream(input, ".${source.extension.ifEmpty { "jpg" }}")
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ErrorLog.e(TAG, "Failed to copy local image", e)
+            null
+        }
+    }
+
     override suspend fun deleteLocalImage(localUri: String) {
         if (!localUri.startsWith("file://")) return
         withContext(ioDispatcher) {
