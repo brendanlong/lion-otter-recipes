@@ -9,6 +9,8 @@ import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.domain.port.AppSettings
+import com.lionotter.recipes.domain.port.TagPreferences
+import com.lionotter.recipes.domain.model.TagBarSize
 import com.lionotter.recipes.domain.port.GroceryListStateStore
 import com.lionotter.recipes.domain.port.SavedGroceryListState
 import com.lionotter.recipes.domain.repository.MealPlanRepository
@@ -194,10 +196,31 @@ class FakeMealPlanRepository(vararg initial: MealPlanEntry) : MealPlanRepository
 }
 
 /** Settings in memory. Set [writeError] to make every write fail. */
+class FakeTagPreferences(favorites: Set<String> = emptySet()) : TagPreferences {
+    val favoriteTagsFlow = MutableStateFlow(favorites)
+    val tagBarSizeFlow = MutableStateFlow(TagBarSize.DEFAULT)
+
+    var writeError: Throwable? = null
+
+    override val favoriteTags: Flow<Set<String>> = favoriteTagsFlow
+    override val tagBarSize: Flow<Int> = tagBarSizeFlow
+
+    override suspend fun updateFavoriteTags(transform: (Set<String>) -> Set<String>) {
+        writeError?.let { throw it }
+        favoriteTagsFlow.value = transform(favoriteTagsFlow.value)
+    }
+
+    override suspend fun setTagBarSize(size: Int) {
+        writeError?.let { throw it }
+        tagBarSizeFlow.value = TagBarSize.coerce(size)
+    }
+}
+
 class FakeAppSettings(
     apiKey: String? = "sk-ant-test",
-    unitSystem: UnitSystem = UnitSystem.METRIC
-) : AppSettings {
+    unitSystem: UnitSystem = UnitSystem.METRIC,
+    val tagPreferences: FakeTagPreferences = FakeTagPreferences()
+) : AppSettings, TagPreferences by tagPreferences {
     val apiKeyFlow = MutableStateFlow(apiKey)
     val aiModelFlow = MutableStateFlow(AiModels.DEFAULT_MODEL)
     val editModelFlow = MutableStateFlow(AiModels.DEFAULT_EDIT_MODEL)
@@ -240,7 +263,7 @@ class FakeAppSettings(
         listOf<Flow<Any?>>(
             apiKeyFlow, aiModelFlow, editModelFlow, thinkingFlow, keepScreenOnFlow, themeModeFlow,
             volumeUnitSystem, weightUnitSystem, groceryVolumeUnitSystem, groceryWeightUnitSystem,
-            startOfWeekFlow, importDebuggingFlow, volumeKeysScrollFlow
+            startOfWeekFlow, importDebuggingFlow, volumeKeysScrollFlow, tagPreferences.tagBarSizeFlow
         )
     ) { values ->
         Settings(
@@ -256,7 +279,8 @@ class FakeAppSettings(
             groceryWeightUnitSystem = values[9] as UnitSystem,
             startOfWeek = values[10] as StartOfWeek,
             importDebuggingEnabled = values[11] as Boolean,
-            volumeKeysScroll = values[12] as Boolean
+            volumeKeysScroll = values[12] as Boolean,
+            tagBarSize = values[13] as Int
         )
     }
 

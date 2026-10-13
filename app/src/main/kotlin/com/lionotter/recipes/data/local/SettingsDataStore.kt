@@ -7,7 +7,9 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.lionotter.recipes.domain.port.AppSettings
 import com.lionotter.recipes.util.ErrorLog
@@ -28,6 +30,7 @@ import com.lionotter.recipes.di.ApplicationScope
 import com.lionotter.recipes.domain.model.AiModels
 import com.lionotter.recipes.domain.model.Settings
 import com.lionotter.recipes.domain.model.StartOfWeek
+import com.lionotter.recipes.domain.model.TagBarSize
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
 import java.io.File
@@ -55,6 +58,8 @@ class SettingsDataStore @Inject constructor(
         val GROCERY_VOLUME_UNIT_SYSTEM = stringPreferencesKey("grocery_volume_unit_system")
         val GROCERY_WEIGHT_UNIT_SYSTEM = stringPreferencesKey("grocery_weight_unit_system")
         val START_OF_WEEK = stringPreferencesKey("start_of_week")
+        val FAVORITE_TAGS = stringSetPreferencesKey("favorite_tags")
+        val TAG_BAR_SIZE = intPreferencesKey("tag_bar_size")
     }
 
     private val tinkEncryption: TinkEncryption by lazy { TinkEncryption(context) }
@@ -142,6 +147,7 @@ class SettingsDataStore @Inject constructor(
     private fun Preferences.startOfWeek() =
         this[Keys.START_OF_WEEK]?.let { enumOrNull<StartOfWeek>(it) } ?: StartOfWeek.LOCALE_DEFAULT
     private fun Preferences.importDebuggingEnabled() = this[Keys.IMPORT_DEBUGGING_ENABLED] ?: false
+    private fun Preferences.tagBarSize() = this[Keys.TAG_BAR_SIZE]?.let(TagBarSize::coerce) ?: TagBarSize.DEFAULT
 
     private fun <T> setting(read: Preferences.() -> T): Flow<T> =
         context.dataStore.data.map { it.read() }.distinctUntilChanged()
@@ -158,6 +164,8 @@ class SettingsDataStore @Inject constructor(
     override val groceryWeightUnitSystem: Flow<UnitSystem> = setting { groceryWeightUnitSystem() }
     override val startOfWeek: Flow<StartOfWeek> = setting { startOfWeek() }
     override val importDebuggingEnabled: Flow<Boolean> = setting { importDebuggingEnabled() }
+    override val favoriteTags: Flow<Set<String>> = setting { this[Keys.FAVORITE_TAGS].orEmpty() }
+    override val tagBarSize: Flow<Int> = setting { tagBarSize() }
 
     override val settings: Flow<Settings> = combine(context.dataStore.data, anthropicApiKey) { prefs, apiKey ->
         Settings(
@@ -173,7 +181,8 @@ class SettingsDataStore @Inject constructor(
             groceryVolumeUnitSystem = prefs.groceryVolumeUnitSystem(),
             groceryWeightUnitSystem = prefs.groceryWeightUnitSystem(),
             startOfWeek = prefs.startOfWeek(),
-            importDebuggingEnabled = prefs.importDebuggingEnabled()
+            importDebuggingEnabled = prefs.importDebuggingEnabled(),
+            tagBarSize = prefs.tagBarSize()
         )
     }.distinctUntilChanged()
 
@@ -261,6 +270,23 @@ class SettingsDataStore @Inject constructor(
     override suspend fun setImportDebuggingEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[Keys.IMPORT_DEBUGGING_ENABLED] = enabled
+        }
+    }
+
+    override suspend fun updateFavoriteTags(transform: (Set<String>) -> Set<String>) {
+        context.dataStore.edit { preferences ->
+            val favorites = transform(preferences[Keys.FAVORITE_TAGS].orEmpty())
+            if (favorites.isEmpty()) {
+                preferences.remove(Keys.FAVORITE_TAGS)
+            } else {
+                preferences[Keys.FAVORITE_TAGS] = favorites
+            }
+        }
+    }
+
+    override suspend fun setTagBarSize(size: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[Keys.TAG_BAR_SIZE] = TagBarSize.coerce(size)
         }
     }
 

@@ -10,6 +10,7 @@ import com.lionotter.recipes.domain.model.TagMapping
 import com.lionotter.recipes.domain.model.TagUsage
 import com.lionotter.recipes.testutil.FakeAiSettings
 import com.lionotter.recipes.testutil.FakeRecipeRepository
+import com.lionotter.recipes.testutil.FakeTagPreferences
 import com.lionotter.recipes.testutil.FakeTagOrganizer
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -31,7 +32,8 @@ class TagCleanupUseCaseTest {
     )
     private val organizer = FakeTagOrganizer()
     private val settings = FakeAiSettings()
-    private val useCase = TagCleanupUseCase(repository, organizer, settings)
+    private val tagPreferences = FakeTagPreferences()
+    private val useCase = TagCleanupUseCase(repository, organizer, settings, tagPreferences)
 
     private fun recipe(id: String, vararg tags: String) = Recipe(
         id = id,
@@ -86,7 +88,7 @@ class TagCleanupUseCaseTest {
 
     @Test
     fun `no tags means no suggestions and no AI call`() = runTest {
-        val empty = TagCleanupUseCase(FakeRecipeRepository(recipe("plain")), organizer, settings)
+        val empty = TagCleanupUseCase(FakeRecipeRepository(recipe("plain")), organizer, settings, tagPreferences)
         assertEquals(Outcome.Success(emptyList<TagChange>()), empty.suggestChanges())
         assertTrue(organizer.requests.isEmpty())
     }
@@ -134,5 +136,29 @@ class TagCleanupUseCaseTest {
         job.join()
 
         assertEquals(listOf("soup" to listOf("Supper")), repository.tagUpdates)
+    }
+
+    @Test
+    fun `favorites follow renamed and merged tags, and deleted tags stop being favorites`() = runTest {
+        tagPreferences.favoriteTagsFlow.value = setOf("Desserts", "recipe", "Dinner", "Baking")
+        val changes = listOf(
+            TagChange("desserts", "Dessert", 1, TagChange.Kind.MERGE),
+            TagChange("recipe", null, 1, TagChange.Kind.DELETE),
+            TagChange("Dinner", "Supper", 1, TagChange.Kind.RENAME)
+        )
+
+        assertEquals(Outcome.Success(2), useCase.applyChanges(changes))
+
+        assertEquals(setOf("Dessert", "Supper", "Baking"), tagPreferences.favoriteTagsFlow.value)
+    }
+
+    @Test
+    fun `fails without writing when the favorites can't be updated`() = runTest {
+        tagPreferences.writeError = IOException("disk full")
+
+        val result = useCase.applyChanges(listOf(TagChange("Dinner", "Supper", 1, TagChange.Kind.RENAME)))
+
+        assertEquals(Outcome.Failure(RecipeError.Unexpected), result)
+        assertTrue(repository.tagUpdates.isEmpty())
     }
 }

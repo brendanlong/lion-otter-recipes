@@ -45,4 +45,13 @@ class TagsTest {
         assertTrue(cake.matchesSearch("dess"))
         assertFalse(cake.matchesSearch("soup"))
     }
+
+    @Test
+    fun `favorites are added in the given spelling and removed ignoring case`() {
+        val favorites = setOf("Dessert", "Dinner")
+
+        assertEquals(setOf("Dinner", "dessert"), favorites.withFavorite(" dessert ", true))
+        assertEquals(setOf("Dinner"), favorites.withFavorite("DESSERT", false))
+        assertEquals(favorites, favorites.withFavorite("  ", true))
+    }
 }

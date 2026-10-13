@@ -17,12 +17,15 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -60,7 +63,10 @@ import com.lionotter.recipes.messages.resolve
 import com.lionotter.recipes.ui.components.CollectEvents
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 
-/** Lists the user's tags for renaming, merging and deleting, and reviews AI cleanup suggestions. */
+/**
+ * Lists the user's tags for starring as favorites, renaming, merging and deleting, and reviews AI
+ * cleanup suggestions.
+ */
 @Composable
 fun ManageTagsScreen(
     onBackClick: () -> Unit,
@@ -114,11 +120,11 @@ fun ManageTagsScreen(
                 modifier = contentModifier
             )
             TagSuggestions.Loading, TagSuggestions.None -> TagList(
-                tags = state.tags,
+                state = state,
                 loadingSuggestions = suggestions == TagSuggestions.Loading,
-                busy = state.busy,
                 onSuggestCleanup = viewModel::suggestCleanup,
                 onTagClick = { editingTag = it.name },
+                onFavoriteChange = viewModel::setFavorite,
                 modifier = contentModifier
             )
         }
@@ -143,19 +149,26 @@ fun ManageTagsScreen(
 
 @Composable
 private fun TagList(
-    tags: List<TagUsage>,
+    state: ManageTagsUiState.Loaded,
     loadingSuggestions: Boolean,
-    busy: Boolean,
     onSuggestCleanup: () -> Unit,
     onTagClick: (TagUsage) -> Unit,
+    onFavoriteChange: (tag: String, favorite: Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val tags = state.tags
+    val busy = state.busy
     LazyColumn(modifier = modifier, contentPadding = PaddingValues(vertical = 8.dp)) {
         item {
             Column(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                Text(
+                    text = stringResource(R.string.favorite_tags_description),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 Text(
                     text = stringResource(R.string.tag_cleanup_description),
                     style = MaterialTheme.typography.bodyMedium,
@@ -181,7 +194,7 @@ private fun TagList(
             }
             HorizontalDivider()
         }
-        if (tags.isEmpty()) {
+        if (tags.isEmpty() && state.unusedFavorites.isEmpty()) {
             item {
                 Text(
                     text = stringResource(R.string.no_tags),
@@ -197,11 +210,40 @@ private fun TagList(
                     Text(pluralStringResource(R.plurals.tag_recipe_count, tag.recipeCount, tag.recipeCount))
                 },
                 trailingContent = {
-                    Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.edit_tag))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        FavoriteTagButton(tag.name, state.isFavorite(tag.name), onFavoriteChange)
+                        Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.edit_tag))
+                    }
                 },
                 modifier = Modifier.clickable(enabled = !busy) { onTagClick(tag) }
             )
         }
+        items(state.unusedFavorites, key = { "unused:$it" }) { tag ->
+            ListItem(
+                headlineContent = { Text(tag) },
+                supportingContent = { Text(stringResource(R.string.favorite_tag_unused)) },
+                trailingContent = { FavoriteTagButton(tag, favorite = true, onFavoriteChange) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun FavoriteTagButton(
+    tag: String,
+    favorite: Boolean,
+    onFavoriteChange: (tag: String, favorite: Boolean) -> Unit
+) {
+    IconToggleButton(checked = favorite, onCheckedChange = { onFavoriteChange(tag, it) }) {
+        Icon(
+            imageVector = if (favorite) Icons.Filled.Star else Icons.Outlined.StarOutline,
+            contentDescription = if (favorite) {
+                stringResource(R.string.unstar_tag, tag)
+            } else {
+                stringResource(R.string.star_tag, tag)
+            },
+            tint = if (favorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 

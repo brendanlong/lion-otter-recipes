@@ -214,5 +214,12 @@ class AccountDeletionService @Inject constructor(
         } catch (e: Exception) {
             Log.w(TAG, "Failed to clear API key", e)
         }
+        try {
+            settingsDataStore.updateFavoriteTags { emptySet() }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to clear favorite tags", e)
+        }
     }
 }

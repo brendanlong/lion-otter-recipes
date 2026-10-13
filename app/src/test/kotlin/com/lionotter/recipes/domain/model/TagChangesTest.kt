@@ -158,4 +158,18 @@ class TagChangesTest {
         val changes = planTagChanges(usage, listOf(TagMapping("recipe", null))).associateBy { it.key }
         assertSame(tags, applyTagChanges(tags, changes))
     }
+
+    @Test
+    fun `favorites follow renames and merges and drop deleted tags`() {
+        val changes = listOf(
+            TagChange("Desserts", "Dessert", 1, TagChange.Kind.MERGE),
+            TagChange("dinner", "Supper", 2, TagChange.Kind.RENAME),
+            TagChange("recipe", null, 3, TagChange.Kind.DELETE)
+        ).associateBy { it.key }
+
+        assertEquals(
+            setOf("Dessert", "Supper", "Baking"),
+            setOf("desserts", "Dessert", "Dinner", "Recipe", "Baking").withTagChanges(changes)
+        )
+    }
 }

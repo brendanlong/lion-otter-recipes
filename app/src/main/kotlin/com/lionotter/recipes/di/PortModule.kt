@@ -20,6 +20,7 @@ import com.lionotter.recipes.domain.port.PaprikaExportReader
 import com.lionotter.recipes.domain.port.RecipeBatchParser
 import com.lionotter.recipes.domain.port.RecipeParser
 import com.lionotter.recipes.domain.port.TagOrganizer
+import com.lionotter.recipes.domain.port.TagPreferences
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -47,6 +48,9 @@ abstract class PortModule {
 
     @Binds
     abstract fun bindAppSettings(impl: SettingsDataStore): AppSettings
+
+    @Binds
+    abstract fun bindTagPreferences(impl: SettingsDataStore): TagPreferences
 
     @Binds
     abstract fun bindGroceryListStateStore(impl: DataStoreGroceryListStateStore): GroceryListStateStore

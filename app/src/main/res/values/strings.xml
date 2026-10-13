@@ -357,7 +357,7 @@
 
     <!-- Tags -->
     <string name="tags_section">Tags</string>
-    <string name="tags_section_description">Rename, merge or delete tags, or let AI suggest a cleanup.</string>
+    <string name="tags_section_description">Star your favorite tags so they are always in the filter bar, rename, merge or delete tags, or let AI suggest a cleanup.</string>
     <string name="manage_tags">Manage tags</string>
     <string name="no_tags">No tags yet. Tags show up here once your recipes have some.</string>
     <plurals name="tag_recipe_count">
@@ -390,4 +390,11 @@
         <item quantity="other">Updated the tags of %d recipes</item>
     </plurals>
     <string name="tags_update_failed">Couldn\'t update the tags. Please try again.</string>
+    <string name="favorite_tags_description">Starred tags always come first in the recipe filter bars while any recipe has them. The remaining places are filled automatically.</string>
+    <string name="star_tag">Add %1$s to favorite tags</string>
+    <string name="unstar_tag">Remove %1$s from favorite tags</string>
+    <string name="favorite_tag_unused">No recipes. Shown again when a recipe has this tag.</string>
+    <string name="favorite_tag_failed">Couldn\'t update your favorite tags. Please try again.</string>
+    <string name="tag_bar_size">Tags in the filter bar</string>
+    <string name="tag_bar_size_description">How many tags to show above the recipe list, including your favorites.</string>
 </resources>

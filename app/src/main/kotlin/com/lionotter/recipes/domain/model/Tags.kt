@@ -53,3 +53,23 @@ const val MAX_TAG_VOCABULARY = 100
 /** The user's most used tags, for asking the AI to reuse them rather than invent new ones. */
 fun tagVocabulary(tagLists: Collection<List<String>>, limit: Int = MAX_TAG_VOCABULARY): List<String> =
     tagUsage(tagLists).take(limit).map { it.name }
+
+/** How many tags the recipe list's filter bar shows (a setting). */
+object TagBarSize {
+    const val DEFAULT = 10
+    const val MIN = 4
+    const val MAX = 30
+
+    fun coerce(size: Int): Int = size.coerceIn(MIN, MAX)
+}
+
+/** The [tagKey]s of these tags. */
+fun Collection<String>.tagKeys(): Set<String> = mapTo(mutableSetOf(), ::tagKey)
+
+/** These favorite tags with [tag] added (in that spelling) or removed, compared by [tagKey]. */
+fun Set<String>.withFavorite(tag: String, favorite: Boolean): Set<String> {
+    val key = tagKey(tag)
+    val others = filterTo(linkedSetOf()) { tagKey(it) != key }
+    if (favorite && key.isNotEmpty()) others += tag.trim()
+    return others
+}

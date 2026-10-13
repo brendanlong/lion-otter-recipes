@@ -7,9 +7,11 @@ import com.lionotter.recipes.domain.model.TagChange
 import com.lionotter.recipes.domain.model.applyTagChanges
 import com.lionotter.recipes.domain.model.planTagChanges
 import com.lionotter.recipes.domain.model.tagUsage
+import com.lionotter.recipes.domain.model.withTagChanges
 import com.lionotter.recipes.domain.port.AiSettings
 import com.lionotter.recipes.domain.port.TagCleanupRequest
 import com.lionotter.recipes.domain.port.TagOrganizer
+import com.lionotter.recipes.domain.port.TagPreferences
 import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.util.ErrorLog
 import kotlinx.coroutines.CancellationException
@@ -20,12 +22,14 @@ import javax.inject.Inject
 
 /**
  * Cleans up the user's tags: asks the AI (with the edit model) which tags to rename, merge or
- * delete, and applies the changes the user accepts to every recipe that carries them.
+ * delete, and applies the changes the user accepts to every recipe that carries them (and to the
+ * favorite tags).
  */
 class TagCleanupUseCase @Inject constructor(
     private val recipeRepository: RecipeRepository,
     private val tagOrganizer: TagOrganizer,
-    private val aiSettings: AiSettings
+    private val aiSettings: AiSettings,
+    private val tagPreferences: TagPreferences
 ) {
     /** The AI's suggested changes; empty if there are no tags or nothing needs changing. */
     suspend fun suggestChanges(): Outcome<List<TagChange>> {
@@ -56,7 +60,8 @@ class TagCleanupUseCase @Inject constructor(
 
     /**
      * Applies [changes] to every recipe carrying one of the tags and returns how many recipes
-     * changed. Runs to completion even if the caller is cancelled, so a batch is never left half
+     * changed. Favorites follow renamed and merged tags, and deleted tags stop being favorites;
+     * if the favorites can't be updated nothing is changed. Runs to completion even if the caller is cancelled, so a batch is never left half
      * applied by leaving the screen. The writes themselves follow the repository's write contract
      * (applied locally at once, sync failures reported app-wide).
      */
@@ -69,6 +74,14 @@ class TagCleanupUseCase @Inject constructor(
             throw e
         } catch (e: Exception) {
             ErrorLog.e(TAG, "Couldn't read the recipes' tags to apply ${changes.size} changes", e)
+            return@withContext Outcome.Failure(RecipeError.Unexpected)
+        }
+        try {
+            tagPreferences.updateFavoriteTags { it.withTagChanges(byKey) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ErrorLog.e(TAG, "Couldn't update the favorite tags for ${changes.size} changes", e)
             return@withContext Outcome.Failure(RecipeError.Unexpected)
         }
         var updated = 0

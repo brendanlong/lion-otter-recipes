@@ -36,7 +36,7 @@ subgraph app["Android App"]
             grocery_list["GroceryListScreen"]
             import_selection["ImportSelectionScreen"]
             import_browser["ImportBrowserScreen<br/>(WebView: JS on, no JS interface, no file access,<br/>non-web links blocked or opened externally)"]
-            manage_tags["ManageTagsScreen<br/>(tag list, rename / merge / delete,<br/>review AI cleanup suggestions)"]
+            manage_tags["ManageTagsScreen<br/>(tag list, star favorites, rename / merge / delete,<br/>review AI cleanup suggestions)"]
 
             list -->|tap recipe| detail
             detail -->|tap edit| edit
@@ -225,8 +225,8 @@ subgraph app["Android App"]
             edit_recipe["EditRecipeUseCase"]
             delete_recipe["DeleteRecipeUseCase<br/>(meal plans, recipe, release image)"]
             aggregate_grocery["AggregateGroceryListUseCase"]
-            tags["GetTagsUseCase"]
-            tag_cleanup["TagCleanupUseCase<br/>(suggest with edit model, apply in NonCancellable)"]
+            tags["GetTagsUseCase<br/>(favorites with recipes first, solver fills the rest)"]
+            tag_cleanup["TagCleanupUseCase<br/>(suggest with edit model, apply in NonCancellable;<br/>favorites follow renames)"]
             calc_usage["CalculateIngredientUsageUseCase"]
             outcome["Outcome&lt;T&gt; / RecipeError<br/>(typed failures, RecipeErrorSource exceptions)"]
         end
@@ -244,7 +244,8 @@ subgraph app["Android App"]
 
         subgraph ports["Ports and repository interfaces (domain/port, domain/repository; bound in PortModule / RepositoryModule)"]
             port_repos["RecipeRepository / MealPlanRepository<br/>(domain/repository)"]
-            port_app_settings["AppSettings<br/>(all settings, read/write; extends AiSettings)"]
+            port_app_settings["AppSettings<br/>(all settings, read/write; extends AiSettings, TagPreferences)"]
+            port_tag_prefs["TagPreferences<br/>(favorite tags, tag bar size)"]
             port_grocery["GroceryListStateStore<br/>(per-week grocery list state)"]
             port_paprika["PaprikaExportReader<br/>(PaprikaExportRecipe)"]
             port_parser["RecipeParser / RecipeBatchParser<br/>(Outcome&lt;ParsedRecipeWithUsage&gt;, BatchStatus, BatchItemOutcome;<br/>requests carry the user's existing tags)"]
@@ -260,7 +261,7 @@ subgraph app["Android App"]
         subgraph models["Domain Models"]
             ai_models["AiModels<br/>(model IDs, defaults, normalizeModel)"]
             recipe["Recipe<br/>(withRegeneratedContent)"]
-            tags_fn["Tags<br/>(tagKey, hasTag, matchesSearch, tagUsage, tagVocabulary)"]
+            tags_fn["Tags<br/>(tagKey, hasTag, matchesSearch, tagUsage, tagVocabulary,<br/>TagBarSize, withFavorite)"]
             tag_changes["TagChanges<br/>(TagMapping, TagChange, planTagChanges, applyTagChanges)"]
             ingredient["Ingredient"]
             instruction["InstructionStep"]
@@ -306,6 +307,7 @@ subgraph app["Android App"]
         tag_cleanup -->|suggest| port_tag_organizer
         tag_cleanup -->|plan / apply| tag_changes
         tag_cleanup -->|edit model, thinking| port_settings
+        tag_cleanup -->|rename / drop favorites| port_tag_prefs
         export_zip -->|serialize| serializer
         export_zip -->|local image files| port_images
         export_single -->|serialize| serializer
@@ -445,6 +447,8 @@ subgraph app["Android App"]
     %% --------------------------------------------------------
     list_vm -->|recipes| repo
     list_vm -->|delete| delete_recipe
+    list_vm -->|favorite tags, tag bar size| port_tag_prefs
+    list_vm -->|tag bar| tags
     list_vm -->|top tags| tags
     detail_vm -->|recipe, favorite| repo
     detail_vm -->|delete| delete_recipe
@@ -471,7 +475,7 @@ subgraph app["Android App"]
     zip_vm -->|track export| work_tracker
     meal_plan_vm -->|CRUD| meal_plan_repo
     meal_plan_vm -->|recipe list| repo
-    meal_plan_vm -->|start of week| port_app_settings
+    meal_plan_vm -->|start of week, favorite tags, tag bar size| port_app_settings
     meal_plan_vm -->|top tags| tags
     meal_plan_vm -->|today, updated at midnight| current_date
     grocery_list_vm -->|meal plans| meal_plan_repo
@@ -488,6 +492,7 @@ subgraph app["Android App"]
     import_debug_list_vm -->|list entries| import_debug_repo
     manage_tags_vm -->|recipes for the tag list| repo
     manage_tags_vm -->|suggest / apply changes| tag_cleanup
+    manage_tags_vm -->|star / unstar tags| port_tag_prefs
     import_debug_detail_vm -->|get entry| import_debug_repo
 
     import_worker -->|execute| uc_import
@@ -517,6 +522,7 @@ subgraph app["Android App"]
     scraper -->|preview image| html_extractor
     settings_ds -.->|implements| port_settings
     settings_ds -.->|implements| port_app_settings
+    settings_ds -.->|implements| port_tag_prefs
     grocery_state_store -.->|implements| port_grocery
     parser -.->|implements| port_paprika
     repo -.->|implements| port_repos
@@ -536,7 +542,7 @@ subgraph app["Android App"]
     auth_svc -->|delete all user data| deletion_svc
     deletion_svc -->|re-authenticate, read from server, delete| firestore_svc
     deletion_svc -->|clear debug data| import_debug_repo
-    deletion_svc -->|clear API key| settings_ds
+    deletion_svc -->|clear API key, favorite tags| settings_ds
     deletion_svc -->|delete storage images| remote_image_storage
     deletion_svc -->|clear local images| local_image_files
     auth_svc -->|"sign out: clear local images"| local_image_files

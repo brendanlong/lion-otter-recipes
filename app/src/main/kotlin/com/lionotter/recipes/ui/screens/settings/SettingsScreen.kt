@@ -237,7 +237,11 @@ fun SettingsScreen(
 
             HorizontalDivider()
 
-            TagsSection(onManageTagsClick = onNavigateToManageTags)
+            TagsSection(
+                tagBarSize = settings.tagBarSize,
+                onTagBarSizeChange = viewModel::setTagBarSize,
+                onManageTagsClick = onNavigateToManageTags
+            )
 
             HorizontalDivider()
 

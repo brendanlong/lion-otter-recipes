@@ -40,7 +40,8 @@ Where a use case needs something the data layer provides, the domain owns an int
 | `PageFetcher` | `WebScraperService` | `fetchPage(url)` → `Outcome<FetchedPage>` (HTML + preview image) |
 | `PageContentExtractor` | `RecipeHtmlExtractor` | page HTML → `PageContent` for the AI, page title, preview image (for pages captured in the in-app browser) |
 | `AiSettings` | `SettingsDataStore` | read-only API key, import and edit models, thinking, import debugging |
-| `AppSettings` | `SettingsDataStore` | all settings as flows (each one, and `settings: Flow<Settings>` with all of them once read) plus setters (extends `AiSettings`); what ViewModels use |
+| `AppSettings` | `SettingsDataStore` | all settings as flows (each one, and `settings: Flow<Settings>` with all of them once read) plus setters (extends `AiSettings` and `TagPreferences`); what ViewModels use |
+| `TagPreferences` | `SettingsDataStore` | favorite tags (`favoriteTags`, atomic `updateFavoriteTags`, `setTagFavorite`) and how many tags the filter bars show (`tagBarSize`, 4–30, default 10) |
 | `ImageStore` | `RecipeImageStore` | recipe image lifecycle: `importFromUrl` (web, local or stored URLs only) / `importPickedImage` (`content://` from the picker) / `saveImage` / `copyLocalImage` bring an image onto the device, `attach` makes it a recipe's image (uploading it for Google users), `release` deletes an image no recipe uses any more, `discardLocalImage`, `localImageFile` (export); see Images |
 | `PaprikaExportReader` | `PaprikaParser` | stream a Paprika export as `PaprikaExportRecipe`s (`PaprikaImportSteps`) |
 | `GroceryListStateStore` | `DataStoreGroceryListStateStore` | per-week grocery list selection, whether the list is shown, and checked sources |
@@ -70,6 +71,7 @@ Migrations live in `RecipeDatabaseMigrations` (10→11 drops the Firestore-era t
 - `ai_model` (imports) and `edit_model` (edits), plus a `thinking` toggle
 - Display, theme, keep-screen-on, volume buttons scroll, measurement unit preferences (recipe and grocery), start of week, import debugging
 - Until the user picks a theme, it defaults to E-ink on an e-ink device (`EinkDevices`: Android can't report an e-ink screen, so this matches makers that only make e-readers, like Onyx/Boox, Boyue/Meebook, Bigme, PocketBook, Mudita, and the e-ink models of others, like Hisense's A-series) and to Auto elsewhere
+- `favorite_tags` (a string set, in the spelling each tag was starred with) and `tag_bar_size`. Favorites are per device like the other settings rather than in Firestore: the Firestore rules only allow the `recipes` and `mealPlans` collections, and a local set needs no guest-to-Google migration. They survive sign-out like the other settings and are cleared by account deletion
 
 `DataStoreGroceryListStateStore` (the `GroceryListStateStore` port) is a separate DataStore holding each week's grocery list selection, whether the list is shown, and the checked-off source keys, keyed per week start date. Item check state is derived from the sources, so the `checked_items` key older versions wrote is ignored and removed on save. Old weeks are pruned on save.
 
@@ -171,7 +173,7 @@ interface RecipeRepository {
 - `signInWithGoogle` gets a credential; `mergeGuestIntoGoogle { migrate }` then holds the auth transition lock with the state `Loading` while `AccountMigrationService` copies guest data (server calls have timeouts) and signs in, clears the guest cache, and switches to `Google` (or restores the guest on failure). After a successful Google sign-in, `SettingsViewModel` schedules an upload through `ImageUploadScheduler` (`LocalImageUploadWorker`), which calls `LocalImageUploader.uploadPendingLocalImages()`.
 - `RecipeImageStore.attach` keeps the local file and schedules `LocalImageUploadWorker` (through the `ImageUploadScheduler` interface, bound in `SchedulerModule`, so the data layer doesn't depend on workers) when a Google user's upload fails; see Images for the image lifecycle. `AuthService` gets `LocalImageUploader` through a `Provider`, since the uploader reads recipes through the repository, which depends on `AuthService`.
 - `signOut(force)` returns `SignOutResult.Success` or `SignOutResult.PendingWrites` when changes have not reached the server or recipe images are still only on the device; Settings warns about unsynced changes and the user may sign out anyway (`force = true`).
-- `AccountDeletionService` (depends on `FirestoreService`, `RemoteImageStorage`, `LocalImageFiles`, `ImportDebugRepository`, `SettingsDataStore`) first checks the server is reachable and re-authenticates, reads recipes and meal plans from the server (not the cache), deletes Firestore documents, then deletes Storage images individually (failures leave orphaned images, never recipes pointing at deleted images), clears local images, debug data and the API key, and finally deletes the Firebase Auth account.
+- `AccountDeletionService` (depends on `FirestoreService`, `RemoteImageStorage`, `LocalImageFiles`, `ImportDebugRepository`, `SettingsDataStore`) first checks the server is reachable and re-authenticates, reads recipes and meal plans from the server (not the cache), deletes Firestore documents, then deletes Storage images individually (failures leave orphaned images, never recipes pointing at deleted images), clears local images, debug data, the API key and the favorite tags, and finally deletes the Firebase Auth account.
 
 ### Error Reporting
 
@@ -270,11 +272,11 @@ Orchestrates the full import flow:
 
 #### GetTagsUseCase
 
-Selects the top 10 tags that maximize recipe coverage (an ILP, with a greedy set cover fallback). This is the kind of business logic that justifies a use case class. Tags are compared with `tagKey` (trimmed, lowercase; `domain/model/Tags.kt`), which the recipe list and meal plan filters also use through `Recipe.hasTag` / `Recipe.matchesSearch`. `tagUsage` lists every tag (most common spelling) with its recipe count, most used first; `tagVocabulary` is its top 100 names.
+Selects the filter bar's tags (`execute(recipes, favoriteTags, maxTags)`; `maxTags` is the `tagBarSize` setting): the favorite tags that some recipe carries come first (most used first; a favorite no recipe carries is skipped but stays a favorite), and the remaining slots go to the tags that maximize recipe coverage (an ILP, with a greedy set cover fallback), with the favorites fixed as already selected so the solver covers the recipes they miss. The recipe list and the meal plan recipe picker recompute it when the recipes' tags, the favorites or the size change. This is the kind of business logic that justifies a use case class. Tags are compared with `tagKey` (trimmed, lowercase; `domain/model/Tags.kt`), which the recipe list and meal plan filters also use through `Recipe.hasTag` / `Recipe.matchesSearch`. `tagUsage` lists every tag (most common spelling) with its recipe count, most used first; `tagVocabulary` is its top 100 names.
 
 #### TagCleanupUseCase
 
-`suggestChanges()` sends every tag with its count to the `TagOrganizer` using the edit model (Haiku by default) and the thinking setting, and turns the answer into `TagChange`s (`RENAME`, `MERGE` into an existing tag, or `DELETE`, each with its recipe count) with `planTagChanges` (`domain/model/TagChanges.kt`): mappings of unknown tags and no-ops are dropped and chains are followed (a → b, b → c becomes a → c; a cycle merges into its most used tag), so any subset the user accepts is consistent. No API key fails with `NoApiKey` before anything is read; no tags means no AI call. `applyChanges(changes)` reads every recipe's tags and calls `setTags` for each recipe that changes (`applyTagChanges`, which also drops duplicates a merge creates), inside `NonCancellable`, so leaving the screen never leaves a batch half applied. The manual rename / merge / delete on the tags screen goes through the same planning and apply.
+`suggestChanges()` sends every tag with its count to the `TagOrganizer` using the edit model (Haiku by default) and the thinking setting, and turns the answer into `TagChange`s (`RENAME`, `MERGE` into an existing tag, or `DELETE`, each with its recipe count) with `planTagChanges` (`domain/model/TagChanges.kt`): mappings of unknown tags and no-ops are dropped and chains are followed (a → b, b → c becomes a → c; a cycle merges into its most used tag), so any subset the user accepts is consistent. No API key fails with `NoApiKey` before anything is read; no tags means no AI call. `applyChanges(changes)` reads every recipe's tags and calls `setTags` for each recipe that changes (`applyTagChanges`, which also drops duplicates a merge creates), inside `NonCancellable`, so leaving the screen never leaves a batch half applied. The manual rename / merge / delete on the tags screen goes through the same planning and apply. Before writing any recipe it updates the favorite tags (`withTagChanges`: a favorite follows its tag's rename or merge, a deleted tag stops being a favorite); if that fails nothing is changed.
 
 #### Edit and regenerate
 
@@ -400,11 +402,11 @@ External intents are turned into `AppIntentEvent`s (`ImportUrl`, `ImportFile`, `
 - An invalid or unsaved API key is `apiKeyError: UserMessage?` state under the field; toasts (setting write failures, sign-in/out and deletion outcomes) are events
 - Backup/restore, unit and display preferences (keep screen on, volume buttons scroll), import debugging
 - `SettingsUiState` is `Loading` until `AppSettings.settings` has emitted (including the API key), so the screen shows a progress indicator instead of flashing defaults
-- The Tags section opens `ManageTagsScreen`
+- The Tags section opens `ManageTagsScreen` and has a slider for the number of tags in the filter bars (`tagBarSize`, saved when the drag ends)
 
 #### ManageTagsScreen
 
-- Lists every tag with its recipe count (`tagUsage` over the recipes flow); tapping one opens a dialog to rename it (renaming to an existing tag's name merges them) or delete it (with confirmation). Back while reviewing discards the suggestions
+- Lists every tag with its recipe count (`tagUsage` over the recipes flow) and a star to make it a favorite (`TagPreferences.setTagFavorite`; a failed write is a snackbar). Favorites no recipe carries any more (`unusedFavorites`) are listed after them with only the star; unstarring one removes it, and it can't be starred again until a recipe has the tag. Tapping a tag with recipes opens a dialog to rename it (renaming to an existing tag's name merges them) or delete it (with confirmation). Back while reviewing discards the suggestions
 - "Suggest tag cleanup" calls `TagCleanupUseCase.suggestChanges()`; `TagSuggestions` is `None | Loading | Review(changes, selected)`. The review lists renames, merges and deletions with their recipe counts, all checked; the user unchecks what they don't want and applies the rest, or discards them. Results, "nothing to change" and errors are `UserMessage` events shown as snackbars
 
 ### ViewModels
@@ -465,7 +467,7 @@ Hilt modules provide:
 - Binds `RecipeRepository` / `MealPlanRepository` to their Firestore-backed implementations
 
 ### PortModule
-- Binds the domain ports (`RecipeParser`, `RecipeBatchParser`, `TagOrganizer`, `PageFetcher`, `PageContentExtractor`, `AiSettings`, `AppSettings`, `ImageStore`, `ImportDebugLog`, `GroceryListStateStore`, `PaprikaExportReader`) to their data-layer implementations
+- Binds the domain ports (`RecipeParser`, `RecipeBatchParser`, `TagOrganizer`, `PageFetcher`, `PageContentExtractor`, `AiSettings`, `AppSettings`, `TagPreferences`, `ImageStore`, `ImportDebugLog`, `GroceryListStateStore`, `PaprikaExportReader`) to their data-layer implementations
 
 ### NetworkModule
 - `HttpClient` with Ktor Android engine (page and image fetching)
@@ -584,7 +586,7 @@ Static checks and tests that catch whole classes of bugs. All run in `./ci-local
 - Repository mapping logic
 - Ingredient aggregation and unit conversion
 - Use case business logic; the import, edit, regenerate, Paprika batch and ZIP import code runs against in-memory fakes of its ports and repositories (`testutil/UseCaseFakes.kt`, `testutil/RepositoryFakes.kt`)
-- ViewModels against `MutableStateFlow`-backed fakes (`testutil/RepositoryFakes.kt`: `FakeRecipeRepository`, `FakeMealPlanRepository`, `FakeAppSettings`, `FakeGroceryListStateStore`) rather than mocks, with test dispatchers injected for `@IoDispatcher` / `@DefaultDispatcher`
+- ViewModels against `MutableStateFlow`-backed fakes (`testutil/RepositoryFakes.kt`: `FakeRecipeRepository`, `FakeMealPlanRepository`, `FakeAppSettings` (with its `FakeTagPreferences`), `FakeGroceryListStateStore`) rather than mocks, with test dispatchers injected for `@IoDispatcher` / `@DefaultDispatcher`
 - AI request pieces (`RecipePromptTest`, `RecipeResponseParserTest`, `RecipeResponseSchemaTest`, `AnthropicTagOrganizerTest`); `LiveAnthropicTest` calls the real API (recipe parsing, tag reuse, tag cleanup) and only runs when `LIVE_ANTHROPIC_KEY` is set
 
 ### Integration Tests (Future)

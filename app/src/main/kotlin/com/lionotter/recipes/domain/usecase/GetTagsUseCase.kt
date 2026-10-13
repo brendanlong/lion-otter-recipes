@@ -1,7 +1,9 @@
 package com.lionotter.recipes.domain.usecase
 
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.model.TagBarSize
 import com.lionotter.recipes.domain.model.tagKey
+import com.lionotter.recipes.domain.model.tagKeys
 import com.lionotter.recipes.util.ErrorLog
 import org.ojalgo.optimisation.ExpressionsBasedModel
 import org.ojalgo.optimisation.Optimisation
@@ -10,7 +12,6 @@ import javax.inject.Inject
 class GetTagsUseCase @Inject constructor() {
     companion object {
         private const val TAG = "GetTagsUseCase"
-        internal const val MAX_TAGS = 10
         internal const val GAMMA_MULTIPLIER = 10.0 // γ = GAMMA_MULTIPLIER * maxTagSize
 
         // The ILP grows with recipes × tags; beyond these sizes use the greedy solver so the
@@ -22,7 +23,12 @@ class GetTagsUseCase @Inject constructor() {
     }
 
     /**
-     * Returns the top tags using an ILP (Integer Linear Programming) optimization to maximize
+     * Returns up to [maxTags] tags for the filter bar: the [favoriteTags] that some recipe carries
+     * (compared by [tagKey], most used first), then the tags chosen by the solver below to fill the
+     * remaining slots. Favorites count as already selected, so the solver picks tags covering the
+     * recipes they miss. Favorites no recipe carries are skipped.
+     *
+     * The solver picks the top tags using an ILP (Integer Linear Programming) optimization to maximize
      * recipe coverage while preferring specific tags over generic ones.
      *
      * Tags are grouped case-insensitively ("Dessert" and "dessert" count as one tag); the
@@ -36,6 +42,7 @@ class GetTagsUseCase @Inject constructor() {
      *   Subject to:
      *     Σ_j (x_j · a_ij) + u_i ≥ 1  for all recipes i (coverage with slack)
      *     Σ_j x_j = k                   (select exactly k tags)
+     *     x_j = 1                       for all favorite tags j
      *     x_j ∈ {0,1}, u_i ∈ {0,1}
      *
      * Where:
@@ -47,30 +54,37 @@ class GetTagsUseCase @Inject constructor() {
      * - A tag covering 1 recipe scores 1·ln(N) (maximum specificity)
      * - The peak is at N/e ≈ 37% of recipes
      */
-    fun execute(recipes: List<Recipe>): List<String> {
+    fun execute(
+        recipes: List<Recipe>,
+        favoriteTags: Set<String> = emptySet(),
+        maxTags: Int = TagBarSize.DEFAULT
+    ): List<String> {
         val tagToRecipes = buildTagMap(recipes)
+        val favoriteKeys = favoriteTags.tagKeys()
+        val favorites = tagToRecipes.keys
+            .filter { tagKey(it) in favoriteKeys }
+            .sortedByDescending { tagToRecipes.getValue(it).size }
+            .take(maxTags)
+        if (favorites.size == maxTags) return favorites
 
-        if (tagToRecipes.isEmpty()) {
-            return emptyList()
+        val others = if (tagToRecipes.size <= maxTags) {
+            tagToRecipes.keys.filter { it !in favorites }
+        } else {
+            val favoriteSet = favorites.toSet()
+            val recipeCount = recipes.distinctBy { it.id }.size
+            val selected = if (recipeCount > ILP_MAX_RECIPES || tagToRecipes.size > ILP_MAX_TAGS) {
+                solveGreedy(recipes, tagToRecipes, maxTags, favoriteSet)
+            } else {
+                try {
+                    solveIlp(recipes, tagToRecipes, maxTags, favoriteSet)
+                } catch (e: Exception) {
+                    ErrorLog.w(TAG, "ILP solver failed, falling back to greedy algorithm", e)
+                    solveGreedy(recipes, tagToRecipes, maxTags, favoriteSet)
+                }
+            }
+            selected.filter { it !in favoriteSet }
         }
-
-        if (tagToRecipes.size <= MAX_TAGS) {
-            return tagToRecipes.entries
-                .sortedByDescending { it.value.size }
-                .map { it.key }
-        }
-
-        val recipeCount = recipes.distinctBy { it.id }.size
-        if (recipeCount > ILP_MAX_RECIPES || tagToRecipes.size > ILP_MAX_TAGS) {
-            return solveGreedy(recipes, tagToRecipes)
-        }
-
-        return try {
-            solveIlp(recipes, tagToRecipes)
-        } catch (e: Exception) {
-            ErrorLog.w(TAG, "ILP solver failed, falling back to greedy algorithm", e)
-            solveGreedy(recipes, tagToRecipes)
-        }
+        return favorites + others.sortedByDescending { tagToRecipes.getValue(it).size }
     }
 
     /**
@@ -103,9 +117,12 @@ class GetTagsUseCase @Inject constructor() {
         }
     }
 
+    /** Selects [maxTags] tags, including all of [fixed]. */
     internal fun solveIlp(
         recipes: List<Recipe>,
-        tagToRecipes: Map<String, Set<String>>
+        tagToRecipes: Map<String, Set<String>>,
+        maxTags: Int = TagBarSize.DEFAULT,
+        fixed: Set<String> = emptySet()
     ): List<String> {
         val tags = tagToRecipes.keys.toList()
         val recipeIds = recipes.map { it.id }.distinct()
@@ -137,6 +154,7 @@ class GetTagsUseCase @Inject constructor() {
                 // Tags covering all recipes score 0; tags covering ~37% of recipes score highest.
                 val tagSize = tagToRecipes.getValue(tag).size.toDouble()
                 weight(tagSize * Math.log(recipeCount.toDouble() / tagSize))
+                if (tag in fixed) lower(1)
             }
         }
 
@@ -147,8 +165,8 @@ class GetTagsUseCase @Inject constructor() {
             }
         }
 
-        // Constraint: Σ_j x_j = k (select exactly MAX_TAGS tags)
-        val tagCountExpr = model.addExpression("tag_count").level(MAX_TAGS.toLong())
+        // Constraint: Σ_j x_j = k (select exactly maxTags tags)
+        val tagCountExpr = model.addExpression("tag_count").level(maxTags.toLong())
         for (j in tags.indices) {
             tagCountExpr.set(xVars[j], 1)
         }
@@ -179,15 +197,24 @@ class GetTagsUseCase @Inject constructor() {
         return selectedTags.sortedByDescending { tagToRecipes[it]?.size ?: 0 }
     }
 
+    /** Selects up to [maxTags] tags, starting with [fixed]. */
     internal fun solveGreedy(
         recipes: List<Recipe>,
-        tagToRecipes: Map<String, Set<String>>
+        tagToRecipes: Map<String, Set<String>>,
+        maxTags: Int = TagBarSize.DEFAULT,
+        fixed: Set<String> = emptySet()
     ): List<String> {
         val allRecipeIds = recipes.map { it.id }.toSet()
-        val selectedTags = mutableListOf<String>()
+        val selectedTags = fixed.toMutableList()
         var uncoveredRecipes = allRecipeIds.toMutableSet()
+        for (tag in fixed) {
+            uncoveredRecipes.removeAll(tagToRecipes[tag] ?: emptySet())
+        }
+        if (uncoveredRecipes.isEmpty()) {
+            uncoveredRecipes = allRecipeIds.toMutableSet()
+        }
 
-        while (selectedTags.size < MAX_TAGS) {
+        while (selectedTags.size < maxTags) {
             val bestTag = tagToRecipes
                 .filterKeys { it !in selectedTags }
                 .maxByOrNull { (_, recipeIds) ->
@@ -199,7 +226,7 @@ class GetTagsUseCase @Inject constructor() {
             selectedTags.add(bestTag)
             uncoveredRecipes.removeAll(tagToRecipes[bestTag] ?: emptySet())
 
-            if (uncoveredRecipes.isEmpty() && selectedTags.size < MAX_TAGS) {
+            if (uncoveredRecipes.isEmpty() && selectedTags.size < maxTags) {
                 uncoveredRecipes = allRecipeIds.toMutableSet()
                 for (tag in selectedTags) {
                     uncoveredRecipes.removeAll(tagToRecipes[tag] ?: emptySet())

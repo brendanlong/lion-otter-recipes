@@ -169,6 +169,9 @@ class SettingsViewModel @Inject constructor(
     fun setStartOfWeek(startOfWeek: StartOfWeek) =
         launchSettingWrite("set start of week") { settings.setStartOfWeek(startOfWeek) }
 
+    fun setTagBarSize(size: Int) =
+        launchSettingWrite("set tag bar size") { settings.setTagBarSize(size) }
+
     /**
      * Enables or disables import debugging. Disabling also deletes all stored debug entries,
      * so the UI confirms with the user before calling this with `false`.

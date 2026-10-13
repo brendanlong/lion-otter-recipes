@@ -93,3 +93,10 @@ fun applyTagChanges(tags: List<String>, changes: Map<String, TagChange>): List<S
         newTag.takeIf { tagKey(it).isNotEmpty() && seen.add(tagKey(it)) }
     }
 }
+
+/**
+ * Favorite tags after [changes] (keyed by [TagChange.key]): a renamed or merged favorite follows
+ * its tag to the new name, and a deleted one is no longer a favorite.
+ */
+fun Set<String>.withTagChanges(changes: Map<String, TagChange>): Set<String> =
+    applyTagChanges(toList(), changes).toCollection(linkedSetOf())

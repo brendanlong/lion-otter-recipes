@@ -8,14 +8,20 @@ import com.lionotter.recipes.domain.model.TagChange
 import com.lionotter.recipes.domain.model.TagMapping
 import com.lionotter.recipes.domain.model.TagUsage
 import com.lionotter.recipes.domain.model.planTagChanges
+import com.lionotter.recipes.domain.model.tagKey
+import com.lionotter.recipes.domain.model.tagKeys
 import com.lionotter.recipes.domain.model.tagUsage
+import com.lionotter.recipes.domain.port.TagPreferences
 import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.domain.usecase.TagCleanupUseCase
 import com.lionotter.recipes.messages.UserMessage
 import com.lionotter.recipes.messages.toUserMessage
 import com.lionotter.recipes.util.DefaultDispatcher
+import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +34,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /** The AI's suggested tag changes, as far as they have got. */
@@ -47,11 +54,20 @@ sealed interface ManageTagsUiState {
     data class Loaded(
         /** Every tag in use, most used first. */
         val tags: List<TagUsage>,
+        /** The [tagKey]s of the favorite tags. */
+        val favoriteKeys: Set<String>,
+        /**
+         * Favorites no recipe carries any more, alphabetically. They stay favorites (and come
+         * back to the filter bar with their next recipe) until the user unstars them.
+         */
+        val unusedFavorites: List<String>,
         val suggestions: TagSuggestions,
         /** Changes are being written to the recipes. */
         val applying: Boolean
     ) : ManageTagsUiState {
         val busy: Boolean get() = applying || suggestions == TagSuggestions.Loading
+
+        fun isFavorite(tag: String): Boolean = tagKey(tag) in favoriteKeys
     }
 }
 
@@ -59,6 +75,7 @@ sealed interface ManageTagsUiState {
 class ManageTagsViewModel @Inject constructor(
     recipeRepository: RecipeRepository,
     private val tagCleanupUseCase: TagCleanupUseCase,
+    private val tagPreferences: TagPreferences,
     @DefaultDispatcher defaultDispatcher: CoroutineDispatcher
 ) : ViewModel() {
     private val suggestions = MutableStateFlow<TagSuggestions>(TagSuggestions.None)
@@ -69,13 +86,38 @@ class ManageTagsViewModel @Inject constructor(
 
     val uiState: StateFlow<ManageTagsUiState> = combine(
         recipeRepository.getAllRecipes().map { recipes -> tagUsage(recipes.map { it.tags }) }.flowOn(defaultDispatcher),
+        tagPreferences.favoriteTags,
         suggestions,
         applying
-    ) { tags, suggestions, applying ->
-        ManageTagsUiState.Loaded(tags, suggestions, applying)
+    ) { tags, favorites, suggestions, applying ->
+        val usedKeys = tags.map { it.name }.tagKeys()
+        ManageTagsUiState.Loaded(
+            tags = tags,
+            favoriteKeys = favorites.tagKeys(),
+            unusedFavorites = favorites.filter { tagKey(it) !in usedKeys }.sortedBy(::tagKey),
+            suggestions = suggestions,
+            applying = applying
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ManageTagsUiState.Loading)
 
     private val loaded: ManageTagsUiState.Loaded? get() = uiState.value as? ManageTagsUiState.Loaded
+
+    /**
+     * Stars or unstars [tag]. An unstarred tag no recipe carries disappears from the list, and
+     * can only be starred again once a recipe has it.
+     */
+    fun setFavorite(tag: String, favorite: Boolean) {
+        viewModelScope.launch {
+            try {
+                withContext(NonCancellable) { tagPreferences.setTagFavorite(tag, favorite) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                ErrorLog.e(TAG, "Couldn't ${if (favorite) "star" else "unstar"} a tag", e)
+                eventChannel.send(UserMessage(R.string.favorite_tag_failed))
+            }
+        }
+    }
 
     fun suggestCleanup() {
         if (applying.value || suggestions.value != TagSuggestions.None) return
@@ -150,5 +192,9 @@ class ManageTagsViewModel @Inject constructor(
                 is Outcome.Failure -> eventChannel.send(UserMessage(R.string.tags_update_failed))
             }
         }
+    }
+
+    private companion object {
+        const val TAG = "ManageTagsViewModel"
     }
 }

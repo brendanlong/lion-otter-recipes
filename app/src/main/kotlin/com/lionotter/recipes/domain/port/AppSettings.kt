@@ -7,7 +7,7 @@ import com.lionotter.recipes.domain.model.UnitSystem
 import kotlinx.coroutines.flow.Flow
 
 /** All of the user's settings, readable as flows and writable (writes throw on failure). */
-interface AppSettings : AiSettings {
+interface AppSettings : AiSettings, TagPreferences {
     /** Everything at once; emits once the settings (including the API key) have been read. */
     val settings: Flow<Settings>
 

@@ -9,6 +9,7 @@ import com.lionotter.recipes.data.remote.AuthState
 import com.lionotter.recipes.data.remote.SignOutResult
 import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.domain.model.AiModels
+import com.lionotter.recipes.domain.model.TagBarSize
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.domain.port.AppSettings
@@ -234,6 +235,17 @@ class SettingsViewModelTest {
             assertEquals("sk-ant-stored-key", loaded.anthropicApiKey)
             cancelAndIgnoreRemainingEvents()
         }
+    }
+
+    @Test
+    fun `setTagBarSize saves the size, kept within range`() = runTest {
+        viewModel.setTagBarSize(15)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(15, settings.tagPreferences.tagBarSizeFlow.value)
+
+        viewModel.setTagBarSize(100)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(TagBarSize.MAX, settings.tagPreferences.tagBarSizeFlow.value)
     }
 
     @Test
