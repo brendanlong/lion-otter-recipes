@@ -111,6 +111,17 @@ class GenerateRecipeImageUseCaseTest {
     }
 
     @Test
+    fun `turning image generation off skips missing images but not ones the user asked for`() = runTest {
+        settings.imageGenerationFlow.value = false
+
+        assertEquals(GenerateRecipeImageUseCase.Result.Skipped, useCase().execute("r1", null, replaceImage = false))
+        assertTrue(generator.prompts.isEmpty())
+
+        useCase().execute("r1", "prompt", replaceImage = true)
+        assertEquals("gs://bucket/stream.jpg", imageUrl())
+    }
+
+    @Test
     fun `skips without an OpenAI key or a recipe`() = runTest {
         assertEquals(GenerateRecipeImageUseCase.Result.Skipped, useCase().execute("gone", "prompt", false))
         settings.openAiApiKeyFlow.value = null

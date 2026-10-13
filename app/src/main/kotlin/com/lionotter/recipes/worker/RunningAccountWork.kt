@@ -28,6 +28,7 @@ class RunningAccountWork @Inject constructor(
             RecipeRegenerateWorker.TAG_RECIPE_REGENERATE,
             ZipExportWorker.TAG_ZIP_EXPORT,
             RecipeImageWorker.TAG_RECIPE_IMAGE,
+            MissingImagesWorker.TAG_MISSING_IMAGES,
         )
     }
 

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
 import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.Outcome
+import com.lionotter.recipes.domain.ResourceLimits
 import com.lionotter.recipes.domain.port.AiSettings
 import com.lionotter.recipes.domain.port.RecipeImageScheduler
 import com.lionotter.recipes.domain.repository.RecipeRepository
@@ -16,6 +17,8 @@ import com.lionotter.recipes.ui.navigation.Route
 import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,6 +29,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
@@ -61,33 +65,27 @@ class GenerateImageViewModel @Inject constructor(
     private val _events = Channel<UserMessage>(Channel.BUFFERED)
     val events: Flow<UserMessage> = _events.receiveAsFlow()
 
-    /** Opens the dialog with the recipe's saved prompt (empty if it has none). */
-    fun open() {
-        viewModelScope.launch {
-            val savedPrompt = try {
-                recipeRepository.getRecipeByIdOnce(recipeId)?.imagePrompt
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                ErrorLog.w(TAG, "Couldn't read the recipe's image prompt", e)
-                null
-            }
-            savedStateHandle[KEY_PROMPT_DRAFT] = savedPrompt.orEmpty()
-        }
+    private var writeJob: Job? = null
+
+    /** Opens the dialog with [savedPrompt], the recipe's saved prompt (empty if it has none). */
+    fun open(savedPrompt: String?) {
+        savedStateHandle[KEY_PROMPT_DRAFT] = savedPrompt.orEmpty()
     }
 
     fun onPromptChange(prompt: String) {
-        if (promptDraft.value != null) savedStateHandle[KEY_PROMPT_DRAFT] = prompt
+        if (promptDraft.value != null) savedStateHandle[KEY_PROMPT_DRAFT] = prompt.take(ResourceLimits.MAX_IMAGE_PROMPT_CHARS)
     }
 
     fun dismiss() {
+        writeJob?.cancel()
         savedStateHandle[KEY_PROMPT_DRAFT] = null
     }
 
     /** Has the AI write a prompt from the recipe, replacing the draft. */
     fun writePrompt() {
-        if (!_writingPrompt.compareAndSet(expect = false, update = true)) return
-        viewModelScope.launch {
+        if (writeJob?.isActive == true) return
+        writeJob = viewModelScope.launch {
+            _writingPrompt.value = true
             try {
                 val recipe = recipeRepository.getRecipeByIdOnce(recipeId) ?: return@launch
                 when (val written = writeImagePrompt.execute(recipe)) {
@@ -108,9 +106,21 @@ class GenerateImageViewModel @Inject constructor(
     /** Saves the draft as the recipe's prompt and generates an image from it, replacing the current one. */
     fun generate() {
         val prompt = promptDraft.value?.trim()?.takeIf { it.isNotEmpty() } ?: return
-        recipeRepository.setImagePrompt(recipeId, prompt)
-        imageScheduler.scheduleImageGeneration(recipeId, prompt, replaceImage = true)
         dismiss()
-        viewModelScope.launch { _events.send(UserMessage(R.string.generating_image)) }
+        recipeRepository.setImagePrompt(recipeId, prompt)
+        viewModelScope.launch {
+            val message = try {
+                withContext(NonCancellable) {
+                    imageScheduler.scheduleImageGeneration(recipeId, prompt, replaceImage = true)
+                }
+                UserMessage(R.string.generating_image)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                ErrorLog.e(TAG, "Failed to schedule image generation", e)
+                UserMessage(R.string.generate_image_failed)
+            }
+            _events.send(message)
+        }
     }
 }

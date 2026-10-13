@@ -2,6 +2,7 @@ package com.lionotter.recipes.domain.usecase
 
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.ResourceLimits
 import com.lionotter.recipes.domain.model.AiModels
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.port.AiSettings
@@ -19,6 +20,11 @@ class WriteImagePromptUseCase @Inject constructor(
         val apiKey = aiSettings.anthropicApiKey.first()
         if (apiKey.isNullOrBlank()) return Outcome.Failure(RecipeError.NoApiKey)
         val model = AiModels.normalizeModel(aiSettings.editModel.first(), AiModels.DEFAULT_EDIT_MODEL)
-        return writer.writePrompt(RecipeMarkdownFormatter.format(recipe), apiKey, model)
+        // The user's notes are private and don't describe the dish
+        val markdown = RecipeMarkdownFormatter.format(recipe.copy(userNotes = null))
+        return when (val written = writer.writePrompt(markdown, apiKey, model)) {
+            is Outcome.Success -> Outcome.Success(written.value.take(ResourceLimits.MAX_IMAGE_PROMPT_CHARS))
+            is Outcome.Failure -> written
+        }
     }
 }

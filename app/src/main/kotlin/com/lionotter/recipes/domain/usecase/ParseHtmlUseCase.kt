@@ -284,9 +284,11 @@ class ParseHtmlUseCase @Inject constructor(
     }
 
     /** The recipe is already saved, so failing to schedule only costs the image. */
-    private fun scheduleImageGeneration(recipeId: String) {
+    private suspend fun scheduleImageGeneration(recipeId: String) {
         try {
             imageScheduler.scheduleImageGeneration(recipeId)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             ErrorLog.e(TAG, "Failed to schedule image generation", e)
         }

@@ -13,6 +13,7 @@ import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.util.IoDispatcher
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.future.await
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -26,14 +27,13 @@ class AnthropicImagePromptWriter @Inject constructor(
     override suspend fun writePrompt(recipeMarkdown: String, apiKey: String, model: String): Outcome<String> {
         val normalizedModel = AiModels.normalizeModel(model, AiModels.DEFAULT_EDIT_MODEL)
         return try {
-            val message = withContext(ioDispatcher) {
-                // Rare, so the client isn't kept around between requests.
-                val client = AnthropicOkHttpClient.builder().apiKey(apiKey).build()
-                try {
-                    client.messages().create(buildParams(recipeMarkdown, normalizedModel))
-                } finally {
-                    client.close()
-                }
+            // Rare, so the client isn't kept around between requests.
+            val client = withContext(ioDispatcher) { AnthropicOkHttpClient.builder().apiKey(apiKey).build() }
+            val message = try {
+                // Async, so cancelling (e.g. sign-out) cancels the request instead of waiting for it
+                client.async().messages().create(buildParams(recipeMarkdown, normalizedModel)).await()
+            } finally {
+                client.close()
             }
             when (message.stopReason().orElse(null)) {
                 StopReason.REFUSAL -> return Outcome.Failure(RecipeError.Ai(AiFailure.REFUSED))

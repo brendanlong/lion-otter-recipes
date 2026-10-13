@@ -34,7 +34,10 @@ class GenerateRecipeImageUseCase @Inject constructor(
     sealed interface Result {
         data class Generated(val imageUrl: String) : Result
 
-        /** There is no OpenAI key any more, or the recipe doesn't need this image any more. */
+        /**
+         * There is no OpenAI key any more, the recipe doesn't need this image any more, or (for a
+         * missing image) image generation was turned off.
+         */
         data object Skipped : Result
 
         /** The recipe had no prompt, and writing one (with the Anthropic API) failed. */
@@ -44,10 +47,14 @@ class GenerateRecipeImageUseCase @Inject constructor(
         data class ImageFailed(val error: RecipeError) : Result
     }
 
-    /** @param replaceImage whether to replace an image the recipe already has */
+    /**
+     * @param replaceImage whether to replace an image the recipe already has (the user asked for
+     *   this image, so it is made even with image generation for missing images turned off)
+     */
     suspend fun execute(recipeId: String, prompt: String?, replaceImage: Boolean): Result {
         val apiKey = aiSettings.openAiApiKey.first()
         if (apiKey.isNullOrBlank()) return Result.Skipped
+        if (!replaceImage && !aiSettings.imageGenerationEnabled.first()) return Result.Skipped
         val recipe = recipeRepository.getRecipeByIdOnce(recipeId) ?: return Result.Skipped
         if (!replaceImage && recipe.imageUrl != null) return Result.Skipped
         val previousImageUrl = recipe.imageUrl

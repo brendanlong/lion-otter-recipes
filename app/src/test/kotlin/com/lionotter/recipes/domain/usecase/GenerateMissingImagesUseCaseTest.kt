@@ -22,15 +22,13 @@ class GenerateMissingImagesUseCaseTest {
     private val useCase = GenerateMissingImagesUseCase(repository, scheduler)
 
     @Test
-    fun `finds the recipes without images and schedules them`() = runTest {
-        val missing = useCase.recipesWithoutImages()
-        assertEquals(listOf("a", "c"), missing)
+    fun `finds the recipes without images`() = runTest {
+        assertEquals(listOf("a", "c"), useCase.recipesWithoutImages())
+    }
 
-        useCase.execute(missing)
-
-        assertEquals(
-            listOf(FakeRecipeImageScheduler.Scheduled("a"), FakeRecipeImageScheduler.Scheduled("c")),
-            scheduler.scheduled
-        )
+    @Test
+    fun `starts the background work`() = runTest {
+        useCase.execute()
+        assertEquals(1, scheduler.missingImagesScheduled)
     }
 }

@@ -20,14 +20,19 @@ interface ImagePromptWriter {
     suspend fun writePrompt(recipeMarkdown: String, apiKey: String, model: String): Outcome<String>
 }
 
-/** Generates recipe images in the background (see `GenerateRecipeImageUseCase`), one at a time. */
+/** Generates recipe images in the background (see `GenerateRecipeImageUseCase`). Both functions throw if the work can't be queued. */
 interface RecipeImageScheduler {
     /**
+     * Queues an image for one recipe; these are generated one at a time, in order.
+     *
      * @param prompt the prompt to use; null for the recipe's saved prompt (or one written for it)
      * @param replaceImage whether to replace an image the recipe already has
      */
-    fun scheduleImageGeneration(recipeId: String, prompt: String? = null, replaceImage: Boolean = false)
+    suspend fun scheduleImageGeneration(recipeId: String, prompt: String? = null, replaceImage: Boolean = false)
 
-    /** Generates images, with their saved prompts, for recipes [recipeIds] that still have none by then. */
-    fun scheduleMissingImages(recipeIds: List<String>)
+    /**
+     * Generates images, one at a time, for every recipe without one, until it is done or image
+     * generation is turned off. Does nothing if this is already running.
+     */
+    suspend fun scheduleMissingImages()
 }

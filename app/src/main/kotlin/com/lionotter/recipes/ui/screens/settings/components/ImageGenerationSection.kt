@@ -78,7 +78,8 @@ fun ImageGenerationSection(
 
             OutlinedButton(
                 onClick = onGenerateMissingImagesClick,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                enabled = imageGenerationEnabled
             ) {
                 Text(stringResource(R.string.generate_images_for_existing_recipes))
             }

@@ -70,8 +70,7 @@ class GenerateImageViewModelTest {
 
     @Test
     fun `opens with the saved prompt and generates from the edited one`() = runTest(testDispatcher) {
-        viewModel.open()
-        advanceUntilIdle()
+        viewModel.open("A loaf of banana bread")
         assertEquals("A loaf of banana bread", viewModel.promptDraft.value)
 
         viewModel.onPromptChange("  Banana bread on a blue plate ")
@@ -89,8 +88,8 @@ class GenerateImageViewModelTest {
 
     @Test
     fun `the sparkle button fills in a prompt written by the AI`() = runTest(testDispatcher) {
-        viewModel.open()
-        advanceUntilIdle()
+        viewModel.open(null)
+        assertEquals("", viewModel.promptDraft.value)
 
         viewModel.writePrompt()
         advanceUntilIdle()
@@ -103,13 +102,33 @@ class GenerateImageViewModelTest {
     fun `a failed prompt is reported and the draft is kept`() = runTest(testDispatcher) {
         val error = RecipeError.Ai(AiFailure.OVERLOADED, 529)
         promptWriter.result = Outcome.Failure(error)
-        viewModel.open()
-        advanceUntilIdle()
+        viewModel.open("A loaf of banana bread")
 
         viewModel.writePrompt()
         advanceUntilIdle()
 
         assertEquals("A loaf of banana bread", viewModel.promptDraft.value)
         assertEquals(error.toUserMessage(), viewModel.events.first())
+    }
+
+    @Test
+    fun `a prompt written after the dialog closed doesn't reopen it`() = runTest(testDispatcher) {
+        viewModel.open("A loaf of banana bread")
+        viewModel.writePrompt()
+        viewModel.dismiss()
+        advanceUntilIdle()
+
+        assertNull(viewModel.promptDraft.value)
+    }
+
+    @Test
+    fun `a failure to start is reported`() = runTest(testDispatcher) {
+        scheduler.error = IllegalStateException("WorkManager isn't initialized")
+        viewModel.open("A loaf of banana bread")
+
+        viewModel.generate()
+        advanceUntilIdle()
+
+        assertEquals(UserMessage(R.string.generate_image_failed), viewModel.events.first())
     }
 }

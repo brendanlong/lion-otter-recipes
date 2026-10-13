@@ -207,10 +207,12 @@ Google users). Local files live only in `files/recipe_images/`.
 - **Generated images**: Claude can't draw, so recipe images come from OpenAI's image API with a separate OpenAI key
   (optional; generation for new imports defaults to on once a key is set). Every parse also writes an `imagePrompt`
   (a required schema string, `""` for none), which is saved on the recipe and is AI-owned like its other content.
-  A recipe without a prompt gets one from the edit model when an image is needed. All image work runs one at a time in
-  a single WorkManager chain (OpenAI's image rate limits are low), and a failed item still succeeds so the chain goes
-  on. A generated image is attached only if the recipe's image hasn't changed meanwhile (checked before and after
-  the upload). Paprika imports never generate images automatically.
+  A recipe without a prompt gets one from the edit model when an image is needed. Images run one at a time (OpenAI's
+  image rate limits are low): single images (imports, the user's requests) in a WorkManager chain, and "generate images
+  for existing recipes" as one worker that walks the recipes without one, so it can resume and never queues thousands
+  of jobs. A key or account failure stops either; other failures don't. Turning image generation off stops both
+  (except images the user asked for). A generated image is attached only if the recipe's image hasn't changed
+  meanwhile (checked before and after the upload). Paprika imports never generate images automatically.
 - **Edit screen**: title, source URL and tags are edited outside the Markdown and saved directly; only a Markdown
   change or AI instructions run the AI. The AI still gets all three in the Markdown it is sent, but an AI edit
   saves the screen's tags, not the AI's (also for "Save as copy"): only the tag editor changes them, so the AI

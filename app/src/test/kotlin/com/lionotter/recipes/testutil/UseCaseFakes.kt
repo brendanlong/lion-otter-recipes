@@ -167,13 +167,19 @@ class FakeRecipeImageScheduler : RecipeImageScheduler {
     data class Scheduled(val recipeId: String, val prompt: String? = null, val replaceImage: Boolean = false)
 
     val scheduled = mutableListOf<Scheduled>()
+    var missingImagesScheduled = 0
 
-    override fun scheduleImageGeneration(recipeId: String, prompt: String?, replaceImage: Boolean) {
+    /** When set, scheduling fails with it. */
+    var error: Throwable? = null
+
+    override suspend fun scheduleImageGeneration(recipeId: String, prompt: String?, replaceImage: Boolean) {
+        error?.let { throw it }
         scheduled += Scheduled(recipeId, prompt, replaceImage)
     }
 
-    override fun scheduleMissingImages(recipeIds: List<String>) {
-        recipeIds.forEach { scheduled += Scheduled(it) }
+    override suspend fun scheduleMissingImages() {
+        error?.let { throw it }
+        missingImagesScheduled++
     }
 }
 

@@ -11,7 +11,6 @@ import com.lionotter.recipes.testutil.FakeImageStore
 import com.lionotter.recipes.testutil.FakeImportDebugLog
 import com.lionotter.recipes.testutil.FakePageContentExtractor
 import com.lionotter.recipes.domain.port.ParseAttachment
-import com.lionotter.recipes.domain.port.RecipeImageScheduler
 import com.lionotter.recipes.testutil.FakeRecipeImageScheduler
 import com.lionotter.recipes.testutil.FakeRecipeParser
 import com.lionotter.recipes.testutil.FakeRecipeRepository
@@ -304,15 +303,9 @@ class ParseHtmlUseCaseTest {
     @Test
     fun `a recipe that can't be scheduled for an image is still imported`() = runTest {
         enableImageGeneration()
-        val failingScheduler = object : RecipeImageScheduler {
-            override fun scheduleImageGeneration(recipeId: String, prompt: String?, replaceImage: Boolean) =
-                throw IllegalStateException("WorkManager isn't initialized")
+        imageScheduler.error = IllegalStateException("WorkManager isn't initialized")
 
-            override fun scheduleMissingImages(recipeIds: List<String>) = Unit
-        }
-        val useCase = ParseHtmlUseCase(parser, FakePageContentExtractor(), repository, debugLog, settings, imageStore, failingScheduler)
-
-        val recipe = useCase.parseText("recipe text").value()
+        val recipe = useCase().parseText("recipe text").value()
 
         assertEquals(listOf(recipe), repository.saved)
     }

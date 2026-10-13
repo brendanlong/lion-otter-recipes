@@ -125,11 +125,11 @@ class RecipeImageWorkerTest {
     }
 
     @Test
-    fun `a key problem is one notification, however many recipes fail`() = runTest {
+    fun `a key problem stops the queue, with one notification however many recipes fail`() = runTest {
         generator.result = Outcome.Failure(RecipeError.Ai(AiFailure.INVALID_API_KEY, 401))
 
-        assertTrue(worker("r1").doWork() is ListenableWorker.Result.Success)
-        assertTrue(worker("r2").doWork() is ListenableWorker.Result.Success)
+        assertTrue(worker("r1").doWork() is ListenableWorker.Result.Failure)
+        assertTrue(worker("r2").doWork() is ListenableWorker.Result.Failure)
 
         assertEquals(1, notifications.allNotifications.size)
     }

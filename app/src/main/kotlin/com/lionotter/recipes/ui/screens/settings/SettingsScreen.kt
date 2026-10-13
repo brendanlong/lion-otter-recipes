@@ -108,12 +108,12 @@ fun SettingsScreen(
         )
     }
 
-    missingImages?.let { recipeIds ->
+    missingImages?.let { count ->
         AlertDialog(
             onDismissRequest = missingImagesViewModel::dismiss,
             title = { Text(stringResource(R.string.generate_images_for_existing_recipes)) },
             text = {
-                Text(pluralStringResource(R.plurals.generate_missing_images_confirmation, recipeIds.size, recipeIds.size))
+                Text(pluralStringResource(R.plurals.generate_missing_images_confirmation, count, count))
             },
             confirmButton = {
                 TextButton(onClick = missingImagesViewModel::confirm) {

@@ -119,7 +119,8 @@ class EditRecipeUseCase @Inject constructor(
                                 ImageChange.Remove -> null
                                 is ImageChange.Replace -> imageStore.attach(copyImage.localUri, recipeId = copyId)
                             },
-                            sourceImageUrl = freshRecipe.sourceImageUrl
+                            sourceImageUrl = freshRecipe.sourceImageUrl,
+                            imagePrompt = parsed.imagePrompt ?: freshRecipe.imagePrompt
                         )
                     } else {
                         // The screen saved its tags before the work started; keep the current

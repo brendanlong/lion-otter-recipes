@@ -286,7 +286,7 @@ fun RecipeDetailScreen(
                                         text = { Text(stringResource(R.string.generate_image)) },
                                         onClick = {
                                             showOverflowMenu = false
-                                            imageViewModel.open()
+                                            imageViewModel.open(recipe.imagePrompt)
                                         }
                                     )
                                 }
