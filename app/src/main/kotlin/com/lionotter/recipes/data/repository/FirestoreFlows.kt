@@ -5,9 +5,11 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
 import com.google.android.gms.tasks.Task
+import com.lionotter.recipes.data.remote.AccountLeftException
 import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.DataFailure
 import com.lionotter.recipes.data.remote.DataOp
+import com.lionotter.recipes.data.remote.FirestoreCache
 import com.lionotter.recipes.data.remote.FirestoreService
 import com.lionotter.recipes.data.remote.uid
 import com.lionotter.recipes.util.ErrorLog
@@ -81,47 +83,64 @@ internal fun <T : Any> Flow<QuerySnapshot>.decodeIncrementally(
     }
 }
 
-/** Runs [block], logging any failure (other than cancellation) before rethrowing it. */
+/**
+ * Runs [block], logging any failure before rethrowing it. Cancellation isn't logged, and an
+ * [AccountLeftException] (expected while signing out) only as a warning.
+ */
 internal inline fun <T> logFailure(tag: String, message: String, block: () -> T): T {
     try {
         return block()
     } catch (e: Exception) {
-        if (e !is CancellationException) ErrorLog.e(tag, message, e)
+        when (e) {
+            is CancellationException -> Unit
+            is AccountLeftException -> ErrorLog.w(tag, message, e)
+            else -> ErrorLog.e(tag, message, e)
+        }
         throw e
     }
 }
 
 /**
- * Runs a fire-and-forget write for the current user. During an auth transition (sign-in
- * migration, sign-out) the write waits in [scope] for it to finish and then goes to the
- * resulting account, so e.g. a worker saving a recipe mid-transition doesn't lose it.
- * A failure to start the write is reported as [failure].
+ * Runs a fire-and-forget write for the current user. During a guest's sign-in the write waits in
+ * [scope] for it to finish and then goes to the resulting account, so e.g. a worker saving a
+ * recipe mid-transition doesn't lose it. During sign-out or account deletion the write is dropped
+ * (and logged): it was meant for the account leaving the device, and must not land in the next
+ * one. A failure to start the write is reported as [failure].
  */
 internal fun AuthService.writeForCurrentUser(
     scope: CoroutineScope,
-    firestoreService: FirestoreService,
+    firestoreCache: FirestoreCache,
     failure: DataFailure,
     write: (uid: String) -> Unit
 ) {
+    val epoch = leaveEpoch
     val uid = authState.value.uid
     if (uid != null) {
         try {
             write(uid)
         } catch (e: Exception) {
-            firestoreService.reportFailure(failure, e)
+            firestoreCache.reportFailure(failure, e)
         }
+        return
+    }
+    if (epoch % 2 != 0) {
+        ErrorLog.w(WRITES_TAG, "Dropped ${failure.op}: the account is being signed out")
         return
     }
     scope.launch {
         try {
-            write(awaitUid())
+            write(awaitUid(epoch))
+        } catch (e: AccountLeftException) {
+            ErrorLog.w(WRITES_TAG, "Dropped ${failure.op}: the account was signed out", e)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            firestoreService.reportFailure(failure, e)
+            firestoreCache.reportFailure(failure, e)
         }
     }
 }
+
+private const val WRITES_TAG = "FirestoreWrites"
 
 /** Reports [failure] if this task fails. */
 internal fun <T> Task<T>.reportFailureTo(firestoreService: FirestoreService, failure: DataFailure): Task<T> =

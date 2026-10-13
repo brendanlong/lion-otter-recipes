@@ -16,6 +16,7 @@ import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.util.IoDispatcher
 import com.lionotter.recipes.util.enumOrNull
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -39,12 +40,40 @@ import javax.inject.Singleton
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
+/**
+ * The app settings. They are device preferences, kept across sign-out, except that account
+ * deletion also removes the API key (the user's credential) and the favorite tags (the user's
+ * content); see [clearUserData].
+ */
 @Singleton
 class SettingsDataStore @Inject constructor(
     @param:ApplicationContext private val context: Context,
     @ApplicationScope appScope: CoroutineScope,
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
-) : AppSettings {
+) : AppSettings, PerUserLocalData {
+    override val scope = LocalDataScope.DEVICE
+
+    /** Removes the API key and the favorite tags; the other settings are kept. */
+    override suspend fun clearUserData() {
+        val apiKeyFailure = try {
+            clearAnthropicApiKey()
+            null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            e
+        }
+        try {
+            context.dataStore.edit { it.remove(Keys.FAVORITE_TAGS) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            apiKeyFailure?.let(e::addSuppressed)
+            throw e
+        }
+        apiKeyFailure?.let { throw it }
+    }
+
     private object Keys {
         val AI_MODEL = stringPreferencesKey("ai_model")
         val EDIT_MODEL = stringPreferencesKey("edit_model")

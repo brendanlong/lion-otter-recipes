@@ -82,7 +82,8 @@ abstract class FirestoreIntegrationTest {
         val authService: AuthService = mockk()
         every { authService.authState } returns authState
         every { authService.isGoogleUser() } returns false
-        coEvery { authService.awaitUid() } coAnswers { authState.first { it !is AuthState.Loading }.uid!! }
+        every { authService.leaveEpoch } returns 0
+        coEvery { authService.awaitUid(any()) } coAnswers { authState.first { it !is AuthState.Loading }.uid!! }
         val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         recipeRepository = FirestoreRecipeRepository(firestoreService, authService, appScope, Dispatchers.Default)
         mealPlanRepository = FirestoreMealPlanRepository(firestoreService, authService, appScope, Dispatchers.Default)

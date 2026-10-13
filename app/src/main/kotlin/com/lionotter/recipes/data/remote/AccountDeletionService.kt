@@ -9,11 +9,8 @@ import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.firestore
-import com.lionotter.recipes.data.image.LocalImageFiles
 import com.lionotter.recipes.data.image.RemoteImageStorage
-import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.remote.dto.RecipeFields
-import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.util.ErrorLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
@@ -23,7 +20,26 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Handles complete deletion of a user's account and all associated data.
+ * Deletes a user's data on the server (implemented by [AccountDeletionService]). Data on the
+ * device is cleared afterwards by [com.lionotter.recipes.data.account.AccountLifecycle].
+ */
+interface RemoteAccountDeletion {
+    /**
+     * Deletes all of the signed-in user's server data, then their Firebase Auth account.
+     *
+     * @param reauthCredential A fresh Google credential used to re-authenticate before
+     *        deleting anything. If null, the last sign-in must be recent.
+     * @throws ReauthenticationRequiredException before deleting anything if a fresh
+     *         login is required and no usable credential was supplied
+     * @throws AccountDeletionService.OfflineException before deleting anything if the server is unreachable
+     * @throws AccountDeletionService.AuthAccountDeletionException if data was deleted but the auth account wasn't
+     */
+    suspend fun deleteAllUserData(reauthCredential: AuthCredential?)
+}
+
+/**
+ * Deletes a user's account and all of their data on the server (Firestore and Storage). Nothing
+ * on the device is touched here.
  *
  * Deletes (in order):
  * 1. Verifies the server is reachable and re-authenticates if needed (nothing deleted yet)
@@ -32,8 +48,7 @@ import javax.inject.Singleton
  * 4. Deletes each recipe image from Firebase Storage individually (failures are
  *    logged and leave orphaned images rather than recipes pointing at deleted images)
  * 5. Deletes the user document
- * 6. Clears local image cache, import debug data and the API key
- * 7. Deletes the Firebase Auth account
+ * 6. Deletes the Firebase Auth account
  *
  * Image URLs are collected from Firestore recipes before any documents are
  * deleted, then each image is deleted individually from Storage. This avoids
@@ -42,11 +57,8 @@ import javax.inject.Singleton
 @Singleton
 class AccountDeletionService @Inject constructor(
     private val firestoreService: FirestoreService,
-    private val remoteImageStorage: RemoteImageStorage,
-    private val localImageFiles: LocalImageFiles,
-    private val importDebugRepository: ImportDebugRepository,
-    private val settingsDataStore: SettingsDataStore
-) {
+    private val remoteImageStorage: RemoteImageStorage
+) : RemoteAccountDeletion {
     companion object {
         private const val TAG = "AccountDeletionService"
         private const val SERVER_TIMEOUT_MS = 30_000L
@@ -64,18 +76,7 @@ class AccountDeletionService @Inject constructor(
     class AuthAccountDeletionException(cause: Throwable) :
         Exception("Your data was deleted, but the account could not be removed", cause)
 
-    /**
-     * Deletes all user data from Firebase and the local device, then deletes
-     * the Firebase Auth account.
-     *
-     * @param reauthCredential A fresh Google credential used to re-authenticate before
-     *        deleting anything. If null, the last sign-in must be recent.
-     * @throws ReauthenticationRequiredException before deleting anything if a fresh
-     *         login is required and no usable credential was supplied
-     * @throws OfflineException before deleting anything if the server is unreachable
-     * @throws AuthAccountDeletionException if data was deleted but the auth account wasn't
-     */
-    suspend fun deleteAllUserData(reauthCredential: AuthCredential? = null) {
+    override suspend fun deleteAllUserData(reauthCredential: AuthCredential?) {
         val user = Firebase.auth.currentUser
             ?: throw IllegalStateException("No authenticated user")
         val uid = user.uid
@@ -110,8 +111,6 @@ class AccountDeletionService @Inject constructor(
             Log.w(TAG, "Failed to delete user document (may not exist)", e)
         }
 
-        clearLocalUserData()
-
         try {
             serverCall { user.delete().await() }
             Log.i(TAG, "Firebase Auth account deleted")
@@ -121,7 +120,7 @@ class AccountDeletionService @Inject constructor(
             throw AuthAccountDeletionException(e)
         }
 
-        Log.i(TAG, "Account deletion completed for user $uid")
+        Log.i(TAG, "Server data deleted for user $uid")
     }
 
     private suspend fun reauthenticate(user: FirebaseUser, credential: AuthCredential?) {
@@ -196,30 +195,5 @@ class AccountDeletionService @Inject constructor(
             }
         }
         Log.d(TAG, "Deleted $deletedCount/${imageUrls.size} images from Firebase Storage")
-    }
-
-    private suspend fun clearLocalUserData() {
-        localImageFiles.clear()
-        try {
-            importDebugRepository.deleteAllDebugEntries()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to clear import debug data", e)
-        }
-        try {
-            settingsDataStore.clearAnthropicApiKey()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to clear API key", e)
-        }
-        try {
-            settingsDataStore.updateFavoriteTags { emptySet() }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to clear favorite tags", e)
-        }
     }
 }

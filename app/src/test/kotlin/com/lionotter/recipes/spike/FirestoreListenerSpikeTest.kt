@@ -320,7 +320,8 @@ class FirestoreListenerSpikeTest {
         val authService: AuthService = mockk()
         every { authService.authState } returns MutableStateFlow<AuthState>(AuthState.Guest(uid = "test-user"))
         every { authService.isGoogleUser() } returns false
-        coEvery { authService.awaitUid() } returns "test-user"
+        every { authService.leaveEpoch } returns 0
+        coEvery { authService.awaitUid(any()) } returns "test-user"
         val recipeRepo = FirestoreRecipeRepository(
             testFirestoreService,
             authService,

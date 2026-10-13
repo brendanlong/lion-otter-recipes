@@ -11,6 +11,7 @@ import com.lionotter.recipes.data.image.FirebaseStorageCoilFetcher
 import com.lionotter.recipes.data.image.FirebaseStorageKeyer
 import com.lionotter.recipes.data.image.RemoteImageStorage
 import com.lionotter.recipes.data.remote.AuthService
+import com.lionotter.recipes.data.remote.FirestoreService
 import com.lionotter.recipes.notification.RecipeNotificationHelper
 import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.util.LogLevel
@@ -35,12 +36,13 @@ class LionOtterApp : Application(), Configuration.Provider, SingletonImageLoader
     @Inject
     lateinit var remoteImageStorage: RemoteImageStorage
 
-    /**
-     * Injected eagerly so auth state is resolved and guest Firestore network access
-     * is disabled before any Activity or WorkManager job touches Firestore.
-     */
+    /** Injected eagerly so auth state is resolved before any Activity or WorkManager job runs. */
     @Inject
     lateinit var authService: AuthService
+
+    /** Injected eagerly so guest Firestore network access is disabled before anything touches Firestore. */
+    @Inject
+    lateinit var firestoreService: FirestoreService
 
     override fun onCreate() {
         super.onCreate()

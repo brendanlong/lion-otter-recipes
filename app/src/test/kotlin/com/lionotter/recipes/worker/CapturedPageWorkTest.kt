@@ -33,6 +33,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.io.File
 import java.io.IOException
+import javax.inject.Provider
 import kotlin.time.Instant
 
 /**
@@ -64,6 +65,8 @@ class CapturedPageWorkTest {
     private val parseHtml =
         ParseHtmlUseCase(parser, FakePageContentExtractor(), repository, FakeImportDebugLog(), FakeAiSettings(), imageStore)
 
+    private val runningWork = RunningAccountWork(Provider { error("Not used by this test") })
+
     private val factory = object : WorkerFactory() {
         override fun createWorker(
             appContext: Context,
@@ -75,14 +78,16 @@ class CapturedPageWorkTest {
                 workerParameters,
                 ImportRecipeUseCase(fetcher, FakePageContentExtractor(), parseHtml),
                 inputStore,
-                RecipeNotificationHelper(appContext)
+                RecipeNotificationHelper(appContext),
+                runningWork
             )
             else -> RecipeRegenerateWorker(
                 appContext,
                 workerParameters,
                 RegenerateRecipeUseCase(parseHtml, repository, fetcher, FakePageContentExtractor(), imageStore),
                 inputStore,
-                RecipeNotificationHelper(appContext)
+                RecipeNotificationHelper(appContext),
+                runningWork
             )
         }
     }

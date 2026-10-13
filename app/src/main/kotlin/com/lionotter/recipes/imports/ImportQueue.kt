@@ -3,8 +3,10 @@ package com.lionotter.recipes.imports
 import android.util.Log
 import androidx.work.OneTimeWorkRequest
 import androidx.work.WorkManager
+import com.lionotter.recipes.data.local.LocalDataScope
 import com.lionotter.recipes.data.local.PendingImportEntity
 import com.lionotter.recipes.data.local.PendingImportStatus
+import com.lionotter.recipes.data.local.PerUserLocalData
 import com.lionotter.recipes.data.repository.PendingImportRepository
 import com.lionotter.recipes.di.ApplicationScope
 import com.lionotter.recipes.domain.ArchiveFailure
@@ -20,6 +22,9 @@ import com.lionotter.recipes.worker.RecipeWorkScheduler
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -39,6 +44,9 @@ import kotlin.time.Clock
  * On startup every in-progress row is reconciled against WorkManager, so rows whose work was
  * pruned or never enqueued (process death) are marked failed instead of staying in progress
  * forever. Failed imports stay in the list until the user retries or dismisses them.
+ *
+ * The queue (pending_imports rows and the [ImportInputStore] files) belongs to the account that
+ * started the imports, so it is cleared when that account leaves the device ([clearUserData]).
  */
 @Singleton
 class ImportQueue @Inject constructor(
@@ -49,7 +57,7 @@ class ImportQueue @Inject constructor(
     private val inputStore: ImportInputStore,
     private val paprikaImportSteps: PaprikaImportSteps,
     private val monitor: ImportMonitor
-) {
+) : PerUserLocalData {
     companion object {
         private const val TAG = "ImportQueue"
         private const val WORKER_STOP_TIMEOUT_MILLIS = 30_000L
@@ -258,11 +266,57 @@ class ImportQueue @Inject constructor(
         }
     }
 
+    override val scope = LocalDataScope.ACCOUNT
+
+    /** Cancels the work of every import, so none saves recipes into the next account. */
+    override suspend fun stopBackgroundWork() {
+        pendingImportRepository.getAllPendingImports().first().forEach { cancelWork(it) }
+    }
+
+    /**
+     * Cancels every import (running or failed, including any AI batch) and deletes its row and
+     * files, plus staged files no row refers to. Imports are cleaned up in parallel, so their
+     * workers' stop timeouts don't add up.
+     *
+     * @throws Exception if something could not be cleaned up (the rest still is)
+     */
+    override suspend fun clearUserData() {
+        startMutex.withLock {
+            val rows = pendingImportRepository.getAllPendingImports().first()
+            val failures = coroutineScope {
+                rows.map { row -> async { runCleanupStep("cancel import ${row.id}") { cancelAndCleanUp(row.id) } } }
+                    .awaitAll()
+            }.toMutableList()
+            failures += runCleanupStep("delete the import queue") { pendingImportRepository.deleteAll() }
+            failures += runCleanupStep("delete the import files") { inputStore.deleteAllImports() }
+            failures.firstOrNull { it != null }?.let { throw it }
+        }
+    }
+
+    /** Runs [step]; returns its failure (logged) instead of throwing it. */
+    private suspend fun runCleanupStep(description: String, step: suspend () -> Unit): Exception? = try {
+        step()
+        null
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "Failed to $description", e)
+        e
+    }
+
+    private fun cancelWork(entity: PendingImportEntity) {
+        // Cancelling the unique work also stops a queued Paprika poll continuation.
+        workManager.cancelUniqueWork(RecipeWorkScheduler.importWorkName(entity.id))
+        entity.workManagerId?.let(::parseUuid)?.let { workManager.cancelWorkById(it) }
+    }
+
     private suspend fun cancelAndCleanUp(id: String) {
         val entity = pendingImportRepository.getPendingImportById(id)
-        // Cancelling the unique work also stops a queued Paprika poll continuation.
-        workManager.cancelUniqueWork(RecipeWorkScheduler.importWorkName(id))
-        entity?.workManagerId?.let(::parseUuid)?.let { workManager.cancelWorkById(it) }
+        if (entity != null) {
+            cancelWork(entity)
+        } else {
+            workManager.cancelUniqueWork(RecipeWorkScheduler.importWorkName(id))
+        }
         if (inputStore.hasImport(id)) {
             // WorkInfo turns CANCELLED before the worker has actually stopped, so wait for the
             // worker to release the import (it may still be submitting a batch / writing

@@ -27,6 +27,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import javax.inject.Provider
 import kotlin.time.Instant
 
 /** The copy image handed to "save as copy" work is stored for the copy or released, never leaked. */
@@ -82,7 +83,8 @@ class RecipeEditWorkerTest {
                     useCase,
                     inputStore,
                     imageStore,
-                    RecipeNotificationHelper(appContext)
+                    RecipeNotificationHelper(appContext),
+                    RunningAccountWork(Provider { error("Not used by this test") })
                 )
             })
             .build()

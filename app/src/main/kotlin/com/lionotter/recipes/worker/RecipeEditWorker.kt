@@ -28,8 +28,9 @@ class RecipeEditWorker @AssistedInject constructor(
     private val editRecipeUseCase: EditRecipeUseCase,
     private val inputStore: ImportInputStore,
     private val imageStore: ImageStore,
-    notificationHelper: RecipeNotificationHelper
-) : BaseRecipeWorker(context, workerParams, notificationHelper) {
+    notificationHelper: RecipeNotificationHelper,
+    runningWork: RunningAccountWork
+) : BaseRecipeWorker(context, workerParams, notificationHelper, runningWork) {
 
     override val notificationTitle = "Updating Recipe"
     override val errorTitle = "Edit Failed"

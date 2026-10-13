@@ -2,6 +2,8 @@ package com.lionotter.recipes.data.repository
 
 import com.lionotter.recipes.data.local.ImportDebugDao
 import com.lionotter.recipes.data.local.ImportDebugEntity
+import com.lionotter.recipes.data.local.LocalDataScope
+import com.lionotter.recipes.data.local.PerUserLocalData
 import com.lionotter.recipes.domain.port.ImportDebugLog
 import com.lionotter.recipes.domain.port.ImportDebugRecord
 import kotlinx.coroutines.flow.Flow
@@ -10,10 +12,18 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.time.Clock
 
+/**
+ * Import debugging data. A device-level developer tool (kept across sign-out), but it holds the
+ * pages and recipes the user imported, so account deletion clears it.
+ */
 @Singleton
 class ImportDebugRepository @Inject constructor(
     private val importDebugDao: ImportDebugDao
-) : ImportDebugLog {
+) : ImportDebugLog, PerUserLocalData {
+    override val scope = LocalDataScope.DEVICE
+
+    override suspend fun clearUserData() = deleteAllDebugEntries()
+
     fun getAllDebugEntries(): Flow<List<ImportDebugEntity>> {
         return importDebugDao.getAllDebugEntries()
     }

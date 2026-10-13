@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
+import com.lionotter.recipes.data.remote.AccountLeftException
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.messages.resolve
 import com.lionotter.recipes.messages.toUserMessage
@@ -22,11 +23,13 @@ import kotlinx.coroutines.CancellationException
  *   from the background on Android 12+) are logged and the progress is shown as a plain
  *   notification instead of crashing the worker.
  * - Transient failures are retried with WorkManager backoff up to [MAX_ATTEMPTS] runs.
+ * - Each run is tracked by [RunningAccountWork], so signing out waits for it to stop.
  */
 abstract class BaseRecipeWorker(
     context: Context,
     workerParams: WorkerParameters,
-    protected val notificationHelper: RecipeNotificationHelper
+    protected val notificationHelper: RecipeNotificationHelper,
+    private val runningWork: RunningAccountWork
 ) : CoroutineWorker(context, workerParams) {
 
     companion object {
@@ -49,12 +52,17 @@ abstract class BaseRecipeWorker(
 
     protected abstract suspend fun doRecipeWork(): Result
 
-    final override suspend fun doWork(): Result {
-        return try {
+    final override suspend fun doWork(): Result = runningWork.track {
+        try {
             doRecipeWork()
         } catch (e: CancellationException) {
             notificationHelper.cancelNotification(progressNotificationId)
             throw e
+        } catch (e: AccountLeftException) {
+            // The account signed out under this work, which was cancelled: nothing to tell the user
+            Log.w(TAG, "${javaClass.simpleName} stopped: the account was signed out", e)
+            notificationHelper.cancelNotification(progressNotificationId)
+            Result.failure()
         } catch (e: Exception) {
             ErrorLog.e(TAG, "${javaClass.simpleName} failed unexpectedly", e)
             errorResult(GenericFailure(e.toRecipeError(), inputData.getString(KEY_IMPORT_ID)))

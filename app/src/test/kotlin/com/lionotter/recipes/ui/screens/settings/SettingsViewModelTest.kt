@@ -3,10 +3,10 @@ package com.lionotter.recipes.ui.screens.settings
 import app.cash.turbine.test
 import com.google.firebase.auth.AuthCredential
 import com.lionotter.recipes.R
+import com.lionotter.recipes.data.remote.AccountDeletionService
 import com.lionotter.recipes.data.remote.AccountMigrationService
 import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.AuthState
-import com.lionotter.recipes.data.remote.SignOutResult
 import com.lionotter.recipes.data.repository.ImportDebugRepository
 import com.lionotter.recipes.domain.model.AiModels
 import com.lionotter.recipes.domain.model.TagBarSize
@@ -14,13 +14,10 @@ import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.domain.port.AppSettings
 import com.lionotter.recipes.messages.UserMessage
+import com.lionotter.recipes.testutil.AccountFakes
 import com.lionotter.recipes.testutil.FakeAppSettings
-import io.mockk.coEvery
-import io.mockk.coVerify
 import io.mockk.every
-import io.mockk.just
 import io.mockk.mockk
-import io.mockk.runs
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -52,6 +49,8 @@ class SettingsViewModelTest {
     private lateinit var accountMigrationService: AccountMigrationService
     private lateinit var viewModel: SettingsViewModel
     private val testDispatcher = StandardTestDispatcher()
+    private val accounts = AccountFakes(AuthState.Google(uid = "google-uid", email = "user@example.com"))
+    private val accountLifecycle = accounts.lifecycle(emptySet(), testDispatcher)
 
     @Before
     fun setup() {
@@ -59,8 +58,8 @@ class SettingsViewModelTest {
         importDebugRepository = mockk()
         authService = mockk()
         accountMigrationService = mockk()
-        every { authService.authState } returns MutableStateFlow<AuthState>(AuthState.Guest(uid = "test-guest"))
-        viewModel = SettingsViewModel(settings, importDebugRepository, authService, accountMigrationService, {})
+        every { authService.authState } returns accounts.auth.authState
+        viewModel = SettingsViewModel(settings, importDebugRepository, authService, accountLifecycle, accountMigrationService, {})
     }
 
     @After
@@ -206,7 +205,7 @@ class SettingsViewModelTest {
         val slowSettings = object : AppSettings by settings {
             override val settings = gate.filter { it }.flatMapLatest { this@SettingsViewModelTest.settings.settings }
         }
-        val viewModel = SettingsViewModel(slowSettings, importDebugRepository, authService, accountMigrationService, {})
+        val viewModel = SettingsViewModel(slowSettings, importDebugRepository, authService, accountLifecycle, accountMigrationService, {})
         viewModel.uiState.test {
             assertEquals(SettingsUiState.Loading, awaitItem())
             expectNoEvents()
@@ -259,23 +258,23 @@ class SettingsViewModelTest {
 
     @Test
     fun `sign out with unsynced changes asks for confirmation before forcing`() = runTest {
-        coEvery { authService.signOut(false) } returns SignOutResult.PendingWrites
-        coEvery { authService.signOut(true) } returns SignOutResult.Success
+        accounts.firestore.pendingWritesSynced = false
 
         viewModel.signOut()
         advanceUntilIdle()
         assertTrue(viewModel.showUnsyncedSignOutWarning.value)
+        assertTrue(viewModel.authState.value is AuthState.Google)
 
         viewModel.signOut(force = true)
         advanceUntilIdle()
         assertFalse(viewModel.showUnsyncedSignOutWarning.value)
-        coVerify { authService.signOut(true) }
+        assertTrue(viewModel.authState.value is AuthState.Guest)
     }
 
     @Test
     fun `only one account operation runs at a time`() = runTest {
-        val signOut = CompletableDeferred<SignOutResult>()
-        coEvery { authService.signOut(false) } coAnswers { signOut.await() }
+        val pendingWrites = CompletableDeferred<Boolean>()
+        accounts.firestore.pendingWritesResult = pendingWrites
 
         viewModel.signOut()
         advanceUntilIdle()
@@ -283,7 +282,7 @@ class SettingsViewModelTest {
         assertFalse(viewModel.beginGoogleSignIn())
         assertFalse(viewModel.beginDeleteAccount())
 
-        signOut.complete(SignOutResult.Success)
+        pendingWrites.complete(true)
         advanceUntilIdle()
         assertNull(viewModel.busyOp.value)
         assertTrue(viewModel.beginGoogleSignIn())
@@ -307,7 +306,6 @@ class SettingsViewModelTest {
     @Test
     fun `account deletion reports the outcome`() = runTest {
         val credential = mockk<AuthCredential>()
-        coEvery { authService.deleteAccountAndData(credential) } just runs
 
         assertTrue(viewModel.beginDeleteAccount())
         assertEquals(AccountOp.DELETING_ACCOUNT, viewModel.busyOp.value)
@@ -315,12 +313,26 @@ class SettingsViewModelTest {
         advanceUntilIdle()
 
         assertEquals(UserMessage(R.string.delete_account_success), viewModel.events.first())
+        assertEquals(listOf(credential), accounts.remote.credentials)
+        assertTrue(viewModel.authState.value is AuthState.Guest)
         assertNull(viewModel.busyOp.value)
     }
 
     @Test
+    fun `failed account deletion explains why`() = runTest {
+        accounts.remote.failure = AccountDeletionService.OfflineException()
+
+        assertTrue(viewModel.beginDeleteAccount())
+        viewModel.deleteAccount(CredentialResult.Failed(IllegalStateException("no credential")))
+        advanceUntilIdle()
+
+        assertEquals(UserMessage(R.string.delete_account_offline), viewModel.events.first())
+        assertTrue(viewModel.authState.value is AuthState.Google)
+    }
+
+    @Test
     fun `a failed sign out is reported`() = runTest {
-        coEvery { authService.signOut(false) } throws IllegalStateException("boom")
+        accounts.auth.signOutFailure = IllegalStateException("boom")
         viewModel.signOut()
         advanceUntilIdle()
 

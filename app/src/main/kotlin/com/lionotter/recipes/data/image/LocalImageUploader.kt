@@ -16,6 +16,15 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** Whether clearing local data would lose recipe images (implemented by [LocalImageUploader]). */
+fun interface PendingImageUploads {
+    /**
+     * True if a Google user has recipes whose image is only on this device (a `file://` that
+     * exists here), i.e. would be lost by clearing local data. True if this can't be determined.
+     */
+    suspend fun hasPendingLocalImages(): Boolean
+}
+
 /**
  * Uploads recipe images that are still only on this device (`file://`: added as a guest, or
  * whose upload failed) once the user syncs, and points their recipes and meal plans at the
@@ -29,7 +38,7 @@ class LocalImageUploader @Inject constructor(
     private val mealPlanRepository: MealPlanRepository,
     private val authService: AuthService,
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
-) {
+) : PendingImageUploads {
     companion object {
         private const val TAG = "LocalImageUploader"
     }
@@ -90,11 +99,7 @@ class LocalImageUploader @Inject constructor(
         }
     }
 
-    /**
-     * True if a Google user has recipes whose image is only on this device (a `file://` that
-     * exists here), i.e. would be lost by clearing local data. True if this can't be determined.
-     */
-    suspend fun hasPendingLocalImages(): Boolean {
+    override suspend fun hasPendingLocalImages(): Boolean {
         if (!authService.isGoogleUser()) return false
         return try {
             recipeRepository.getImageUrlsByRecipeId(localOnly = true).values.any { localFiles.exists(it) }

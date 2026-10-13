@@ -18,11 +18,20 @@ import javax.inject.Singleton
 
 private val Context.groceryListDataStore: DataStore<Preferences> by preferencesDataStore(name = "grocery_list_state")
 
-/** [GroceryListStateStore] in its own Preferences DataStore, keeping the most recent weeks. */
+/**
+ * [GroceryListStateStore] in its own Preferences DataStore, keeping the most recent weeks. The
+ * state refers to the account's meal plans, so it is cleared with them.
+ */
 @Singleton
 class DataStoreGroceryListStateStore @Inject constructor(
     @param:ApplicationContext private val context: Context
-) : GroceryListStateStore {
+) : GroceryListStateStore, PerUserLocalData {
+    override val scope = LocalDataScope.ACCOUNT
+
+    override suspend fun clearUserData() {
+        context.groceryListDataStore.edit { it.clear() }
+    }
+
     private class WeekKeys(weekStart: LocalDate) {
         val prefix = "$KEY_PREFIX${weekStart}_"
         val showingList = booleanPreferencesKey("${prefix}showing_list")

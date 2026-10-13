@@ -36,8 +36,9 @@ class PaprikaImportWorker @AssistedInject constructor(
     private val inputStore: ImportInputStore,
     private val scheduler: RecipeWorkScheduler,
     private val pendingImportRepository: PendingImportRepository,
-    notificationHelper: RecipeNotificationHelper
-) : BaseRecipeWorker(context, workerParams, notificationHelper) {
+    notificationHelper: RecipeNotificationHelper,
+    runningWork: RunningAccountWork
+) : BaseRecipeWorker(context, workerParams, notificationHelper, runningWork) {
 
     override val notificationTitle = "Importing from Paprika"
     override val errorTitle = "Paprika Import Failed"

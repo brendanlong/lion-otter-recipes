@@ -47,4 +47,8 @@ class PendingImportRepository @Inject constructor(
     suspend fun deletePendingImport(id: String) {
         pendingImportDao.deletePendingImport(id)
     }
+
+    suspend fun deleteAll() {
+        pendingImportDao.deleteAll()
+    }
 }
