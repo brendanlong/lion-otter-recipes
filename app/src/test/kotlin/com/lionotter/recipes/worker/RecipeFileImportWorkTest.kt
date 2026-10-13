@@ -34,6 +34,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.io.File
+import javax.inject.Provider
 
 /**
  * A recipe file is copied into [ImportInputStore] when the import starts (the permission to read
@@ -53,6 +54,8 @@ class RecipeFileImportWorkTest {
     private val parseHtml =
         ParseHtmlUseCase(parser, extractor, repository, FakeImportDebugLog(), FakeAiSettings(), FakeImageStore())
 
+    private val runningWork = RunningAccountWork(Provider { error("Not used by this test") })
+
     private val factory = object : WorkerFactory() {
         override fun createWorker(
             appContext: Context,
@@ -64,7 +67,8 @@ class RecipeFileImportWorkTest {
             // No pages: FakePageFetcher fails the test if anything is downloaded
             ImportRecipeUseCase(FakePageFetcher(), extractor, parseHtml),
             inputStore,
-            RecipeNotificationHelper(appContext)
+            RecipeNotificationHelper(appContext),
+            runningWork
         )
     }
 
