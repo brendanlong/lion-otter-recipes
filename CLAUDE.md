@@ -9,7 +9,9 @@
 - Commit after finishing fixes or features
 - Prefer to amend if fixing the current commit
 - ALWAYS check the current commit before amending
-- Reference @docs/architecture.mmd and keep it up to date with any changes
+- DESIGN.md records cross-cutting decisions and invariants only — not code structure. Write each fact in one place
+  (prefer KDoc on the class for class-specific details). Don't update DESIGN.md for routine changes; only when a
+  decision or invariant changes.
 - Before committing, always run the CI checks locally to verify nothing is broken:
   - `./ci-local.sh` (runs assembleDebug, testDebugUnitTest, lintDebug, and detektDebug in parallel)
   - See `.github/workflows/android-ci.yml` for the full CI pipeline

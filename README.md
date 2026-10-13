@@ -198,27 +198,9 @@ Client-side limits are defined in `ResourceLimits.kt`. Exceeding a limit shows a
 - **Preferences**: DataStore
 - **Image Loading**: Coil
 
-## Project Structure
+## Design
 
-```
-app/src/main/kotlin/com/lionotter/recipes/
-├── data/           # Data layer
-│   ├── local/      # Room database, DataStore
-│   ├── ai/         # Anthropic API (transport, prompt, schema), page extraction
-│   ├── remote/     # Web scraping, Firebase, images
-│   └── repository/ # Repository implementations
-├── domain/         # Business logic
-│   ├── model/      # Data models
-│   ├── port/       # Interfaces the data layer implements
-│   └── usecase/    # Use cases
-├── ui/             # Presentation layer
-│   ├── screens/    # Compose screens
-│   ├── navigation/ # Navigation graph
-│   └── theme/      # Material theme
-└── di/             # Hilt modules
-```
-
-See [DESIGN.md](DESIGN.md) for detailed architecture documentation.
+See [DESIGN.md](DESIGN.md) for the architecture's decisions and invariants.
 
 ## License
 
