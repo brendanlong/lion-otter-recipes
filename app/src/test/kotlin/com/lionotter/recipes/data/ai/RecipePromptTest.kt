@@ -1,6 +1,6 @@
 package com.lionotter.recipes.data.ai
 
-import com.lionotter.recipes.domain.model.AiModels
+import com.lionotter.recipes.domain.model.AiProviders
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -64,7 +64,7 @@ class RecipePromptTest {
 
     @Test
     fun `every supported model gets effort and structured output`() {
-        AiModels.SUPPORTED_MODELS.forEach { model ->
+        AiProviders.ANTHROPIC.models.map { it.id }.forEach { model ->
             listOf(true, false).forEach { enabled ->
                 val config = RecipeRequests.requestConfigFor(model, enabled)
                 assertTrue(config.toOutputConfig().effort().isPresent)
@@ -78,12 +78,12 @@ class RecipePromptTest {
 
     @Test
     fun `thinking maps to effort, and Fable gets no explicit thinking config`() {
-        assertEquals(Effort.MEDIUM, RecipeRequests.requestConfigFor(AiModels.MODEL_HAIKU, true).effort)
-        assertEquals(Effort.LOW, RecipeRequests.requestConfigFor(AiModels.MODEL_HAIKU, false).effort)
-        assertFalse(RecipeRequests.requestConfigFor(AiModels.MODEL_FABLE, true).adaptiveThinking)
-        assertTrue(RecipeRequests.requestConfigFor(AiModels.MODEL_OPUS, true).adaptiveThinking)
-        assertTrue(RecipeRequests.requestConfigFor(AiModels.MODEL_HAIKU, true).adaptiveThinking)
-        assertFalse(RecipeRequests.requestConfigFor(AiModels.MODEL_HAIKU, false).adaptiveThinking)
+        assertEquals(Effort.MEDIUM, RecipeRequests.requestConfigFor(AiProviders.CLAUDE_HAIKU, true).effort)
+        assertEquals(Effort.LOW, RecipeRequests.requestConfigFor(AiProviders.CLAUDE_HAIKU, false).effort)
+        assertFalse(RecipeRequests.requestConfigFor(AiProviders.CLAUDE_FABLE, true).adaptiveThinking)
+        assertTrue(RecipeRequests.requestConfigFor(AiProviders.CLAUDE_OPUS, true).adaptiveThinking)
+        assertTrue(RecipeRequests.requestConfigFor(AiProviders.CLAUDE_HAIKU, true).adaptiveThinking)
+        assertFalse(RecipeRequests.requestConfigFor(AiProviders.CLAUDE_HAIKU, false).adaptiveThinking)
     }
 
     private companion object {

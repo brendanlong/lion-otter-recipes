@@ -4,6 +4,7 @@ import android.util.Log
 import com.lionotter.recipes.domain.AiFailure
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.model.AiProviders
 import com.lionotter.recipes.util.AppJson
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -65,7 +66,7 @@ class OpenAiImageGeneratorTest {
 
     @Test
     fun `sends the prompt with the key and returns the decoded image`() = runTest {
-        val result = generator.generate("A loaf of banana bread", "sk-openai")
+        val result = generator.generate("A loaf of banana bread", AiProviders.GPT_IMAGE_FLARE, "sk-openai")
 
         assertArrayEquals(byteArrayOf(1, 2, 3), (result as Outcome.Success).value)
         val request = requests.single()
@@ -73,7 +74,7 @@ class OpenAiImageGeneratorTest {
         assertEquals("Bearer sk-openai", request.headers[HttpHeaders.Authorization])
         val body = Json.decodeFromString<JsonObject>(request.body.toByteArray().decodeToString())
         assertEquals("A loaf of banana bread", body.getValue("prompt").jsonPrimitive.content)
-        assertEquals(OpenAiImageGenerator.MODEL, body.getValue("model").jsonPrimitive.content)
+        assertEquals(AiProviders.GPT_IMAGE_FLARE, body.getValue("model").jsonPrimitive.content)
         assertEquals("low", body.getValue("quality").jsonPrimitive.content)
         assertEquals("jpeg", body.getValue("output_format").jsonPrimitive.content)
     }
@@ -93,8 +94,8 @@ class OpenAiImageGeneratorTest {
         for ((statusAndBody, failure) in cases) {
             response = statusAndBody
             assertEquals(
-                Outcome.Failure(RecipeError.Ai(failure, statusAndBody.first.value)),
-                generator.generate("prompt", "sk-openai")
+                Outcome.Failure(RecipeError.Ai(failure, statusAndBody.first.value, AiProviders.OPENAI_ID)),
+                generator.generate("prompt", AiProviders.GPT_IMAGE_FLARE, "sk-openai")
             )
         }
     }
@@ -102,9 +103,9 @@ class OpenAiImageGeneratorTest {
     @Test
     fun `a response without an image fails`() = runTest {
         response = HttpStatusCode.OK to """{"created":1,"data":[]}"""
-        assertEquals(Outcome.Failure(RecipeError.Ai(AiFailure.EMPTY_RESPONSE)), generator.generate("prompt", "key"))
+        assertEquals(Outcome.Failure(RecipeError.Ai(AiFailure.EMPTY_RESPONSE, provider = AiProviders.OPENAI_ID)), generator.generate("prompt", AiProviders.GPT_IMAGE_FLARE, "key"))
 
         response = HttpStatusCode.OK to "<html>"
-        assertEquals(Outcome.Failure(RecipeError.Ai(AiFailure.UNREADABLE_RESPONSE)), generator.generate("prompt", "key"))
+        assertEquals(Outcome.Failure(RecipeError.Ai(AiFailure.UNREADABLE_RESPONSE, provider = AiProviders.OPENAI_ID)), generator.generate("prompt", AiProviders.GPT_IMAGE_FLARE, "key"))
     }
 }

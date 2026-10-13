@@ -184,6 +184,15 @@ Google users). Local files live only in `files/recipe_images/`.
 
 ## AI requests
 
+- **Providers**: `AiProviders` is the catalog of AI providers (one API key each) and their text and image models.
+  Model IDs are unique across providers, so a stored model ID says which provider (and key) it needs; the ports are
+  routed by model to per-provider implementations (`AiProviderModule`). Provider IDs are persisted and never change.
+- **Model choice**: the import, edit and image models are each the user's pick while its provider has a key,
+  otherwise the default of the first provider (in the order the keys were added) with a model for that role.
+  Removing a key also forgets the picks of that provider's models, so re-adding it doesn't bring them back.
+  The order lives with the keys; keys stored before it existed count as added Anthropic first.
+- A Paprika batch is polled, read and cancelled with the provider of the model it was submitted with, even if the
+  import model has changed since.
 - Interactive URL imports capture the page in the in-app browser rather than downloading it, because many recipe sites
   answer non-browser fetches with a 403 bot check.
 - **Structured output**: the response schema (`RecipeOutputSchema`) must keep **every property required** (absent
@@ -196,19 +205,20 @@ Google users). Local files live only in `files/recipe_images/`.
   which says what they are. Photos are scaled to 1568 px on the long side (JPEG, under the API's 5 MB per image) before
   sending; PDFs go as is. The size caps above keep a request well under the API's 32 MB limit, and bound memory (the
   worker holds a PDF about four times over: bytes, base64, request body, network buffer). The tag hint is the user's 100 most-used tags read from the local cache; a read failure only drops it.
-- Single-recipe parses stream (large `max_tokens` would hit HTTP timeouts) and use server-side `fallbacks: "default"`,
+- Single-recipe parses stream (large `max_tokens` would hit HTTP timeouts). Anthropic parses use server-side `fallbacks: "default"`,
   so a safety decline is retried on a fallback model in the same stream; text after the last `fallback` boundary wins.
-- Every supported model takes adaptive thinking plus an effort level (no fixed `budget_tokens`); Fable always thinks
-  and rejects an explicit thinking config. Unknown stored model IDs are normalized by `AiModels.normalizeModel()`.
+- The thinking toggle maps to an effort level (medium when on, low when off; Anthropic also gets adaptive thinking,
+  never a fixed `budget_tokens`). Fable always thinks and rejects an explicit thinking config. Retired stored model IDs map to
+  the current model of their family (`AiProvider.findModel`).
 - Ingredient fields: `name` is what you buy, `modifier` is preparation ("peeled", "melted"), `notes` everything else.
   The grocery list merges by name and ignores the modifier; the recipe's "all ingredients" view keeps modifiers apart.
   Recipes parsed before modifiers existed keep preparation in `name`/`notes` and are not migrated.
 - Regeneration and AI edits copy only AI-owned fields (`Recipe.withRegeneratedContent`); every other field is preserved.
-- **Generated images**: Claude can't draw, so recipe images come from OpenAI's image API with a separate OpenAI key
-  (optional; generation for new imports defaults to on once a key is set). Every parse also writes an `imagePrompt`
+- **Generated images**: recipe images come from the image model (only OpenAI has image models so far), optional:
+  generation for new imports defaults to on once a provider with an image model has a key. Every parse also writes an `imagePrompt`
   (a required schema string, `""` for none), which is saved on the recipe and is AI-owned like its other content.
-  Recipes parsed before prompts were kept get a simple prompt from their name and summary (no separate AI request). Images run one at a time (OpenAI's
-  image rate limits are low): single images (imports, the user's requests) in a WorkManager chain, and "generate images
+  Recipes parsed before prompts were kept get a simple prompt from their name and summary (no separate AI request). Images run one at a time (image
+  rate limits are low): single images (imports, the user's requests) in a WorkManager chain, and "generate images
   for existing recipes" as one worker that walks the recipes without one, so it can resume and never queues thousands
   of jobs. A key or account failure stops either; other failures don't. Turning image generation off stops both
   (except images the user asked for). A generated image is attached only if the recipe's image hasn't changed

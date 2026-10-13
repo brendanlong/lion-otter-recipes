@@ -5,6 +5,8 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.navigation.testing.invoke
 import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.model.AiProviders
+import com.lionotter.recipes.domain.model.ModelKind
 import com.lionotter.recipes.domain.model.ImageChange
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.messages.UserMessage
@@ -53,7 +55,7 @@ class EditRecipeViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var recipeRepository: FakeRecipeRepository
     private val settings = FakeAppSettings().apply {
-        editModelFlow.value = "model"
+        editModelFlow.value = AiProviders.CLAUDE_OPUS
         thinkingFlow.value = false
     }
     private lateinit var imageStore: FakeImageStore
@@ -381,18 +383,36 @@ class EditRecipeViewModelTest {
         val handle = SavedStateHandle(route = Route.EditRecipe("r1"))
         val viewModel = createViewModel(handle)
         advanceUntilIdle()
-        assertEquals("model", viewModel.model.value)
+        assertEquals(AiProviders.CLAUDE_OPUS, viewModel.model.value?.id)
 
-        settings.editModelFlow.value = "other-model"
+        settings.editModelFlow.value = AiProviders.CLAUDE_SONNET
         advanceUntilIdle()
-        assertEquals("other-model", viewModel.model.value)
+        assertEquals(AiProviders.CLAUDE_SONNET, viewModel.model.value?.id)
 
-        viewModel.setModel("chosen-model")
+        viewModel.setModel(AiProviders.CLAUDE_FABLE)
         viewModel.setThinkingEnabled(true)
         val recreated = createViewModel(handle)
         advanceUntilIdle()
-        assertEquals("chosen-model", recreated.model.value)
+        assertEquals(AiProviders.CLAUDE_FABLE, recreated.model.value?.id)
         assertTrue(recreated.thinkingEnabled.value)
+    }
+
+    @Test
+    fun `a chosen model whose provider has no key falls back to the edit model`() = runTest {
+        settings.openAiApiKeyFlow.value = "sk-proj-key"
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        assertEquals(
+            AiProviders.availableModels(ModelKind.TEXT, mapOf("anthropic" to "k", "openai" to "k")),
+            viewModel.availableModels.value
+        )
+        viewModel.setModel(AiProviders.GPT_ASTRA)
+        advanceUntilIdle()
+        assertEquals(AiProviders.GPT_ASTRA, viewModel.model.value?.id)
+
+        settings.openAiApiKeyFlow.value = null
+        advanceUntilIdle()
+        assertEquals(AiProviders.CLAUDE_OPUS, viewModel.model.value?.id)
     }
 
     @Test
@@ -575,7 +595,7 @@ class EditRecipeViewModelTest {
         viewModel.requestRegenerate()
         advanceUntilIdle()
 
-        verify { scheduler.prepareRegenerate("r1", "model", false, null) }
+        verify { scheduler.prepareRegenerate("r1", AiProviders.CLAUDE_OPUS, false, null) }
     }
 
     @Test
@@ -587,6 +607,6 @@ class EditRecipeViewModelTest {
         viewModel.regenerateFromOriginal(BrowsedPage("https://example.com/final", "/work-inputs/page.txt"))
         advanceUntilIdle()
 
-        verify { scheduler.prepareRegenerate("r1", "model", false, "/work-inputs/page.txt") }
+        verify { scheduler.prepareRegenerate("r1", AiProviders.CLAUDE_OPUS, false, "/work-inputs/page.txt") }
     }
 }

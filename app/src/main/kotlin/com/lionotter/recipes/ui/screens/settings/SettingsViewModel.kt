@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.AuthCredential
 import com.lionotter.recipes.R
-import com.lionotter.recipes.data.ai.ApiKeyValidator
 import com.lionotter.recipes.data.account.AccountLifecycle
 import com.lionotter.recipes.data.image.ImageUploadScheduler
 import com.lionotter.recipes.data.remote.AccountMigrationService
@@ -15,6 +14,8 @@ import com.lionotter.recipes.data.remote.ReauthenticationRequiredException
 import com.lionotter.recipes.data.account.SignOutResult
 import com.lionotter.recipes.data.remote.AccountDeletionService
 import com.lionotter.recipes.data.repository.ImportDebugRepository
+import com.lionotter.recipes.domain.model.AiProviders
+import com.lionotter.recipes.domain.model.ModelRole
 import com.lionotter.recipes.domain.model.Settings
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
@@ -69,12 +70,9 @@ class SettingsViewModel @Inject constructor(
             initialValue = SettingsUiState.Loading
         )
 
-    val anthropicKey = ApiKeyField(viewModelScope, ApiKeyValidator.ANTHROPIC_API_KEY_PREFIX) {
-        settings.setAnthropicApiKey(it)
-    }
-
-    val openAiKey = ApiKeyField(viewModelScope, ApiKeyValidator.OPENAI_API_KEY_PREFIX) {
-        settings.setOpenAiApiKey(it)
+    /** A key field for every provider, in [AiProviders.ALL] order. */
+    val apiKeyFields: List<ApiKeyField> = AiProviders.ALL.map { provider ->
+        ApiKeyField(viewModelScope, provider) { settings.setApiKey(provider.id, it) }
     }
 
     /** The account operation in progress, if any; only one runs at a time. */
@@ -85,12 +83,8 @@ class SettingsViewModel @Inject constructor(
     private val _events = Channel<UserMessage>(Channel.BUFFERED)
     val events: Flow<UserMessage> = _events.receiveAsFlow()
 
-    fun clearAnthropicApiKey() {
-        launchSettingWrite("clear API key") { settings.clearAnthropicApiKey() }
-    }
-
-    fun clearOpenAiApiKey() {
-        launchSettingWrite("clear OpenAI API key") { settings.clearOpenAiApiKey() }
+    fun clearApiKey(providerId: String) {
+        launchSettingWrite("clear the $providerId API key") { settings.clearApiKey(providerId) }
     }
 
     fun setImageGenerationEnabled(enabled: Boolean) =
@@ -113,11 +107,8 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun setAiModel(model: String) =
-        launchSettingWrite("set AI model") { settings.setAiModel(model) }
-
-    fun setEditModel(model: String) =
-        launchSettingWrite("set edit model") { settings.setEditModel(model) }
+    fun setSelectedModel(role: ModelRole, modelId: String) =
+        launchSettingWrite("set the $role model") { settings.setSelectedModel(role, modelId) }
 
     fun setThinkingEnabled(enabled: Boolean) =
         launchSettingWrite("set thinking mode") { settings.setThinkingEnabled(enabled) }

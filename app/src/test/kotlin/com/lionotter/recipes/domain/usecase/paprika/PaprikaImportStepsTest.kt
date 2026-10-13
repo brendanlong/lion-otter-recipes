@@ -3,6 +3,7 @@ package com.lionotter.recipes.domain.usecase.paprika
 import com.lionotter.recipes.domain.AiFailure
 import com.lionotter.recipes.domain.ArchiveFailure
 import com.lionotter.recipes.domain.Outcome
+import com.lionotter.recipes.domain.model.AiProviders
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.ResourceLimits
 import com.lionotter.recipes.domain.port.BatchItemOutcome
@@ -363,6 +364,20 @@ class PaprikaImportStepsTest {
         settings.apiKeyFlow.value = ""
         assertEquals(PaprikaImportState.Failed(RecipeError.NoApiKey), run())
         assertEquals(0, batchParser.statusPolls)
+    }
+
+    @Test
+    fun `a batch is followed with its own provider's key after the import model changes`() = runTest {
+        settings.openAiApiKeyFlow.value = "sk-proj-test"
+        submit()
+        assertEquals(AiProviders.CLAUDE_SONNET, batchParser.createdModel)
+
+        settings.modelFlow.value = AiProviders.GPT_SOL
+        run()
+        assertEquals(AiProviders.CLAUDE_SONNET to "sk-ant-test", batchParser.calls.last())
+
+        settings.apiKeyFlow.value = null
+        assertEquals(PaprikaImportState.Failed(RecipeError.NoApiKey), run())
     }
 
     @Test

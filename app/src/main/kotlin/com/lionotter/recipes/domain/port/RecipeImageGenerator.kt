@@ -5,10 +5,10 @@ import com.lionotter.recipes.domain.Outcome
 /** Generates a picture of a dish for a recipe. */
 interface RecipeImageGenerator {
     /**
-     * A JPEG image of [prompt]. Fails with [RecipeError.Ai][com.lionotter.recipes.domain.RecipeError.Ai]
-     * when the request fails or returns no image.
+     * A JPEG image of [prompt], made with the image model [model]. Fails with
+     * [RecipeError.Ai][com.lionotter.recipes.domain.RecipeError.Ai] when the request fails or returns no image.
      */
-    suspend fun generate(prompt: String, apiKey: String): Outcome<ByteArray>
+    suspend fun generate(prompt: String, model: String, apiKey: String): Outcome<ByteArray>
 }
 
 /** Generates recipe images in the background (see `GenerateRecipeImageUseCase`). Both functions throw if the work can't be queued. */

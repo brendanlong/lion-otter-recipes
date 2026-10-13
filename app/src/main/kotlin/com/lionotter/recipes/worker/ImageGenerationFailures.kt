@@ -4,6 +4,8 @@ import android.content.res.Resources
 import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.AiFailure
 import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.model.AiProviders
+import com.lionotter.recipes.messages.providerName
 import com.lionotter.recipes.domain.usecase.GenerateRecipeImageUseCase
 
 /** How the image workers report a failed [GenerateRecipeImageUseCase] run. */
@@ -17,16 +19,18 @@ internal object ImageGenerationFailures {
     fun GenerateRecipeImageUseCase.Result.error(): RecipeError? =
         (this as? GenerateRecipeImageUseCase.Result.ImageFailed)?.error
 
-    /** A problem with the OpenAI key or account, which every other image would hit too. */
+    /** A problem with the provider's key or account, which every other image would hit too. */
     fun isAccountProblem(error: RecipeError): Boolean = error is RecipeError.Ai && error.reason in ACCOUNT_FAILURES
 
-    fun message(resources: Resources, error: RecipeError): String = resources.getString(
-        when ((error as? RecipeError.Ai)?.reason) {
-            AiFailure.INVALID_API_KEY -> R.string.image_generation_invalid_key
-            AiFailure.PERMISSION_DENIED -> R.string.image_generation_permission_denied
-            AiFailure.OUT_OF_CREDITS -> R.string.image_generation_out_of_credits
-            AiFailure.REFUSED -> R.string.image_generation_refused
-            else -> R.string.image_generation_failed
+    fun message(resources: Resources, error: RecipeError): String {
+        val ai = error as? RecipeError.Ai ?: return resources.getString(R.string.image_generation_failed)
+        val provider = providerName(ai.provider, AiProviders.OPENAI)
+        return when (ai.reason) {
+            AiFailure.INVALID_API_KEY -> resources.getString(R.string.image_generation_invalid_key, provider)
+            AiFailure.PERMISSION_DENIED -> resources.getString(R.string.image_generation_permission_denied, provider)
+            AiFailure.OUT_OF_CREDITS -> resources.getString(R.string.image_generation_out_of_credits, provider)
+            AiFailure.REFUSED -> resources.getString(R.string.image_generation_refused, provider)
+            else -> resources.getString(R.string.image_generation_failed)
         }
-    )
+    }
 }

@@ -5,7 +5,8 @@ import com.lionotter.recipes.domain.Outcome
 /**
  * Parses many recipes in one AI batch (cheaper, but takes minutes to hours): create the batch,
  * poll it until it has ended, then read the results. Batches are billed once created, so
- * callers must keep the batch ID somewhere durable.
+ * callers must keep the batch ID somewhere durable. Every call after [createBatch] takes the
+ * model the batch was created with, which says whose batch it is.
  */
 interface RecipeBatchParser {
     /** Returns the batch ID. */
@@ -16,7 +17,7 @@ interface RecipeBatchParser {
         thinkingEnabled: Boolean
     ): Outcome<String>
 
-    suspend fun getBatchStatus(batchId: String, apiKey: String): Outcome<BatchStatus>
+    suspend fun getBatchStatus(batchId: String, model: String, apiKey: String): Outcome<BatchStatus>
 
     /**
      * Hands each result of an ended batch to [onResult] as it is downloaded, so the whole batch
@@ -25,12 +26,13 @@ interface RecipeBatchParser {
      */
     suspend fun forEachResult(
         batchId: String,
+        model: String,
         apiKey: String,
         skipCustomIds: Set<String> = emptySet(),
         onResult: (BatchItemOutcome) -> Unit
     ): Outcome<Unit>
 
-    suspend fun cancelBatch(batchId: String, apiKey: String): Outcome<Unit>
+    suspend fun cancelBatch(batchId: String, model: String, apiKey: String): Outcome<Unit>
 }
 
 data class BatchParseRequest(

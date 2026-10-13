@@ -12,6 +12,7 @@ import com.anthropic.errors.UnauthorizedException
 import com.anthropic.errors.UnexpectedStatusCodeException
 import com.lionotter.recipes.domain.AiFailure
 import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.model.AiProviders
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -25,23 +26,23 @@ class AnthropicErrorMapperTest {
     fun `HTTP errors map to what went wrong, with the status`() {
         val cases = listOf(
             UnauthorizedException.builder().headers(headers).body(body("bad key")).build() to
-                RecipeError.Ai(AiFailure.INVALID_API_KEY, 401),
+                RecipeError.Ai(AiFailure.INVALID_API_KEY, 401, AiProviders.ANTHROPIC_ID),
             PermissionDeniedException.builder().headers(headers).body(body("no")).build() to
-                RecipeError.Ai(AiFailure.PERMISSION_DENIED, 403),
+                RecipeError.Ai(AiFailure.PERMISSION_DENIED, 403, AiProviders.ANTHROPIC_ID),
             NotFoundException.builder().headers(headers).body(body("no model")).build() to
-                RecipeError.Ai(AiFailure.MODEL_UNAVAILABLE, 404),
+                RecipeError.Ai(AiFailure.MODEL_UNAVAILABLE, 404, AiProviders.ANTHROPIC_ID),
             RateLimitException.builder().headers(headers).body(body("slow down")).build() to
-                RecipeError.Ai(AiFailure.RATE_LIMITED, 429),
+                RecipeError.Ai(AiFailure.RATE_LIMITED, 429, AiProviders.ANTHROPIC_ID),
             BadRequestException.builder().headers(headers).body(body("Your credit balance is too low")).build() to
-                RecipeError.Ai(AiFailure.OUT_OF_CREDITS, 400),
+                RecipeError.Ai(AiFailure.OUT_OF_CREDITS, 400, AiProviders.ANTHROPIC_ID),
             BadRequestException.builder().headers(headers).body(body("Schema is too complex")).build() to
-                RecipeError.Ai(AiFailure.REQUEST_REJECTED, 400),
+                RecipeError.Ai(AiFailure.REQUEST_REJECTED, 400, AiProviders.ANTHROPIC_ID),
             InternalServerException.builder().statusCode(500).headers(headers).body(body("oops")).build() to
-                RecipeError.Ai(AiFailure.OVERLOADED, 500),
+                RecipeError.Ai(AiFailure.OVERLOADED, 500, AiProviders.ANTHROPIC_ID),
             UnexpectedStatusCodeException.builder().statusCode(529).headers(headers).body(body("overloaded")).build() to
-                RecipeError.Ai(AiFailure.OVERLOADED, 529),
+                RecipeError.Ai(AiFailure.OVERLOADED, 529, AiProviders.ANTHROPIC_ID),
             UnexpectedStatusCodeException.builder().statusCode(418).headers(headers).body(body("teapot")).build() to
-                RecipeError.Ai(AiFailure.HTTP_ERROR, 418),
+                RecipeError.Ai(AiFailure.HTTP_ERROR, 418, AiProviders.ANTHROPIC_ID),
         )
         cases.forEach { (exception, expected) ->
             assertEquals(exception.javaClass.simpleName, expected, AnthropicErrorMapper.toRecipeError(exception))
@@ -51,11 +52,11 @@ class AnthropicErrorMapperTest {
     @Test
     fun `network errors are transient, other failures are unknown`() {
         val io = AnthropicErrorMapper.toRecipeError(java.io.IOException("boom"))
-        assertEquals(RecipeError.Ai(AiFailure.NETWORK), io)
+        assertEquals(RecipeError.Ai(AiFailure.NETWORK, provider = AiProviders.ANTHROPIC_ID), io)
         assertTrue(io.retryable)
-        assertEquals(RecipeError.Ai(AiFailure.NETWORK), AnthropicErrorMapper.toRecipeError(AnthropicIoException("boom")))
+        assertEquals(RecipeError.Ai(AiFailure.NETWORK, provider = AiProviders.ANTHROPIC_ID), AnthropicErrorMapper.toRecipeError(AnthropicIoException("boom")))
         val unknown = AnthropicErrorMapper.toRecipeError(IllegalStateException())
-        assertEquals(RecipeError.Ai(AiFailure.UNKNOWN), unknown)
+        assertEquals(RecipeError.Ai(AiFailure.UNKNOWN, provider = AiProviders.ANTHROPIC_ID), unknown)
         assertFalse(unknown.retryable)
     }
 }

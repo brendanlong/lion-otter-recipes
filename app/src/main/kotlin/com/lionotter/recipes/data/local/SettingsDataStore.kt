@@ -26,9 +26,12 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import com.lionotter.recipes.di.ApplicationScope
-import com.lionotter.recipes.domain.model.AiModels
+import com.lionotter.recipes.domain.model.AiProviders
+import com.lionotter.recipes.domain.model.ModelRole
 import com.lionotter.recipes.domain.model.Settings
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.TagBarSize
@@ -67,8 +70,7 @@ class SettingsDataStore @Inject constructor(
                 failure = e
             }
         }
-        attempt { clearAnthropicApiKey() }
-        attempt { clearOpenAiApiKey() }
+        for (provider in AiProviders.ALL) attempt { clearApiKey(provider.id) }
         attempt { context.dataStore.edit { it.remove(Keys.FAVORITE_TAGS) } }
         failure?.let { throw it }
     }
@@ -76,6 +78,13 @@ class SettingsDataStore @Inject constructor(
     private object Keys {
         val AI_MODEL = stringPreferencesKey("ai_model")
         val EDIT_MODEL = stringPreferencesKey("edit_model")
+        val IMAGE_MODEL = stringPreferencesKey("image_model")
+
+        fun model(role: ModelRole) = when (role) {
+            ModelRole.IMPORT -> AI_MODEL
+            ModelRole.EDIT -> EDIT_MODEL
+            ModelRole.IMAGE -> IMAGE_MODEL
+        }
         val EXTENDED_THINKING_ENABLED = booleanPreferencesKey("extended_thinking_enabled")
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
         val VOLUME_KEYS_SCROLL = booleanPreferencesKey("volume_keys_scroll")
@@ -97,54 +106,47 @@ class SettingsDataStore @Inject constructor(
         context.getSharedPreferences(API_KEY_PREFS_FILE, Context.MODE_PRIVATE)
     }
 
-    /** Wrapper so "not loaded yet" (null) is distinct from "no key stored". */
-    private class LoadedApiKey(val value: String?)
+    /** Provider ID to key, in the order they were added; null until loaded from disk. */
+    private val loadedApiKeys = MutableStateFlow<Map<String, String>?>(null)
 
-    /** An API key stored Tink-encrypted under [prefKey] in [apiKeyPrefs]. */
-    private inner class StoredApiKey(private val prefKey: String) {
-        private val loaded = MutableStateFlow<LoadedApiKey?>(null)
-
-        /** Does not emit until the key has been loaded from disk. */
-        val value: Flow<String?> = loaded.filterNotNull().map { it.value }
-
-        /** Reads the key from disk; null (logged) if decryption fails. */
-        fun load() {
-            val stored = try {
-                apiKeyPrefs.getString(prefKey, null)?.let { tinkEncryption.decrypt(it) }
-            } catch (e: Exception) {
-                ErrorLog.e(TAG, "Failed to load API key", e)
-                null
-            }
-            // A key set while loading wins over the stored value.
-            loaded.compareAndSet(null, LoadedApiKey(stored))
-        }
-
-        suspend fun set(apiKey: String) {
-            withContext(ioDispatcher) {
-                val encrypted = tinkEncryption.encrypt(apiKey)
-                apiKeyPrefs.edit(commit = true) { putString(prefKey, encrypted) }
-                loaded.value = LoadedApiKey(apiKey)
-            }
-        }
-
-        suspend fun clear() {
-            withContext(ioDispatcher) {
-                apiKeyPrefs.edit(commit = true) { remove(prefKey) }
-                loaded.value = LoadedApiKey(null)
-            }
-        }
-    }
-
-    private val storedAnthropicApiKey = StoredApiKey(API_KEY_PREF_KEY)
-    private val storedOpenAiApiKey = StoredApiKey(OPENAI_API_KEY_PREF_KEY)
+    /** Serializes loading and changing the keys, so the stored order and keys stay consistent. */
+    private val apiKeyMutex = Mutex()
 
     init {
         // Tink/Keystore initialization and disk reads are slow; keep them off the main thread.
         appScope.launch(ioDispatcher) {
             cleanUpOldEncryptedSharedPreferences()
-            storedAnthropicApiKey.load()
-            storedOpenAiApiKey.load()
+            apiKeyMutex.withLock { ensureApiKeysLoaded() }
         }
+    }
+
+    /**
+     * Reads the keys from disk (a key that can't be decrypted is logged and treated as absent).
+     * Keys stored before the order was kept come after the ordered ones, in [AiProviders.ALL] order.
+     */
+    private fun ensureApiKeysLoaded(): Map<String, String> {
+        loadedApiKeys.value?.let { return it }
+        val keys = AiProviders.ALL.mapNotNull { provider ->
+            val stored = try {
+                apiKeyPrefs.getString(prefKeyFor(provider.id), null)?.let { tinkEncryption.decrypt(it) }
+            } catch (e: Exception) {
+                ErrorLog.e(TAG, "Failed to load the ${provider.id} API key", e)
+                null
+            }
+            stored?.let { provider.id to it }
+        }.toMap()
+        val ordered = orderedApiKeys(keys, storedProviderOrder())
+        loadedApiKeys.value = ordered
+        return ordered
+    }
+
+    private fun storedProviderOrder(): List<String> =
+        apiKeyPrefs.getString(PROVIDER_ORDER_PREF_KEY, null)?.split(',')?.filter { it.isNotEmpty() }.orEmpty()
+
+    private fun prefKeyFor(providerId: String) = when (providerId) {
+        AiProviders.ANTHROPIC_ID -> API_KEY_PREF_KEY
+        AiProviders.OPENAI_ID -> OPENAI_API_KEY_PREF_KEY
+        else -> "encrypted_api_key_$providerId"
     }
 
     /**
@@ -175,12 +177,9 @@ class SettingsDataStore @Inject constructor(
         }
     }
 
-    override val anthropicApiKey: Flow<String?> = storedAnthropicApiKey.value
-    override val openAiApiKey: Flow<String?> = storedOpenAiApiKey.value
+    override val apiKeys: Flow<Map<String, String>> = loadedApiKeys.filterNotNull()
 
-    private fun Preferences.aiModel() = this[Keys.AI_MODEL] ?: AiModels.DEFAULT_MODEL
-    private fun Preferences.editModel() = this[Keys.EDIT_MODEL] ?: AiModels.DEFAULT_EDIT_MODEL
-    private fun Preferences.thinkingEnabled() = this[Keys.EXTENDED_THINKING_ENABLED] ?: AiModels.DEFAULT_THINKING_ENABLED
+    private fun Preferences.thinkingEnabled() = this[Keys.EXTENDED_THINKING_ENABLED] ?: AiProviders.DEFAULT_THINKING_ENABLED
     private fun Preferences.keepScreenOn() = this[Keys.KEEP_SCREEN_ON] ?: true
     private fun Preferences.volumeKeysScroll() = this[Keys.VOLUME_KEYS_SCROLL] ?: false
     private fun Preferences.themeMode() = themeModeOf(this[Keys.THEME_MODE], EinkDevices.isThisDevice)
@@ -202,8 +201,7 @@ class SettingsDataStore @Inject constructor(
     private fun <T> setting(read: Preferences.() -> T): Flow<T> =
         context.dataStore.data.map { it.read() }.distinctUntilChanged()
 
-    override val aiModel: Flow<String> = setting { aiModel() }
-    override val editModel: Flow<String> = setting { editModel() }
+    override fun selectedModel(role: ModelRole): Flow<String?> = setting { this[Keys.model(role)] }
     override val thinkingEnabled: Flow<Boolean> = setting { thinkingEnabled() }
     override val keepScreenOn: Flow<Boolean> = setting { keepScreenOn() }
     override val volumeKeysScroll: Flow<Boolean> = setting { volumeKeysScroll() }
@@ -218,15 +216,12 @@ class SettingsDataStore @Inject constructor(
     override val tagBarSize: Flow<Int> = setting { tagBarSize() }
     override val imageGenerationEnabled: Flow<Boolean> = setting { imageGenerationEnabled() }
 
-    override val settings: Flow<Settings> = combine(
-        context.dataStore.data,
-        anthropicApiKey,
-        openAiApiKey
-    ) { prefs, apiKey, openAiKey ->
+    override val settings: Flow<Settings> = combine(context.dataStore.data, apiKeys) { prefs, keys ->
         Settings(
-            anthropicApiKey = apiKey,
-            aiModel = prefs.aiModel(),
-            editModel = prefs.editModel(),
+            apiKeys = keys,
+            models = ModelRole.entries.mapNotNull { role ->
+                AiProviders.resolve(role, prefs[Keys.model(role)], keys)?.let { role to it.model }
+            }.toMap(),
             thinkingEnabled = prefs.thinkingEnabled(),
             keepScreenOn = prefs.keepScreenOn(),
             volumeKeysScroll = prefs.volumeKeysScroll(),
@@ -237,19 +232,46 @@ class SettingsDataStore @Inject constructor(
             groceryWeightUnitSystem = prefs.groceryWeightUnitSystem(),
             startOfWeek = prefs.startOfWeek(),
             importDebuggingEnabled = prefs.importDebuggingEnabled(),
-            openAiApiKey = openAiKey,
             imageGenerationEnabled = prefs.imageGenerationEnabled(),
             tagBarSize = prefs.tagBarSize()
         )
     }.distinctUntilChanged()
 
-    override suspend fun setAnthropicApiKey(apiKey: String) = storedAnthropicApiKey.set(apiKey)
+    override suspend fun setApiKey(providerId: String, apiKey: String) {
+        withContext(ioDispatcher) {
+            apiKeyMutex.withLock {
+                val keys = ensureApiKeysLoaded()
+                val encrypted = tinkEncryption.encrypt(apiKey)
+                // From the loaded keys, which already place keys stored before the order was kept
+                val order = keys.keys.toList().let { if (providerId in it) it else it + providerId }
+                apiKeyPrefs.edit(commit = true) {
+                    putString(prefKeyFor(providerId), encrypted)
+                    putString(PROVIDER_ORDER_PREF_KEY, order.joinToString(","))
+                }
+                loadedApiKeys.value = keys + (providerId to apiKey)
+            }
+        }
+    }
 
-    override suspend fun clearAnthropicApiKey() = storedAnthropicApiKey.clear()
-
-    override suspend fun setOpenAiApiKey(apiKey: String) = storedOpenAiApiKey.set(apiKey)
-
-    override suspend fun clearOpenAiApiKey() = storedOpenAiApiKey.clear()
+    override suspend fun clearApiKey(providerId: String) {
+        withContext(ioDispatcher) {
+            apiKeyMutex.withLock {
+                val keys = ensureApiKeysLoaded()
+                apiKeyPrefs.edit(commit = true) {
+                    remove(prefKeyFor(providerId))
+                    putString(PROVIDER_ORDER_PREF_KEY, (keys.keys - providerId).joinToString(","))
+                }
+                loadedApiKeys.value = keys - providerId
+            }
+        }
+        // The other providers' defaults take over, also if this provider is added again later
+        context.dataStore.edit { preferences ->
+            for (role in ModelRole.entries) {
+                val key = Keys.model(role)
+                if (AiProviders.findModel(preferences[key])?.providerId == providerId) preferences.remove(key)
+            }
+        }
+    }
 
     override suspend fun setImageGenerationEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
@@ -257,15 +279,9 @@ class SettingsDataStore @Inject constructor(
         }
     }
 
-    override suspend fun setAiModel(model: String) {
+    override suspend fun setSelectedModel(role: ModelRole, modelId: String) {
         context.dataStore.edit { preferences ->
-            preferences[Keys.AI_MODEL] = model
-        }
-    }
-
-    override suspend fun setEditModel(model: String) {
-        context.dataStore.edit { preferences ->
-            preferences[Keys.EDIT_MODEL] = model
+            preferences[Keys.model(role)] = modelId
         }
     }
 
@@ -351,6 +367,13 @@ class SettingsDataStore @Inject constructor(
         private const val API_KEY_PREFS_FILE = "tink_encrypted_api_key"
         private const val API_KEY_PREF_KEY = "encrypted_api_key"
         private const val OPENAI_API_KEY_PREF_KEY = "encrypted_openai_api_key"
+
+        /** Comma-separated provider IDs in the order their keys were added (not secret, so not encrypted). */
+        private const val PROVIDER_ORDER_PREF_KEY = "provider_order"
+
+        /** [keys] in the stored [order]; keys missing from it (stored before the order was kept) come last, in [keys] order. */
+        internal fun orderedApiKeys(keys: Map<String, String>, order: List<String>): Map<String, String> =
+            (order.filter { it in keys } + keys.keys.filter { it !in order }).associateWith { keys.getValue(it) }
 
         /** The stored theme, or the device's default until the user has picked one. */
         internal fun themeModeOf(stored: String?, einkDevice: Boolean): ThemeMode =

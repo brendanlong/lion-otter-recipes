@@ -94,7 +94,7 @@ class MissingImagesWorkerTest {
 
         assertEquals(1, generator.prompts.size)
         val text = notifications.allNotifications.single().extras.getCharSequence("android.text").toString()
-        assertEquals(context.getString(R.string.image_generation_invalid_key), text)
+        assertEquals(context.getString(R.string.image_generation_invalid_key, "OpenAI"), text)
     }
 
     @Test

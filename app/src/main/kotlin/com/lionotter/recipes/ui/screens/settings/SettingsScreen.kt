@@ -41,17 +41,18 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
-import com.lionotter.recipes.data.ai.ApiKeyValidator
+import com.lionotter.recipes.domain.model.AiProviders
+import com.lionotter.recipes.domain.model.ModelKind
+import com.lionotter.recipes.domain.model.ModelRole
 import com.lionotter.recipes.messages.resolve
 import com.lionotter.recipes.ui.components.CollectEvents
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.components.rememberScrollAids
 import com.lionotter.recipes.ui.components.scrollAids
-import com.lionotter.recipes.ui.components.text
 import com.lionotter.recipes.ui.screens.importselection.ImportType
 import com.lionotter.recipes.ui.screens.settings.components.AboutSection
 import com.lionotter.recipes.ui.screens.settings.components.AccountSection
-import com.lionotter.recipes.ui.screens.settings.components.ApiKeySection
+import com.lionotter.recipes.ui.screens.settings.components.AiProvidersSection
 import com.lionotter.recipes.ui.screens.settings.components.BackupRestoreSection
 import com.lionotter.recipes.ui.screens.settings.components.DisplaySection
 import com.lionotter.recipes.ui.screens.settings.components.ImageGenerationSection
@@ -74,10 +75,6 @@ fun SettingsScreen(
     missingImagesViewModel: MissingImagesViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val apiKeyInput by viewModel.anthropicKey.input.collectAsStateWithLifecycle()
-    val apiKeyError by viewModel.anthropicKey.error.collectAsStateWithLifecycle()
-    val openAiKeyInput by viewModel.openAiKey.input.collectAsStateWithLifecycle()
-    val openAiKeyError by viewModel.openAiKey.error.collectAsStateWithLifecycle()
     val missingImages by missingImagesViewModel.pendingConfirmation.collectAsStateWithLifecycle()
     val isExporting by zipViewModel.isExporting.collectAsStateWithLifecycle()
     val authState by viewModel.authState.collectAsStateWithLifecycle()
@@ -210,19 +207,10 @@ fun SettingsScreen(
                 .verticalScroll(scrollState),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            // API Key Section
-            ApiKeySection(
-                title = stringResource(R.string.anthropic_api_key),
-                description = stringResource(R.string.api_key_storage_info),
-                keyPrefix = ApiKeyValidator.ANTHROPIC_API_KEY_PREFIX,
-                getKeyLabel = stringResource(R.string.get_api_key),
-                getKeyUrl = "https://platform.claude.com/settings/keys",
-                currentApiKey = settings.anthropicApiKey,
-                apiKeyInput = apiKeyInput,
-                onApiKeyInputChange = viewModel.anthropicKey::onInputChange,
-                onSaveClick = viewModel.anthropicKey::save,
-                onClearClick = viewModel::clearAnthropicApiKey,
-                apiKeyError = apiKeyError?.text()
+            AiProvidersSection(
+                fields = viewModel.apiKeyFields,
+                apiKeys = settings.apiKeys,
+                onClearClick = viewModel::clearApiKey
             )
 
             HorizontalDivider()
@@ -261,12 +249,12 @@ fun SettingsScreen(
 
             HorizontalDivider()
 
-            // Model Selection Section
             ModelSelectionSection(
-                currentModel = settings.aiModel,
-                onModelChange = viewModel::setAiModel,
-                currentEditModel = settings.editModel,
-                onEditModelChange = viewModel::setEditModel,
+                models = AiProviders.availableModels(ModelKind.TEXT, settings.apiKeys),
+                importModel = settings.models[ModelRole.IMPORT],
+                onImportModelChange = { viewModel.setSelectedModel(ModelRole.IMPORT, it) },
+                editModel = settings.models[ModelRole.EDIT],
+                onEditModelChange = { viewModel.setSelectedModel(ModelRole.EDIT, it) },
                 thinkingEnabled = settings.thinkingEnabled,
                 onThinkingChange = viewModel::setThinkingEnabled
             )
@@ -274,12 +262,9 @@ fun SettingsScreen(
             HorizontalDivider()
 
             ImageGenerationSection(
-                currentApiKey = settings.openAiApiKey,
-                apiKeyInput = openAiKeyInput,
-                onApiKeyInputChange = viewModel.openAiKey::onInputChange,
-                onSaveClick = viewModel.openAiKey::save,
-                onClearClick = viewModel::clearOpenAiApiKey,
-                apiKeyError = openAiKeyError?.text(),
+                models = AiProviders.availableModels(ModelKind.IMAGE, settings.apiKeys),
+                imageModel = settings.models[ModelRole.IMAGE],
+                onImageModelChange = { viewModel.setSelectedModel(ModelRole.IMAGE, it) },
                 imageGenerationEnabled = settings.imageGenerationEnabled,
                 onImageGenerationChange = viewModel::setImageGenerationEnabled,
                 onGenerateMissingImagesClick = missingImagesViewModel::findMissingImages

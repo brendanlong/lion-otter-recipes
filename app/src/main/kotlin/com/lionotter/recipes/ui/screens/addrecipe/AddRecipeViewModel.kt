@@ -13,8 +13,10 @@ import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.RecipeErrorException
 import com.lionotter.recipes.domain.RecipeErrorSource
 import com.lionotter.recipes.domain.ResourceLimits
+import com.lionotter.recipes.domain.model.ModelRole
 import com.lionotter.recipes.domain.model.RecipeFileFormat
 import com.lionotter.recipes.domain.port.AiSettings
+import com.lionotter.recipes.domain.port.model
 import com.lionotter.recipes.extractFirstUrl
 import com.lionotter.recipes.imports.CameraPhotoFiles
 import com.lionotter.recipes.imports.ImportFileInspector
@@ -128,8 +130,8 @@ class AddRecipeViewModel @Inject constructor(
         initialValue = AddRecipeUiState.Idle
     )
 
-    val hasApiKey: StateFlow<Boolean> = aiSettings.anthropicApiKey
-        .map { !it.isNullOrBlank() }
+    val hasApiKey: StateFlow<Boolean> = aiSettings.model(ModelRole.IMPORT)
+        .map { it != null }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),

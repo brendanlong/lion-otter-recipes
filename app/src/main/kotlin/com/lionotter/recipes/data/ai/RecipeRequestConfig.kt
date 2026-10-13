@@ -9,7 +9,7 @@ import com.anthropic.models.messages.CacheControlEphemeral
 import com.anthropic.models.messages.JsonOutputFormat
 import com.anthropic.models.messages.OutputConfig
 import com.anthropic.models.messages.TextBlockParam
-import com.lionotter.recipes.domain.model.AiModels
+import com.lionotter.recipes.domain.model.AiProviders
 
 internal enum class Effort { LOW, MEDIUM }
 
@@ -49,11 +49,11 @@ internal object RecipeRequests {
      */
     fun requestConfigFor(model: String, thinkingEnabled: Boolean): RequestConfig =
         RequestConfig(
-            adaptiveThinking = thinkingEnabled && model != AiModels.MODEL_FABLE,
+            adaptiveThinking = thinkingEnabled && model != AiProviders.CLAUDE_FABLE,
             effort = if (thinkingEnabled) Effort.MEDIUM else Effort.LOW
         )
 
-    fun supportsServerSideFallback(model: String): Boolean = model in AiModels.SUPPORTED_MODELS
+    fun supportsServerSideFallback(model: String): Boolean = AiProviders.ANTHROPIC.models.any { it.id == model }
 
     val outputFormat: JsonOutputFormat by lazy {
         JsonOutputFormat.builder()

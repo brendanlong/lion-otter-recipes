@@ -4,7 +4,7 @@ import android.util.Log
 import com.anthropic.core.jsonMapper
 import com.anthropic.models.messages.batches.MessageBatchIndividualResponse
 import com.lionotter.recipes.domain.port.BatchItemOutcome
-import com.lionotter.recipes.domain.model.AiModels
+import com.lionotter.recipes.domain.model.AiProviders
 import com.lionotter.recipes.domain.port.ParseAttachment
 import com.lionotter.recipes.domain.port.ParseRequest
 import com.lionotter.recipes.util.AppJson
@@ -78,7 +78,7 @@ class AnthropicRecipeParserTest {
     }
 
     private fun userContent(request: ParseRequest): JsonArray {
-        val params = parser.buildParams(request, AiModels.MODEL_SONNET)
+        val params = parser.buildParams(request, AiProviders.CLAUDE_SONNET)
         val messages = Json.parseToJsonElement(jsonMapper().writeValueAsString(params.messages())).jsonArray
         val message = messages.single().jsonObject
         assertEquals("user", message["role"]?.jsonPrimitive?.content)
@@ -91,7 +91,7 @@ class AnthropicRecipeParserTest {
 
     @Test
     fun `a text request is a single text message`() {
-        val content = userContent(ParseRequest("# Bread", "key", AiModels.MODEL_SONNET, thinkingEnabled = false))
+        val content = userContent(ParseRequest("# Bread", "key", AiProviders.CLAUDE_SONNET, thinkingEnabled = false))
 
         assertEquals(listOf("text"), content.map { it.type })
         assertTrue(content.single().jsonObject["text"]!!.jsonPrimitive.content.endsWith("# Bread"))
@@ -104,7 +104,7 @@ class AnthropicRecipeParserTest {
         val request = ParseRequest(
             content = "",
             apiKey = "key",
-            model = AiModels.MODEL_SONNET,
+            model = AiProviders.CLAUDE_SONNET,
             thinkingEnabled = false,
             existingTags = listOf("Baking"),
             attachments = listOf(ParseAttachment.Image(first, "image/jpeg"), ParseAttachment.Image(second, "image/png"))
@@ -132,7 +132,7 @@ class AnthropicRecipeParserTest {
         val request = ParseRequest(
             content = "",
             apiKey = "key",
-            model = AiModels.MODEL_SONNET,
+            model = AiProviders.CLAUDE_SONNET,
             thinkingEnabled = true,
             attachments = listOf(ParseAttachment.Pdf(pdf))
         )
@@ -150,10 +150,10 @@ class AnthropicRecipeParserTest {
     @Test
     fun `attachments don't change the cached system prompt`() {
         val withPhoto = parser.buildParams(
-            ParseRequest("", "key", AiModels.MODEL_SONNET, false, attachments = listOf(ParseAttachment.Image(byteArrayOf(1), "image/jpeg"))),
-            AiModels.MODEL_SONNET
+            ParseRequest("", "key", AiProviders.CLAUDE_SONNET, false, attachments = listOf(ParseAttachment.Image(byteArrayOf(1), "image/jpeg"))),
+            AiProviders.CLAUDE_SONNET
         )
-        val withText = parser.buildParams(ParseRequest("# Bread", "key", AiModels.MODEL_SONNET, false), AiModels.MODEL_SONNET)
+        val withText = parser.buildParams(ParseRequest("# Bread", "key", AiProviders.CLAUDE_SONNET, false), AiProviders.CLAUDE_SONNET)
 
         assertEquals(withText.system(), withPhoto.system())
     }

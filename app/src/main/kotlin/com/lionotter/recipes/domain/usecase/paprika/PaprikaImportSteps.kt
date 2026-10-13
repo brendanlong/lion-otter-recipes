@@ -5,7 +5,9 @@ import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.RecipeErrorException
 import com.lionotter.recipes.domain.ResourceLimits
-import com.lionotter.recipes.domain.model.AiModels
+import com.lionotter.recipes.domain.model.AiProviders
+import com.lionotter.recipes.domain.model.ConfiguredModel
+import com.lionotter.recipes.domain.model.ModelRole
 import com.lionotter.recipes.domain.port.AiSettings
 import com.lionotter.recipes.domain.port.BatchItemOutcome
 import com.lionotter.recipes.domain.port.BatchParseRequest
@@ -13,6 +15,7 @@ import com.lionotter.recipes.domain.port.ImageStore
 import com.lionotter.recipes.domain.port.PageFetcher
 import com.lionotter.recipes.domain.port.PaprikaExportReader
 import com.lionotter.recipes.domain.port.RecipeBatchParser
+import com.lionotter.recipes.domain.port.model
 import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.domain.usecase.ParseHtmlUseCase
 import com.lionotter.recipes.domain.util.ArchiveTooLargeException
@@ -128,20 +131,33 @@ class PaprikaImportSteps @Inject constructor(
         onProgress: suspend (PaprikaImportProgress) -> Unit = {}
     ): PaprikaImportState {
         if (state is PaprikaImportState.Done || state is PaprikaImportState.Failed) return state
-        val apiKey = aiSettings.anthropicApiKey.first()
-        if (apiKey.isNullOrBlank()) return PaprikaImportState.Failed(RecipeError.NoApiKey)
         return when (state) {
-            PaprikaImportState.Preparing ->
-                if (store.hasBatch()) resume(store) else prepareAndSubmit(store, openSource, selectedUids, apiKey, onProgress)
+            PaprikaImportState.Preparing -> if (store.hasBatch()) {
+                resume(store)
+            } else {
+                val model = aiSettings.model(ModelRole.IMPORT).first()
+                    ?: return PaprikaImportState.Failed(RecipeError.NoApiKey)
+                prepareAndSubmit(store, openSource, selectedUids, model, onProgress)
+            }
             is PaprikaImportState.Submitted -> when (val resumed = resume(store)) {
-                is PaprikaImportState.Polling -> poll(store, resumed.batch, apiKey, onProgress)
+                is PaprikaImportState.Polling -> withBatchApiKey(resumed.batch) { poll(store, resumed.batch, it, onProgress) }
                 else -> resumed
             }
-            is PaprikaImportState.Polling -> poll(store, state.batch, apiKey, onProgress)
-            is PaprikaImportState.SavingResults -> saveResults(store, state.batch, apiKey, onProgress)
+            is PaprikaImportState.Polling -> withBatchApiKey(state.batch) { poll(store, state.batch, it, onProgress) }
+            is PaprikaImportState.SavingResults ->
+                withBatchApiKey(state.batch) { saveResults(store, state.batch, it, onProgress) }
             is PaprikaImportState.Done, is PaprikaImportState.Failed -> state
         }
     }
+
+    /** The batch is followed with the key of the provider it was submitted to, even if the import model changed since. */
+    private suspend fun batchApiKey(batch: PaprikaBatch): String? =
+        AiProviders.configuredModel(batch.model, aiSettings.apiKeys.first())?.apiKey
+
+    private suspend inline fun withBatchApiKey(
+        batch: PaprikaBatch,
+        step: (apiKey: String) -> PaprikaImportState
+    ): PaprikaImportState = step(batchApiKey(batch) ?: return PaprikaImportState.Failed(RecipeError.NoApiKey))
 
     /**
      * Cancel the server-side batch for this import, if one is still running. Only the first
@@ -166,12 +182,12 @@ class PaprikaImportSteps @Inject constructor(
             ErrorLog.e(TAG, "Can't cancel the batch: unreadable state in ${store.dir}", e)
             return
         } ?: return
-        val apiKey = aiSettings.anthropicApiKey.first()
-        if (apiKey.isNullOrBlank()) {
+        val apiKey = batchApiKey(batch)
+        if (apiKey == null) {
             ErrorLog.w(TAG, "Can't cancel batch ${batch.batchId}: no API key")
             return
         }
-        when (val result = recipeBatchParser.cancelBatch(batch.batchId, apiKey)) {
+        when (val result = recipeBatchParser.cancelBatch(batch.batchId, batch.model, apiKey)) {
             is Outcome.Success -> {
                 ErrorLog.i(TAG, "Cancelled batch ${batch.batchId}")
                 store.markCancelled()
@@ -184,10 +200,9 @@ class PaprikaImportSteps @Inject constructor(
         store: PaprikaImportStateStore,
         openSource: () -> InputStream,
         selectedUids: Set<String>?,
-        apiKey: String,
+        model: ConfiguredModel,
         onProgress: suspend (PaprikaImportProgress) -> Unit
     ): PaprikaImportState {
-        val model = AiModels.normalizeModel(aiSettings.aiModel.first())
         val thinkingEnabled = aiSettings.thinkingEnabled.first()
 
         onProgress(PaprikaImportProgress.Parsing)
@@ -260,7 +275,7 @@ class PaprikaImportSteps @Inject constructor(
         val existingTags = parseHtmlUseCase.existingTagVocabulary()
         onProgress(PaprikaImportProgress.SubmittingBatch(toImport.size))
         val submitted = withContext(NonCancellable) {
-            submit(store, toImport, preFailed, apiKey, model, thinkingEnabled, existingTags)
+            submit(store, toImport, preFailed, model.apiKey, model.model.id, thinkingEnabled, existingTags)
         }
         if (submitted !is PaprikaImportState.Submitted) return submitted
         coroutineContext.ensureActive()
@@ -307,7 +322,7 @@ class PaprikaImportSteps @Inject constructor(
             )
         } catch (e: Exception) {
             ErrorLog.e(TAG, "Failed to save state for batch $batchId; cancelling it", e)
-            recipeBatchParser.cancelBatch(batchId, apiKey)
+            recipeBatchParser.cancelBatch(batchId, model, apiKey)
             return failed(RecipeError.Unexpected)
         }
         ErrorLog.i(TAG, "Submitted batch $batchId with ${toImport.size} recipes")
@@ -320,7 +335,7 @@ class PaprikaImportSteps @Inject constructor(
         apiKey: String,
         onProgress: suspend (PaprikaImportProgress) -> Unit
     ): PaprikaImportState {
-        val status = when (val polled = recipeBatchParser.getBatchStatus(batch.batchId, apiKey)) {
+        val status = when (val polled = recipeBatchParser.getBatchStatus(batch.batchId, batch.model, apiKey)) {
             is Outcome.Success -> polled.value
             is Outcome.Failure -> {
                 val failures = store.incrementPollFailures()
@@ -351,7 +366,7 @@ class PaprikaImportSteps @Inject constructor(
         val durationMs = System.currentTimeMillis() - batch.submittedAtMillis
         val processed = store.readProcessed()
         val outcomes = mutableMapOf<String, BatchItemOutcome>()
-        val streamResult = recipeBatchParser.forEachResult(batch.batchId, apiKey, processed.keys) { outcome ->
+        val streamResult = recipeBatchParser.forEachResult(batch.batchId, batch.model, apiKey, processed.keys) { outcome ->
             outcomes[outcome.customId] = outcome
         }
         if (streamResult is Outcome.Failure) {

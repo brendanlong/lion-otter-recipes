@@ -87,6 +87,7 @@ import coil3.compose.SubcomposeAsyncImage
 import coil3.compose.SubcomposeAsyncImageContent
 import com.lionotter.recipes.R
 import com.lionotter.recipes.data.image.imageModel
+import com.lionotter.recipes.domain.model.AiModel
 import com.lionotter.recipes.messages.resolve
 import com.lionotter.recipes.ui.components.CollectEvents
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
@@ -118,10 +119,11 @@ fun EditRecipeScreen(
     val tagQuery by viewModel.tagQuery.collectAsStateWithLifecycle()
     val tagSearch by viewModel.tagSearch.collectAsStateWithLifecycle()
     val editState by viewModel.editState.collectAsStateWithLifecycle()
-    val hasOpenAiKey by imageViewModel.hasOpenAiKey.collectAsStateWithLifecycle()
+    val hasImageModel by imageViewModel.hasImageModel.collectAsStateWithLifecycle()
     // Immediate, so the text field never sees a stale value while typing
     val imagePromptDraft by imageViewModel.promptDraft.collectAsStateWithLifecycle(context = Dispatchers.Main.immediate)
     val model by viewModel.model.collectAsStateWithLifecycle()
+    val availableModels by viewModel.availableModels.collectAsStateWithLifecycle()
     val thinkingEnabled by viewModel.thinkingEnabled.collectAsStateWithLifecycle()
     val canRegenerate by viewModel.canRegenerate.collectAsStateWithLifecycle()
     val hasUnsavedChanges by viewModel.hasUnsavedChanges.collectAsStateWithLifecycle()
@@ -306,7 +308,7 @@ fun EditRecipeScreen(
                         )
                     },
                     onRemoveImage = viewModel::removeImage,
-                    onGenerateImage = if (hasOpenAiKey) {
+                    onGenerateImage = if (hasImageModel) {
                         { (loadState as? RecipeLoadState.Loaded)?.recipe?.let(imageViewModel::open) }
                     } else {
                         null
@@ -331,6 +333,7 @@ fun EditRecipeScreen(
                     markdownText = markdownText,
                     onMarkdownChange = viewModel::setMarkdownText,
                     model = model,
+                    availableModels = availableModels,
                     onModelChange = viewModel::setModel,
                     thinkingEnabled = thinkingEnabled,
                     onThinkingChange = viewModel::setThinkingEnabled,
@@ -423,7 +426,8 @@ private fun EditContent(
     onAiInstructionsChange: (String) -> Unit,
     markdownText: String,
     onMarkdownChange: (String) -> Unit,
-    model: String,
+    model: AiModel?,
+    availableModels: List<AiModel>,
     onModelChange: (String) -> Unit,
     thinkingEnabled: Boolean,
     onThinkingChange: (Boolean) -> Unit,
@@ -544,6 +548,7 @@ private fun EditContent(
 
             SingleModelSelectionSection(
                 currentModel = model,
+                models = availableModels,
                 onModelChange = onModelChange,
                 thinkingEnabled = thinkingEnabled,
                 onThinkingChange = onThinkingChange

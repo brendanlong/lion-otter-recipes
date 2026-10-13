@@ -3,6 +3,7 @@ package com.lionotter.recipes.ui.screens.settings
 import com.lionotter.recipes.R
 import com.lionotter.recipes.data.ai.ApiKeyProblem
 import com.lionotter.recipes.data.ai.ApiKeyValidator
+import com.lionotter.recipes.domain.model.AiProvider
 import com.lionotter.recipes.messages.UserMessage
 import com.lionotter.recipes.util.ErrorLog
 import kotlinx.coroutines.CancellationException
@@ -14,10 +15,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** The settings field for entering an API key that starts with [prefix], stored with [store]. */
+/** The settings field for entering an API key of [provider], stored with [store]. */
 class ApiKeyField(
     private val scope: CoroutineScope,
-    private val prefix: String,
+    val provider: AiProvider,
     private val store: suspend (String) -> Unit
 ) {
     private val _input = MutableStateFlow("")
@@ -34,10 +35,11 @@ class ApiKeyField(
 
     fun save() {
         val key = _input.value.trim()
-        when (ApiKeyValidator.validate(key, prefix)) {
-            ApiKeyProblem.EMPTY -> _error.value = UserMessage(R.string.error_api_key_empty)
-            ApiKeyProblem.BAD_PREFIX -> _error.value = UserMessage(R.string.error_api_key_prefix, prefix)
-            ApiKeyProblem.ANTHROPIC_KEY -> _error.value = UserMessage(R.string.error_api_key_is_anthropic)
+        when (val problem = ApiKeyValidator.validate(key, provider)) {
+            ApiKeyProblem.Empty -> _error.value = UserMessage(R.string.error_api_key_empty)
+            ApiKeyProblem.BadPrefix -> _error.value = UserMessage(R.string.error_api_key_prefix, provider.keyPrefix)
+            is ApiKeyProblem.OtherProvider ->
+                _error.value = UserMessage(R.string.error_api_key_other_provider, problem.provider.name, provider.name)
             null -> scope.launch {
                 try {
                     withContext(NonCancellable) { store(key) }

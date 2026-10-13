@@ -667,8 +667,12 @@ private fun formatTimestamp(epochMillis: Long): String {
 
 private fun estimateCost(model: String, inputTokens: Long, outputTokens: Long, thinkingEnabled: Boolean, batchMode: Boolean = false): String {
     // Pricing per million tokens from https://platform.claude.com/docs/en/about-claude/pricing
+    // and https://developers.openai.com/api/docs/models
     // Batch mode is 50% cheaper than standard API calls
     val (baseInput, baseOutput) = when {
+        model.contains("astra") -> 10.0 to 50.0
+        model.contains("-sol") -> 2.0 to 10.0
+        model.contains("luna") -> 0.10 to 0.50
         model.contains("fable") -> 10.0 to 50.0
         model.contains("opus-5-5") -> 4.0 to 20.0
         model.contains("opus-5") || model.contains("opus-4-5") || model.contains("opus-4-6") ||

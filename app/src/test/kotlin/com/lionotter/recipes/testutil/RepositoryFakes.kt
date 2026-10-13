@@ -1,6 +1,7 @@
 package com.lionotter.recipes.testutil
 
-import com.lionotter.recipes.domain.model.AiModels
+import com.lionotter.recipes.domain.model.AiProviders
+import com.lionotter.recipes.domain.model.ModelRole
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.RecipeIdAndName
@@ -220,15 +221,18 @@ class FakeTagPreferences(favorites: Set<String> = emptySet()) : TagPreferences {
     }
 }
 
+/** [apiKeyFlow] is the Anthropic key; the model flows are the user's picks (null for the defaults). */
 class FakeAppSettings(
     apiKey: String? = "sk-ant-test",
     unitSystem: UnitSystem = UnitSystem.METRIC,
     val tagPreferences: FakeTagPreferences = FakeTagPreferences()
 ) : AppSettings, TagPreferences by tagPreferences {
     val apiKeyFlow = MutableStateFlow(apiKey)
-    val aiModelFlow = MutableStateFlow(AiModels.DEFAULT_MODEL)
-    val editModelFlow = MutableStateFlow(AiModels.DEFAULT_EDIT_MODEL)
-    val thinkingFlow = MutableStateFlow(AiModels.DEFAULT_THINKING_ENABLED)
+    val openAiApiKeyFlow = MutableStateFlow<String?>(null)
+    val aiModelFlow = MutableStateFlow<String?>(null)
+    val editModelFlow = MutableStateFlow<String?>(null)
+    val imageModelFlow = MutableStateFlow<String?>(null)
+    val thinkingFlow = MutableStateFlow(AiProviders.DEFAULT_THINKING_ENABLED)
     val importDebuggingFlow = MutableStateFlow(false)
     val keepScreenOnFlow = MutableStateFlow(true)
     val volumeKeysScrollFlow = MutableStateFlow(false)
@@ -240,16 +244,26 @@ class FakeAppSettings(
     val groceryVolumeUnitSystemFlow = MutableStateFlow<UnitSystem?>(null)
     val groceryWeightUnitSystemFlow = MutableStateFlow<UnitSystem?>(null)
     val startOfWeekFlow = MutableStateFlow(StartOfWeek.LOCALE_DEFAULT)
-    val openAiApiKeyFlow = MutableStateFlow<String?>(null)
     val imageGenerationFlow = MutableStateFlow(true)
 
     var writeError: Throwable? = null
 
-    override val anthropicApiKey: Flow<String?> = apiKeyFlow
-    override val aiModel: Flow<String> = aiModelFlow
+    private fun keyFlow(providerId: String) = when (providerId) {
+        AiProviders.ANTHROPIC_ID -> apiKeyFlow
+        AiProviders.OPENAI_ID -> openAiApiKeyFlow
+        else -> error("Unknown provider $providerId")
+    }
+
+    private fun modelFlow(role: ModelRole) = when (role) {
+        ModelRole.IMPORT -> aiModelFlow
+        ModelRole.EDIT -> editModelFlow
+        ModelRole.IMAGE -> imageModelFlow
+    }
+
+    override val apiKeys: Flow<Map<String, String>> = combine(apiKeyFlow, openAiApiKeyFlow, ::fakeApiKeys)
+    override fun selectedModel(role: ModelRole): Flow<String?> = modelFlow(role)
     override val thinkingEnabled: Flow<Boolean> = thinkingFlow
     override val importDebuggingEnabled: Flow<Boolean> = importDebuggingFlow
-    override val editModel: Flow<String> = editModelFlow
     override val keepScreenOn: Flow<Boolean> = keepScreenOnFlow
     override val volumeKeysScroll: Flow<Boolean> = volumeKeysScrollFlow
     override val themeMode: Flow<ThemeMode> = themeModeFlow
@@ -264,33 +278,35 @@ class FakeAppSettings(
             grocery ?: recipe
         }
     override val startOfWeek: Flow<StartOfWeek> = startOfWeekFlow
-    override val openAiApiKey: Flow<String?> = openAiApiKeyFlow
     override val imageGenerationEnabled: Flow<Boolean> = imageGenerationFlow
 
     override val settings: Flow<Settings> = combine(
         listOf<Flow<Any?>>(
-            apiKeyFlow, aiModelFlow, editModelFlow, thinkingFlow, keepScreenOnFlow, themeModeFlow,
+            apiKeys, aiModelFlow, editModelFlow, imageModelFlow, thinkingFlow, keepScreenOnFlow, themeModeFlow,
             volumeUnitSystem, weightUnitSystem, groceryVolumeUnitSystem, groceryWeightUnitSystem,
             startOfWeekFlow, importDebuggingFlow, volumeKeysScrollFlow, tagPreferences.tagBarSizeFlow,
-            openAiApiKeyFlow, imageGenerationFlow
+            imageGenerationFlow
         )
     ) { values ->
+        @Suppress("UNCHECKED_CAST") // the first value is apiKeys
+        val keys = values[0] as Map<String, String>
+        val selected = listOf(ModelRole.IMPORT, ModelRole.EDIT, ModelRole.IMAGE).zip(values.slice(1..3)).toMap()
         Settings(
-            anthropicApiKey = values[0] as String?,
-            aiModel = values[1] as String,
-            editModel = values[2] as String,
-            thinkingEnabled = values[3] as Boolean,
-            keepScreenOn = values[4] as Boolean,
-            themeMode = values[5] as ThemeMode,
-            volumeUnitSystem = values[6] as UnitSystem,
-            weightUnitSystem = values[7] as UnitSystem,
-            groceryVolumeUnitSystem = values[8] as UnitSystem,
-            groceryWeightUnitSystem = values[9] as UnitSystem,
-            startOfWeek = values[10] as StartOfWeek,
-            importDebuggingEnabled = values[11] as Boolean,
-            volumeKeysScroll = values[12] as Boolean,
-            tagBarSize = values[13] as Int,
-            openAiApiKey = values[14] as String?,
+            apiKeys = keys,
+            models = ModelRole.entries.mapNotNull { role ->
+                AiProviders.resolve(role, selected[role] as String?, keys)?.let { role to it.model }
+            }.toMap(),
+            thinkingEnabled = values[4] as Boolean,
+            keepScreenOn = values[5] as Boolean,
+            themeMode = values[6] as ThemeMode,
+            volumeUnitSystem = values[7] as UnitSystem,
+            weightUnitSystem = values[8] as UnitSystem,
+            groceryVolumeUnitSystem = values[9] as UnitSystem,
+            groceryWeightUnitSystem = values[10] as UnitSystem,
+            startOfWeek = values[11] as StartOfWeek,
+            importDebuggingEnabled = values[12] as Boolean,
+            volumeKeysScroll = values[13] as Boolean,
+            tagBarSize = values[14] as Int,
             imageGenerationEnabled = values[15] as Boolean
         )
     }
@@ -300,13 +316,19 @@ class FakeAppSettings(
         flow.value = value
     }
 
-    override suspend fun setAnthropicApiKey(apiKey: String) = write(apiKeyFlow, apiKey)
-    override suspend fun clearAnthropicApiKey() = write(apiKeyFlow, null)
-    override suspend fun setOpenAiApiKey(apiKey: String) = write(openAiApiKeyFlow, apiKey)
-    override suspend fun clearOpenAiApiKey() = write(openAiApiKeyFlow, null)
+    override suspend fun setApiKey(providerId: String, apiKey: String) = write(keyFlow(providerId), apiKey)
+
+    /** Like the real store, also forgets the picks of the provider's models. */
+    override suspend fun clearApiKey(providerId: String) {
+        write(keyFlow(providerId), null)
+        for (role in ModelRole.entries) {
+            val flow = modelFlow(role)
+            if (AiProviders.findModel(flow.value)?.providerId == providerId) flow.value = null
+        }
+    }
+
     override suspend fun setImageGenerationEnabled(enabled: Boolean) = write(imageGenerationFlow, enabled)
-    override suspend fun setAiModel(model: String) = write(aiModelFlow, model)
-    override suspend fun setEditModel(model: String) = write(editModelFlow, model)
+    override suspend fun setSelectedModel(role: ModelRole, modelId: String) = write(modelFlow(role), modelId)
     override suspend fun setThinkingEnabled(enabled: Boolean) = write(thinkingFlow, enabled)
     override suspend fun setKeepScreenOn(enabled: Boolean) = write(keepScreenOnFlow, enabled)
     override suspend fun setVolumeKeysScroll(enabled: Boolean) = write(volumeKeysScrollFlow, enabled)

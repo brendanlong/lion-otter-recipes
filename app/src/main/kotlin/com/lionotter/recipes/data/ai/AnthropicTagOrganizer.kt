@@ -12,7 +12,7 @@ import com.anthropic.models.messages.ThinkingConfigAdaptive
 import com.lionotter.recipes.domain.AiFailure
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
-import com.lionotter.recipes.domain.model.AiModels
+import com.lionotter.recipes.domain.model.AiProviders
 import com.lionotter.recipes.domain.model.TagMapping
 import com.lionotter.recipes.domain.port.TagCleanupRequest
 import com.lionotter.recipes.domain.port.TagOrganizer
@@ -37,7 +37,7 @@ class AnthropicTagOrganizer @Inject constructor(
 ) : TagOrganizer {
 
     override suspend fun suggestTagChanges(request: TagCleanupRequest): Outcome<List<TagMapping>> {
-        val model = AiModels.normalizeModel(request.model, AiModels.DEFAULT_EDIT_MODEL)
+        val model = AiProviders.ANTHROPIC.findModel(request.model)?.id ?: AiProviders.CLAUDE_HAIKU
         return try {
             val message = withContext(ioDispatcher) {
                 // Tag cleanup is rare, so the client isn't kept around between requests.

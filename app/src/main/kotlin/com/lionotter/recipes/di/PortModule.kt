@@ -1,9 +1,10 @@
 package com.lionotter.recipes.di
 
-import com.lionotter.recipes.data.ai.AnthropicRecipeParser
-import com.lionotter.recipes.data.ai.AnthropicTagOrganizer
-import com.lionotter.recipes.data.ai.OpenAiImageGenerator
 import com.lionotter.recipes.data.ai.RecipeHtmlExtractor
+import com.lionotter.recipes.data.ai.RoutingImageGenerator
+import com.lionotter.recipes.data.ai.RoutingRecipeBatchParser
+import com.lionotter.recipes.data.ai.RoutingRecipeParser
+import com.lionotter.recipes.data.ai.RoutingTagOrganizer
 import com.lionotter.recipes.data.image.RecipeImageStore
 import com.lionotter.recipes.data.local.DataStoreGroceryListStateStore
 import com.lionotter.recipes.data.local.SettingsDataStore
@@ -34,16 +35,16 @@ import dagger.hilt.components.SingletonComponent
 @InstallIn(SingletonComponent::class)
 abstract class PortModule {
     @Binds
-    abstract fun bindRecipeParser(impl: AnthropicRecipeParser): RecipeParser
+    abstract fun bindRecipeParser(impl: RoutingRecipeParser): RecipeParser
 
     @Binds
-    abstract fun bindRecipeBatchParser(impl: AnthropicRecipeParser): RecipeBatchParser
+    abstract fun bindRecipeBatchParser(impl: RoutingRecipeBatchParser): RecipeBatchParser
 
     @Binds
-    abstract fun bindRecipeImageGenerator(impl: OpenAiImageGenerator): RecipeImageGenerator
+    abstract fun bindRecipeImageGenerator(impl: RoutingImageGenerator): RecipeImageGenerator
 
     @Binds
-    abstract fun bindTagOrganizer(impl: AnthropicTagOrganizer): TagOrganizer
+    abstract fun bindTagOrganizer(impl: RoutingTagOrganizer): TagOrganizer
 
     @Binds
     abstract fun bindPageFetcher(impl: WebScraperService): PageFetcher

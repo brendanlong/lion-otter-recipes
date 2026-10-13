@@ -3,6 +3,7 @@ package com.lionotter.recipes.domain.usecase
 import com.lionotter.recipes.domain.AiFailure
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.model.AiProviders
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.port.ImageStore
 import com.lionotter.recipes.testutil.FakeAiSettings
@@ -43,7 +44,7 @@ class GenerateRecipeImageUseCaseTest {
     fun `generates an image from the saved prompt and makes it the recipe's image`() = runTest {
         val result = useCase().execute("r1", prompt = null, replaceImage = false)
 
-        assertEquals(listOf("A loaf of banana bread" to "sk-openai"), generator.prompts)
+        assertEquals(listOf(Triple("A loaf of banana bread", AiProviders.GPT_IMAGE_FLARE, "sk-openai")), generator.prompts)
         assertEquals(listOf(FakeRecipeImageGenerator.GENERATED_IMAGE_SIZE), imageStore.savedStreams)
         assertEquals("gs://bucket/stream.jpg", imageUrl())
         assertEquals(GenerateRecipeImageUseCase.Result.Generated("gs://bucket/stream.jpg"), result)

@@ -4,7 +4,7 @@ import com.lionotter.recipes.domain.AiFailure
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.ResourceLimits
-import com.lionotter.recipes.domain.model.AiModels
+import com.lionotter.recipes.domain.model.AiProviders
 import com.lionotter.recipes.domain.model.Amount
 import com.lionotter.recipes.domain.model.ImageChange
 import com.lionotter.recipes.domain.model.Ingredient
@@ -75,7 +75,7 @@ class EditRecipeUseCaseTest {
         val edited = useCase.execute(
             recipeId = "recipe-1",
             markdownText = "# Banana Bread",
-            model = AiModels.MODEL_HAIKU,
+            model = AiProviders.CLAUDE_HAIKU,
             thinkingEnabled = true,
             aiInstructions = "make it vegan",
             onProgress = { progress += it }
@@ -100,7 +100,7 @@ class EditRecipeUseCaseTest {
 
         val request = parser.requests.single()
         assertEquals("# Banana Bread", request.content)
-        assertEquals(AiModels.MODEL_HAIKU, request.model)
+        assertEquals(AiProviders.CLAUDE_HAIKU, request.model)
         assertTrue(request.thinkingEnabled)
         assertEquals("make it vegan", request.aiInstructions)
         assertEquals(mapOf("special flour" to 0.6), request.densityOverrides)

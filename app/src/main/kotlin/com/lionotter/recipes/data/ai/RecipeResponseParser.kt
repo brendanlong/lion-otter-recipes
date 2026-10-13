@@ -63,6 +63,15 @@ class RecipeResponseParser(private val json: Json) {
         )
     }
 
+    /** Parse the text of a response that has no fallback boundaries (any provider). */
+    fun parseOutput(
+        text: String,
+        refused: Boolean,
+        truncated: Boolean,
+        inputTokens: Long,
+        outputTokens: Long
+    ): Outcome<ParsedRecipeWithUsage> = parseModelOutput(refused, truncated, listOf(text), inputTokens, outputTokens)
+
     private fun parseModelOutput(
         refused: Boolean,
         truncated: Boolean,

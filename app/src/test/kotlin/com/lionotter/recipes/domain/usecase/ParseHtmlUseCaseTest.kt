@@ -4,7 +4,7 @@ import com.lionotter.recipes.domain.AiFailure
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.domain.ResourceLimits
-import com.lionotter.recipes.domain.model.AiModels
+import com.lionotter.recipes.domain.model.AiProviders
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.testutil.FakeAiSettings
 import com.lionotter.recipes.testutil.FakeImageStore
@@ -65,7 +65,7 @@ class ParseHtmlUseCaseTest {
         val request = parser.requests.single()
         assertEquals("recipe text", request.content)
         assertEquals("sk-ant-test", request.apiKey)
-        assertEquals(AiModels.DEFAULT_MODEL, request.model)
+        assertEquals(AiProviders.CLAUDE_SONNET, request.model)
         assertFalse(request.thinkingEnabled)
     }
 
@@ -76,6 +76,18 @@ class ParseHtmlUseCaseTest {
         settings.apiKeyFlow.value = "  "
         assertEquals(Outcome.Failure(RecipeError.NoApiKey), useCase().parseText("recipe text"))
         assertTrue(parser.requests.isEmpty())
+    }
+
+    @Test
+    fun `uses the model and key of the configured provider`() = runTest {
+        settings.apiKeyFlow.value = null
+        settings.openAiApiKeyFlow.value = "sk-proj-test"
+        useCase().parseText("recipe text")
+        assertEquals(AiProviders.GPT_SOL to "sk-proj-test", parser.requests.last().let { it.model to it.apiKey })
+
+        // A model override (edits) whose provider has no key falls back to the edit model
+        useCase().parseText("recipe text", model = AiProviders.CLAUDE_OPUS)
+        assertEquals(AiProviders.GPT_LUNA, parser.requests.last().model)
     }
 
     @Test
@@ -117,18 +129,18 @@ class ParseHtmlUseCaseTest {
         settings.modelFlow.value = "claude-haiku-4-5-20251001"
         settings.thinkingFlow.value = true
         useCase().parseText("text")
-        assertEquals(AiModels.MODEL_HAIKU, parser.requests.last().model)
+        assertEquals(AiProviders.CLAUDE_HAIKU, parser.requests.last().model)
         assertTrue(parser.requests.last().thinkingEnabled)
 
         useCase().parseText(
             "text",
-            model = AiModels.MODEL_OPUS,
+            model = AiProviders.CLAUDE_OPUS,
             thinkingEnabled = false,
             densityOverrides = mapOf("flour" to 0.5),
             aiInstructions = "make it vegan"
         )
         val request = parser.requests.last()
-        assertEquals(AiModels.MODEL_OPUS, request.model)
+        assertEquals(AiProviders.CLAUDE_OPUS, request.model)
         assertFalse(request.thinkingEnabled)
         assertEquals(mapOf("flour" to 0.5), request.densityOverrides)
         assertEquals("make it vegan", request.aiInstructions)
@@ -181,7 +193,7 @@ class ParseHtmlUseCaseTest {
         assertEquals("extracted(<html/>)", success.cleanedContent)
         assertEquals(recipe.id, success.recipeId)
         assertEquals(100L, success.inputTokens)
-        assertEquals(AiModels.DEFAULT_MODEL, success.aiModel)
+        assertEquals(AiProviders.CLAUDE_SONNET, success.aiModel)
         assertTrue(failure.isError)
         assertNull(failure.recipeId)
         assertEquals("AI request failed: TRUNCATED", failure.errorMessage)
@@ -200,7 +212,7 @@ class ParseHtmlUseCaseTest {
             parsedWithUsage = parsedWithUsage(parsedRecipe("Scones")),
             recipeId = "batch-recipe",
             imageUrl = "https://example.com/scones.jpg",
-            model = AiModels.MODEL_SONNET,
+            model = AiProviders.CLAUDE_SONNET,
             thinkingEnabled = false
         ).value()
         assertEquals("batch-recipe", saved.id)
@@ -210,13 +222,13 @@ class ParseHtmlUseCaseTest {
 
         repository.countOverride = ResourceLimits.MAX_RECIPES
         val again = useCase().saveBatchResult(
-            parsedWithUsage(parsedRecipe("Scones")), "batch-recipe", model = AiModels.MODEL_SONNET, thinkingEnabled = false
+            parsedWithUsage(parsedRecipe("Scones")), "batch-recipe", model = AiProviders.CLAUDE_SONNET, thinkingEnabled = false
         )
         assertTrue(again is Outcome.Success)
         assertEquals(
             Outcome.Failure(RecipeError.LimitReached(ResourceLimits.MAX_RECIPES, ResourceLimits.MAX_RECIPES)),
             useCase().saveBatchResult(
-                parsedWithUsage(), "new-recipe", model = AiModels.MODEL_SONNET, thinkingEnabled = false
+                parsedWithUsage(), "new-recipe", model = AiProviders.CLAUDE_SONNET, thinkingEnabled = false
             )
         )
     }
