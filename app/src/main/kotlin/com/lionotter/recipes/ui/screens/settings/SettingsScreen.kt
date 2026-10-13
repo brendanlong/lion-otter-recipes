@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
+import com.lionotter.recipes.data.ai.ApiKeyValidator
 import com.lionotter.recipes.messages.resolve
 import com.lionotter.recipes.ui.components.CollectEvents
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
@@ -52,6 +53,7 @@ import com.lionotter.recipes.ui.screens.settings.components.AccountSection
 import com.lionotter.recipes.ui.screens.settings.components.ApiKeySection
 import com.lionotter.recipes.ui.screens.settings.components.BackupRestoreSection
 import com.lionotter.recipes.ui.screens.settings.components.DisplaySection
+import com.lionotter.recipes.ui.screens.settings.components.ImageGenerationSection
 import com.lionotter.recipes.ui.screens.settings.components.ImportDebuggingSection
 import com.lionotter.recipes.ui.screens.settings.components.MealPlannerSection
 import com.lionotter.recipes.ui.screens.settings.components.ModelSelectionSection
@@ -70,8 +72,10 @@ fun SettingsScreen(
     zipViewModel: ZipExportImportViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val apiKeyInput by viewModel.apiKeyInput.collectAsStateWithLifecycle()
-    val apiKeyError by viewModel.apiKeyError.collectAsStateWithLifecycle()
+    val apiKeyInput by viewModel.anthropicKey.input.collectAsStateWithLifecycle()
+    val apiKeyError by viewModel.anthropicKey.error.collectAsStateWithLifecycle()
+    val openAiKeyInput by viewModel.openAiKey.input.collectAsStateWithLifecycle()
+    val openAiKeyError by viewModel.openAiKey.error.collectAsStateWithLifecycle()
     val isExporting by zipViewModel.isExporting.collectAsStateWithLifecycle()
     val authState by viewModel.authState.collectAsStateWithLifecycle()
     val busyOp by viewModel.busyOp.collectAsStateWithLifecycle()
@@ -181,11 +185,16 @@ fun SettingsScreen(
         ) {
             // API Key Section
             ApiKeySection(
+                title = stringResource(R.string.anthropic_api_key),
+                description = stringResource(R.string.api_key_storage_info),
+                keyPrefix = ApiKeyValidator.ANTHROPIC_API_KEY_PREFIX,
+                getKeyLabel = stringResource(R.string.get_api_key),
+                getKeyUrl = "https://platform.claude.com/settings/keys",
                 currentApiKey = settings.anthropicApiKey,
                 apiKeyInput = apiKeyInput,
-                onApiKeyInputChange = viewModel::onApiKeyInputChange,
-                onSaveClick = viewModel::saveApiKey,
-                onClearClick = viewModel::clearApiKey,
+                onApiKeyInputChange = viewModel.anthropicKey::onInputChange,
+                onSaveClick = viewModel.anthropicKey::save,
+                onClearClick = viewModel::clearAnthropicApiKey,
                 apiKeyError = apiKeyError?.text()
             )
 
@@ -233,6 +242,19 @@ fun SettingsScreen(
                 onEditModelChange = viewModel::setEditModel,
                 thinkingEnabled = settings.thinkingEnabled,
                 onThinkingChange = viewModel::setThinkingEnabled
+            )
+
+            HorizontalDivider()
+
+            ImageGenerationSection(
+                currentApiKey = settings.openAiApiKey,
+                apiKeyInput = openAiKeyInput,
+                onApiKeyInputChange = viewModel.openAiKey::onInputChange,
+                onSaveClick = viewModel.openAiKey::save,
+                onClearClick = viewModel::clearOpenAiApiKey,
+                apiKeyError = openAiKeyError?.text(),
+                imageGenerationEnabled = settings.imageGenerationEnabled,
+                onImageGenerationChange = viewModel::setImageGenerationEnabled
             )
 
             HorizontalDivider()

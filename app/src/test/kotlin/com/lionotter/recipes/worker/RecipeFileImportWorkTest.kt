@@ -26,6 +26,7 @@ import com.lionotter.recipes.testutil.FakeImageStore
 import com.lionotter.recipes.testutil.FakeImportDebugLog
 import com.lionotter.recipes.testutil.FakePageContentExtractor
 import com.lionotter.recipes.testutil.FakePageFetcher
+import com.lionotter.recipes.testutil.FakeRecipeImageScheduler
 import com.lionotter.recipes.testutil.FakeRecipeParser
 import com.lionotter.recipes.testutil.FakeRecipeRepository
 import kotlinx.coroutines.Dispatchers
@@ -61,7 +62,7 @@ class RecipeFileImportWorkTest {
     private val extractor = FakePageContentExtractor(canonicalUrl = "https://example.com/bread")
     private val imageStore = FakeImageStore()
     private val parseHtml =
-        ParseHtmlUseCase(parser, extractor, repository, FakeImportDebugLog(), FakeAiSettings(), imageStore)
+        ParseHtmlUseCase(parser, extractor, repository, FakeImportDebugLog(), FakeAiSettings(), imageStore, FakeRecipeImageScheduler())
 
     private val runningWork = RunningAccountWork(Provider { error("Not used by this test") })
 

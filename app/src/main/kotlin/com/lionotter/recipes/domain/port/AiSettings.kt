@@ -17,4 +17,10 @@ interface AiSettings {
 
     /** Whether to keep each import's input and AI output for the import debugging screen. */
     val importDebuggingEnabled: Flow<Boolean>
+
+    /** The stored OpenAI API key, used only to generate recipe images; null if there is none. */
+    val openAiApiKey: Flow<String?>
+
+    /** Whether recipes imported without an image get a generated one (only with an [openAiApiKey]). */
+    val imageGenerationEnabled: Flow<Boolean>
 }

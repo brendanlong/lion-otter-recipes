@@ -87,8 +87,8 @@ object RecipeOutputSchema {
             )
         )
         obj(
-            mapOf("success" to BOOLEAN, "error" to STRING, "recipe" to recipe),
-            listOf("success", "error", "recipe")
+            mapOf("success" to BOOLEAN, "error" to STRING, "recipe" to recipe, "imagePrompt" to STRING),
+            listOf("success", "error", "recipe", "imagePrompt")
         )
     }
 }

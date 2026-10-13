@@ -13,6 +13,7 @@ import com.lionotter.recipes.testutil.FakeImageStore
 import com.lionotter.recipes.testutil.FakeImportDebugLog
 import com.lionotter.recipes.testutil.FakePageContentExtractor
 import com.lionotter.recipes.testutil.FakePageFetcher
+import com.lionotter.recipes.testutil.FakeRecipeImageScheduler
 import com.lionotter.recipes.testutil.FakeRecipeParser
 import com.lionotter.recipes.testutil.FakeRecipeRepository
 import kotlinx.coroutines.test.runTest
@@ -35,7 +36,7 @@ class ImportRecipeUseCaseTest {
         vararg pages: Pair<String, Outcome<FetchedPage>>,
         extractor: FakePageContentExtractor = this.extractor
     ): ImportRecipeUseCase {
-        val parseHtml = ParseHtmlUseCase(parser, extractor, repository, FakeImportDebugLog(), settings, imageStore)
+        val parseHtml = ParseHtmlUseCase(parser, extractor, repository, FakeImportDebugLog(), settings, imageStore, FakeRecipeImageScheduler())
         return ImportRecipeUseCase(FakePageFetcher(pages.toMap()), extractor, parseHtml)
     }
 

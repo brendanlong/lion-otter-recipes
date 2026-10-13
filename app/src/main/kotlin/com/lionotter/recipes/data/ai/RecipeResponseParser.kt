@@ -101,7 +101,8 @@ class RecipeResponseParser(private val json: Json) {
                     recipe = recipeResult.toParsedRecipe(),
                     inputTokens = inputTokens,
                     outputTokens = outputTokens,
-                    aiOutputJson = jsonContent
+                    aiOutputJson = jsonContent,
+                    imagePrompt = parseResponse.imagePrompt.trim().takeIf { it.isNotEmpty() }
                 )
             )
         } catch (e: Exception) {

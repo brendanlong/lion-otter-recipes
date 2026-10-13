@@ -38,8 +38,14 @@ import androidx.core.net.toUri
 import com.lionotter.recipes.R
 import com.lionotter.recipes.ui.theme.einkBorder
 
+/** Entering, showing (masked) and removing an API key whose keys start with [keyPrefix]. */
 @Composable
 fun ApiKeySection(
+    title: String,
+    description: String,
+    keyPrefix: String,
+    getKeyLabel: String,
+    getKeyUrl: String,
     currentApiKey: String?,
     apiKeyInput: String,
     onApiKeyInputChange: (String) -> Unit,
@@ -53,12 +59,12 @@ fun ApiKeySection(
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
-            text = stringResource(R.string.anthropic_api_key),
+            text = title,
             style = MaterialTheme.typography.titleMedium
         )
 
         Text(
-            text = stringResource(R.string.api_key_storage_info),
+            text = description,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -91,7 +97,7 @@ fun ApiKeySection(
                             )
                         }
                         Text(
-                            text = stringResource(R.string.api_key_masked, currentApiKey.takeLast(4)),
+                            text = stringResource(R.string.api_key_masked, keyPrefix, currentApiKey.takeLast(4)),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                         )
@@ -111,7 +117,7 @@ fun ApiKeySection(
                 onValueChange = onApiKeyInputChange,
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text(stringResource(R.string.api_key)) },
-                placeholder = { Text(stringResource(R.string.api_key_placeholder)) },
+                placeholder = { Text(stringResource(R.string.api_key_placeholder, keyPrefix)) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 visualTransformation = if (passwordVisible) {
@@ -153,12 +159,12 @@ fun ApiKeySection(
 
         OutlinedButton(
             onClick = {
-                val intent = Intent(Intent.ACTION_VIEW, "https://platform.claude.com/settings/keys".toUri())
+                val intent = Intent(Intent.ACTION_VIEW, getKeyUrl.toUri())
                 context.startActivity(intent)
             },
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(stringResource(R.string.get_api_key))
+            Text(getKeyLabel)
         }
     }
 }

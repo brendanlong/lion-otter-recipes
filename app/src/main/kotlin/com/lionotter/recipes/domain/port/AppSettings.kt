@@ -28,6 +28,9 @@ interface AppSettings : AiSettings, TagPreferences {
 
     suspend fun setAnthropicApiKey(apiKey: String)
     suspend fun clearAnthropicApiKey()
+    suspend fun setOpenAiApiKey(apiKey: String)
+    suspend fun clearOpenAiApiKey()
+    suspend fun setImageGenerationEnabled(enabled: Boolean)
     suspend fun setAiModel(model: String)
     suspend fun setEditModel(model: String)
     suspend fun setThinkingEnabled(enabled: Boolean)

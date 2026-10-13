@@ -21,6 +21,7 @@ import com.lionotter.recipes.testutil.FakeImageStore
 import com.lionotter.recipes.testutil.FakeImportDebugLog
 import com.lionotter.recipes.testutil.FakePageContentExtractor
 import com.lionotter.recipes.testutil.FakePageFetcher
+import com.lionotter.recipes.testutil.FakeRecipeImageScheduler
 import com.lionotter.recipes.testutil.FakeRecipeParser
 import com.lionotter.recipes.testutil.FakeRecipeRepository
 import kotlinx.coroutines.Dispatchers
@@ -64,7 +65,7 @@ class CapturedPageWorkTest {
     )
     private val fetcher = FakePageFetcher(mapOf(url to Outcome.Success(FetchedPage("<html>downloaded</html>"))))
     private val parseHtml =
-        ParseHtmlUseCase(parser, FakePageContentExtractor(), repository, FakeImportDebugLog(), FakeAiSettings(), imageStore)
+        ParseHtmlUseCase(parser, FakePageContentExtractor(), repository, FakeImportDebugLog(), FakeAiSettings(), imageStore, FakeRecipeImageScheduler())
 
     private val runningWork = RunningAccountWork(Provider { error("Not used by this test") })
 

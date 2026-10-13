@@ -1,7 +1,9 @@
 package com.lionotter.recipes.di
 
 import com.lionotter.recipes.data.image.ImageUploadScheduler
+import com.lionotter.recipes.domain.port.RecipeImageScheduler
 import com.lionotter.recipes.worker.WorkManagerImageUploadScheduler
+import com.lionotter.recipes.worker.WorkManagerRecipeImageScheduler
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -12,4 +14,7 @@ import dagger.hilt.components.SingletonComponent
 abstract class SchedulerModule {
     @Binds
     abstract fun bindImageUploadScheduler(impl: WorkManagerImageUploadScheduler): ImageUploadScheduler
+
+    @Binds
+    abstract fun bindRecipeImageScheduler(impl: WorkManagerRecipeImageScheduler): RecipeImageScheduler
 }

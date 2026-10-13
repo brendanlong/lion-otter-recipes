@@ -467,7 +467,9 @@ class PaprikaImportSteps @Inject constructor(
             text = recipe.contentForAi,
             sourceUrl = recipe.sourceUrl,
             imageUrl = resolveImageUrl(recipe),
-            saveRecipe = true
+            saveRecipe = true,
+            // Like the batch imports
+            generateMissingImage = false
         )
         return when (parseResult) {
             is Outcome.Success -> PaprikaImportState.Done(

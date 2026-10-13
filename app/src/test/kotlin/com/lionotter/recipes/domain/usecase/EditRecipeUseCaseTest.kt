@@ -15,6 +15,7 @@ import com.lionotter.recipes.testutil.FakeAiSettings
 import com.lionotter.recipes.testutil.FakeImageStore
 import com.lionotter.recipes.testutil.FakeImportDebugLog
 import com.lionotter.recipes.testutil.FakePageContentExtractor
+import com.lionotter.recipes.testutil.FakeRecipeImageScheduler
 import com.lionotter.recipes.testutil.FakeRecipeParser
 import com.lionotter.recipes.testutil.FakeRecipeRepository
 import com.lionotter.recipes.testutil.parsedRecipe
@@ -60,7 +61,7 @@ class EditRecipeUseCaseTest {
     private val imageStore = FakeImageStore()
 
     private val useCase = EditRecipeUseCase(
-        ParseHtmlUseCase(parser, FakePageContentExtractor(), repository, FakeImportDebugLog(), settings, imageStore),
+        ParseHtmlUseCase(parser, FakePageContentExtractor(), repository, FakeImportDebugLog(), settings, imageStore, FakeRecipeImageScheduler()),
         repository,
         imageStore
     )

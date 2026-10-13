@@ -36,6 +36,12 @@
     <string name="error_ai_empty_response">The AI returned an empty response.</string>
     <string name="error_ai_unreadable_response">The AI returned a response that couldn\'t be read.</string>
     <string name="error_ai_failed">The AI request failed.</string>
+    <string name="image_generation_failed_title">Couldn\'t create a recipe image</string>
+    <string name="image_generation_invalid_key">Your OpenAI API key was rejected. Check it in Settings.</string>
+    <string name="image_generation_permission_denied">Your OpenAI account can\'t use image generation. You may need to verify your organization at platform.openai.com.</string>
+    <string name="image_generation_out_of_credits">Your OpenAI account is out of credits.</string>
+    <string name="image_generation_refused">OpenAI declined to create an image for this recipe.</string>
+    <string name="image_generation_failed">The recipe was saved without an image.</string>
 
     <string name="error_archive_too_large">This file is too large to import.</string>
     <string name="error_archive_unreadable">Couldn\'t read the file. Is it a Lion+Otter or Paprika export?</string>
@@ -82,6 +88,7 @@
     <string name="error_export_cancelled">The export was cancelled.</string>
     <string name="error_api_key_empty">API key cannot be empty</string>
     <string name="error_api_key_prefix">Invalid API key format. Should start with \'%1$s\'</string>
+    <string name="error_api_key_is_anthropic">That\'s an Anthropic API key. Enter an OpenAI key here.</string>
     <string name="error_api_key_save">Couldn\'t save the API key. Please try again.</string>
     <string name="error_sign_out">Couldn\'t sign out. Please try again.</string>
 

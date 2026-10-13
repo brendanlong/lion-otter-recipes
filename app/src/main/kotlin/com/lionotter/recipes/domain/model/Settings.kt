@@ -15,5 +15,7 @@ data class Settings(
     val groceryWeightUnitSystem: UnitSystem,
     val startOfWeek: StartOfWeek,
     val importDebuggingEnabled: Boolean,
+    val openAiApiKey: String?,
+    val imageGenerationEnabled: Boolean,
     val tagBarSize: Int
 )

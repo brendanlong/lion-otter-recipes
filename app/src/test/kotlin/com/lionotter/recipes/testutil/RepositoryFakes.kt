@@ -236,6 +236,8 @@ class FakeAppSettings(
     val groceryVolumeUnitSystemFlow = MutableStateFlow<UnitSystem?>(null)
     val groceryWeightUnitSystemFlow = MutableStateFlow<UnitSystem?>(null)
     val startOfWeekFlow = MutableStateFlow(StartOfWeek.LOCALE_DEFAULT)
+    val openAiApiKeyFlow = MutableStateFlow<String?>(null)
+    val imageGenerationFlow = MutableStateFlow(true)
 
     var writeError: Throwable? = null
 
@@ -258,12 +260,15 @@ class FakeAppSettings(
             grocery ?: recipe
         }
     override val startOfWeek: Flow<StartOfWeek> = startOfWeekFlow
+    override val openAiApiKey: Flow<String?> = openAiApiKeyFlow
+    override val imageGenerationEnabled: Flow<Boolean> = imageGenerationFlow
 
     override val settings: Flow<Settings> = combine(
         listOf<Flow<Any?>>(
             apiKeyFlow, aiModelFlow, editModelFlow, thinkingFlow, keepScreenOnFlow, themeModeFlow,
             volumeUnitSystem, weightUnitSystem, groceryVolumeUnitSystem, groceryWeightUnitSystem,
-            startOfWeekFlow, importDebuggingFlow, volumeKeysScrollFlow, tagPreferences.tagBarSizeFlow
+            startOfWeekFlow, importDebuggingFlow, volumeKeysScrollFlow, tagPreferences.tagBarSizeFlow,
+            openAiApiKeyFlow, imageGenerationFlow
         )
     ) { values ->
         Settings(
@@ -280,7 +285,9 @@ class FakeAppSettings(
             startOfWeek = values[10] as StartOfWeek,
             importDebuggingEnabled = values[11] as Boolean,
             volumeKeysScroll = values[12] as Boolean,
-            tagBarSize = values[13] as Int
+            tagBarSize = values[13] as Int,
+            openAiApiKey = values[14] as String?,
+            imageGenerationEnabled = values[15] as Boolean
         )
     }
 
@@ -291,6 +298,9 @@ class FakeAppSettings(
 
     override suspend fun setAnthropicApiKey(apiKey: String) = write(apiKeyFlow, apiKey)
     override suspend fun clearAnthropicApiKey() = write(apiKeyFlow, null)
+    override suspend fun setOpenAiApiKey(apiKey: String) = write(openAiApiKeyFlow, apiKey)
+    override suspend fun clearOpenAiApiKey() = write(openAiApiKeyFlow, null)
+    override suspend fun setImageGenerationEnabled(enabled: Boolean) = write(imageGenerationFlow, enabled)
     override suspend fun setAiModel(model: String) = write(aiModelFlow, model)
     override suspend fun setEditModel(model: String) = write(editModelFlow, model)
     override suspend fun setThinkingEnabled(enabled: Boolean) = write(thinkingFlow, enabled)
