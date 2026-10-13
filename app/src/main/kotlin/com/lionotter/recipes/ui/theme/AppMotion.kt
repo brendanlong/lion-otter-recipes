@@ -7,7 +7,7 @@ import androidx.compose.ui.MotionDurationScale
 /**
  * How fast every Compose animation in the app runs: the system's animation scale, or none at all
  * with [enabled] off (the e-ink theme, where animations smear). Given to the window's recomposer
- * (MainActivity), which otherwise reads the system's scale itself; with no animations each one
+ * (RecipesActivity), which otherwise reads the system's scale itself; with no animations each one
  * jumps straight to its end, so screen transitions, swipes and scrolls by a page are instant.
  */
 class AppMotion(private val context: Context) : MotionDurationScale {

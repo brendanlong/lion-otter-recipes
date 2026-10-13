@@ -87,12 +87,12 @@ subgraph app["Android App"]
         end
 
         nav_graph["NavGraph<br/>(typed @Serializable Route destinations,<br/>start = Route.RecipeList)"]
-        main_activity["MainActivity<br/>(onNewIntent, notification recipe_id)"]
+        main_activity["RecipesActivity<br/>(onNewIntent, notification recipe_id)"]
         main_activity -->|AppIntentEvent| shared_intent_vm
         main_activity -->|"toasts DataFailure (failures channel)"| firestore_svc
         main_activity -->|"theme, volume keys scroll"| port_app_settings
         main_activity -->|"volume keys to PageTurns"| scroll_aids
-        launcher_icon["LauncherIcon<br/>(DefaultIcon / EinkIcon activity-aliases)"]
+        launcher_icon["LauncherIcon<br/>(.MainActivity / .EinkIcon activity-aliases)"]
         main_activity -->|"e-ink theme: e-ink icon"| launcher_icon
         viewmodels -->|"RecipeError / DataFailure to UserMessage"| messages
         nav_graph -->|collects events| shared_intent_vm

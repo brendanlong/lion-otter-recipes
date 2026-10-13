@@ -33,7 +33,7 @@ class PageTurns {
 }
 
 /** The Activity's [PageTurns]; null where nothing listens for page turns (previews, tests). */
-// Set once by MainActivity, which owns the key events; threading it through every screen's
+// Set once by RecipesActivity, which owns the key events; threading it through every screen's
 // parameters would only hand it down unchanged.
 @Suppress("ComposeCompositionLocalUsage")
 val LocalPageTurns = staticCompositionLocalOf<PageTurns?> { null }

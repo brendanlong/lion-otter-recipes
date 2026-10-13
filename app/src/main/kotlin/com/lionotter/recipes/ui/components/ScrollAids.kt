@@ -57,7 +57,8 @@ class ScrollAids internal constructor(
 
     /** Scrolls a page down (1) or up (-1); false when there's nothing to scroll. */
     fun turnPage(direction: Int): Boolean {
-        if (height == 0 || !(state.canScrollForward || state.canScrollBackward)) return false
+        val canScroll = if (direction > 0) state.canScrollForward else state.canScrollBackward
+        if (height == 0 || !canScroll) return false
         scope.launch { state.animateScrollBy(pageScrollDistance(height, direction)) }
         return true
     }

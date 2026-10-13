@@ -57,7 +57,7 @@ private val LightNavigationBarScrim = Color.argb(0xe6, 0xFF, 0xFF, 0xFF)
 private val DarkNavigationBarScrim = Color.argb(0x80, 0x1b, 0x1b, 0x1b)
 
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class RecipesActivity : ComponentActivity() {
     private val sharedIntentViewModel: SharedIntentViewModel by viewModels()
 
     @Inject

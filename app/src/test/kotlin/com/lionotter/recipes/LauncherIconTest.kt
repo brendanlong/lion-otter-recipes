@@ -84,7 +84,7 @@ class LauncherIconTest {
 
     @Test
     fun `a launch not from the launcher changes nothing`() {
-        val activity = launchedFrom(MainActivity::class.java.name)
+        val activity = launchedFrom(RecipesActivity::class.java.name)
         assertFalse(activity.matchLauncherIcon(eink = true))
         assertEquals(listOf(DEFAULT_ICON), launcherEntries())
         assertNull(shadowOf(activity).nextStartedActivity)

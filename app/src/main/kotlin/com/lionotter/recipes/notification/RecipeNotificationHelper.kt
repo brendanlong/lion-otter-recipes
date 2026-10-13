@@ -11,7 +11,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.work.ForegroundInfo
-import com.lionotter.recipes.MainActivity
+import com.lionotter.recipes.RecipesActivity
 import com.lionotter.recipes.R
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -81,7 +81,7 @@ class RecipeNotificationHelper @Inject constructor(
             .build()
 
     private fun openAppIntent(recipeId: String?, requestCode: Int): PendingIntent {
-        val intent = Intent(context, MainActivity::class.java).apply {
+        val intent = Intent(context, RecipesActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             if (recipeId != null) putExtra(EXTRA_RECIPE_ID, recipeId)
         }

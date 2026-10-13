@@ -7,7 +7,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 
 // Named from the namespace, which the debug build's application ID suffix doesn't change.
-internal const val DEFAULT_ICON = "com.lionotter.recipes.DefaultIcon"
+// The default entry keeps the old launcher component name so pinned icons survive updates.
+internal const val DEFAULT_ICON = "com.lionotter.recipes.MainActivity"
 internal const val EINK_ICON = "com.lionotter.recipes.EinkIcon"
 private val ICONS = listOf(DEFAULT_ICON, EINK_ICON)
 
@@ -16,7 +17,7 @@ private fun shownIcon(eink: Boolean): String = if (eink) EINK_ICON else DEFAULT_
 /**
  * Shows the black-and-white launcher icon with the e-ink theme and the color one otherwise.
  * Android has no resource qualifier for this, so the manifest has a launcher entry (an
- * activity-alias of MainActivity) per icon, and this enables one. Without the e-ink theme both
+ * activity-alias of RecipesActivity) per icon, and this enables one. Without the e-ink theme both
  * are left as the manifest has them, so nothing changes for anyone who never picks it. Swapping
  * drops shortcuts pinned to the old entry.
  */
