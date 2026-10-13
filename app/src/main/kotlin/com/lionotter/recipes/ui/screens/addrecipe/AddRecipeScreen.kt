@@ -1,11 +1,15 @@
 package com.lionotter.recipes.ui.screens.addrecipe
 
+import android.content.ActivityNotFoundException
 import android.net.Uri
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,6 +26,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.HourglassEmpty
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.UploadFile
@@ -43,6 +49,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -51,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
+import com.lionotter.recipes.domain.ResourceLimits
 import com.lionotter.recipes.imports.ImportStage
 import com.lionotter.recipes.ui.components.CollectEvents
 import com.lionotter.recipes.ui.components.ErrorCard
@@ -76,12 +84,25 @@ fun AddRecipeScreen(
     val url by viewModel.url.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val hasApiKey by viewModel.hasApiKey.collectAsStateWithLifecycle()
+    val capturedPhotos by viewModel.capturedPhotos.collectAsStateWithLifecycle()
+    val canTakePhoto by viewModel.canTakePhoto.collectAsStateWithLifecycle()
+
+    val takePicture = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture(),
+        onResult = viewModel::onPhotoTaken
+    )
 
     CollectEvents(viewModel.events) { event ->
         when (event) {
             is AddRecipeEvent.RecipeAdded -> onRecipeAdded(event.recipeId)
             is AddRecipeEvent.OpenBrowser -> onOpenBrowser(event.url)
             is AddRecipeEvent.OpenImportSelection -> onNavigateToImportSelection(event.importType, event.uri)
+            is AddRecipeEvent.TakePhoto -> try {
+                takePicture.launch(event.uri)
+            } catch (e: ActivityNotFoundException) {
+                Log.w("AddRecipeScreen", "No camera app", e)
+                viewModel.onCameraUnavailable()
+            }
         }
     }
 
@@ -105,6 +126,16 @@ fun AddRecipeScreen(
         if (uri != null) {
             requestNotificationPermission()
             viewModel.onFilePicked(uri)
+        }
+    }
+
+    // Several photos of one recipe, e.g. the pages of a cookbook recipe
+    val photoPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia(ResourceLimits.MAX_PHOTOS_PER_RECIPE)
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            requestNotificationPermission()
+            viewModel.onFilesPicked(uris)
         }
     }
 
@@ -136,6 +167,21 @@ fun AddRecipeScreen(
                         onImportFromFileClick = {
                             importFilePicker.launch(arrayOf("*/*"))
                         },
+                        photos = PhotoActions(
+                            capturedCount = capturedPhotos.size,
+                            canTakePhoto = canTakePhoto,
+                            onTakePhotoClick = viewModel::onTakePhotoClick,
+                            onChoosePhotosClick = {
+                                photoPicker.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            },
+                            onImportPhotosClick = {
+                                requestNotificationPermission()
+                                viewModel.importCapturedPhotos()
+                            },
+                            onDiscardPhotosClick = viewModel::discardCapturedPhotos
+                        ),
                         hasApiKey = hasApiKey,
                         onNavigateToSettings = onNavigateToSettings,
                         errorMessage = (state as? AddRecipeUiState.Error)?.message?.text(),
@@ -162,6 +208,7 @@ private fun IdleContent(
     onUrlChange: (String) -> Unit,
     onImportClick: () -> Unit,
     onImportFromFileClick: () -> Unit,
+    photos: PhotoActions,
     hasApiKey: Boolean,
     onNavigateToSettings: () -> Unit,
     errorMessage: String?,
@@ -263,6 +310,98 @@ private fun IdleContent(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+
+        HorizontalDivider()
+
+        PhotoImportSection(photos)
+    }
+}
+
+/** What the photo import section shows and does. */
+private class PhotoActions(
+    /** Photos taken with the camera for the next import. */
+    val capturedCount: Int,
+    val canTakePhoto: Boolean,
+    val onTakePhotoClick: () -> Unit,
+    val onChoosePhotosClick: () -> Unit,
+    val onImportPhotosClick: () -> Unit,
+    val onDiscardPhotosClick: () -> Unit
+)
+
+@Composable
+private fun PhotoImportSection(photos: PhotoActions) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (photos.capturedCount == 0) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = photos.onTakePhotoClick, modifier = Modifier.weight(1f)) {
+                    Icon(
+                        imageVector = Icons.Default.PhotoCamera,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Text(stringResource(R.string.take_photo))
+                }
+                OutlinedButton(onClick = photos.onChoosePhotosClick, modifier = Modifier.weight(1f)) {
+                    Icon(
+                        imageVector = Icons.Default.PhotoLibrary,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Text(stringResource(R.string.choose_photos))
+                }
+            }
+            Text(
+                text = pluralStringResource(
+                    R.plurals.import_photos_description,
+                    ResourceLimits.MAX_PHOTOS_PER_RECIPE,
+                    ResourceLimits.MAX_PHOTOS_PER_RECIPE
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            CapturedPhotosCard(photos)
+        }
+    }
+}
+
+@Composable
+private fun CapturedPhotosCard(photos: PhotoActions) {
+    Card(
+        border = einkBorder(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = pluralStringResource(R.plurals.photos_taken, photos.capturedCount, photos.capturedCount),
+                style = MaterialTheme.typography.titleSmall
+            )
+            Text(
+                text = stringResource(R.string.photos_taken_description),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Button(onClick = photos.onImportPhotosClick, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.import_recipe))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = photos.onTakePhotoClick,
+                    enabled = photos.canTakePhoto,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(stringResource(R.string.take_another_photo))
+                }
+                TextButton(onClick = photos.onDiscardPhotosClick, modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.discard_photos))
+                }
+            }
+        }
     }
 }
 

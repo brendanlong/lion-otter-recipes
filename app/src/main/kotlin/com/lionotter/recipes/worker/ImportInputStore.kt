@@ -29,7 +29,8 @@ import javax.inject.Singleton
  * don't survive process death, so large inputs (selected IDs, edited markdown) and picked files
  * are copied here at enqueue time and workers receive only an import ID or file path.
  *
- * Layout: `files/imports/<importId>/` holds `source` (the copied archive or recipe file), `selection.txt`,
+ * Layout: `files/imports/<importId>/` holds `source` (the copied archive or recipe file; further photos of
+ * the same recipe are `source-1`, `source-2`, ...), `selection.txt`,
  * `kind`, `page.html` (a URL import's page captured in the in-app browser) and any worker
  * state (e.g. Paprika batch state). `files/work-inputs/` holds one-off text inputs (edited
  * markdown, a page captured for a re-import).
@@ -68,18 +69,30 @@ class ImportInputStore @Inject constructor(
         return File(importsRoot, importId).apply { mkdirs() }
     }
 
-    fun sourceFile(importId: String): File = File(importDir(importId), SOURCE_FILE)
+    /** The import's copied file; [index] > 0 for the further photos of a recipe imported from several. */
+    fun sourceFile(importId: String, index: Int = 0): File =
+        File(importDir(importId), if (index == 0) SOURCE_FILE else "$SOURCE_FILE-$index")
+
+    /** The import's copied files in order ([sourceFile] 0, 1, ... while they exist). */
+    fun sourceFiles(importId: String): List<File> =
+        generateSequence(0) { it + 1 }.map { sourceFile(importId, it) }.takeWhile { it.exists() }.toList()
 
     /**
      * Copy a picked or shared document into app storage, so it can still be read after process
      * death (when the content:// grant is gone). The file only appears at [sourceFile] once the
      * copy is complete.
      *
+     * @param index the file's position, for a recipe imported from several photos
      * @throws RecipeErrorException ([RecipeError.ImportFile]) if the file is bigger than [maxBytes]
      */
-    suspend fun copySource(importId: String, uri: Uri, maxBytes: Long = Long.MAX_VALUE): File = withContext(ioDispatcher) {
-        val target = sourceFile(importId)
-        val partial = File(target.parentFile, "$SOURCE_FILE.partial")
+    suspend fun copySource(
+        importId: String,
+        uri: Uri,
+        maxBytes: Long = Long.MAX_VALUE,
+        index: Int = 0
+    ): File = withContext(ioDispatcher) {
+        val target = sourceFile(importId, index)
+        val partial = File(target.parentFile, "${target.name}.partial")
         val input = context.contentResolver.openInputStream(uri)
             ?: throw IOException("Could not open the selected file")
         val withinLimit = input.use { source -> partial.outputStream().use { copyAtMost(source, it, maxBytes) } }
@@ -116,6 +129,7 @@ class ImportInputStore @Inject constructor(
     fun readRecipeFile(importId: String): StagedRecipeFile? {
         if (!hasImport(importId)) return null
         val format = readKind(importId)?.recipeFileFormat ?: return null
+        if (!format.isText) return StagedRecipeFile(format, content = null, sources = sourceFiles(importId))
         val content = sourceFile(importId).takeIf { it.exists() }
             ?.readBytes()
             ?.let { RecipeFileText.decode(it, format) }
@@ -245,7 +259,11 @@ enum class ImportKind(val value: String, val recipeFileFormat: RecipeFileFormat?
     /** A Markdown or text file with one recipe. */
     TEXT_FILE("text_file", RecipeFileFormat.TEXT),
     /** A saved web page with one recipe. */
-    HTML_FILE("html_file", RecipeFileFormat.HTML);
+    HTML_FILE("html_file", RecipeFileFormat.HTML),
+    /** Photos of one recipe. */
+    IMAGE_FILE("image_file", RecipeFileFormat.IMAGE),
+    /** A PDF with one recipe. */
+    PDF_FILE("pdf_file", RecipeFileFormat.PDF);
 
     val isRecipeFile: Boolean get() = recipeFileFormat != null
 
@@ -254,5 +272,12 @@ enum class ImportKind(val value: String, val recipeFileFormat: RecipeFileFormat?
     }
 }
 
-/** A recipe file copied into the import; [content] is null if the file is gone. */
-data class StagedRecipeFile(val format: RecipeFileFormat, val content: String?)
+/**
+ * A recipe file copied into the import. A text file's [content] is null if the file is gone; the
+ * other formats are read from [sources] (empty if they are gone).
+ */
+data class StagedRecipeFile(
+    val format: RecipeFileFormat,
+    val content: String?,
+    val sources: List<File> = emptyList()
+)

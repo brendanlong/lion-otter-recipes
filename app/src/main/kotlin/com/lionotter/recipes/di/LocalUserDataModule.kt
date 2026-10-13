@@ -5,6 +5,7 @@ import com.lionotter.recipes.data.local.DataStoreGroceryListStateStore
 import com.lionotter.recipes.data.local.PerUserLocalData
 import com.lionotter.recipes.data.local.SettingsDataStore
 import com.lionotter.recipes.data.repository.ImportDebugRepository
+import com.lionotter.recipes.imports.CameraPhotoFiles
 import com.lionotter.recipes.imports.ImportQueue
 import dagger.Binds
 import dagger.Module
@@ -31,6 +32,10 @@ abstract class LocalUserDataModule {
     @Binds
     @IntoSet
     abstract fun bindImportQueue(impl: ImportQueue): PerUserLocalData
+
+    @Binds
+    @IntoSet
+    abstract fun bindCameraPhotos(impl: CameraPhotoFiles): PerUserLocalData
 
     @Binds
     @IntoSet

@@ -3,4 +3,8 @@
     <cache-path
         name="shared_recipes"
         path="shared_recipes/" />
+    <!-- Photos of a recipe taken with the camera app, until they are imported -->
+    <cache-path
+        name="camera_photos"
+        path="camera_photos/" />
 </paths>

@@ -4,6 +4,12 @@ import android.util.Log
 import com.anthropic.client.AnthropicClient
 import com.anthropic.client.okhttp.AnthropicOkHttpClient
 import com.anthropic.helpers.BetaMessageAccumulator
+import com.anthropic.models.beta.messages.BetaBase64ImageSource
+import com.anthropic.models.beta.messages.BetaBase64PdfSource
+import com.anthropic.models.beta.messages.BetaContentBlockParam
+import com.anthropic.models.beta.messages.BetaImageBlockParam
+import com.anthropic.models.beta.messages.BetaRequestDocumentBlock
+import com.anthropic.models.beta.messages.BetaTextBlockParam
 import com.anthropic.models.beta.messages.BetaThinkingConfigAdaptive
 import com.anthropic.models.messages.ThinkingConfigAdaptive
 import com.anthropic.models.messages.batches.BatchCreateParams
@@ -15,6 +21,7 @@ import com.lionotter.recipes.domain.model.AiModels
 import com.lionotter.recipes.domain.port.BatchItemOutcome
 import com.lionotter.recipes.domain.port.BatchParseRequest
 import com.lionotter.recipes.domain.port.BatchStatus
+import com.lionotter.recipes.domain.port.ParseAttachment
 import com.lionotter.recipes.domain.port.ParseRequest
 import com.lionotter.recipes.domain.port.ParsedRecipeWithUsage
 import com.lionotter.recipes.domain.port.RecipeBatchParser
@@ -28,6 +35,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import java.util.Base64
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.coroutineContext
@@ -49,28 +57,7 @@ class AnthropicRecipeParser @Inject constructor(
         val model = AiModels.normalizeModel(request.model)
         val result = try {
             val client = clientFor(request.apiKey)
-            val requestConfig = RecipeRequests.requestConfigFor(model, request.thinkingEnabled)
-
-            val paramsBuilder = BetaMessageCreateParams.builder()
-                .model(model)
-                .maxTokens(RecipeRequests.MAX_OUTPUT_TOKENS)
-                .systemOfBetaTextBlockParams(RecipeRequests.betaSystemBlocks)
-                .addUserMessage(
-                    RecipePrompt.buildUserMessage(
-                        request.content,
-                        request.densityOverrides,
-                        request.aiInstructions,
-                        request.existingTags
-                    )
-                )
-                .outputConfig(requestConfig.toBetaOutputConfig())
-            if (requestConfig.adaptiveThinking) {
-                paramsBuilder.thinking(BetaThinkingConfigAdaptive.builder().build())
-            }
-            if (RecipeRequests.supportsServerSideFallback(model)) {
-                paramsBuilder.addBeta(RecipeRequests.SERVER_SIDE_FALLBACK_BETA).fallbacksDefault()
-            }
-            val params = paramsBuilder.build()
+            val params = buildParams(request, model)
 
             // Stream so large max_tokens values don't hit HTTP timeouts. The SDK is blocking,
             // so run on IO and close the stream if the coroutine is cancelled.
@@ -108,6 +95,63 @@ class AnthropicRecipeParser @Inject constructor(
             Log.w(TAG, "Recipe parse failed (model=$model): ${result.error.logDescription()}")
         }
         return result
+    }
+
+    /**
+     * The streamed request for [request]. Attachments go before the text, as the API recommends:
+     * each photo as an image block (in page order), a PDF as a document block.
+     */
+    internal fun buildParams(request: ParseRequest, model: String): BetaMessageCreateParams {
+        val requestConfig = RecipeRequests.requestConfigFor(model, request.thinkingEnabled)
+        val text = RecipePrompt.buildUserMessage(
+            request.content,
+            request.densityOverrides,
+            request.aiInstructions,
+            request.existingTags,
+            request.attachments
+        )
+        val paramsBuilder = BetaMessageCreateParams.builder()
+            .model(model)
+            .maxTokens(RecipeRequests.MAX_OUTPUT_TOKENS)
+            .systemOfBetaTextBlockParams(RecipeRequests.betaSystemBlocks)
+            .outputConfig(requestConfig.toBetaOutputConfig())
+        if (request.attachments.isEmpty()) {
+            paramsBuilder.addUserMessage(text)
+        } else {
+            paramsBuilder.addUserMessageOfBetaContentBlockParams(
+                request.attachments.map(::attachmentBlock) + BetaContentBlockParam.ofText(
+                    BetaTextBlockParam.builder().text(text).build()
+                )
+            )
+        }
+        if (requestConfig.adaptiveThinking) {
+            paramsBuilder.thinking(BetaThinkingConfigAdaptive.builder().build())
+        }
+        if (RecipeRequests.supportsServerSideFallback(model)) {
+            paramsBuilder.addBeta(RecipeRequests.SERVER_SIDE_FALLBACK_BETA).fallbacksDefault()
+        }
+        return paramsBuilder.build()
+    }
+
+    private fun attachmentBlock(attachment: ParseAttachment): BetaContentBlockParam {
+        val data = Base64.getEncoder().encodeToString(attachment.bytes)
+        return when (attachment) {
+            is ParseAttachment.Image -> BetaContentBlockParam.ofImage(
+                BetaImageBlockParam.builder()
+                    .source(
+                        BetaBase64ImageSource.builder()
+                            .data(data)
+                            .mediaType(BetaBase64ImageSource.MediaType.of(attachment.mediaType))
+                            .build()
+                    )
+                    .build()
+            )
+            is ParseAttachment.Pdf -> BetaContentBlockParam.ofDocument(
+                BetaRequestDocumentBlock.builder()
+                    .source(BetaBase64PdfSource.builder().data(data).build())
+                    .build()
+            )
+        }
     }
 
     /** Batch processing is 50% cheaper than synchronous API calls. */

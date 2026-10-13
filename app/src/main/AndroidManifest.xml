@@ -49,6 +49,30 @@
                 <data android:mimeType="text/html" />
             </intent-filter>
 
+            <!-- Handle a photo or PDF of a recipe shared from other apps (EXTRA_STREAM) -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
+
+            <!-- Handle several photos of one recipe (e.g. its cookbook pages) shared from other apps -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+
+            <!-- Handle photos and PDFs of a recipe opened from a file manager -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
+
             <!-- Handle .lorecipes / .paprikarecipes files shared from other apps.
                  The import type is detected from the ZIP contents. -->
             <intent-filter>
@@ -121,7 +145,7 @@
             </intent-filter>
         </activity-alias>
 
-        <!-- FileProvider for sharing .lorecipes files -->
+        <!-- FileProvider for sharing .lorecipes files and for camera photos of recipes -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

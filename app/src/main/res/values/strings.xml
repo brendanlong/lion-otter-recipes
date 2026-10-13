@@ -212,7 +212,22 @@
     <!-- File Import -->
     <string name="import_from_file">Import from file</string>
     <string name="recipe_file_default_name">Recipe file</string>
-    <string name="import_from_file_description">Import a recipe from a Markdown, text or HTML file, or recipes from a .lorecipes or Paprika (.paprikarecipes) file</string>
+    <string name="import_from_file_description">Import a recipe from a PDF, a photo, or a Markdown, text or HTML file, or recipes from a .lorecipes or Paprika (.paprikarecipes) file</string>
+
+    <!-- Photo Import -->
+    <string name="take_photo">Take photo</string>
+    <string name="choose_photos">Choose photos</string>
+    <plurals name="import_photos_description">
+        <item quantity="one">Import a recipe from a photo of a recipe card or cookbook page (up to %1$d photo).</item>
+        <item quantity="other">Import a recipe from photos of a recipe card or cookbook pages (up to %1$d photos, in page order).</item>
+    </plurals>
+    <plurals name="photos_taken">
+        <item quantity="one">%1$d photo taken</item>
+        <item quantity="other">%1$d photos taken</item>
+    </plurals>
+    <string name="photos_taken_description">If the recipe continues on another page, take a photo of that page too.</string>
+    <string name="take_another_photo">Take another photo</string>
+    <string name="discard_photos">Discard</string>
 
     <!-- Import Debugging -->
     <string name="import_debugging">Import Debugging</string>

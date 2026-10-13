@@ -12,6 +12,7 @@ import com.lionotter.recipes.domain.port.ImageStore
 import com.lionotter.recipes.domain.port.ImportDebugLog
 import com.lionotter.recipes.domain.port.ImportDebugRecord
 import com.lionotter.recipes.domain.port.PageContentExtractor
+import com.lionotter.recipes.domain.port.ParseAttachment
 import com.lionotter.recipes.domain.port.ParseRequest
 import com.lionotter.recipes.domain.port.ParsedRecipe
 import com.lionotter.recipes.domain.port.ParsedRecipeWithUsage
@@ -24,6 +25,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlin.time.Clock
+import java.io.ByteArrayInputStream
 import java.util.UUID
 import javax.inject.Inject
 import kotlin.coroutines.coroutineContext
@@ -117,6 +119,58 @@ class ParseHtmlUseCase @Inject constructor(
         densityOverrides: Map<String, Double>? = null,
         aiInstructions: String? = null,
         onProgress: suspend (ParseProgress) -> Unit = {}
+    ): Outcome<Recipe> = parse(
+        text = text,
+        attachments = emptyList(),
+        sourceUrl = sourceUrl,
+        imageUrl = imageUrl,
+        recipePhoto = null,
+        saveRecipe = saveRecipe,
+        originalHtml = originalHtml,
+        model = model,
+        thinkingEnabled = thinkingEnabled,
+        densityOverrides = densityOverrides,
+        aiInstructions = aiInstructions,
+        onProgress = onProgress
+    )
+
+    /**
+     * Parse photos (in page order) or a PDF of a recipe with AI and save the recipe.
+     *
+     * @param recipePhoto a photo to use as the recipe's image, or null for none
+     */
+    suspend fun parseAttachments(
+        attachments: List<ParseAttachment>,
+        recipePhoto: ParseAttachment.Image? = null,
+        onProgress: suspend (ParseProgress) -> Unit = {}
+    ): Outcome<Recipe> = parse(
+        text = "",
+        attachments = attachments,
+        sourceUrl = null,
+        imageUrl = null,
+        recipePhoto = recipePhoto,
+        saveRecipe = true,
+        originalHtml = null,
+        model = null,
+        thinkingEnabled = null,
+        densityOverrides = null,
+        aiInstructions = null,
+        onProgress = onProgress
+    )
+
+    private suspend fun parse(
+        text: String,
+        attachments: List<ParseAttachment>,
+        sourceUrl: String?,
+        imageUrl: String?,
+        recipePhoto: ParseAttachment.Image?,
+        saveRecipe: Boolean,
+        originalHtml: String?,
+        model: String?,
+        thinkingEnabled: Boolean?,
+        densityOverrides: Map<String, Double>?,
+        aiInstructions: String?,
+        onProgress: suspend (ParseProgress) -> Unit
     ): Outcome<Recipe> {
         val apiKey = aiSettings.anthropicApiKey.first()
         if (apiKey.isNullOrBlank()) {
@@ -147,9 +201,11 @@ class ParseHtmlUseCase @Inject constructor(
                 thinkingEnabled = thinkingEnabled,
                 densityOverrides = densityOverrides,
                 aiInstructions = aiInstructions,
-                existingTags = existingTags
+                existingTags = existingTags,
+                attachments = attachments
             )
         )
+        val debugContent = if (attachments.isEmpty()) text else describeAttachments(attachments)
         val durationMs = System.currentTimeMillis() - startTime
         val parsedWithUsage = when (parseResult) {
             is Outcome.Success -> parseResult.value
@@ -158,7 +214,7 @@ class ParseHtmlUseCase @Inject constructor(
                     saveDebugEntry(
                         sourceUrl = sourceUrl,
                         originalHtml = originalHtml,
-                        cleanedContent = text,
+                        cleanedContent = debugContent,
                         aiOutputJson = null,
                         inputTokens = null,
                         outputTokens = null,
@@ -183,7 +239,7 @@ class ParseHtmlUseCase @Inject constructor(
         onProgress(ParseProgress.RecipeNameAvailable(parsed.name))
 
         val recipe = if (saveRecipe) {
-            saveWithImage(parsed, UUID.randomUUID().toString(), sourceUrl, imageUrl) {
+            saveWithImage(parsed, UUID.randomUUID().toString(), sourceUrl, imageUrl, recipePhoto) {
                 onProgress(ParseProgress.SavingRecipe)
             }
         } else {
@@ -197,7 +253,7 @@ class ParseHtmlUseCase @Inject constructor(
             saveDebugEntry(
                 sourceUrl = sourceUrl,
                 originalHtml = originalHtml,
-                cleanedContent = text,
+                cleanedContent = debugContent,
                 aiOutputJson = parsedWithUsage.aiOutputJson,
                 inputTokens = parsedWithUsage.inputTokens,
                 outputTokens = parsedWithUsage.outputTokens,
@@ -360,25 +416,51 @@ class ParseHtmlUseCase @Inject constructor(
     }
 
     /**
-     * Imports the image at [imageUrl] (cancellable), then attaches it and saves the recipe, which
-     * run to completion once started. Without a usable image the recipe is saved without one.
+     * Imports the image at [imageUrl] (cancellable), then attaches it (or else [recipePhoto]) and
+     * saves the recipe, which run to completion once started. Without a usable image the recipe
+     * is saved without one.
      */
     private suspend fun saveWithImage(
         parsed: ParsedRecipe,
         recipeId: String,
         sourceUrl: String?,
         imageUrl: String?,
+        recipePhoto: ParseAttachment.Image? = null,
         onSaving: suspend () -> Unit = {}
     ): Recipe {
         val image = imageUrl?.let { imageStore.importFromUrl(it) }
         coroutineContext.ensureActive()
         onSaving()
         return withContext(NonCancellable) {
-            val storedImageUrl = image?.let { imageStore.attach(it.uri, recipeId = recipeId) }
+            val localImage = image?.uri ?: recipePhoto?.let { savePhoto(it) }
+            val storedImageUrl = localImage?.let { imageStore.attach(it, recipeId = recipeId) }
             buildRecipe(parsed, sourceUrl, storedImageUrl, image?.sourceUrl ?: imageUrl, recipeId)
                 .also { recipeRepository.saveRecipe(it) }
         }
     }
+
+    /** Saves [photo] on the device; null (logged) if it can't be, since a recipe doesn't need an image. */
+    private suspend fun savePhoto(photo: ParseAttachment.Image): String? = try {
+        val extension = when (photo.mediaType) {
+            "image/png" -> ".png"
+            "image/webp" -> ".webp"
+            "image/gif" -> ".gif"
+            else -> ".jpg"
+        }
+        imageStore.saveImage(ByteArrayInputStream(photo.bytes), extension)
+            ?: null.also { ErrorLog.w(TAG, "The recipe photo isn't a usable image; saving the recipe without it") }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        ErrorLog.w(TAG, "Couldn't save the recipe photo; saving the recipe without it", e)
+        null
+    }
+
+    /** What was sent instead of text, for the import debugging screen (which doesn't keep the files). */
+    private fun describeAttachments(attachments: List<ParseAttachment>): String =
+        attachments.joinToString(separator = "\n", prefix = "[Imported from ${attachments.size} file(s), not stored]\n") {
+            "${it.mediaType}, ${it.bytes.size / BYTES_PER_KB} KB"
+        }
 
     private fun buildRecipe(
         parsed: ParsedRecipe,
@@ -409,5 +491,6 @@ class ParseHtmlUseCase @Inject constructor(
 
     private companion object {
         const val TAG = "ParseHtmlUseCase"
+        const val BYTES_PER_KB = 1024
     }
 }

@@ -96,9 +96,11 @@ fun NavGraph(
                     val uri = event.uri.toString()
                     navController.navigate(Route.ImportSelection(ImportType.guessFromUri(uri), uri))
                 }
-                is AppIntentEvent.ImportRecipeFile -> {
+                is AppIntentEvent.ImportRecipeFiles -> {
                     requestNotificationPermission()
-                    navController.navigate(Route.AddRecipe(fileUri = event.uri.toString(), fileMimeType = event.mimeType))
+                    navController.navigate(
+                        Route.AddRecipe(fileUris = event.uris.map { it.toString() }, fileMimeType = event.mimeType)
+                    )
                 }
                 is AppIntentEvent.OpenRecipe -> navController.openRecipe(event.recipeId)
                 AppIntentEvent.NoUrlInSharedText ->

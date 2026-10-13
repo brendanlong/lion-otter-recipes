@@ -177,7 +177,8 @@ Google users). Local files live only in `files/recipe_images/`.
   must stay readable by newer versions.
 - **Untrusted input is size-capped before it is read into memory**: archive entries and totals (`ArchiveBudget` /
   `BoundedInputStream`, against zip bombs), downloaded and captured pages, images (25 MB local; 5 MB uploads, matching
-  the Storage rules), recipe files (text/Markdown 200 KB, HTML 5 MB). Limits shared with the server rules (document
+  the Storage rules), recipe files (text/Markdown 200 KB, HTML 5 MB, PDF 10 MB and 20 pages, up to 5 photos of 25 MB
+  each). Limits shared with the server rules (document
   sizes, counts) live in `ResourceLimits`. Recipe files are decoded by byte order mark, then an HTML `<meta charset>`,
   then UTF-8.
 
@@ -191,7 +192,10 @@ Google users). Local files live only in `files/recipe_images/`.
   new nullable field. `extractJson` remains a fallback parser.
 - **Prompt caching**: the system prompt must be identical for every request; `RecipePromptTest` pins its hash.
   Per-request context (the user's existing tags, instructions, density overrides) goes in the user message, never the
-  system prompt. The tag hint is the user's 100 most-used tags read from the local cache; a read failure only drops it.
+  system prompt. Photos and PDFs go in the user message too, as image/document blocks before its text,
+  which says what they are. Photos are scaled to 1568 px on the long side (JPEG, under the API's 5 MB per image) before
+  sending; PDFs go as is. The size caps above keep a request well under the API's 32 MB limit, and bound memory (the
+  worker holds a PDF about four times over: bytes, base64, request body, network buffer). The tag hint is the user's 100 most-used tags read from the local cache; a read failure only drops it.
 - Single-recipe parses stream (large `max_tokens` would hit HTTP timeouts) and use server-side `fallbacks: "default"`,
   so a safety decline is retried on a fallback model in the same stream; text after the last `fallback` boundary wins.
 - Every supported model takes adaptive thinking plus an effort level (no fixed `budget_tokens`); Fable always thinks

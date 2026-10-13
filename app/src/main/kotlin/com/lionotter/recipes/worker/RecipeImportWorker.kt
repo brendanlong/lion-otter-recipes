@@ -7,6 +7,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.RecipeErrorException
 import com.lionotter.recipes.domain.usecase.ImportRecipeUseCase
 import com.lionotter.recipes.notification.RecipeNotificationHelper
 import dagger.assisted.Assisted
@@ -18,6 +19,7 @@ class RecipeImportWorker @AssistedInject constructor(
     @Assisted workerParams: WorkerParameters,
     private val importRecipeUseCase: ImportRecipeUseCase,
     private val inputStore: ImportInputStore,
+    private val attachmentLoader: RecipeAttachmentLoader,
     notificationHelper: RecipeNotificationHelper,
     runningWork: RunningAccountWork
 ) : BaseRecipeWorker(context, workerParams, notificationHelper, runningWork) {
@@ -69,7 +71,17 @@ class RecipeImportWorker @AssistedInject constructor(
             setForegroundProgress(message)
         }
 
-        val result = if (recipeFile != null) {
+        val result = if (recipeFile != null && !recipeFile.format.isText) {
+            if (recipeFile.sources.isEmpty()) {
+                return errorResult(RecipeError.CannotRetry, "the recipe files to import are gone")
+            }
+            val attachments = try {
+                attachmentLoader.load(recipeFile.format, recipeFile.sources)
+            } catch (e: RecipeErrorException) {
+                return errorResult(RecipeImportWork.Outcome.Failed(e.recipeError, importId))
+            }
+            importRecipeUseCase.importAttachments(attachments, onProgress)
+        } else if (recipeFile != null) {
             val content = recipeFile.content
                 ?: return errorResult(RecipeError.CannotRetry, "the recipe file to import is gone")
             importRecipeUseCase.importFile(content, recipeFile.format, onProgress)

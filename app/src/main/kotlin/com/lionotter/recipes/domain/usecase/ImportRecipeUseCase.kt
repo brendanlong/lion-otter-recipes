@@ -8,6 +8,7 @@ import com.lionotter.recipes.domain.model.RecipeFileFormat
 import com.lionotter.recipes.domain.port.FetchedPage
 import com.lionotter.recipes.domain.port.PageContentExtractor
 import com.lionotter.recipes.domain.port.PageFetcher
+import com.lionotter.recipes.domain.port.ParseAttachment
 import kotlinx.coroutines.ensureActive
 import javax.inject.Inject
 import kotlin.coroutines.coroutineContext
@@ -104,7 +105,25 @@ class ImportRecipeUseCase @Inject constructor(
                     onProgress = { reportParseProgress(it, onProgress) }
                 )
             }
+            RecipeFileFormat.IMAGE, RecipeFileFormat.PDF ->
+                throw IllegalArgumentException("$format files are imported with importAttachments")
         }
+    }
+
+    /**
+     * Import the recipe in photos (in page order; the first becomes the recipe's image) or a PDF
+     * (which gives no image). The recipe has no source URL.
+     */
+    suspend fun importAttachments(
+        attachments: List<ParseAttachment>,
+        onProgress: suspend (ImportProgress) -> Unit = {}
+    ): Outcome<Recipe> {
+        if (attachments.isEmpty()) return Outcome.Failure(RecipeError.ImportFile(ImportFileFailure.EMPTY))
+        return parseHtmlUseCase.parseAttachments(
+            attachments = attachments,
+            recipePhoto = attachments.first() as? ParseAttachment.Image,
+            onProgress = { reportParseProgress(it, onProgress) }
+        )
     }
 
     private suspend fun reportParseProgress(

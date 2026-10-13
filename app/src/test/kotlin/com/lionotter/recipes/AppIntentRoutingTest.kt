@@ -95,6 +95,51 @@ class AppIntentRoutingTest {
     }
 
     @Test
+    fun `a shared photo or PDF is imported as a file`() {
+        assertEquals(AppIntentEvent.ImportFile(fileUri, "image/jpeg"), send("image/jpeg", stream = fileUri).toAppIntentEvent())
+        assertEquals(
+            AppIntentEvent.ImportFile(fileUri, "application/pdf"),
+            send("application/pdf", stream = fileUri, text = "Bread.pdf").toAppIntentEvent()
+        )
+    }
+
+    @Test
+    fun `a link shared with a preview picture imports the link`() {
+        assertEquals(
+            AppIntentEvent.ImportUrl("https://example.com/bread"),
+            send("image/jpeg", text = "Banana bread https://example.com/bread", stream = fileUri).toAppIntentEvent()
+        )
+    }
+
+    @Test
+    fun `an opened photo or PDF is imported as a file`() {
+        val pdf = Intent(Intent.ACTION_VIEW).setDataAndType(fileUri, "application/pdf")
+        assertEquals(AppIntentEvent.ImportFile(fileUri, "application/pdf"), pdf.toAppIntentEvent())
+        val photo = Intent(Intent.ACTION_VIEW).setDataAndType(fileUri, "image/png")
+        assertEquals(AppIntentEvent.ImportFile(fileUri, "image/png"), photo.toAppIntentEvent())
+    }
+
+    private fun sendMultiple(type: String, vararg streams: Uri) = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+        this.type = type
+        putParcelableArrayListExtra(Intent.EXTRA_STREAM, arrayListOf(*streams))
+    }
+
+    @Test
+    fun `several shared photos are imported as one recipe, in order`() {
+        val second = Uri.parse("content://files/document/43")
+        assertEquals(
+            AppIntentEvent.ImportRecipeFiles(listOf(fileUri, second), "image/*"),
+            sendMultiple("image/*", fileUri, second).toAppIntentEvent()
+        )
+    }
+
+    @Test
+    fun `a single photo shared as several is imported as a file`() {
+        assertEquals(AppIntentEvent.ImportFile(fileUri, "image/jpeg"), sendMultiple("image/jpeg", fileUri).toAppIntentEvent())
+        assertNull(sendMultiple("image/jpeg").toAppIntentEvent())
+    }
+
+    @Test
     fun `a notification tap opens its recipe`() {
         val intent = Intent(Intent.ACTION_MAIN).putExtra(RecipeNotificationHelper.EXTRA_RECIPE_ID, "r1")
         assertEquals(AppIntentEvent.OpenRecipe("r1"), intent.toAppIntentEvent())
@@ -127,7 +172,7 @@ class AppIntentRoutingTest {
 
         viewModel.onEvent(AppIntentEvent.ImportFile(fileUri, "text/markdown"))
 
-        assertEquals(AppIntentEvent.ImportRecipeFile(fileUri, "text/markdown"), viewModel.events.first())
+        assertEquals(AppIntentEvent.ImportRecipeFiles(listOf(fileUri), "text/markdown"), viewModel.events.first())
     }
 
     @Test
@@ -165,7 +210,12 @@ class AppIntentRoutingTest {
         val markdown = Uri.fromFile(File(context.cacheDir, "Bread.md").apply { writeText("# Bread") })
         val export = Uri.fromFile(File(context.cacheDir, "export.lorecipes").apply { writeText("PK") })
 
+        val photo = Uri.fromFile(File(context.cacheDir, "IMG_1.HEIC").apply { writeText("heic") })
+        val pdf = Uri.fromFile(File(context.cacheDir, "Bread.pdf").apply { writeText("%PDF") })
+
         assertEquals(RecipeFile(markdown, "Bread.md", RecipeFileFormat.TEXT), inspector.recipeFile(markdown, null))
         assertNull(inspector.recipeFile(export, "application/zip"))
+        assertEquals(RecipeFileFormat.IMAGE, inspector.recipeFile(photo, null)?.format)
+        assertEquals(RecipeFileFormat.PDF, inspector.recipeFile(pdf, null)?.format)
     }
 }

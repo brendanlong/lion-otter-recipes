@@ -62,6 +62,17 @@
     <string name="error_import_file_too_large">This file is too large to import.</string>
     <string name="error_import_file_too_large_limit">This file is too large to import. Recipe files can be up to %1$s.</string>
     <string name="error_import_file_empty">This file is empty.</string>
+    <plurals name="error_pdf_too_many_pages">
+        <item quantity="one">This PDF has too many pages. PDFs can have up to %1$d page.</item>
+        <item quantity="other">This PDF has too many pages. PDFs can have up to %1$d pages.</item>
+    </plurals>
+    <plurals name="error_too_many_photos">
+        <item quantity="one">Too many photos. A recipe can be imported from up to %1$d photo.</item>
+        <item quantity="other">Too many photos. A recipe can be imported from up to %1$d photos.</item>
+    </plurals>
+    <string name="error_take_photo">Couldn\'t start the camera. Please try again.</string>
+    <string name="error_no_camera">No camera app is available to take a photo.</string>
+    <string name="error_import_files_not_all_photos">Only photos can be imported together. Choose one file, or photos of one recipe.</string>
     <string name="file_size_kb">%1$d KB</string>
     <string name="file_size_mb">%1$d MB</string>
     <string name="error_image_unusable">Couldn\'t use that image.</string>

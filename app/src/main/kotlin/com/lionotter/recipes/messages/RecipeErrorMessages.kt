@@ -6,6 +6,7 @@ import com.lionotter.recipes.domain.ArchiveFailure
 import com.lionotter.recipes.domain.ImportFileFailure
 import com.lionotter.recipes.domain.PageFetchFailure
 import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.ResourceLimits
 
 fun RecipeError.toUserMessage(): UserMessage = when (this) {
     RecipeError.NoApiKey -> UserMessage(R.string.error_no_api_key)
@@ -16,7 +17,7 @@ fun RecipeError.toUserMessage(): UserMessage = when (this) {
     is RecipeError.Ai -> aiMessage(reason, httpStatus)
     is RecipeError.NotARecipe -> UserMessage(R.string.error_not_a_recipe, reason)
     is RecipeError.Archive -> UserMessage(archiveMessage(reason))
-    is RecipeError.ImportFile -> importFileMessage(reason, maxBytes)
+    is RecipeError.ImportFile -> importFileMessage(reason, maxBytes, limit)
     RecipeError.Interrupted -> UserMessage(R.string.error_interrupted)
     RecipeError.CannotRetry -> UserMessage(R.string.error_cannot_retry)
     RecipeError.Unexpected -> UserMessage(R.string.error_unexpected)
@@ -59,7 +60,7 @@ private fun aiMessage(reason: AiFailure, httpStatus: Int?): UserMessage = when (
 private const val BYTES_PER_KB = 1024L
 private const val BYTES_PER_MB = 1024L * 1024L
 
-private fun importFileMessage(reason: ImportFileFailure, maxBytes: Long?): UserMessage = when (reason) {
+private fun importFileMessage(reason: ImportFileFailure, maxBytes: Long?, limit: Int?): UserMessage = when (reason) {
     ImportFileFailure.TOO_LARGE -> if (maxBytes == null) {
         UserMessage(R.string.error_import_file_too_large)
     } else {
@@ -72,6 +73,11 @@ private fun importFileMessage(reason: ImportFileFailure, maxBytes: Long?): UserM
     }
     ImportFileFailure.EMPTY -> UserMessage(R.string.error_import_file_empty)
     ImportFileFailure.UNREADABLE -> UserMessage(R.string.error_open_import_file)
+    ImportFileFailure.TOO_MANY_PAGES ->
+        UserMessage.Plural(R.plurals.error_pdf_too_many_pages, limit ?: ResourceLimits.MAX_PDF_PAGES)
+    ImportFileFailure.TOO_MANY_FILES ->
+        UserMessage.Plural(R.plurals.error_too_many_photos, limit ?: ResourceLimits.MAX_PHOTOS_PER_RECIPE)
+    ImportFileFailure.NOT_ALL_PHOTOS -> UserMessage(R.string.error_import_files_not_all_photos)
 }
 
 private fun archiveMessage(reason: ArchiveFailure): Int = when (reason) {
