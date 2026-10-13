@@ -86,7 +86,7 @@ class OpenAiTagOrganizerTest {
         assertEquals("tag_changes", format.getValue("name").jsonPrimitive.content)
         assertTrue(format.getValue("strict").jsonPrimitive.boolean)
         assertEquals(OpenAiResponses.toJson(TagCleanupPrompt.RESPONSE_SCHEMA), format.getValue("schema"))
-        assertEquals("low", body.getValue("reasoning").jsonObject.getValue("effort").jsonPrimitive.content)
+        assertEquals("none", body.getValue("reasoning").jsonObject.getValue("effort").jsonPrimitive.content)
         assertEquals(16_000L, body.getValue("max_output_tokens").jsonPrimitive.long)
     }
 

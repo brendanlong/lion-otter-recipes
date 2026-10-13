@@ -128,6 +128,15 @@ class OpenAiRecipeParserTest {
     }
 
     @Test
+    fun `Luna skips reasoning with thinking off, the other models can't`() {
+        fun effort(model: String, thinking: Boolean) =
+            parser.buildBody(request(thinking = thinking), model).getValue("reasoning").jsonObject.getValue("effort").jsonPrimitive.content
+        assertEquals("none", effort(AiProviders.GPT_LUNA, false))
+        assertEquals("medium", effort(AiProviders.GPT_LUNA, true))
+        assertEquals("low", effort(AiProviders.GPT_ASTRA, false))
+    }
+
+    @Test
     fun `attachments go before the text, and don't change the instructions`() {
         val photo = byteArrayOf(1, 2, 3)
         val pdf = "%PDF-1.4".toByteArray()

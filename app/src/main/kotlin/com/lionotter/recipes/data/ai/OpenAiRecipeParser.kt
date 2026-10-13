@@ -87,7 +87,7 @@ class OpenAiRecipeParser @Inject constructor(
             userContent = userContent,
             schemaName = SCHEMA_NAME,
             schema = recipeSchema,
-            effort = RecipeRequests.requestConfigFor(model, thinkingEnabled).effort,
+            thinkingEnabled = thinkingEnabled,
             maxOutputTokens = RecipeRequests.MAX_OUTPUT_TOKENS
         )
 
