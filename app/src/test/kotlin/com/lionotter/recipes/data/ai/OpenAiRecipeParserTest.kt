@@ -218,6 +218,15 @@ class OpenAiRecipeParserTest {
             parser.parse(request())
         )
 
+        // As the API sends it when the account has no credits left
+        routes["POST /v1/responses"] = HttpStatusCode.OK to stream(
+            "error" to """{"type":"error","error":{"type":"insufficient_quota","code":"credit_balance_exhausted","message":"m","param":null},"sequence_number":2}"""
+        )
+        assertEquals(
+            Outcome.Failure(RecipeError.Ai(AiFailure.OUT_OF_CREDITS, provider = AiProviders.OPENAI_ID)),
+            parser.parse(request())
+        )
+
         routes["POST /v1/responses"] = HttpStatusCode.OK to stream(
             "response.created" to """{"type":"response.created","response":{"id":"resp_1","status":"in_progress"}}"""
         )
