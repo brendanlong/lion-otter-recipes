@@ -4,6 +4,7 @@ import com.lionotter.recipes.domain.model.AiModels
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.RecipeIdAndName
+import com.lionotter.recipes.domain.model.Settings
 import com.lionotter.recipes.domain.model.StartOfWeek
 import com.lionotter.recipes.domain.model.ThemeMode
 import com.lionotter.recipes.domain.model.UnitSystem
@@ -12,12 +13,15 @@ import com.lionotter.recipes.domain.port.GroceryListStateStore
 import com.lionotter.recipes.domain.port.SavedGroceryListState
 import com.lionotter.recipes.domain.repository.MealPlanRepository
 import com.lionotter.recipes.domain.repository.RecipeRepository
+import com.lionotter.recipes.util.CurrentDate
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.onStart
 import kotlinx.datetime.LocalDate
 
 /** In-memory fakes of the repositories and settings, backed by [MutableStateFlow]s. */
@@ -33,7 +37,13 @@ class FakeRecipeRepository(vararg initial: Recipe) : RecipeRepository {
     /** Overrides the count, to test the recipe limit without creating that many recipes. */
     var countOverride: Int? = null
 
+    /** How many collectors [getAllRecipes] currently has. */
+    var allRecipesSubscribers = 0
+        private set
+
     override fun getAllRecipes(): Flow<List<Recipe>> = recipes.map { it.values.toList() }
+        .onStart { allRecipesSubscribers++ }
+        .onCompletion { allRecipesSubscribers-- }
     override fun getRecipeById(id: String): Flow<Recipe?> = recipes.map { it[id] }
     override suspend fun getRecipeByIdOnce(id: String): Recipe? = recipes.value[id]
 
@@ -171,6 +181,29 @@ class FakeAppSettings(
         }
     override val startOfWeek: Flow<StartOfWeek> = startOfWeekFlow
 
+    override val settings: Flow<Settings> = combine(
+        listOf<Flow<Any?>>(
+            apiKeyFlow, aiModelFlow, editModelFlow, thinkingFlow, keepScreenOnFlow, themeModeFlow,
+            volumeUnitSystem, weightUnitSystem, groceryVolumeUnitSystem, groceryWeightUnitSystem,
+            startOfWeekFlow, importDebuggingFlow
+        )
+    ) { values ->
+        Settings(
+            anthropicApiKey = values[0] as String?,
+            aiModel = values[1] as String,
+            editModel = values[2] as String,
+            thinkingEnabled = values[3] as Boolean,
+            keepScreenOn = values[4] as Boolean,
+            themeMode = values[5] as ThemeMode,
+            volumeUnitSystem = values[6] as UnitSystem,
+            weightUnitSystem = values[7] as UnitSystem,
+            groceryVolumeUnitSystem = values[8] as UnitSystem,
+            groceryWeightUnitSystem = values[9] as UnitSystem,
+            startOfWeek = values[10] as StartOfWeek,
+            importDebuggingEnabled = values[11] as Boolean
+        )
+    }
+
     private fun <T> write(flow: MutableStateFlow<T>, value: T) {
         writeError?.let { throw it }
         flow.value = value
@@ -203,4 +236,11 @@ class FakeGroceryListStateStore : GroceryListStateStore {
         saves += weekStart to state
         states[weekStart] = state
     }
+}
+
+/** A date that only changes when a test sets [date]. */
+class FakeCurrentDate(initial: LocalDate) : CurrentDate {
+    val date = MutableStateFlow(initial)
+    override fun today(): LocalDate = date.value
+    override val dates: Flow<LocalDate> = date
 }

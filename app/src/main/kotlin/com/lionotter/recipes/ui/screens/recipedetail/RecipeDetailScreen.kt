@@ -59,6 +59,7 @@ import com.lionotter.recipes.ui.TestTags
 import com.lionotter.recipes.ui.components.DeleteConfirmationDialog
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.screens.recipedetail.components.RecipeContent
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 private const val TAG = "RecipeDetailScreen"
@@ -86,14 +87,11 @@ fun RecipeDetailScreen(
     viewModel: RecipeDetailViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val scale by viewModel.scale.collectAsStateWithLifecycle()
-    val measurementPreference by viewModel.measurementPreference.collectAsStateWithLifecycle()
+    val cookingProgress by viewModel.cookingProgress.collectAsStateWithLifecycle()
     val supportsConversion by viewModel.supportsConversion.collectAsStateWithLifecycle()
-    val usedInstructionIngredients by viewModel.usedInstructionIngredients.collectAsStateWithLifecycle()
-    val checkedAggregateIngredients by viewModel.checkedAggregateIngredients.collectAsStateWithLifecycle()
     val ingredientUsageBySection by viewModel.ingredientUsageBySection.collectAsStateWithLifecycle()
-    val highlightedInstructionStep by viewModel.highlightedInstructionStep.collectAsStateWithLifecycle()
-    val hasCookingProgress by viewModel.hasCookingProgress.collectAsStateWithLifecycle()
+    // Immediate, so the text field never sees a stale value while typing
+    val notesDraft by viewModel.notesDraft.collectAsStateWithLifecycle(context = Dispatchers.Main.immediate)
     val keepScreenOn by viewModel.keepScreenOn.collectAsStateWithLifecycle()
     val volumeUnitSystem by viewModel.volumeUnitSystem.collectAsStateWithLifecycle()
     val weightUnitSystem by viewModel.weightUnitSystem.collectAsStateWithLifecycle()
@@ -151,7 +149,7 @@ fun RecipeDetailScreen(
                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
                     type = "application/zip"
                     putExtra(Intent.EXTRA_STREAM, event.uri)
-                    putExtra(Intent.EXTRA_SUBJECT, viewModel.recipe.value?.name ?: "Recipe")
+                    putExtra(Intent.EXTRA_SUBJECT, event.recipeName)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
                 if (!context.startShareChooser(shareIntent)) {
@@ -220,7 +218,7 @@ fun RecipeDetailScreen(
                             )
                         }
                         IconButton(
-                            onClick = { viewModel.toggleFavorite() },
+                            onClick = { viewModel.setFavorite(!recipe.isFavorite) },
                             modifier = Modifier.testTag(TestTags.RECIPE_DETAIL_FAVORITE)
                         ) {
                             Icon(
@@ -264,7 +262,7 @@ fun RecipeDetailScreen(
                                 )
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.reset_cooking_progress)) },
-                                    enabled = hasCookingProgress,
+                                    enabled = cookingProgress.hasProgress,
                                     onClick = {
                                         showOverflowMenu = false
                                         viewModel.resetCookingProgress()
@@ -323,25 +321,25 @@ fun RecipeDetailScreen(
                 SelectionContainer {
                     RecipeContent(
                         recipe = state.recipe,
-                        scale = scale,
+                        scale = cookingProgress.scale,
                         onScaleIncrement = viewModel::incrementScale,
                         onScaleDecrement = viewModel::decrementScale,
-                        measurementPreference = measurementPreference,
+                        measurementPreference = cookingProgress.measurementPreference,
                         onMeasurementPreferenceChange = viewModel::setMeasurementPreference,
                         showMeasurementToggle = supportsConversion,
-                        usedInstructionIngredients = usedInstructionIngredients,
+                        usedInstructionIngredients = cookingProgress.usedInstructionIngredients,
                         ingredientUsageBySection = ingredientUsageBySection,
                         onToggleInstructionIngredient = viewModel::toggleInstructionIngredientUsed,
-                        highlightedInstructionStep = highlightedInstructionStep,
+                        highlightedInstructionStep = cookingProgress.highlightedStep,
                         onToggleHighlightedInstruction = viewModel::toggleHighlightedInstructionStep,
-                        notesText = viewModel.notesDraft ?: state.recipe.userNotes ?: "",
+                        notesText = notesDraft ?: state.recipe.userNotes ?: "",
                         onNotesChange = viewModel::onNotesChange,
                         onNotesFocusLost = viewModel::flushNotes,
                         onTagClick = onTagClick,
                         onOpenLinkFailed = {
                             scope.launch { snackbarHostState.showSnackbar(noLinkAppMessage) }
                         },
-                        checkedAggregateIngredients = checkedAggregateIngredients,
+                        checkedAggregateIngredients = cookingProgress.checkedAggregateIngredients,
                         onToggleAggregateIngredient = viewModel::toggleAggregateIngredientChecked,
                         volumeUnitSystem = volumeUnitSystem,
                         weightUnitSystem = weightUnitSystem,

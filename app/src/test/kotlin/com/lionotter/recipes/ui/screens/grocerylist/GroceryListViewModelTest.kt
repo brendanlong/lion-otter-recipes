@@ -2,8 +2,6 @@ package com.lionotter.recipes.ui.screens.grocerylist
 
 import androidx.lifecycle.SavedStateHandle
 import androidx.navigation.testing.invoke
-import app.cash.turbine.test
-import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.Amount
 import com.lionotter.recipes.domain.model.Ingredient
 import com.lionotter.recipes.domain.model.InstructionSection
@@ -14,7 +12,6 @@ import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.domain.port.SavedGroceryListState
 import com.lionotter.recipes.domain.usecase.AggregateGroceryListUseCase
-import com.lionotter.recipes.messages.UserMessage
 import com.lionotter.recipes.testutil.FakeAppSettings
 import com.lionotter.recipes.testutil.FakeGroceryListStateStore
 import com.lionotter.recipes.testutil.FakeMealPlanRepository
@@ -22,8 +19,9 @@ import com.lionotter.recipes.testutil.FakeRecipeRepository
 import com.lionotter.recipes.ui.navigation.Route
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -32,8 +30,6 @@ import kotlinx.datetime.LocalDate
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -72,22 +68,14 @@ class GroceryListViewModelTest {
         recipes.forEach { recipeRepository.recipes.value += it.id to it }
     }
 
-    private fun createRecipe(
-        id: String,
-        name: String,
-        ingredients: List<Ingredient>
-    ) = Recipe(
+    private fun createRecipe(id: String, name: String, vararg ingredients: Ingredient) = Recipe(
         id = id,
         name = name,
         instructionSections = listOf(
             InstructionSection(
                 name = null,
                 steps = listOf(
-                    InstructionStep(
-                        stepNumber = 1,
-                        instruction = "Combine ingredients",
-                        ingredients = ingredients
-                    )
+                    InstructionStep(stepNumber = 1, instruction = "Combine ingredients", ingredients = ingredients.toList())
                 )
             )
         ),
@@ -95,22 +83,20 @@ class GroceryListViewModelTest {
         updatedAt = Instant.fromEpochMilliseconds(2000)
     )
 
-    private fun createEntry(
-        id: String,
-        recipeId: String,
-        recipeName: String,
-        servings: Double = 1.0
-    ) = MealPlanEntry(
+    private fun createEntry(id: String, recipeId: String, recipeName: String) = MealPlanEntry(
         id = id,
         recipeId = recipeId,
         recipeName = recipeName,
         recipeImageUrl = null,
         date = LocalDate(2025, 1, 1),
         mealType = MealType.DINNER,
-        servings = servings,
+        servings = 1.0,
         createdAt = Instant.fromEpochMilliseconds(1000),
         updatedAt = Instant.fromEpochMilliseconds(2000)
     )
+
+    private fun sugar(cups: Double) = Ingredient(name = "sugar", amount = Amount(value = cups, unit = "cup"))
+    private fun flour(cups: Double) = Ingredient(name = "flour", amount = Amount(value = cups, unit = "cup"))
 
     private fun createViewModel(
         entries: List<MealPlanEntry> = emptyList(),
@@ -118,154 +104,51 @@ class GroceryListViewModelTest {
     ): GroceryListViewModel {
         entries.forEach(mealPlanRepository::saveMealPlan)
         savedState?.let { groceryListStateStore.states[testWeekStart] = it }
-        return newViewModel()
-    }
-
-    private fun newViewModel() = GroceryListViewModel(
-        savedStateHandle = SavedStateHandle(route = Route.GroceryList(testWeekStart)),
-        mealPlanRepository = mealPlanRepository,
-        recipeRepository = recipeRepository,
-        aggregateGroceryListUseCase = AggregateGroceryListUseCase(),
-        settings = settings,
-        groceryListStateStore = groceryListStateStore
-    )
-
-    private suspend fun generateAndAwait(
-        viewModel: GroceryListViewModel
-    ): List<DisplayGroceryItem> {
-        var result: List<DisplayGroceryItem> = emptyList()
-        viewModel.displayGroceryItems.test {
-            awaitItem() // initial empty
-            viewModel.generateGroceryList()
-            result = awaitItem()
-            cancelAndIgnoreRemainingEvents()
-        }
-        return result
-    }
-
-    @Test
-    fun `counts and measured amounts are both shown`() = runTest {
-        givenRecipes(createRecipe(
-            "r1", "Recipe A", listOf(Ingredient(name = "onion", amount = Amount(value = 1.0)))
-        ))
-        givenRecipes(createRecipe(
-            "r2", "Recipe B", listOf(Ingredient(name = "onion", amount = Amount(value = 200.0, unit = "g")))
-        ))
-        val viewModel = createViewModel(
-            listOf(createEntry("e1", "r1", "Recipe A"), createEntry("e2", "r2", "Recipe B"))
+        return GroceryListViewModel(
+            savedStateHandle = SavedStateHandle(route = Route.GroceryList(testWeekStart)),
+            mealPlanRepository = mealPlanRepository,
+            recipeRepository = recipeRepository,
+            aggregateGroceryListUseCase = AggregateGroceryListUseCase(),
+            settings = settings,
+            groceryListStateStore = groceryListStateStore
         )
+    }
+
+    /** Keeps [GroceryListViewModel.uiState] subscribed, as the screen does. */
+    private fun TestScope.observe(viewModel: GroceryListViewModel) {
+        backgroundScope.launch { viewModel.uiState.collect {} }
         advanceUntilIdle()
-
-        val total = generateAndAwait(viewModel)[0].totalAmount!!
-
-        assertTrue("Expected grams and count but got: $total", total.contains("g") && total.endsWith("+ 1"))
     }
 
-    @Test
-    fun `sources without an amount mark the total as partial`() = runTest {
-        givenRecipes(createRecipe(
-            "r1", "Recipe A", listOf(Ingredient(name = "salt", amount = Amount(value = 1.0, unit = "tsp")))
-        ))
-        givenRecipes(createRecipe(
-            "r2", "Recipe B", listOf(Ingredient(name = "salt"))
-        ))
-        val viewModel = createViewModel(
-            listOf(createEntry("e1", "r1", "Recipe A"), createEntry("e2", "r2", "Recipe B"))
-        )
+    private val GroceryListViewModel.list get() = uiState.value as GroceryListUiState.ViewList
+    private val GroceryListViewModel.selection get() = uiState.value as GroceryListUiState.SelectRecipes
+
+    private fun TestScope.generate(viewModel: GroceryListViewModel): List<DisplayGroceryItem> {
+        viewModel.generateGroceryList()
         advanceUntilIdle()
-
-        val item = generateAndAwait(viewModel)[0]
-
-        assertNotNull(item.totalAmount)
-        assertTrue(item.totalIsPartial)
-        assertTrue(GroceryListViewModel.aggregateHeaderText(item, "+ more").endsWith("salt + more"))
+        return viewModel.list.items!!
     }
 
     @Test
-    fun `missing recipes are reported as skipped`() = runTest {
-        givenRecipes(createRecipe(
-            "r1", "Recipe A", listOf(Ingredient(name = "sugar", amount = Amount(value = 1.0, unit = "cup")))
-        ))
-        val viewModel = createViewModel(
-            listOf(createEntry("e1", "r1", "Recipe A"), createEntry("e2", "gone", "Deleted Recipe"))
-        )
-        advanceUntilIdle()
+    fun `first visit selects every meal`() = runTest {
+        val viewModel = createViewModel(listOf(createEntry("e1", "r1", "A"), createEntry("e2", "r2", "B")))
+        observe(viewModel)
 
-        val items = generateAndAwait(viewModel)
-
-        assertEquals(1, items.size)
-        assertEquals(listOf("Deleted Recipe"), viewModel.skippedRecipeNames.value)
-    }
-
-    @Test
-    fun `saved state restores the generated list and checked items`() = runTest {
-        givenRecipes(createRecipe(
-            "r1", "Recipe A", listOf(
-                Ingredient(name = "sugar", amount = Amount(value = 1.0, unit = "cup")),
-                Ingredient(name = "flour", amount = Amount(value = 2.0, unit = "cup"))
-            )
-        ))
-        val viewModel = createViewModel(
-            entries = listOf(createEntry("e1", "r1", "Recipe A")),
-            savedState = SavedGroceryListState(
-                selectedEntryIds = setOf("e1"),
-                showingList = true,
-                checkedItems = setOf("sugar", "no longer on the list"),
-                checkedSources = emptySet()
-            )
-        )
-
-        viewModel.displayGroceryItems.test {
-            advanceUntilIdle()
-            val items = expectMostRecentItem()
-            assertEquals(GroceryListStep.VIEW_LIST, viewModel.step.value)
-            assertEquals(2, items.size)
-            assertTrue(items.first { it.key == "sugar" }.isChecked)
-            assertFalse(items.first { it.key == "flour" }.isChecked)
-            cancelAndIgnoreRemainingEvents()
-        }
-        assertTrue(
-            testWeekStart to SavedGroceryListState(setOf("e1"), true, setOf("sugar"), emptySet()) in
-                groceryListStateStore.saves
-        )
-    }
-
-    @Test
-    fun `check-offs are kept when a selected recipe fails to load`() = runTest {
-        givenRecipes(createRecipe(
-            "r1", "Recipe A", listOf(Ingredient(name = "flour", amount = Amount(value = 2.0, unit = "cup")))
-        ))
-        val viewModel = createViewModel(
-            entries = listOf(createEntry("e1", "r1", "Recipe A"), createEntry("e2", "r2", "Recipe B")),
-            savedState = SavedGroceryListState(
-                selectedEntryIds = setOf("e1", "e2"),
-                showingList = true,
-                checkedItems = setOf("sugar"),
-                checkedSources = emptySet()
-            )
-        )
-
-        viewModel.displayGroceryItems.test {
-            advanceUntilIdle()
-            assertEquals(1, expectMostRecentItem().size)
-            cancelAndIgnoreRemainingEvents()
-        }
-        assertTrue(groceryListStateStore.saves.all { (_, state) -> "sugar" in state.checkedItems })
+        assertEquals(2, viewModel.selection.entriesByDate.values.flatten().count { it.isSelected })
+        assertTrue(viewModel.selection.hasSelection)
     }
 
     @Test
     fun `empty first snapshot does not persist an empty default selection`() = runTest {
-        val viewModel = newViewModel()
+        val viewModel = createViewModel()
+        observe(viewModel)
+        assertEquals(emptyMap<LocalDate, List<SelectableMealPlanEntry>>(), viewModel.selection.entriesByDate)
 
-        viewModel.selectableEntries.test {
-            advanceUntilIdle()
-            mealPlanRepository.saveMealPlan(createEntry("e1", "r1", "Recipe A"))
-            mealPlanRepository.saveMealPlan(createEntry("e2", "r2", "Recipe B"))
-            advanceUntilIdle()
-            val selected = expectMostRecentItem()!!.values.flatten().filter { it.isSelected }
-            assertEquals(2, selected.size)
-            cancelAndIgnoreRemainingEvents()
-        }
+        mealPlanRepository.saveMealPlan(createEntry("e1", "r1", "A"))
+        mealPlanRepository.saveMealPlan(createEntry("e2", "r2", "B"))
+        advanceUntilIdle()
+
+        assertEquals(2, viewModel.selection.entriesByDate.values.flatten().count { it.isSelected })
         val savedSelections = groceryListStateStore.saves.map { (_, state) -> state.selectedEntryIds }
         assertFalse(emptySet<String>() in savedSelections)
         assertTrue(setOf("e1", "e2") in savedSelections)
@@ -273,539 +156,164 @@ class GroceryListViewModelTest {
 
     @Test
     fun `empty snapshot alone persists nothing`() = runTest {
-        createViewModel(entries = emptyList())
-        advanceUntilIdle()
+        observe(createViewModel())
         assertEquals(emptyList<Any>(), groceryListStateStore.saves)
     }
 
     @Test
-    fun `meal plan load failure shows error instead of crashing`() = runTest {
+    fun `meal plan load failure is shown as state`() = runTest {
         mealPlanRepository.loadError = IllegalStateException("boom")
-        val viewModel = newViewModel()
+        val viewModel = createViewModel()
+        observe(viewModel)
 
-        viewModel.selectableEntries.test {
-            advanceUntilIdle()
-            assertEquals(emptyMap<LocalDate, List<SelectableMealPlanEntry>>(), expectMostRecentItem())
-            cancelAndIgnoreRemainingEvents()
-        }
-        assertEquals(UserMessage(R.string.grocery_list_load_failed), viewModel.events.first())
+        assertTrue(viewModel.selection.loadFailed)
     }
 
     @Test
-    fun `same unit category sources are summed correctly`() = runTest {
-        val recipe1 = createRecipe(
-            id = "r1",
-            name = "Recipe A",
-            ingredients = listOf(
-                Ingredient(name = "sugar", amount = Amount(value = 2.0, unit = "tbsp"))
-            )
-        )
-        val recipe2 = createRecipe(
-            id = "r2",
-            name = "Recipe B",
-            ingredients = listOf(
-                Ingredient(name = "sugar", amount = Amount(value = 3.0, unit = "tbsp"))
-            )
-        )
+    fun `selection changes are persisted`() = runTest {
+        val viewModel = createViewModel(listOf(createEntry("e1", "r1", "A"), createEntry("e2", "r2", "B")))
+        observe(viewModel)
 
-        val entry1 = createEntry("e1", "r1", "Recipe A")
-        val entry2 = createEntry("e2", "r2", "Recipe B")
-
-        givenRecipes(recipe1, recipe2)
-
-        val viewModel = createViewModel(listOf(entry1, entry2))
+        viewModel.setEntrySelected("e1", selected = false)
         advanceUntilIdle()
+        assertEquals(setOf("e2"), groceryListStateStore.states[testWeekStart]!!.selectedEntryIds)
 
-        viewModel.displayGroceryItems.test {
-            awaitItem() // initial empty
+        viewModel.deselectAll()
+        advanceUntilIdle()
+        assertFalse(viewModel.selection.hasSelection)
 
-            viewModel.generateGroceryList()
-            val items = awaitItem()
-
-            assertEquals(1, items.size)
-            val sugarItem = items[0]
-            assertEquals(2, sugarItem.sources.size)
-            // 2 + 3 = 5 tbsp = 73.935 mL → best unit selection may pick 15 tsp
-            assertNotNull(sugarItem.totalAmount)
-            assertTrue(
-                "Expected volume unit in total but got: ${sugarItem.totalAmount}",
-                sugarItem.totalAmount!!.let { it.contains("tbsp") || it.contains("tsp") }
-            )
-            cancelAndIgnoreRemainingEvents()
-        }
+        viewModel.selectAll()
+        advanceUntilIdle()
+        assertEquals(setOf("e1", "e2"), groceryListStateStore.states[testWeekStart]!!.selectedEntryIds)
     }
 
     @Test
-    fun `mixed weight and volume sources are converted to weight`() = runTest {
-        // Sugar density: ~0.85 g/mL
-        val sugarDensity = 0.85
+    fun `generating shows the selected meals' ingredients and back returns to the selection`() = runTest {
+        givenRecipes(createRecipe("r1", "A", sugar(1.0)), createRecipe("r2", "B", flour(2.0)))
+        val viewModel = createViewModel(listOf(createEntry("e1", "r1", "A"), createEntry("e2", "r2", "B")))
+        observe(viewModel)
+        viewModel.setEntrySelected("e2", selected = false)
 
-        val recipe1 = createRecipe(
-            id = "r1",
-            name = "Recipe A",
-            ingredients = listOf(
-                Ingredient(
-                    name = "sugar",
-                    amount = Amount(value = 11.0, unit = "tbsp"),
-                    density = sugarDensity
-                )
-            )
-        )
-        val recipe2 = createRecipe(
-            id = "r2",
-            name = "Recipe B",
-            ingredients = listOf(
-                Ingredient(
-                    name = "sugar",
-                    amount = Amount(value = 10.0, unit = "oz"),
-                    density = sugarDensity
-                )
-            )
-        )
+        assertEquals(listOf("sugar"), generate(viewModel).map { it.key })
+        assertTrue(groceryListStateStore.states[testWeekStart]!!.showingList)
 
-        val entry1 = createEntry("e1", "r1", "Recipe A")
-        val entry2 = createEntry("e2", "r2", "Recipe B")
-
-        givenRecipes(recipe1, recipe2)
-
-        val viewModel = createViewModel(listOf(entry1, entry2))
+        viewModel.backToSelection()
         advanceUntilIdle()
-
-        viewModel.displayGroceryItems.test {
-            awaitItem() // initial empty
-
-            viewModel.generateGroceryList()
-            val items = awaitItem()
-
-            assertEquals(1, items.size)
-            val sugarItem = items[0]
-            assertEquals(2, sugarItem.sources.size)
-            // Should have a total in weight (grams) because categories are mixed
-            // 11 tbsp = 11 * 14.787 mL = 162.657 mL → 162.657 * 0.85 = 138.26 g
-            // 10 oz = 10 * 28.3495 = 283.495 g
-            // Total ≈ 421.75 g
-            assertNotNull(sugarItem.totalAmount)
-            assertTrue(
-                "Expected total in grams but got: ${sugarItem.totalAmount}",
-                sugarItem.totalAmount!!.contains("g")
-            )
-            cancelAndIgnoreRemainingEvents()
-        }
+        assertFalse(viewModel.selection.entriesByDate.isEmpty())
+        assertFalse(groceryListStateStore.states[testWeekStart]!!.showingList)
     }
 
     @Test
-    fun `mixed categories uses shared density for sources missing it`() = runTest {
-        val sugarDensity = 0.85
+    fun `missing recipes are reported as skipped and fill in once they exist`() = runTest {
+        givenRecipes(createRecipe("r1", "A", sugar(1.0)))
+        val viewModel = createViewModel(listOf(createEntry("e1", "r1", "A"), createEntry("e2", "r2", "Deleted Recipe")))
+        observe(viewModel)
 
-        val recipe1 = createRecipe(
-            id = "r1",
-            name = "Recipe A",
-            ingredients = listOf(
-                Ingredient(
-                    name = "sugar",
-                    amount = Amount(value = 5.0, unit = "tbsp")
-                    // No density on this source
-                )
-            )
-        )
-        val recipe2 = createRecipe(
-            id = "r2",
-            name = "Recipe B",
-            ingredients = listOf(
-                Ingredient(
-                    name = "sugar",
-                    amount = Amount(value = 10.0, unit = "oz"),
-                    density = sugarDensity
-                )
-            )
-        )
+        assertEquals(1, generate(viewModel).size)
+        assertEquals(listOf("Deleted Recipe"), viewModel.list.skippedRecipeNames)
 
-        val entry1 = createEntry("e1", "r1", "Recipe A")
-        val entry2 = createEntry("e2", "r2", "Recipe B")
-
-        givenRecipes(recipe1, recipe2)
-
-        val viewModel = createViewModel(listOf(entry1, entry2))
+        givenRecipes(createRecipe("r2", "Deleted Recipe", flour(1.0)))
         advanceUntilIdle()
-
-        viewModel.displayGroceryItems.test {
-            awaitItem() // initial empty
-
-            viewModel.generateGroceryList()
-            val items = awaitItem()
-
-            assertEquals(1, items.size)
-            val sugarItem = items[0]
-            // Both sources should be converted to weight using shared density
-            // 5 tbsp = 5 * 14.787 mL = 73.935 mL → 73.935 * 0.85 = 62.84 g
-            // 10 oz = 283.495 g
-            // Total ≈ 346.34 g (both included, not just the weight source)
-            assertNotNull(sugarItem.totalAmount)
-            assertTrue(
-                "Expected total in grams but got: ${sugarItem.totalAmount}",
-                sugarItem.totalAmount!!.contains("g")
-            )
-            cancelAndIgnoreRemainingEvents()
-        }
+        assertEquals(2, viewModel.list.items!!.size)
+        assertEquals(emptyList<String>(), viewModel.list.skippedRecipeNames)
     }
 
     @Test
-    fun `mixed categories without any density skips volume sources`() = runTest {
-        val recipe1 = createRecipe(
-            id = "r1",
-            name = "Recipe A",
-            ingredients = listOf(
-                Ingredient(
-                    name = "sugar",
-                    amount = Amount(value = 5.0, unit = "tbsp")
-                )
-            )
-        )
-        val recipe2 = createRecipe(
-            id = "r2",
-            name = "Recipe B",
-            ingredients = listOf(
-                Ingredient(
-                    name = "sugar",
-                    amount = Amount(value = 10.0, unit = "oz")
-                )
-            )
-        )
-
-        val entry1 = createEntry("e1", "r1", "Recipe A")
-        val entry2 = createEntry("e2", "r2", "Recipe B")
-
-        givenRecipes(recipe1, recipe2)
-
-        val viewModel = createViewModel(listOf(entry1, entry2))
+    fun `editing a recipe after generating updates the list and keeps check-offs`() = runTest {
+        givenRecipes(createRecipe("r1", "A", sugar(1.0), flour(2.0)))
+        val viewModel = createViewModel(listOf(createEntry("e1", "r1", "A")))
+        observe(viewModel)
+        val sugarItem = generate(viewModel).first { it.key == "sugar" }
+        viewModel.setItemChecked(sugarItem, checked = true)
         advanceUntilIdle()
 
-        viewModel.displayGroceryItems.test {
-            awaitItem() // initial empty
+        givenRecipes(createRecipe("r1", "A", sugar(1.0), flour(3.0), Ingredient(name = "salt")))
+        advanceUntilIdle()
 
-            viewModel.generateGroceryList()
-            val items = awaitItem()
-
-            assertEquals(1, items.size)
-            val sugarItem = items[0]
-            // No density anywhere — volume can't be converted, only weight portion
-            // 10 oz = 283.495 g
-            assertNotNull(sugarItem.totalAmount)
-            assertTrue(
-                "Expected total in grams but got: ${sugarItem.totalAmount}",
-                sugarItem.totalAmount!!.contains("g")
-            )
-            cancelAndIgnoreRemainingEvents()
-        }
+        val items = viewModel.list.items!!
+        assertEquals(setOf("sugar", "flour", "salt"), items.map { it.key }.toSet())
+        assertTrue(items.first { it.key == "sugar" }.isChecked)
+        assertTrue(items.first { it.key == "flour" }.sources.single().displayText.startsWith("3"))
     }
 
     @Test
-    fun `single source does not show total amount`() = runTest {
-        val recipe1 = createRecipe(
-            id = "r1",
-            name = "Recipe A",
-            ingredients = listOf(
-                Ingredient(name = "sugar", amount = Amount(value = 2.0, unit = "cup"))
-            )
-        )
+    fun `a new meal plan for the same recipe adds to the selection only when selected`() = runTest {
+        givenRecipes(createRecipe("r1", "A", sugar(1.0)))
+        val viewModel = createViewModel(listOf(createEntry("e1", "r1", "A")))
+        observe(viewModel)
+        generate(viewModel)
 
-        val entry1 = createEntry("e1", "r1", "Recipe A")
-
-        givenRecipes(recipe1)
-
-        val viewModel = createViewModel(listOf(entry1))
+        mealPlanRepository.saveMealPlan(createEntry("e2", "r1", "A"))
         advanceUntilIdle()
 
-        viewModel.displayGroceryItems.test {
-            awaitItem() // initial empty
-
-            viewModel.generateGroceryList()
-            val items = awaitItem()
-
-            assertEquals(1, items.size)
-            assertNull(items[0].totalAmount)
-            cancelAndIgnoreRemainingEvents()
-        }
+        assertTrue(viewModel.list.items!!.single().sources.single().displayText.startsWith("1"))
     }
 
     @Test
-    fun `count items are summed correctly`() = runTest {
-        val recipe1 = createRecipe(
-            id = "r1",
-            name = "Recipe A",
-            ingredients = listOf(
-                Ingredient(name = "eggs", amount = Amount(value = 3.0))
+    fun `saved state restores the list and its check-offs`() = runTest {
+        givenRecipes(createRecipe("r1", "A", sugar(1.0), flour(2.0)))
+        val sugarKey = "sugar_r1\u0000sugar\u0000cup"
+        val viewModel = createViewModel(
+            entries = listOf(createEntry("e1", "r1", "A")),
+            savedState = SavedGroceryListState(
+                selectedEntryIds = setOf("e1"),
+                showingList = true,
+                checkedSources = setOf(sugarKey, "no longer on the list")
             )
         )
-        val recipe2 = createRecipe(
-            id = "r2",
-            name = "Recipe B",
-            ingredients = listOf(
-                Ingredient(name = "eggs", amount = Amount(value = 2.0))
-            )
-        )
+        observe(viewModel)
 
-        val entry1 = createEntry("e1", "r1", "Recipe A")
-        val entry2 = createEntry("e2", "r2", "Recipe B")
-
-        givenRecipes(recipe1, recipe2)
-
-        val viewModel = createViewModel(listOf(entry1, entry2))
-        advanceUntilIdle()
-
-        viewModel.displayGroceryItems.test {
-            awaitItem() // initial empty
-
-            viewModel.generateGroceryList()
-            val items = awaitItem()
-
-            assertEquals(1, items.size)
-            assertEquals("5", items[0].totalAmount)
-            cancelAndIgnoreRemainingEvents()
-        }
+        val items = viewModel.list.items!!
+        assertTrue(items.first { it.key == "sugar" }.isChecked)
+        assertFalse(items.first { it.key == "flour" }.isChecked)
     }
 
     @Test
-    fun `checking top-level item checks all sub-sources`() = runTest {
-        val recipe1 = createRecipe(
-            id = "r1",
-            name = "Recipe A",
-            ingredients = listOf(
-                Ingredient(name = "sugar", amount = Amount(value = 2.0, unit = "tbsp"))
-            )
-        )
-        val recipe2 = createRecipe(
-            id = "r2",
-            name = "Recipe B",
-            ingredients = listOf(
-                Ingredient(name = "sugar", amount = Amount(value = 3.0, unit = "tbsp"))
-            )
-        )
+    fun `check-offs of deselected meals are kept, not pruned`() = runTest {
+        givenRecipes(createRecipe("r1", "A", sugar(1.0)), createRecipe("r2", "B", flour(1.0)))
+        val viewModel = createViewModel(listOf(createEntry("e1", "r1", "A"), createEntry("e2", "r2", "B")))
+        observe(viewModel)
+        val flourItem = generate(viewModel).first { it.key == "flour" }
+        viewModel.setItemChecked(flourItem, checked = true)
 
-        val entry1 = createEntry("e1", "r1", "Recipe A")
-        val entry2 = createEntry("e2", "r2", "Recipe B")
+        viewModel.backToSelection()
+        viewModel.setEntrySelected("e2", selected = false)
+        assertEquals(listOf("sugar"), generate(viewModel).map { it.key })
+        assertTrue(groceryListStateStore.states[testWeekStart]!!.checkedSources.containsAll(flourItem.sourceKeys))
 
-        givenRecipes(recipe1, recipe2)
-
-        val viewModel = createViewModel(listOf(entry1, entry2))
-        advanceUntilIdle()
-
-        viewModel.displayGroceryItems.test {
-            awaitItem() // initial empty
-
-            viewModel.generateGroceryList()
-            val items = awaitItem()
-            assertEquals(1, items.size)
-            val itemKey = items[0].key
-
-            // Check the top-level item
-            viewModel.toggleItemChecked(itemKey)
-            val checkedItems = awaitItem()
-            val checkedItem = checkedItems[0]
-
-            assertTrue("Top-level item should be checked", checkedItem.isChecked)
-            assertTrue("All sources should be checked",
-                checkedItem.sources.all { it.isChecked })
-
-            cancelAndIgnoreRemainingEvents()
-        }
+        viewModel.backToSelection()
+        viewModel.setEntrySelected("e2", selected = true)
+        assertTrue(generate(viewModel).first { it.key == "flour" }.isChecked)
     }
 
     @Test
-    fun `unchecking top-level item unchecks all sub-sources`() = runTest {
-        val recipe1 = createRecipe(
-            id = "r1",
-            name = "Recipe A",
-            ingredients = listOf(
-                Ingredient(name = "sugar", amount = Amount(value = 2.0, unit = "tbsp"))
-            )
-        )
-        val recipe2 = createRecipe(
-            id = "r2",
-            name = "Recipe B",
-            ingredients = listOf(
-                Ingredient(name = "sugar", amount = Amount(value = 3.0, unit = "tbsp"))
-            )
-        )
+    fun `checking a source updates its item and is persisted`() = runTest {
+        givenRecipes(createRecipe("r1", "A", sugar(1.0)), createRecipe("r2", "B", sugar(2.0)))
+        val viewModel = createViewModel(listOf(createEntry("e1", "r1", "A"), createEntry("e2", "r2", "B")))
+        observe(viewModel)
+        val (first, second) = generate(viewModel).single().sources.map { it.key }
 
-        val entry1 = createEntry("e1", "r1", "Recipe A")
-        val entry2 = createEntry("e2", "r2", "Recipe B")
-
-        givenRecipes(recipe1, recipe2)
-
-        val viewModel = createViewModel(listOf(entry1, entry2))
+        viewModel.setSourceChecked(first, checked = true)
         advanceUntilIdle()
+        assertFalse(viewModel.list.items!!.single().isChecked)
 
-        viewModel.displayGroceryItems.test {
-            awaitItem() // initial empty
-
-            viewModel.generateGroceryList()
-            val items = awaitItem()
-            val itemKey = items[0].key
-
-            // Check then uncheck
-            viewModel.toggleItemChecked(itemKey)
-            awaitItem()
-
-            viewModel.toggleItemChecked(itemKey)
-            val uncheckedItems = awaitItem()
-            val uncheckedItem = uncheckedItems[0]
-
-            assertFalse("Top-level item should be unchecked", uncheckedItem.isChecked)
-            assertTrue("All sources should be unchecked",
-                uncheckedItem.sources.none { it.isChecked })
-
-            cancelAndIgnoreRemainingEvents()
-        }
+        viewModel.setSourceChecked(second, checked = true)
+        advanceUntilIdle()
+        assertTrue(viewModel.list.items!!.single().isChecked)
+        assertEquals(setOf(first, second), groceryListStateStore.states[testWeekStart]!!.checkedSources)
     }
 
     @Test
-    fun `checking all sub-sources checks the top-level item`() = runTest {
-        val recipe1 = createRecipe(
-            id = "r1",
-            name = "Recipe A",
-            ingredients = listOf(
-                Ingredient(name = "sugar", amount = Amount(value = 2.0, unit = "tbsp"))
-            )
-        )
-        val recipe2 = createRecipe(
-            id = "r2",
-            name = "Recipe B",
-            ingredients = listOf(
-                Ingredient(name = "sugar", amount = Amount(value = 3.0, unit = "tbsp"))
-            )
-        )
+    fun `unit settings change the display`() = runTest {
+        givenRecipes(createRecipe("r1", "A", sugar(1.0)))
+        val viewModel = createViewModel(listOf(createEntry("e1", "r1", "A")))
+        observe(viewModel)
+        val customary = generate(viewModel).single().sources.single().displayText
 
-        val entry1 = createEntry("e1", "r1", "Recipe A")
-        val entry2 = createEntry("e2", "r2", "Recipe B")
-
-        givenRecipes(recipe1, recipe2)
-
-        val viewModel = createViewModel(listOf(entry1, entry2))
+        settings.groceryVolumeUnitSystemFlow.value = UnitSystem.METRIC
         advanceUntilIdle()
 
-        viewModel.displayGroceryItems.test {
-            awaitItem() // initial empty
-
-            viewModel.generateGroceryList()
-            val items = awaitItem()
-            val source1Key = items[0].sources[0].key
-            val source2Key = items[0].sources[1].key
-
-            // Check first source
-            viewModel.toggleSourceChecked(source1Key)
-            val afterFirst = awaitItem()
-            assertFalse("Top-level should NOT be checked yet", afterFirst[0].isChecked)
-            assertTrue("First source should be checked",
-                afterFirst[0].sources.first { it.key == source1Key }.isChecked)
-            assertFalse("Second source should NOT be checked",
-                afterFirst[0].sources.first { it.key == source2Key }.isChecked)
-
-            // Check second source - should auto-check top-level
-            viewModel.toggleSourceChecked(source2Key)
-            val afterSecond = awaitItem()
-            assertTrue("Top-level should now be checked", afterSecond[0].isChecked)
-            assertTrue("All sources should be checked",
-                afterSecond[0].sources.all { it.isChecked })
-
-            cancelAndIgnoreRemainingEvents()
-        }
-    }
-
-    @Test
-    fun `unchecking one sub-source unchecks the top-level item`() = runTest {
-        val recipe1 = createRecipe(
-            id = "r1",
-            name = "Recipe A",
-            ingredients = listOf(
-                Ingredient(name = "sugar", amount = Amount(value = 2.0, unit = "tbsp"))
-            )
-        )
-        val recipe2 = createRecipe(
-            id = "r2",
-            name = "Recipe B",
-            ingredients = listOf(
-                Ingredient(name = "sugar", amount = Amount(value = 3.0, unit = "tbsp"))
-            )
-        )
-
-        val entry1 = createEntry("e1", "r1", "Recipe A")
-        val entry2 = createEntry("e2", "r2", "Recipe B")
-
-        givenRecipes(recipe1, recipe2)
-
-        val viewModel = createViewModel(listOf(entry1, entry2))
-        advanceUntilIdle()
-
-        viewModel.displayGroceryItems.test {
-            awaitItem() // initial empty
-
-            viewModel.generateGroceryList()
-            val items = awaitItem()
-            val itemKey = items[0].key
-            val source1Key = items[0].sources[0].key
-
-            // Check all via top-level
-            viewModel.toggleItemChecked(itemKey)
-            awaitItem()
-
-            // Uncheck one source - should uncheck top-level too
-            viewModel.toggleSourceChecked(source1Key)
-            val afterUncheck = awaitItem()
-            assertFalse("Top-level should be unchecked", afterUncheck[0].isChecked)
-            assertFalse("First source should be unchecked",
-                afterUncheck[0].sources.first { it.key == source1Key }.isChecked)
-            assertTrue("Second source should still be checked",
-                afterUncheck[0].sources.first { it.key != source1Key }.isChecked)
-
-            cancelAndIgnoreRemainingEvents()
-        }
-    }
-
-    @Test
-    fun `share text excludes checked sources but includes unchecked ones`() = runTest {
-        val recipe1 = createRecipe(
-            id = "r1",
-            name = "Recipe A",
-            ingredients = listOf(
-                Ingredient(name = "sugar", amount = Amount(value = 2.0, unit = "tbsp"))
-            )
-        )
-        val recipe2 = createRecipe(
-            id = "r2",
-            name = "Recipe B",
-            ingredients = listOf(
-                Ingredient(name = "sugar", amount = Amount(value = 3.0, unit = "tbsp"))
-            )
-        )
-
-        val entry1 = createEntry("e1", "r1", "Recipe A")
-        val entry2 = createEntry("e2", "r2", "Recipe B")
-
-        givenRecipes(recipe1, recipe2)
-
-        val viewModel = createViewModel(listOf(entry1, entry2))
-        advanceUntilIdle()
-
-        viewModel.displayGroceryItems.test {
-            awaitItem() // initial empty
-
-            viewModel.generateGroceryList()
-            val items = awaitItem()
-            val source1Key = items[0].sources[0].key
-
-            // Check one source
-            viewModel.toggleSourceChecked(source1Key)
-            awaitItem()
-
-            val shareText = viewModel.getShareText()
-            // Should only have one source (the unchecked one)
-            assertTrue("Share text should contain Recipe B",
-                shareText.contains("Recipe B"))
-            assertFalse("Share text should NOT contain Recipe A",
-                shareText.contains("Recipe A"))
-
-            cancelAndIgnoreRemainingEvents()
-        }
+        val metric = viewModel.list.items!!.single().sources.single().displayText
+        assertTrue("Expected a metric amount but got $metric", metric != customary && "mL" in metric)
     }
 }

@@ -50,7 +50,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
 import com.lionotter.recipes.ui.format.formatScaleMultiplier
 import com.lionotter.recipes.domain.model.MealType
@@ -61,6 +60,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material3.BottomSheetDefaults
 import kotlin.time.Instant
+import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.toLocalDateTime
@@ -68,20 +68,27 @@ import kotlinx.datetime.toLocalDateTime
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AddMealPlanDialog(
-    viewModel: MealPlanViewModel,
+    dialog: MealDialog,
+    choices: RecipeChoices,
+    onDateChange: (LocalDate) -> Unit,
+    onMealTypeChange: (MealType) -> Unit,
+    onServingsChange: (Double) -> Unit,
+    onSearchQueryChange: (String) -> Unit,
+    onTagClick: (String) -> Unit,
+    onRecipeClick: (Recipe) -> Unit,
+    onSave: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val recipes by viewModel.filteredRecipes.collectAsStateWithLifecycle()
-    val searchQuery by viewModel.recipeSearchQuery.collectAsStateWithLifecycle()
-    val selectedTag by viewModel.selectedTagFilter.collectAsStateWithLifecycle()
-    val availableTags by viewModel.availableTags.collectAsStateWithLifecycle()
-    val selectedDate by viewModel.selectedDate.collectAsStateWithLifecycle()
-    val selectedMealType by viewModel.selectedMealType.collectAsStateWithLifecycle()
-    val selectedServings by viewModel.selectedServings.collectAsStateWithLifecycle()
-    val editingEntry by viewModel.editingEntry.collectAsStateWithLifecycle()
-    val isSaving by viewModel.isSaving.collectAsStateWithLifecycle()
-    val isEditMode = editingEntry != null
+    val recipes = choices.recipes
+    val availableTags = choices.availableTags
+    val searchQuery = dialog.searchQuery
+    val selectedTag = dialog.tagFilter
+    val selectedDate = dialog.date
+    val selectedMealType = dialog.mealType
+    val selectedServings = dialog.servings
+    val isSaving = dialog.isSaving
+    val isEditMode = dialog is MealDialog.Edit
 
     var showDatePicker by remember { mutableStateOf(false) }
 
@@ -102,7 +109,7 @@ fun AddMealPlanDialog(
                     datePickerState.selectedDateMillis?.let { millis ->
                         val instant = Instant.fromEpochMilliseconds(millis)
                         val localDate = instant.toLocalDateTime(TimeZone.UTC).date
-                        viewModel.setSelectedDate(localDate)
+                        onDateChange(localDate)
                     }
                     showDatePicker = false
                 }) {
@@ -183,7 +190,7 @@ fun AddMealPlanDialog(
                                     index = index,
                                     count = MealType.entries.size
                                 ),
-                                onClick = { viewModel.setSelectedMealType(mealType) },
+                                onClick = { onMealTypeChange(mealType) },
                                 selected = selectedMealType == mealType,
                                 // The checkmark icon leaves too little room for labels on phones
                                 icon = {}
@@ -214,7 +221,7 @@ fun AddMealPlanDialog(
                     IconButton(
                         onClick = {
                             if (selectedServings > 0.5) {
-                                viewModel.setSelectedServings(selectedServings - 0.5)
+                                onServingsChange(selectedServings - 0.5)
                             }
                         },
                         enabled = selectedServings > 0.5
@@ -230,7 +237,7 @@ fun AddMealPlanDialog(
                         modifier = Modifier.padding(horizontal = 8.dp)
                     )
                     IconButton(
-                        onClick = { viewModel.setSelectedServings(selectedServings + 0.5) }
+                        onClick = { onServingsChange(selectedServings + 0.5) }
                     ) {
                         Icon(
                             Icons.Default.Add,
@@ -244,7 +251,7 @@ fun AddMealPlanDialog(
             if (isEditMode) {
                 item(key = "save") {
                     Button(
-                        onClick = { viewModel.saveEditedMealPlan() },
+                        onClick = onSave,
                         enabled = !isSaving,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -272,7 +279,7 @@ fun AddMealPlanDialog(
                 ) {
                     OutlinedTextField(
                         value = searchQuery,
-                        onValueChange = viewModel::onRecipeSearchQueryChange,
+                        onValueChange = onSearchQueryChange,
                         modifier = Modifier.fillMaxWidth(),
                         placeholder = { Text(stringResource(R.string.search_recipes_to_add)) },
                         leadingIcon = {
@@ -293,7 +300,7 @@ fun AddMealPlanDialog(
                             items(availableTags, key = { it }) { tag ->
                                 FilterChip(
                                     selected = selectedTag == tag,
-                                    onClick = { viewModel.onTagFilterSelected(tag) },
+                                    onClick = { onTagClick(tag) },
                                     label = { Text(tag, style = MaterialTheme.typography.labelSmall) }
                                 )
                             }
@@ -306,7 +313,9 @@ fun AddMealPlanDialog(
             if (recipes.isEmpty()) {
                 item(key = "no_recipes") {
                     Text(
-                        text = stringResource(R.string.no_recipes_found),
+                        text = stringResource(
+                            if (choices.loadFailed) R.string.meal_plan_recipes_load_failed else R.string.no_recipes_found
+                        ),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(32.dp)
@@ -320,7 +329,7 @@ fun AddMealPlanDialog(
                     RecipeSelectionCard(
                         recipe = recipe,
                         enabled = !isSaving,
-                        onClick = { viewModel.addRecipeToMealPlan(recipe) },
+                        onClick = { onRecipeClick(recipe) },
                         modifier = Modifier.padding(horizontal = 16.dp)
                     )
                 }

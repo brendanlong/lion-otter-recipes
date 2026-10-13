@@ -81,7 +81,7 @@ fun EditRecipeScreen(
     modifier: Modifier = Modifier,
     viewModel: EditRecipeViewModel = hiltViewModel()
 ) {
-    val recipe by viewModel.recipe.collectAsStateWithLifecycle()
+    val loadState by viewModel.loadState.collectAsStateWithLifecycle()
     val imageUrl by viewModel.imageUrl.collectAsStateWithLifecycle()
     val title by viewModel.title.collectAsStateWithLifecycle()
     val sourceUrl by viewModel.sourceUrl.collectAsStateWithLifecycle()
@@ -91,7 +91,6 @@ fun EditRecipeScreen(
     val model by viewModel.model.collectAsStateWithLifecycle()
     val thinkingEnabled by viewModel.thinkingEnabled.collectAsStateWithLifecycle()
     val canRegenerate by viewModel.canRegenerate.collectAsStateWithLifecycle()
-    val recipeLoaded by viewModel.recipeLoaded.collectAsStateWithLifecycle()
     val hasUnsavedChanges by viewModel.hasUnsavedChanges.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
@@ -201,7 +200,7 @@ fun EditRecipeScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
         when {
-            recipe == null && recipeLoaded -> {
+            loadState == RecipeLoadState.NotFound -> {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -221,7 +220,7 @@ fun EditRecipeScreen(
                     }
                 }
             }
-            recipe == null -> {
+            loadState == RecipeLoadState.Loading -> {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()

@@ -6,12 +6,14 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -29,6 +31,7 @@ import kotlinx.coroutines.launch
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.todayIn
 import kotlin.time.Clock
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
@@ -62,21 +65,10 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
     zipViewModel: ZipExportImportViewModel = hiltViewModel()
 ) {
-    val apiKey by viewModel.apiKey.collectAsStateWithLifecycle()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val apiKeyInput by viewModel.apiKeyInput.collectAsStateWithLifecycle()
-    val aiModel by viewModel.aiModel.collectAsStateWithLifecycle()
-    val editModel by viewModel.editModel.collectAsStateWithLifecycle()
-    val thinkingEnabled by viewModel.thinkingEnabled.collectAsStateWithLifecycle()
-    val keepScreenOn by viewModel.keepScreenOn.collectAsStateWithLifecycle()
-    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val apiKeyError by viewModel.apiKeyError.collectAsStateWithLifecycle()
     val isExporting by zipViewModel.isExporting.collectAsStateWithLifecycle()
-    val volumeUnitSystem by viewModel.volumeUnitSystem.collectAsStateWithLifecycle()
-    val weightUnitSystem by viewModel.weightUnitSystem.collectAsStateWithLifecycle()
-    val groceryVolumeUnitSystem by viewModel.groceryVolumeUnitSystem.collectAsStateWithLifecycle()
-    val groceryWeightUnitSystem by viewModel.groceryWeightUnitSystem.collectAsStateWithLifecycle()
-    val startOfWeek by viewModel.startOfWeek.collectAsStateWithLifecycle()
-    val importDebuggingEnabled by viewModel.importDebuggingEnabled.collectAsStateWithLifecycle()
     val authState by viewModel.authState.collectAsStateWithLifecycle()
     val busyOp by viewModel.busyOp.collectAsStateWithLifecycle()
 
@@ -161,6 +153,18 @@ fun SettingsScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
+        val settings = (uiState as? SettingsUiState.Loaded)?.settings
+        if (settings == null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+            return@Scaffold
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -171,7 +175,7 @@ fun SettingsScreen(
         ) {
             // API Key Section
             ApiKeySection(
-                currentApiKey = apiKey,
+                currentApiKey = settings.anthropicApiKey,
                 apiKeyInput = apiKeyInput,
                 onApiKeyInputChange = viewModel::onApiKeyInputChange,
                 onSaveClick = viewModel::saveApiKey,
@@ -217,11 +221,11 @@ fun SettingsScreen(
 
             // Model Selection Section
             ModelSelectionSection(
-                currentModel = aiModel,
+                currentModel = settings.aiModel,
                 onModelChange = viewModel::setAiModel,
-                currentEditModel = editModel,
+                currentEditModel = settings.editModel,
                 onEditModelChange = viewModel::setEditModel,
-                thinkingEnabled = thinkingEnabled,
+                thinkingEnabled = settings.thinkingEnabled,
                 onThinkingChange = viewModel::setThinkingEnabled
             )
 
@@ -229,7 +233,7 @@ fun SettingsScreen(
 
             // Theme Section
             ThemeSection(
-                currentThemeMode = themeMode,
+                currentThemeMode = settings.themeMode,
                 onThemeModeChange = viewModel::setThemeMode
             )
 
@@ -237,7 +241,7 @@ fun SettingsScreen(
 
             // Display Section
             DisplaySection(
-                keepScreenOn = keepScreenOn,
+                keepScreenOn = settings.keepScreenOn,
                 onKeepScreenOnChange = viewModel::setKeepScreenOn
             )
 
@@ -245,13 +249,13 @@ fun SettingsScreen(
 
             // Unit Preferences Section
             UnitPreferencesSection(
-                volumeUnitSystem = volumeUnitSystem,
+                volumeUnitSystem = settings.volumeUnitSystem,
                 onVolumeUnitSystemChange = viewModel::setVolumeUnitSystem,
-                weightUnitSystem = weightUnitSystem,
+                weightUnitSystem = settings.weightUnitSystem,
                 onWeightUnitSystemChange = viewModel::setWeightUnitSystem,
-                groceryVolumeUnitSystem = groceryVolumeUnitSystem,
+                groceryVolumeUnitSystem = settings.groceryVolumeUnitSystem,
                 onGroceryVolumeUnitSystemChange = viewModel::setGroceryVolumeUnitSystem,
-                groceryWeightUnitSystem = groceryWeightUnitSystem,
+                groceryWeightUnitSystem = settings.groceryWeightUnitSystem,
                 onGroceryWeightUnitSystemChange = viewModel::setGroceryWeightUnitSystem
             )
 
@@ -259,7 +263,7 @@ fun SettingsScreen(
 
             // Meal Planner Section
             MealPlannerSection(
-                startOfWeek = startOfWeek,
+                startOfWeek = settings.startOfWeek,
                 onStartOfWeekChange = viewModel::setStartOfWeek
             )
 
@@ -284,7 +288,7 @@ fun SettingsScreen(
 
             // Import Debugging Section
             ImportDebuggingSection(
-                importDebuggingEnabled = importDebuggingEnabled,
+                importDebuggingEnabled = settings.importDebuggingEnabled,
                 onImportDebuggingChange = { enabled ->
                     if (enabled) {
                         viewModel.setImportDebuggingEnabled(true)

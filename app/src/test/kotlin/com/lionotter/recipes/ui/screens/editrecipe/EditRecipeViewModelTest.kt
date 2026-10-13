@@ -6,6 +6,7 @@ import androidx.navigation.testing.invoke
 import com.lionotter.recipes.R
 import com.lionotter.recipes.data.remote.ImageDownloadService
 import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.model.ImageChange
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.messages.UserMessage
 import com.lionotter.recipes.testutil.FakeAppSettings
@@ -21,6 +22,7 @@ import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.runs
+import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -97,7 +99,7 @@ class EditRecipeViewModelTest {
     @Test
     fun `failure to start the AI edit shows an error instead of crashing`() = runTest {
         val scheduler = mockk<RecipeWorkScheduler>()
-        every { scheduler.prepareEdit(any(), any(), any(), any(), any(), any()) } throws IOException("disk full")
+        every { scheduler.prepareEdit(any(), any(), any(), any(), any(), any(), any()) } throws IOException("disk full")
         val viewModel = createViewModel(scheduler = scheduler)
         advanceUntilIdle()
 
@@ -110,14 +112,15 @@ class EditRecipeViewModelTest {
     }
 
     @Test
-    fun `save as copy applies a pending image to the copy, not the original`() = runTest {
+    fun `save as copy hands a copy of the picked image to the work and keeps its own`() = runTest {
         val workId = UUID.randomUUID()
         val scheduler = mockk<RecipeWorkScheduler>()
-        every { scheduler.prepareEdit("r1", any(), any(), any(), true, any()) } returns PendingWork(workId) {}
+        every {
+            scheduler.prepareEdit("r1", any(), any(), any(), true, any(), ImageChange.Replace("file:///new-copy.jpg"))
+        } returns PendingWork(workId) {}
         every { scheduler.observeEdit(workId) } returns
             flowOf(WorkStatus.Finished(RecipeEditWork.Outcome.Success("r1", "Pasta", newRecipeId = "copy1")))
-        recipeRepository.recipes.value += "copy1" to recipe.copy(id = "copy1")
-        coEvery { imageDownloadService.storeImage("file:///new.jpg", "file:///old.jpg", "copy1") } returns "gs://new"
+        coEvery { imageDownloadService.copyLocalImage("file:///new.jpg") } returns "file:///new-copy.jpg"
         val contentUri = mockk<Uri>()
         coEvery { imageDownloadService.saveImageFromContentUri(contentUri) } returns "file:///new.jpg"
         val viewModel = createViewModel(scheduler = scheduler)
@@ -126,18 +129,133 @@ class EditRecipeViewModelTest {
         viewModel.imageUrl.first { it == "file:///new.jpg" }
 
         viewModel.saveAsCopy()
+
         assertEquals(EditRecipeEvent.Saved(newRecipeId = "copy1"), viewModel.events.first())
+        assertEquals(emptyList<Any>(), recipeRepository.imageUrlUpdates)
+        assertEquals("file:///new.jpg", viewModel.imageUrl.value)
+        coVerify(exactly = 0) { imageDownloadService.deleteLocalImage(any()) }
+    }
+
+    @Test
+    fun `save as copy without the image passes the removal`() = runTest {
+        val scheduler = mockk<RecipeWorkScheduler>(relaxed = true)
+        val viewModel = createViewModel(scheduler = scheduler)
+        advanceUntilIdle()
+        viewModel.removeImage()
+
+        viewModel.saveAsCopy()
         advanceUntilIdle()
 
-        assertEquals(listOf("copy1" to "gs://new"), recipeRepository.imageUrlUpdates)
-        coVerify(exactly = 0) { imageDownloadService.deleteLocalImage("file:///new.jpg") }
+        verify { scheduler.prepareEdit("r1", any(), any(), any(), true, any(), ImageChange.Remove) }
+    }
+
+    @Test
+    fun `the image copy is deleted if the copy work can't be started`() = runTest {
+        val scheduler = mockk<RecipeWorkScheduler>()
+        every { scheduler.prepareEdit(any(), any(), any(), any(), any(), any(), any()) } throws IOException("disk full")
+        coEvery { imageDownloadService.copyLocalImage("file:///new.jpg") } returns "file:///new-copy.jpg"
+        val contentUri = mockk<Uri>()
+        coEvery { imageDownloadService.saveImageFromContentUri(contentUri) } returns "file:///new.jpg"
+        val viewModel = createViewModel(scheduler = scheduler)
+        advanceUntilIdle()
+        viewModel.onImageSelected(contentUri)
+        advanceUntilIdle()
+
+        viewModel.saveAsCopy()
+        advanceUntilIdle()
+
+        coVerify { imageDownloadService.deleteLocalImage("file:///new-copy.jpg") }
+        assertEquals(EditUiState.Error(UserMessage(R.string.error_save_changes)), viewModel.editState.value)
+        assertEquals("file:///new.jpg", viewModel.imageUrl.value)
+    }
+
+    @Test
+    fun `load state follows the recipe`() = runTest {
+        val viewModel = createViewModel()
+        assertEquals(RecipeLoadState.Loading, viewModel.loadState.value)
+        advanceUntilIdle()
+        assertEquals(RecipeLoadState.Loaded(recipe), viewModel.loadState.value)
+
+        recipeRepository.recipes.value = emptyMap()
+        advanceUntilIdle()
+        assertEquals(RecipeLoadState.NotFound, viewModel.loadState.value)
+    }
+
+    @Test
+    fun `changes are checked against the latest version of the recipe`() = runTest {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.setTitle("Better Pasta")
+        advanceUntilIdle()
+        assertTrue(viewModel.hasUnsavedChanges.value)
+
+        recipeRepository.updateTitleAndUrl("r1", "Better Pasta", recipe.sourceUrl)
+        advanceUntilIdle()
+
+        assertFalse(viewModel.hasUnsavedChanges.value)
+    }
+
+    @Test
+    fun `untouched fields follow changes made elsewhere, so saving doesn't revert them`() = runTest {
+        val scheduler = mockk<RecipeWorkScheduler>(relaxed = true)
+        val viewModel = createViewModel(scheduler = scheduler)
+        advanceUntilIdle()
+        viewModel.setSourceUrl("https://example.com/mine")
+
+        recipeRepository.updateTitleAndUrl("r1", "Renamed Elsewhere", recipe.sourceUrl)
+        advanceUntilIdle()
+
+        assertEquals("Renamed Elsewhere", viewModel.title.value)
+        assertEquals("https://example.com/mine", viewModel.sourceUrl.value)
+        viewModel.saveEdits()
+        advanceUntilIdle()
+        assertEquals("Renamed Elsewhere", recipeRepository.recipes.value.getValue("r1").name)
+        assertEquals("https://example.com/mine", recipeRepository.recipes.value.getValue("r1").sourceUrl)
+        verify(exactly = 0) { scheduler.prepareEdit(any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `model and thinking follow the settings until chosen, and the choice survives recreation`() = runTest {
+        val handle = SavedStateHandle(route = Route.EditRecipe("r1"))
+        val viewModel = createViewModel(handle)
+        advanceUntilIdle()
+        assertEquals("model", viewModel.model.value)
+
+        settings.editModelFlow.value = "other-model"
+        advanceUntilIdle()
+        assertEquals("other-model", viewModel.model.value)
+
+        viewModel.setModel("chosen-model")
+        viewModel.setThinkingEnabled(true)
+        val recreated = createViewModel(handle)
+        advanceUntilIdle()
+        assertEquals("chosen-model", recreated.model.value)
+        assertTrue(recreated.thinkingEnabled.value)
+    }
+
+    @Test
+    fun `a failed in-place save keeps the picked image pending`() = runTest {
+        val contentUri = mockk<Uri>()
+        coEvery { imageDownloadService.saveImageFromContentUri(contentUri) } returns "file:///new.jpg"
+        coEvery { imageDownloadService.storeImage(any(), any(), any()) } throws IOException("disk full")
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onImageSelected(contentUri)
+        advanceUntilIdle()
+
+        viewModel.saveEdits()
+        advanceUntilIdle()
+
+        assertEquals(EditUiState.Error(UserMessage(R.string.error_save_changes)), viewModel.editState.value)
+        assertEquals("file:///new.jpg", viewModel.imageUrl.value)
+        assertTrue(viewModel.hasUnsavedChanges.value)
     }
 
     @Test
     fun `edit that fails for a missing API key says so`() = runTest {
         val workId = UUID.randomUUID()
         val scheduler = mockk<RecipeWorkScheduler>()
-        every { scheduler.prepareEdit(any(), any(), any(), any(), any(), any()) } returns PendingWork(workId) {}
+        every { scheduler.prepareEdit(any(), any(), any(), any(), any(), any(), any()) } returns PendingWork(workId) {}
         every { scheduler.observeEdit(workId) } returns
             flowOf(WorkStatus.Finished(RecipeEditWork.Outcome.Failed(RecipeError.NoApiKey, "r1")))
         val viewModel = createViewModel(scheduler = scheduler)
@@ -198,7 +316,7 @@ class EditRecipeViewModelTest {
         val workId = UUID.randomUUID()
         val status = MutableStateFlow<WorkStatus<RecipeEditWork.Progress, RecipeEditWork.Outcome>>(WorkStatus.Queued)
         val scheduler = mockk<RecipeWorkScheduler>()
-        every { scheduler.prepareEdit(any(), any(), any(), any(), any(), any()) } returns PendingWork(workId) {}
+        every { scheduler.prepareEdit(any(), any(), any(), any(), any(), any(), any()) } returns PendingWork(workId) {}
         every { scheduler.observeEdit(workId) } returns status
         every { scheduler.cancel(workId) } answers { status.value = WorkStatus.Cancelled }
         val viewModel = createViewModel(scheduler = scheduler)

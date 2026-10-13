@@ -7,6 +7,7 @@ import com.lionotter.recipes.domain.AiFailure
 import com.lionotter.recipes.domain.ArchiveFailure
 import com.lionotter.recipes.domain.PageFetchFailure
 import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.model.ImageChange
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -291,5 +292,27 @@ class WorkContractTest {
                 .toWorkStatus(RecipeEditWork)
         )
         assertEquals(WorkStatus.Cancelled, info(WorkInfo.State.CANCELLED).toWorkStatus(RecipeEditWork))
+    }
+
+    @Test
+    fun `the copy image in edit input round trips`() {
+        listOf(null, ImageChange.Remove, ImageChange.Replace("file:///images/a.jpg")).forEach { change ->
+            val data = RecipeEditWorker.createInputData("r1", "/md", "model", true, saveAsCopy = true, copyImage = change)
+            assertEquals(change, RecipeEditWorker.copyImage(data))
+        }
+    }
+
+    @Test
+    fun `edit input from older versions has no copy image`() {
+        val data = workDataOf(
+            "recipe_id" to "r1",
+            "markdown_path" to "/md",
+            "model" to "model",
+            "extended_thinking" to true,
+            "save_as_copy" to true,
+            "copy_recipe_id" to "copy",
+            "ai_instructions" to null
+        )
+        assertNull(RecipeEditWorker.copyImage(data))
     }
 }

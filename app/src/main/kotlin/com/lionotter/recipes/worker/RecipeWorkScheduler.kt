@@ -10,6 +10,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.await
+import com.lionotter.recipes.domain.model.ImageChange
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.util.UUID
@@ -76,14 +77,21 @@ class RecipeWorkScheduler @Inject constructor(
         workManager.enqueueUniqueWork(importWorkName(importId), ExistingWorkPolicy.APPEND_OR_REPLACE, request).await()
     }
 
-    /** Writes the edit's markdown input to disk, so call this off the main thread. */
+    /**
+     * Writes the edit's markdown input to disk, so call this off the main thread.
+     *
+     * @param copyImage for [saveAsCopy], the copy's image instead of the original's. A
+     *   [ImageChange.Replace] file is handed to the work: it is stored for the copy, or deleted if
+     *   the copy isn't created.
+     */
     fun prepareEdit(
         recipeId: String,
         markdownText: String,
         model: String?,
         thinkingEnabled: Boolean?,
         saveAsCopy: Boolean = false,
-        aiInstructions: String? = null
+        aiInstructions: String? = null,
+        copyImage: ImageChange? = null
     ): PendingWork {
         val markdownPath = inputStore.writeWorkText(markdownText)
         val request = OneTimeWorkRequestBuilder<RecipeEditWorker>()
@@ -96,7 +104,8 @@ class RecipeWorkScheduler @Inject constructor(
                     saveAsCopy = saveAsCopy,
                     aiInstructions = aiInstructions,
                     // Fixed at enqueue time so a rerun overwrites the copy instead of adding another
-                    copyRecipeId = if (saveAsCopy) UUID.randomUUID().toString() else null
+                    copyRecipeId = if (saveAsCopy) UUID.randomUUID().toString() else null,
+                    copyImage = copyImage.takeIf { saveAsCopy }
                 )
             )
             .addTag(RecipeEditWorker.TAG_RECIPE_EDIT)

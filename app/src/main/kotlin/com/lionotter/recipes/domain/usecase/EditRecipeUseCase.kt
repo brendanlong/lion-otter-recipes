@@ -2,7 +2,9 @@ package com.lionotter.recipes.domain.usecase
 
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.model.ImageChange
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.port.ImageStore
 import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
 import kotlinx.coroutines.NonCancellable
@@ -23,7 +25,8 @@ import javax.inject.Inject
  */
 class EditRecipeUseCase @Inject constructor(
     private val parseHtmlUseCase: ParseHtmlUseCase,
-    private val recipeRepository: RecipeRepository
+    private val recipeRepository: RecipeRepository,
+    private val imageStore: ImageStore
 ) {
     sealed class EditProgress {
         object ParsingRecipe : EditProgress()
@@ -41,6 +44,8 @@ class EditRecipeUseCase @Inject constructor(
      * @param model The AI model to use (null = use current setting)
      * @param thinkingEnabled Whether to use extended thinking (null = use current setting)
      * @param aiInstructions Optional user instructions for the AI (e.g. "Make this recipe vegan")
+     * @param copyImage for [saveAsCopy], a new image for the copy instead of the original's
+     *   (a [ImageChange.Replace] file is stored for the copy and belongs to it from then on)
      * @param onProgress Callback for progress updates
      */
     suspend fun execute(
@@ -51,6 +56,7 @@ class EditRecipeUseCase @Inject constructor(
         model: String? = null,
         thinkingEnabled: Boolean? = null,
         aiInstructions: String? = null,
+        copyImage: ImageChange? = null,
         onProgress: suspend (EditProgress) -> Unit = {}
     ): Outcome<Recipe> {
         // Load existing recipe to preserve metadata
@@ -92,24 +98,29 @@ class EditRecipeUseCase @Inject constructor(
                 // saved directly (without AI) while the worker was queued.
                 val freshRecipe = recipeRepository.getRecipeByIdOnce(recipeId) ?: existingRecipe
                 val now = Clock.System.now()
-                val editedRecipe = if (saveAsCopy) {
-                    // Save as a new recipe with new ID and timestamps
-                    parsed.copy(
-                        id = copyRecipeId ?: java.util.UUID.randomUUID().toString(),
-                        createdAt = now,
-                        updatedAt = now,
-                        isFavorite = false,
-                        sourceUrl = freshRecipe.sourceUrl,
-                        imageUrl = freshRecipe.imageUrl,
-                        sourceImageUrl = freshRecipe.sourceImageUrl
-                    )
-                } else {
-                    freshRecipe.withRegeneratedContent(parsed, now)
-                }
-
                 onProgress(EditProgress.SavingRecipe)
-                withContext(NonCancellable) {
-                    recipeRepository.saveRecipe(editedRecipe)
+                val editedRecipe = withContext(NonCancellable) {
+                    val edited = if (saveAsCopy) {
+                        // Save as a new recipe with new ID and timestamps
+                        val copyId = copyRecipeId ?: java.util.UUID.randomUUID().toString()
+                        parsed.copy(
+                            id = copyId,
+                            createdAt = now,
+                            updatedAt = now,
+                            isFavorite = false,
+                            sourceUrl = freshRecipe.sourceUrl,
+                            imageUrl = when (copyImage) {
+                                null -> freshRecipe.imageUrl
+                                ImageChange.Remove -> null
+                                is ImageChange.Replace -> imageStore.storeImage(copyImage.localUri, recipeId = copyId)
+                            },
+                            sourceImageUrl = freshRecipe.sourceImageUrl
+                        )
+                    } else {
+                        freshRecipe.withRegeneratedContent(parsed, now)
+                    }
+                    recipeRepository.saveRecipe(edited)
+                    edited
                 }
 
                 Outcome.Success(editedRecipe)

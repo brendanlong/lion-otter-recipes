@@ -27,7 +27,9 @@ class DataStoreGroceryListStateStore @Inject constructor(
         val prefix = "$KEY_PREFIX${weekStart}_"
         val showingList = booleanPreferencesKey("${prefix}showing_list")
         val selectedEntryIds = stringSetPreferencesKey("${prefix}selected")
-        val checkedItems = stringSetPreferencesKey("${prefix}checked_items")
+
+        /** Checked items, written by older versions; item state is now derived from sources. */
+        val legacyCheckedItems = stringSetPreferencesKey("${prefix}checked_items")
         val checkedSources = stringSetPreferencesKey("${prefix}checked_sources")
     }
 
@@ -38,7 +40,6 @@ class DataStoreGroceryListStateStore @Inject constructor(
         return SavedGroceryListState(
             selectedEntryIds = prefs[keys.selectedEntryIds].orEmpty(),
             showingList = showingList,
-            checkedItems = prefs[keys.checkedItems].orEmpty(),
             checkedSources = prefs[keys.checkedSources].orEmpty()
         )
     }
@@ -48,7 +49,7 @@ class DataStoreGroceryListStateStore @Inject constructor(
         context.groceryListDataStore.edit { prefs ->
             prefs[keys.showingList] = state.showingList
             prefs[keys.selectedEntryIds] = state.selectedEntryIds
-            prefs[keys.checkedItems] = state.checkedItems
+            prefs.remove(keys.legacyCheckedItems)
             prefs[keys.checkedSources] = state.checkedSources
             pruneOldWeeks(prefs)
         }

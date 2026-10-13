@@ -98,13 +98,14 @@ fun RecipeListScreen(
         }
     }
 
-    val recipes by viewModel.recipes.collectAsStateWithLifecycle()
-    val hasLoaded by viewModel.hasLoaded.collectAsStateWithLifecycle()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val recipes = uiState.items
+    val hasLoaded = uiState.hasLoaded
+    val availableTags = uiState.availableTags
+    val selectedRecipeIds = uiState.selectedRecipeIds
+    val isMultiSelectActive = uiState.isMultiSelectActive
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val selectedTag by viewModel.selectedTag.collectAsStateWithLifecycle()
-    val availableTags by viewModel.availableTags.collectAsStateWithLifecycle()
-    val selectedRecipeIds by viewModel.selectedRecipeIds.collectAsStateWithLifecycle()
-    val isMultiSelectActive by viewModel.isMultiSelectActive.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -381,13 +382,13 @@ fun RecipeListScreen(
                                         recipe = item.recipe,
                                         onClick = {
                                             if (isMultiSelectActive) {
-                                                viewModel.toggleRecipeSelection(item.id)
+                                                viewModel.setRecipeSelected(item.id, item.id !in selectedRecipeIds)
                                             } else {
                                                 onRecipeClick(item.id)
                                             }
                                         },
                                         onDeleteRequest = { recipeToDeleteId = item.id },
-                                        onFavoriteClick = { viewModel.toggleFavorite(item.id) },
+                                        onFavoriteClick = { viewModel.setFavorite(item.id, !item.recipe.isFavorite) },
                                         swipeState = swipeState,
                                         isSelected = item.id in selectedRecipeIds,
                                         isMultiSelectActive = isMultiSelectActive,

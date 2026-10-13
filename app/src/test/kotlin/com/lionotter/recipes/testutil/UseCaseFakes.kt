@@ -149,6 +149,14 @@ class FakeImageStore(private val failingUrls: Set<String> = emptySet()) : ImageS
         else -> downloadAndStoreWithResult(imageUrl)?.localUri
     }
 
+    /** Local images copied with [copyLocalImage]. */
+    val copied = mutableListOf<String>()
+
+    override suspend fun copyLocalImage(localUri: String): String? {
+        copied += localUri
+        return localUri.substringBeforeLast('.') + "-copy." + localUri.substringAfterLast('.')
+    }
+
     val deletedLocal = mutableListOf<String>()
 
     override suspend fun deleteLocalImage(localUri: String) {

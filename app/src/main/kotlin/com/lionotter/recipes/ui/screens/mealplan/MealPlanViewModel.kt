@@ -1,6 +1,5 @@
 package com.lionotter.recipes.ui.screens.mealplan
 
-import android.util.Log
 import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -17,6 +16,7 @@ import com.lionotter.recipes.domain.repository.MealPlanRepository
 import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.domain.usecase.GetTagsUseCase
 import com.lionotter.recipes.messages.UserMessage
+import com.lionotter.recipes.util.CurrentDate
 import com.lionotter.recipes.util.DefaultDispatcher
 import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -31,23 +31,24 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.LocalDate
-import kotlinx.datetime.TimeZone
 import kotlinx.datetime.isoDayNumber
 import kotlinx.datetime.minus
 import kotlinx.datetime.plus
-import kotlinx.datetime.todayIn
 import java.util.UUID
 import javax.inject.Inject
 
@@ -58,88 +59,135 @@ sealed interface MealPlanEvent {
     data class MealRemoved(val entry: MealPlanEntry) : MealPlanEvent
 }
 
+/** The week's meal plans grouped by date. */
+sealed interface WeekMealPlans {
+    data object Loading : WeekMealPlans
+    data class Loaded(val byDate: Map<LocalDate, List<MealPlanEntry>>) : WeekMealPlans
+    data object Failed : WeekMealPlans
+}
+
+/**
+ * The add/edit meal dialog. Opening it starts from fresh fields; edits replace the whole state.
+ *
+ * @param isSaving an add/edit is being saved, to block duplicate submissions
+ */
+sealed interface MealDialog {
+    val date: LocalDate
+    val mealType: MealType
+    val servings: Double
+    val searchQuery: String
+    val tagFilter: String?
+    val isSaving: Boolean
+
+    data class Add(
+        override val date: LocalDate,
+        override val mealType: MealType = MealType.DINNER,
+        override val servings: Double = 1.0,
+        override val searchQuery: String = "",
+        override val tagFilter: String? = null,
+        override val isSaving: Boolean = false
+    ) : MealDialog
+
+    /** Changing [entry]'s date, meal or servings, or swapping its recipe. */
+    data class Edit(
+        val entry: MealPlanEntry,
+        override val date: LocalDate = entry.date,
+        override val mealType: MealType = entry.mealType,
+        override val servings: Double = entry.servings,
+        override val searchQuery: String = "",
+        override val tagFilter: String? = null,
+        override val isSaving: Boolean = false
+    ) : MealDialog
+}
+
+private fun MealDialog.with(
+    date: LocalDate = this.date,
+    mealType: MealType = this.mealType,
+    servings: Double = this.servings,
+    searchQuery: String = this.searchQuery,
+    tagFilter: String? = this.tagFilter,
+    isSaving: Boolean = this.isSaving
+): MealDialog = when (this) {
+    is MealDialog.Add -> copy(date, mealType, servings, searchQuery, tagFilter, isSaving)
+    is MealDialog.Edit -> copy(
+        date = date,
+        mealType = mealType,
+        servings = servings,
+        searchQuery = searchQuery,
+        tagFilter = tagFilter,
+        isSaving = isSaving
+    )
+}
+
+/**
+ * Recipes to pick from in the dialog.
+ *
+ * @param loadFailed the recipes couldn't be loaded
+ */
+data class RecipeChoices(
+    val recipes: List<Recipe> = emptyList(),
+    val availableTags: List<String> = emptyList(),
+    val loadFailed: Boolean = false
+)
+
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class MealPlanViewModel @Inject constructor(
     private val mealPlanRepository: MealPlanRepository,
-    private val recipeRepository: RecipeRepository,
-    private val getTagsUseCase: GetTagsUseCase,
+    recipeRepository: RecipeRepository,
+    getTagsUseCase: GetTagsUseCase,
     settings: AppSettings,
-    @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
+    private val currentDate: CurrentDate,
+    @DefaultDispatcher defaultDispatcher: CoroutineDispatcher
 ) : ViewModel() {
 
     private val clock: Clock = Clock.System
 
-    private fun currentDate(): LocalDate = clock.todayIn(TimeZone.currentSystemDefault())
-
-    private val _today = MutableStateFlow(currentDate())
-    val today: StateFlow<LocalDate> = _today.asStateFlow()
-
-    private val startOfWeekSetting: StateFlow<StartOfWeek> = settings.startOfWeek
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = StartOfWeek.LOCALE_DEFAULT
-        )
+    /** Today, updated when the date changes while the screen is open. */
+    val today: StateFlow<LocalDate> = currentDate.dates
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), currentDate.today())
 
     /**
-     * Tracks the date the user has navigated to. The actual week start is computed
-     * from this date and the start-of-week setting.
+     * The date the user navigated to, or null to follow [today]. The week shown is computed
+     * from it and the start-of-week setting.
      */
-    private val _navigatedDate = MutableStateFlow(_today.value)
+    private val navigatedDate = MutableStateFlow<LocalDate?>(null)
 
     val currentWeekStart: StateFlow<LocalDate> = combine(
-        _navigatedDate,
-        startOfWeekSetting
-    ) { date, setting ->
-        getWeekStart(date, setting.resolve())
+        navigatedDate,
+        today,
+        settings.startOfWeek
+    ) { navigated, today, setting ->
+        getWeekStart(navigated ?: today, setting.resolve())
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
-        initialValue = getWeekStart(_today.value, StartOfWeek.LOCALE_DEFAULT.resolve())
+        initialValue = getWeekStart(currentDate.today(), StartOfWeek.LOCALE_DEFAULT.resolve())
     )
 
-    private val _showAddDialog = MutableStateFlow(false)
-    val showAddDialog: StateFlow<Boolean> = _showAddDialog.asStateFlow()
+    private val _dialog = MutableStateFlow<MealDialog?>(null)
 
-    // When non-null, the dialog is in edit mode for this entry
-    private val _editingEntry = MutableStateFlow<MealPlanEntry?>(null)
-    val editingEntry: StateFlow<MealPlanEntry?> = _editingEntry.asStateFlow()
-
-    private val _selectedDate = MutableStateFlow(_today.value)
-    val selectedDate: StateFlow<LocalDate> = _selectedDate.asStateFlow()
-
-    private val _selectedMealType = MutableStateFlow(MealType.DINNER)
-    val selectedMealType: StateFlow<MealType> = _selectedMealType.asStateFlow()
-
-    private val _selectedServings = MutableStateFlow(1.0)
-    val selectedServings: StateFlow<Double> = _selectedServings.asStateFlow()
-
-    /** True while an add/edit is being saved, to block duplicate submissions. */
-    private val _isSaving = MutableStateFlow(false)
-    val isSaving: StateFlow<Boolean> = _isSaving.asStateFlow()
-
-    // Recipe search state for the add dialog
-    private val _recipeSearchQuery = MutableStateFlow("")
-    val recipeSearchQuery: StateFlow<String> = _recipeSearchQuery.asStateFlow()
-
-    private val _selectedTagFilter = MutableStateFlow<String?>(null)
-    val selectedTagFilter: StateFlow<String?> = _selectedTagFilter.asStateFlow()
+    /** The add/edit dialog, or null when it is closed. */
+    val dialog: StateFlow<MealDialog?> = _dialog.asStateFlow()
 
     private val _events = Channel<MealPlanEvent>(Channel.BUFFERED)
     val events: Flow<MealPlanEvent> = _events.receiveAsFlow()
 
-    private fun showMessage(@StringRes resId: Int, vararg args: Any) {
-        _events.trySend(MealPlanEvent.ShowMessage(UserMessage(resId, *args)))
+    private sealed interface AllRecipes {
+        data class Loaded(val recipes: List<Recipe>) : AllRecipes
+        data object Failed : AllRecipes
     }
 
-    private val allRecipes: Flow<List<Recipe>> = recipeRepository.getAllRecipes()
+    private val allRecipes: Flow<AllRecipes> = recipeRepository.getAllRecipes()
+        .map<List<Recipe>, AllRecipes> { AllRecipes.Loaded(it) }
         .catch { e ->
             ErrorLog.e(TAG, "Failed to load recipes", e)
-            showMessage(R.string.meal_plan_recipes_load_failed)
-            emit(emptyList())
+            emit(AllRecipes.Failed)
         }
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5000), replay = 1)
 
-    val availableTags: StateFlow<List<String>> = allRecipes
+    private val availableTags: Flow<List<String>> = allRecipes
+        .map { (it as? AllRecipes.Loaded)?.recipes.orEmpty() }
         // Tag selection runs an ILP solver, so only rerun it (off the main thread)
         // when recipe tags actually change
         .distinctUntilChangedBy { recipes -> recipes.map { it.id to it.tags } }
@@ -149,196 +197,168 @@ class MealPlanViewModel @Inject constructor(
             ErrorLog.e(TAG, "Failed to compute tags", e)
             emit(emptyList())
         }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+        .onStart { emit(emptyList()) }
 
-    val filteredRecipes: StateFlow<List<Recipe>> = combine(
+    /** Recipes for the dialog, filtered by its search and tag. */
+    val recipeChoices: StateFlow<RecipeChoices> = combine(
         allRecipes,
-        _recipeSearchQuery,
-        _selectedTagFilter
-    ) { recipes, query, tag ->
-        recipes.filter { recipe ->
-            recipe.matchesSearch(query) && (tag == null || recipe.hasTag(tag))
-        }.sortedBy { it.name }
+        availableTags,
+        _dialog.map { it?.searchQuery.orEmpty() to it?.tagFilter }.distinctUntilChanged()
+    ) { all, tags, (query, tag) ->
+        when (all) {
+            AllRecipes.Failed -> RecipeChoices(loadFailed = true)
+            is AllRecipes.Loaded -> RecipeChoices(
+                recipes = all.recipes
+                    .filter { recipe -> recipe.matchesSearch(query) && (tag == null || recipe.hasTag(tag)) }
+                    .sortedBy { it.name },
+                availableTags = tags
+            )
+        }
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
+        initialValue = RecipeChoices()
     )
 
-    /**
-     * Meal plans for the current week, grouped by date, or null while the week is loading.
-     */
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val weekMealPlans: StateFlow<Map<LocalDate, List<MealPlanEntry>>?> = currentWeekStart
+    val weekMealPlans: StateFlow<WeekMealPlans> = currentWeekStart
         .flatMapLatest { weekStart ->
             val weekEnd = weekStart.plus(6, DateTimeUnit.DAY)
             mealPlanRepository.getMealPlansForDateRange(weekStart, weekEnd)
-                .map<List<MealPlanEntry>, Map<LocalDate, List<MealPlanEntry>>?> { weekPlans ->
+                .map<List<MealPlanEntry>, WeekMealPlans> { weekPlans ->
                     // Group by date and sort within each day
-                    weekPlans.groupBy { it.date }
-                        .mapValues { (_, entries) ->
-                            entries.sortedWith(
-                                compareBy<MealPlanEntry> { it.mealType.displayOrder }
-                                    .thenBy { it.recipeName }
-                            )
-                        }
+                    WeekMealPlans.Loaded(
+                        weekPlans.groupBy { it.date }
+                            .mapValues { (_, entries) ->
+                                entries.sortedWith(
+                                    compareBy<MealPlanEntry> { it.mealType.displayOrder }
+                                        .thenBy { it.recipeName }
+                                )
+                            }
+                    )
                 }
-                .onStart { emit(null) }
+                .onStart { emit(WeekMealPlans.Loading) }
                 .catch { e ->
                     ErrorLog.e(TAG, "Failed to load meal plans for week of $weekStart", e)
-                    showMessage(R.string.meal_plan_load_failed)
-                    emit(emptyMap())
+                    emit(WeekMealPlans.Failed)
                 }
         }.stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = null
+            initialValue = WeekMealPlans.Loading
         )
 
-    /**
-     * Re-reads the current date (e.g. when the screen resumes after midnight). If the user
-     * was looking at the old "today", follows it to the new date.
-     */
-    fun refreshToday() {
-        val newToday = currentDate()
-        val oldToday = _today.value
-        if (newToday == oldToday) return
-        _today.value = newToday
-        if (_navigatedDate.value == oldToday) {
-            _navigatedDate.value = newToday
-        }
-    }
-
     fun navigateWeek(forward: Boolean) {
-        _navigatedDate.value = if (forward) {
-            _navigatedDate.value.plus(7, DateTimeUnit.DAY)
-        } else {
-            _navigatedDate.value.minus(7, DateTimeUnit.DAY)
+        navigatedDate.update { date ->
+            val from = date ?: currentDate.today()
+            if (forward) from.plus(7, DateTimeUnit.DAY) else from.minus(7, DateTimeUnit.DAY)
         }
     }
 
     fun goToToday() {
-        refreshToday()
-        _navigatedDate.value = _today.value
+        navigatedDate.value = null
     }
 
     fun openAddDialog() {
         val weekStart = currentWeekStart.value
         val weekEnd = weekStart.plus(6, DateTimeUnit.DAY)
-        val today = _today.value
-        _editingEntry.value = null
-        _selectedDate.value = if (today in weekStart..weekEnd) today else weekStart
-        _selectedMealType.value = MealType.DINNER
-        _selectedServings.value = 1.0
-        _recipeSearchQuery.value = ""
-        _selectedTagFilter.value = null
-        _showAddDialog.value = true
+        val today = currentDate.today()
+        _dialog.value = MealDialog.Add(date = if (today in weekStart..weekEnd) today else weekStart)
     }
 
     fun openEditDialog(entry: MealPlanEntry) {
-        _editingEntry.value = entry
-        _selectedDate.value = entry.date
-        _selectedMealType.value = entry.mealType
-        _selectedServings.value = entry.servings
-        _recipeSearchQuery.value = ""
-        _selectedTagFilter.value = null
-        _showAddDialog.value = true
+        _dialog.value = MealDialog.Edit(entry)
     }
 
-    fun dismissAddDialog() {
-        _showAddDialog.value = false
-        _editingEntry.value = null
+    fun dismissDialog() {
+        _dialog.value = null
     }
 
-    fun setSelectedDate(date: LocalDate) {
-        _selectedDate.value = date
-    }
+    fun setDate(date: LocalDate) = _dialog.update { it?.with(date = date) }
 
-    fun setSelectedMealType(mealType: MealType) {
-        _selectedMealType.value = mealType
-    }
+    fun setMealType(mealType: MealType) = _dialog.update { it?.with(mealType = mealType) }
 
-    fun setSelectedServings(servings: Double) {
-        _selectedServings.value = servings
-    }
+    fun setServings(servings: Double) = _dialog.update { it?.with(servings = servings) }
 
-    fun onRecipeSearchQueryChange(query: String) {
-        _recipeSearchQuery.value = query
-    }
+    fun onRecipeSearchQueryChange(query: String) = _dialog.update { it?.with(searchQuery = query) }
 
-    fun onTagFilterSelected(tag: String?) {
-        _selectedTagFilter.value = if (_selectedTagFilter.value == tag) null else tag
+    fun onTagFilterSelected(tag: String?) = _dialog.update {
+        it?.with(tagFilter = if (it.tagFilter == tag) null else tag)
     }
 
     /**
-     * Runs a save, ignoring calls while another save is in flight, and closes the dialog
-     * on success. Failures are logged and shown to the user.
+     * Runs a save of the open dialog, ignoring calls while another save is in flight, and closes
+     * the dialog on success. Failures are logged and shown to the user.
      */
-    private fun launchSave(save: suspend () -> Boolean) {
-        if (_isSaving.value) return
-        _isSaving.value = true
+    private fun launchSave(save: suspend (MealDialog) -> Boolean) {
+        val dialog = _dialog.value ?: return
+        if (dialog.isSaving) return
+        _dialog.value = dialog.with(isSaving = true)
         viewModelScope.launch {
-            try {
-                if (save()) {
-                    _showAddDialog.value = false
-                    _editingEntry.value = null
-                }
+            val saved = try {
+                save(dialog)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 ErrorLog.e(TAG, "Failed to save meal plan", e)
                 showMessage(R.string.meal_plan_save_failed)
-            } finally {
-                _isSaving.value = false
+                false
+            }
+            _dialog.update { current ->
+                // A dialog opened since then isn't saving and stays open.
+                when {
+                    current?.isSaving != true -> current
+                    saved -> null
+                    else -> current.with(isSaving = false)
+                }
             }
         }
     }
 
-    fun addRecipeToMealPlan(recipe: Recipe) = launchSave {
+    private fun showMessage(@StringRes resId: Int, vararg args: Any) {
+        _events.trySend(MealPlanEvent.ShowMessage(UserMessage(resId, *args)))
+    }
+
+    /** Adds [recipe] (or, when editing, swaps the meal's recipe) with the dialog's fields. */
+    fun addRecipeToMealPlan(recipe: Recipe) = launchSave { dialog ->
         val now = clock.now()
-        val existing = _editingEntry.value
-        val date = _selectedDate.value
-        val mealType = _selectedMealType.value
-        val servings = _selectedServings.value
-        if (existing != null) {
-            mealPlanRepository.updateMealPlan(
-                existing.copy(
-                    recipeId = recipe.id,
-                    recipeName = recipe.name,
-                    recipeImageUrl = recipe.imageUrl,
-                    date = date,
-                    mealType = mealType,
-                    servings = servings,
-                    updatedAt = now
-                )
-            )
-            true
-        } else {
-            // Check meal plan count limit before creating
-            val count = mealPlanRepository.getMealPlanCount()
-            if (count >= ResourceLimits.MAX_MEAL_PLANS) {
-                Log.w(TAG, "Meal plan limit reached ($count/${ResourceLimits.MAX_MEAL_PLANS})")
-                showMessage(R.string.meal_plan_limit_reached, count, ResourceLimits.MAX_MEAL_PLANS)
-                false
-            } else {
-                mealPlanRepository.saveMealPlan(
-                    MealPlanEntry(
-                        id = UUID.randomUUID().toString(),
+        when (dialog) {
+            is MealDialog.Edit -> {
+                mealPlanRepository.updateMealPlan(
+                    dialog.entry.copy(
                         recipeId = recipe.id,
                         recipeName = recipe.name,
                         recipeImageUrl = recipe.imageUrl,
-                        date = date,
-                        mealType = mealType,
-                        servings = servings,
-                        createdAt = now,
+                        date = dialog.date,
+                        mealType = dialog.mealType,
+                        servings = dialog.servings,
                         updatedAt = now
                     )
                 )
                 true
+            }
+            is MealDialog.Add -> {
+                // Check meal plan count limit before creating
+                val count = mealPlanRepository.getMealPlanCount()
+                if (count >= ResourceLimits.MAX_MEAL_PLANS) {
+                    ErrorLog.w(TAG, "Meal plan limit reached ($count/${ResourceLimits.MAX_MEAL_PLANS})")
+                    showMessage(R.string.meal_plan_limit_reached, count, ResourceLimits.MAX_MEAL_PLANS)
+                    false
+                } else {
+                    mealPlanRepository.saveMealPlan(
+                        MealPlanEntry(
+                            id = UUID.randomUUID().toString(),
+                            recipeId = recipe.id,
+                            recipeName = recipe.name,
+                            recipeImageUrl = recipe.imageUrl,
+                            date = dialog.date,
+                            mealType = dialog.mealType,
+                            servings = dialog.servings,
+                            createdAt = now,
+                            updatedAt = now
+                        )
+                    )
+                    true
+                }
             }
         }
     }
@@ -346,15 +366,16 @@ class MealPlanViewModel @Inject constructor(
     /**
      * Save edits to an existing meal plan without changing the recipe.
      */
-    fun saveEditedMealPlan() = launchSave {
-        val existing = _editingEntry.value ?: return@launchSave false
-        val updated = existing.copy(
-            date = _selectedDate.value,
-            mealType = _selectedMealType.value,
-            servings = _selectedServings.value,
-            updatedAt = clock.now()
+    fun saveEditedMealPlan() = launchSave { dialog ->
+        if (dialog !is MealDialog.Edit) return@launchSave false
+        mealPlanRepository.updateMealPlan(
+            dialog.entry.copy(
+                date = dialog.date,
+                mealType = dialog.mealType,
+                servings = dialog.servings,
+                updatedAt = clock.now()
+            )
         )
-        mealPlanRepository.updateMealPlan(updated)
         true
     }
 

@@ -2,10 +2,6 @@ package com.lionotter.recipes.ui.screens.recipedetail
 
 import android.content.Context
 import android.net.Uri
-import android.util.Log
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.core.content.FileProvider
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -26,6 +22,7 @@ import com.lionotter.recipes.domain.usecase.ExportSingleRecipeUseCase
 import com.lionotter.recipes.domain.util.RecipeSerializer
 import com.lionotter.recipes.messages.UserMessage
 import com.lionotter.recipes.ui.navigation.Route
+import com.lionotter.recipes.util.AppJson
 import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.util.IoDispatcher
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -42,12 +39,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import java.io.File
 import javax.inject.Inject
 import kotlin.math.roundToInt
@@ -55,10 +55,32 @@ import kotlin.math.roundToInt
 /**
  * Represents the location of a highlighted instruction step.
  */
+@Serializable
 data class HighlightedInstructionStep(
     val sectionIndex: Int,
     val stepIndex: Int
 )
+
+/**
+ * Where the user is in cooking a recipe. Kept in the SavedStateHandle so it survives process
+ * death (e.g. the phone locks for a while in the middle of cooking).
+ *
+ * @param usedInstructionIngredients instruction step ingredients marked as used
+ * @param checkedAggregateIngredients ingredients checked off directly in the aggregated list
+ *   (e.g. while gathering ingredients before cooking), keyed by "sectionName|ingredientName", lowercase
+ */
+@Serializable
+data class CookingProgress(
+    val scale: Double = 1.0,
+    val measurementPreference: MeasurementPreference = MeasurementPreference.DEFAULT,
+    val usedInstructionIngredients: Set<InstructionIngredientKey> = emptySet(),
+    val highlightedStep: HighlightedInstructionStep? = null,
+    val checkedAggregateIngredients: Set<String> = emptySet()
+) {
+    /** Anything a "reset cooking progress" would clear (scale and units are preferences). */
+    val hasProgress: Boolean
+        get() = usedInstructionIngredients.isNotEmpty() || highlightedStep != null || checkedAggregateIngredients.isNotEmpty()
+}
 
 sealed interface RecipeDetailState {
     data object Loading : RecipeDetailState
@@ -70,8 +92,8 @@ sealed interface RecipeDetailEvent {
     /** The recipe was deleted; leave the screen. */
     data object Deleted : RecipeDetailEvent
 
-    /** The recipe was exported to [uri]; offer to share it. */
-    data class ShareExport(val uri: Uri) : RecipeDetailEvent
+    /** The recipe [recipeName] was exported to [uri]; offer to share it. */
+    data class ShareExport(val uri: Uri, val recipeName: String) : RecipeDetailEvent
 
     data class ShowMessage(val message: UserMessage) : RecipeDetailEvent
 }
@@ -82,7 +104,7 @@ class RecipeDetailViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     private val recipeRepository: RecipeRepository,
     private val mealPlanRepository: MealPlanRepository,
-    private val settings: AppSettings,
+    settings: AppSettings,
     private val calculateIngredientUsage: CalculateIngredientUsageUseCase,
     private val exportSingleRecipeUseCase: ExportSingleRecipeUseCase,
     private val recipeSerializer: RecipeSerializer,
@@ -92,11 +114,7 @@ class RecipeDetailViewModel @Inject constructor(
 
     companion object {
         private const val TAG = "RecipeDetailViewModel"
-        internal const val KEY_SCALE = "cooking_scale"
-        internal const val KEY_MEASUREMENT_PREFERENCE = "cooking_measurement_preference"
-        internal const val KEY_USED_INGREDIENTS = "cooking_used_ingredients"
-        internal const val KEY_HIGHLIGHTED_STEP = "cooking_highlighted_step"
-        internal const val KEY_CHECKED_AGGREGATE_INGREDIENTS = "cooking_checked_aggregate_ingredients"
+        internal const val KEY_COOKING_PROGRESS = "cooking_progress"
         internal const val KEY_NOTES_DRAFT = "notes_draft"
         internal const val NOTES_SAVE_DEBOUNCE_MS = 1000L
         private const val MIN_SCALE = 0.25
@@ -104,6 +122,15 @@ class RecipeDetailViewModel @Inject constructor(
         private const val MAX_SERVINGS_MULTIPLIER = 10
         /** Multipliers offered by +/- when the recipe doesn't say how many servings it makes. */
         internal val SCALE_PRESETS = listOf(0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0)
+
+        private fun decodeProgress(json: String?): CookingProgress = json?.let {
+            try {
+                AppJson.decodeFromString<CookingProgress>(it)
+            } catch (e: SerializationException) {
+                ErrorLog.w(TAG, "Discarding unreadable cooking progress", e)
+                null
+            }
+        } ?: CookingProgress()
     }
 
     private val recipeId: String = savedStateHandle.toRoute<Route.RecipeDetail>().recipeId
@@ -111,15 +138,9 @@ class RecipeDetailViewModel @Inject constructor(
     private val _events = Channel<RecipeDetailEvent>(Channel.BUFFERED)
     val events: Flow<RecipeDetailEvent> = _events.receiveAsFlow()
 
-    val recipe: StateFlow<Recipe?> = recipeRepository.getRecipeById(recipeId)
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.Eagerly,
-            initialValue = null
-        )
-
     private val _isDeleting = MutableStateFlow(false)
 
+    /** The one subscription to the recipe; everything else derives from it. */
     val uiState: StateFlow<RecipeDetailState> = combine(
         recipeRepository.getRecipeById(recipeId),
         _isDeleting
@@ -135,6 +156,10 @@ class RecipeDetailViewModel @Inject constructor(
         started = SharingStarted.Eagerly,
         initialValue = RecipeDetailState.Loading
     )
+
+    private val currentRecipe: Recipe? get() = (uiState.value as? RecipeDetailState.Loaded)?.recipe
+
+    private val recipe: Flow<Recipe?> = uiState.map { (it as? RecipeDetailState.Loaded)?.recipe }.distinctUntilChanged()
 
     val keepScreenOn: StateFlow<Boolean> = settings.keepScreenOn
         .stateIn(
@@ -165,58 +190,18 @@ class RecipeDetailViewModel @Inject constructor(
             initialValue = false
         )
 
-    // Cooking progress is kept in the SavedStateHandle so it survives process death
-    // (e.g. the phone locks for a while in the middle of cooking).
+    /** [CookingProgress] as JSON: the saved state is its only copy. */
+    private val cookingProgressJson: StateFlow<String?> = savedStateHandle.getStateFlow(KEY_COOKING_PROGRESS, null)
 
-    private val _scale = MutableStateFlow(savedStateHandle[KEY_SCALE] ?: 1.0)
-    val scale: StateFlow<Double> = _scale.asStateFlow()
+    val cookingProgress: StateFlow<CookingProgress> = cookingProgressJson
+        .map(::decodeProgress)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, decodeProgress(cookingProgressJson.value))
 
-    private val _measurementPreference = MutableStateFlow(
-        savedStateHandle.get<String>(KEY_MEASUREMENT_PREFERENCE)
-            ?.let { name -> MeasurementPreference.entries.find { it.name == name } }
-            ?: MeasurementPreference.DEFAULT
-    )
-    val measurementPreference: StateFlow<MeasurementPreference> = _measurementPreference.asStateFlow()
-
-    /**
-     * Tracks which instruction step ingredients have been marked as used.
-     * Key is InstructionIngredientKey (sectionIndex-stepIndex-ingredientIndex).
-     */
-    private val _usedInstructionIngredients = MutableStateFlow<Set<InstructionIngredientKey>>(
-        savedStateHandle.get<ArrayList<String>>(KEY_USED_INGREDIENTS)?.toSet() ?: emptySet()
-    )
-    val usedInstructionIngredients: StateFlow<Set<InstructionIngredientKey>> = _usedInstructionIngredients.asStateFlow()
-
-    /**
-     * Tracks which instruction step is currently highlighted.
-     */
-    private val _highlightedInstructionStep = MutableStateFlow(
-        savedStateHandle.get<IntArray>(KEY_HIGHLIGHTED_STEP)
-            ?.takeIf { it.size == 2 }
-            ?.let { HighlightedInstructionStep(it[0], it[1]) }
-    )
-    val highlightedInstructionStep: StateFlow<HighlightedInstructionStep?> = _highlightedInstructionStep.asStateFlow()
-
-    /**
-     * Ingredients checked off directly in the aggregated ingredient list (e.g. while gathering
-     * ingredients before cooking). Keyed by "sectionName|ingredientName", lowercase.
-     */
-    private val _checkedAggregateIngredients = MutableStateFlow<Set<String>>(
-        savedStateHandle.get<ArrayList<String>>(KEY_CHECKED_AGGREGATE_INGREDIENTS)?.toSet() ?: emptySet()
-    )
-    val checkedAggregateIngredients: StateFlow<Set<String>> = _checkedAggregateIngredients.asStateFlow()
-
-    val hasCookingProgress: StateFlow<Boolean> = combine(
-        _usedInstructionIngredients,
-        _highlightedInstructionStep,
-        _checkedAggregateIngredients
-    ) { used, highlighted, checked ->
-        used.isNotEmpty() || highlighted != null || checked.isNotEmpty()
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = false
-    )
+    private fun updateProgress(change: (CookingProgress) -> CookingProgress) {
+        // Read the saved state itself rather than [cookingProgress], which updates asynchronously
+        val updated = change(decodeProgress(cookingProgressJson.value))
+        savedStateHandle[KEY_COOKING_PROGRESS] = AppJson.encodeToString(updated)
+    }
 
     /**
      * Returns true if any ingredient in the recipe supports conversion (has density).
@@ -239,12 +224,7 @@ class RecipeDetailViewModel @Inject constructor(
         )
 
     fun setScale(scale: Double) {
-        updateScale(scale.coerceIn(MIN_SCALE, MAX_SCALE))
-    }
-
-    private fun updateScale(scale: Double) {
-        _scale.value = scale
-        savedStateHandle[KEY_SCALE] = scale
+        updateProgress { it.copy(scale = scale.coerceIn(MIN_SCALE, MAX_SCALE)) }
     }
 
     /**
@@ -252,32 +232,33 @@ class RecipeDetailViewModel @Inject constructor(
      * next multiplier in [SCALE_PRESETS].
      */
     fun incrementScale() {
-        val servings = recipe.value?.servings?.takeIf { it > 0 }
-        if (servings != null) {
-            val current = (_scale.value * servings).roundToInt()
-            val next = (current + 1).coerceAtMost(servings * MAX_SERVINGS_MULTIPLIER)
-            updateScale(next.toDouble() / servings)
-        } else {
-            val next = SCALE_PRESETS.firstOrNull { it > _scale.value + 1e-9 } ?: SCALE_PRESETS.last()
-            updateScale(next)
+        val servings = currentRecipe?.servings?.takeIf { it > 0 }
+        updateProgress { progress ->
+            val next = if (servings != null) {
+                val current = (progress.scale * servings).roundToInt()
+                (current + 1).coerceAtMost(servings * MAX_SERVINGS_MULTIPLIER).toDouble() / servings
+            } else {
+                SCALE_PRESETS.firstOrNull { it > progress.scale + 1e-9 } ?: SCALE_PRESETS.last()
+            }
+            progress.copy(scale = next)
         }
     }
 
     fun decrementScale() {
-        val servings = recipe.value?.servings?.takeIf { it > 0 }
-        if (servings != null) {
-            val current = (_scale.value * servings).roundToInt()
-            val next = (current - 1).coerceAtLeast(1)
-            updateScale(next.toDouble() / servings)
-        } else {
-            val next = SCALE_PRESETS.lastOrNull { it < _scale.value - 1e-9 } ?: SCALE_PRESETS.first()
-            updateScale(next)
+        val servings = currentRecipe?.servings?.takeIf { it > 0 }
+        updateProgress { progress ->
+            val next = if (servings != null) {
+                val current = (progress.scale * servings).roundToInt()
+                (current - 1).coerceAtLeast(1).toDouble() / servings
+            } else {
+                SCALE_PRESETS.lastOrNull { it < progress.scale - 1e-9 } ?: SCALE_PRESETS.first()
+            }
+            progress.copy(scale = next)
         }
     }
 
     fun setMeasurementPreference(preference: MeasurementPreference) {
-        _measurementPreference.value = preference
-        savedStateHandle[KEY_MEASUREMENT_PREFERENCE] = preference.name
+        updateProgress { it.copy(measurementPreference = preference) }
     }
 
     /**
@@ -286,31 +267,17 @@ class RecipeDetailViewModel @Inject constructor(
      */
     fun toggleInstructionIngredientUsed(sectionIndex: Int, stepIndex: Int, ingredientIndex: Int) {
         val key = createInstructionIngredientKey(sectionIndex, stepIndex, ingredientIndex)
-        val updated = if (key in _usedInstructionIngredients.value) {
-            _usedInstructionIngredients.value - key
-        } else {
-            _usedInstructionIngredients.value + key
+        updateProgress { progress ->
+            val used = progress.usedInstructionIngredients
+            progress.copy(usedInstructionIngredients = if (key in used) used - key else used + key)
         }
-        _usedInstructionIngredients.value = updated
-        savedStateHandle[KEY_USED_INGREDIENTS] = ArrayList(updated)
-    }
-
-    /**
-     * Checks if an instruction ingredient is marked as used.
-     */
-    fun isInstructionIngredientUsed(sectionIndex: Int, stepIndex: Int, ingredientIndex: Int): Boolean {
-        val key = createInstructionIngredientKey(sectionIndex, stepIndex, ingredientIndex)
-        return key in _usedInstructionIngredients.value
     }
 
     fun toggleAggregateIngredientChecked(key: String) {
-        val updated = if (key in _checkedAggregateIngredients.value) {
-            _checkedAggregateIngredients.value - key
-        } else {
-            _checkedAggregateIngredients.value + key
+        updateProgress { progress ->
+            val checked = progress.checkedAggregateIngredients
+            progress.copy(checkedAggregateIngredients = if (key in checked) checked - key else checked + key)
         }
-        _checkedAggregateIngredients.value = updated
-        savedStateHandle[KEY_CHECKED_AGGREGATE_INGREDIENTS] = ArrayList(updated)
     }
 
     /**
@@ -322,22 +289,19 @@ class RecipeDetailViewModel @Inject constructor(
      */
     val ingredientUsageBySection: StateFlow<Map<String?, Map<String, IngredientUsageStatus>>> = combine(
         recipe,
-        _usedInstructionIngredients,
-        _scale,
-        _measurementPreference,
+        cookingProgress,
         volumeUnitSystem,
         weightUnitSystem
-    ) { args ->
-        @Suppress("UNCHECKED_CAST")
-        val recipe = args[0] as Recipe?
-        @Suppress("UNCHECKED_CAST")
-        val usedKeys = args[1] as Set<InstructionIngredientKey>
-        val scale = args[2] as Double
-        val preference = args[3] as MeasurementPreference
-        val volSystem = args[4] as UnitSystem
-        val wtSystem = args[5] as UnitSystem
+    ) { recipe, progress, volumeSystem, weightSystem ->
         if (recipe == null) return@combine emptyMap()
-        calculateIngredientUsage.execute(recipe, usedKeys, scale, preference, volSystem, wtSystem)
+        calculateIngredientUsage.execute(
+            recipe,
+            progress.usedInstructionIngredients,
+            progress.scale,
+            progress.measurementPreference,
+            volumeSystem,
+            weightSystem
+        )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -348,8 +312,7 @@ class RecipeDetailViewModel @Inject constructor(
      * Resets all ingredient usage tracking.
      */
     fun resetIngredientUsage() {
-        _usedInstructionIngredients.value = emptySet()
-        savedStateHandle[KEY_USED_INGREDIENTS] = ArrayList<String>()
+        updateProgress { it.copy(usedInstructionIngredients = emptySet()) }
     }
 
     /**
@@ -357,11 +320,9 @@ class RecipeDetailViewModel @Inject constructor(
      * Scale and units are left alone since they are display preferences.
      */
     fun resetCookingProgress() {
-        resetIngredientUsage()
-        _checkedAggregateIngredients.value = emptySet()
-        savedStateHandle[KEY_CHECKED_AGGREGATE_INGREDIENTS] = ArrayList<String>()
-        _highlightedInstructionStep.value = null
-        savedStateHandle.remove<IntArray>(KEY_HIGHLIGHTED_STEP)
+        updateProgress {
+            it.copy(usedInstructionIngredients = emptySet(), checkedAggregateIngredients = emptySet(), highlightedStep = null)
+        }
     }
 
     /**
@@ -370,23 +331,16 @@ class RecipeDetailViewModel @Inject constructor(
      * Otherwise, sets this step as highlighted.
      */
     fun toggleHighlightedInstructionStep(sectionIndex: Int, stepIndex: Int) {
-        val newStep = HighlightedInstructionStep(sectionIndex, stepIndex)
-        val updated = if (_highlightedInstructionStep.value == newStep) null else newStep
-        _highlightedInstructionStep.value = updated
-        if (updated == null) {
-            savedStateHandle.remove<IntArray>(KEY_HIGHLIGHTED_STEP)
-        } else {
-            savedStateHandle[KEY_HIGHLIGHTED_STEP] = intArrayOf(updated.sectionIndex, updated.stepIndex)
-        }
+        val step = HighlightedInstructionStep(sectionIndex, stepIndex)
+        updateProgress { it.copy(highlightedStep = if (it.highlightedStep == step) null else step) }
     }
 
     /**
-     * Toggles the favorite status of the current recipe. Like other repository writes, it
-     * applies locally at once and a sync failure is reported app-wide.
+     * Marks the recipe as a favorite or not. Like other repository writes, it applies locally
+     * at once and a sync failure is reported app-wide.
      */
-    fun toggleFavorite() {
-        val currentRecipe = recipe.value ?: return
-        recipeRepository.setFavorite(recipeId, !currentRecipe.isFavorite)
+    fun setFavorite(isFavorite: Boolean) {
+        recipeRepository.setFavorite(recipeId, isFavorite)
     }
 
     /**
@@ -398,7 +352,7 @@ class RecipeDetailViewModel @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to count meal plans for $recipeId", e)
+            ErrorLog.w(TAG, "Failed to count meal plans for $recipeId", e)
             0
         }
     }
@@ -431,41 +385,47 @@ class RecipeDetailViewModel @Inject constructor(
 
     // --- User Notes ---
 
-    private val _notesEdits = MutableStateFlow<String?>(savedStateHandle[KEY_NOTES_DRAFT])
-
     /**
-     * Text the user has typed into the notes field, or null if they haven't edited it
-     * (in which case the recipe's saved notes are shown). Held here rather than in the
-     * composable so it survives rotation/process death and can be flushed when the
-     * screen goes away.
+     * Text the user has typed into the notes field and that the recipe doesn't show yet, or null
+     * (then the recipe's saved notes are shown). Lives here, backed by the saved state, so it
+     * survives rotation/process death and can be flushed when the screen goes away. Once the
+     * recipe shows the saved text the draft is dropped, so later edits from elsewhere aren't
+     * hidden behind it.
      */
-    var notesDraft by mutableStateOf<String?>(savedStateHandle[KEY_NOTES_DRAFT])
-        private set
+    private val _notesDraft: MutableStateFlow<String?> = savedStateHandle.getMutableStateFlow(KEY_NOTES_DRAFT, null)
+    val notesDraft: StateFlow<String?> = _notesDraft.asStateFlow()
 
     init {
         viewModelScope.launch {
-            _notesEdits
-                .filterNotNull()
+            _notesDraft.filterNotNull()
                 .debounce(NOTES_SAVE_DEBOUNCE_MS)
                 .collect { saveNotesIfChanged(it) }
+        }
+        viewModelScope.launch {
+            combine(_notesDraft, recipe) { draft, recipe -> draft to recipe }
+                .collect { (draft, recipe) ->
+                    if (draft != null && recipe != null && draft == recipe.userNotes.orEmpty()) {
+                        _notesDraft.compareAndSet(draft, null)
+                    }
+                }
         }
     }
 
     fun onNotesChange(text: String) {
-        notesDraft = text
-        savedStateHandle[KEY_NOTES_DRAFT] = text
-        _notesEdits.value = text
+        _notesDraft.value = text
     }
 
     /** Saves any unsaved notes immediately (e.g. when the field loses focus). */
     fun flushNotes() {
-        notesDraft?.let { saveNotesIfChanged(it) }
+        _notesDraft.value?.let { saveNotesIfChanged(it) }
     }
 
+    private fun normalizeNotes(text: String): String? = text.takeIf { it.isNotBlank() }
+
     private fun saveNotesIfChanged(text: String) {
-        val currentRecipe = recipe.value ?: return
-        val normalizedNotes = text.takeIf { it.isNotBlank() }
-        if (normalizedNotes == currentRecipe.userNotes) return
+        val recipe = currentRecipe ?: return
+        val normalizedNotes = normalizeNotes(text)
+        if (normalizedNotes == recipe.userNotes) return
         recipeRepository.setUserNotes(recipeId, normalizedNotes)
     }
 
@@ -482,7 +442,7 @@ class RecipeDetailViewModel @Inject constructor(
      */
     fun exportRecipeFile() {
         viewModelScope.launch {
-            val currentRecipe = recipe.value ?: return@launch
+            val currentRecipe = currentRecipe ?: return@launch
             try {
                 val uri = withContext(ioDispatcher) {
                     val sharedDir = File(applicationContext.cacheDir, "shared_recipes").apply { mkdirs() }
@@ -501,7 +461,7 @@ class RecipeDetailViewModel @Inject constructor(
                         file
                     )
                 }
-                _events.send(RecipeDetailEvent.ShareExport(uri))
+                _events.send(RecipeDetailEvent.ShareExport(uri, currentRecipe.name))
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

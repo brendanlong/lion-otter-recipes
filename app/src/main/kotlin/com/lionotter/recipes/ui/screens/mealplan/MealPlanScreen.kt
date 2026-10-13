@@ -74,16 +74,12 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
-import androidx.lifecycle.compose.LifecycleResumeEffect
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.plus
 
-// AddMealPlanDialog still reads the dialog fields from the ViewModel; it gets hoisted state
-// when those fields are replaced by a single dialog state.
-@Suppress("ComposeViewModelForwarding")
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun MealPlanScreen(
@@ -95,17 +91,11 @@ fun MealPlanScreen(
 ) {
     val weekStart by viewModel.currentWeekStart.collectAsStateWithLifecycle()
     val loadedWeekMealPlans by viewModel.weekMealPlans.collectAsStateWithLifecycle()
-    val showAddDialog by viewModel.showAddDialog.collectAsStateWithLifecycle()
+    val dialog by viewModel.dialog.collectAsStateWithLifecycle()
     val today by viewModel.today.collectAsStateWithLifecycle()
 
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-
-    // The screen may stay open across midnight; pick up the new date when it comes back
-    LifecycleResumeEffect(viewModel) {
-        viewModel.refreshToday()
-        onPauseOrDispose { }
-    }
 
     val resources = LocalResources.current
     val undoLabel = stringResource(R.string.meal_plan_undo)
@@ -131,10 +121,19 @@ fun MealPlanScreen(
     }
 
     // Add meal plan dialog
-    if (showAddDialog) {
+    dialog?.let { openDialog ->
+        val choices by viewModel.recipeChoices.collectAsStateWithLifecycle()
         AddMealPlanDialog(
-            viewModel = viewModel,
-            onDismiss = { viewModel.dismissAddDialog() }
+            dialog = openDialog,
+            choices = choices,
+            onDateChange = viewModel::setDate,
+            onMealTypeChange = viewModel::setMealType,
+            onServingsChange = viewModel::setServings,
+            onSearchQueryChange = viewModel::onRecipeSearchQueryChange,
+            onTagClick = viewModel::onTagFilterSelected,
+            onRecipeClick = viewModel::addRecipeToMealPlan,
+            onSave = viewModel::saveEditedMealPlan,
+            onDismiss = viewModel::dismissDialog
         )
     }
 
@@ -185,10 +184,24 @@ fun MealPlanScreen(
                 onNextWeek = { viewModel.navigateWeek(true) }
             )
 
-            val weekMealPlans = loadedWeekMealPlans
-            if (weekMealPlans == null) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                return@Column
+            val weekMealPlans = when (val plans = loadedWeekMealPlans) {
+                WeekMealPlans.Loading -> {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    return@Column
+                }
+                WeekMealPlans.Failed -> {
+                    Text(
+                        text = stringResource(R.string.meal_plan_load_failed),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(32.dp)
+                    )
+                    return@Column
+                }
+                is WeekMealPlans.Loaded -> plans.byDate
             }
 
             // Week content

@@ -39,10 +39,10 @@ Where a use case needs something the data layer provides, the domain owns an int
 | `PageFetcher` | `WebScraperService` | `fetchPage(url)` → `Outcome<FetchedPage>` (HTML + preview image) |
 | `PageContentExtractor` | `RecipeHtmlExtractor` | page HTML → `PageContent` for the AI, page title |
 | `AiSettings` | `SettingsDataStore` | read-only API key, import model, thinking, import debugging |
-| `AppSettings` | `SettingsDataStore` | all settings as flows plus setters (extends `AiSettings`); what ViewModels use |
-| `ImageStore` | `ImageDownloadService` | download / save / store recipe images, delete unused local ones, a recipe image as a local file (export) |
+| `AppSettings` | `SettingsDataStore` | all settings as flows (each one, and `settings: Flow<Settings>` with all of them once read) plus setters (extends `AiSettings`); what ViewModels use |
+| `ImageStore` | `ImageDownloadService` | download / save / copy / store recipe images, delete unused local ones, a recipe image as a local file (export) |
 | `PaprikaExportReader` | `PaprikaParser` | stream a Paprika export as `PaprikaExportRecipe`s (`ImportPaprikaUseCase`) |
-| `GroceryListStateStore` | `DataStoreGroceryListStateStore` | per-week grocery list selection and checked items |
+| `GroceryListStateStore` | `DataStoreGroceryListStateStore` | per-week grocery list selection, whether the list is shown, and checked sources |
 | `ImportDebugLog` | `ImportDebugRepository` | record an `ImportDebugRecord` for the import debugging screen |
 
 Ports return `Outcome` with a typed `RecipeError` rather than throwing or returning SDK types; the implementations log the underlying exception.
@@ -69,7 +69,7 @@ Migrations live in `RecipeDatabaseMigrations` (10→11 drops the Firestore-era t
 - `ai_model` (imports) and `edit_model` (edits), plus a `thinking` toggle
 - Display, theme, keep-screen-on, measurement unit preferences (recipe and grocery), start of week, import debugging
 
-`DataStoreGroceryListStateStore` (the `GroceryListStateStore` port) is a separate DataStore holding grocery list checked state, keyed per week start date. Old weeks are pruned on save.
+`DataStoreGroceryListStateStore` (the `GroceryListStateStore` port) is a separate DataStore holding each week's grocery list selection, whether the list is shown, and the checked-off source keys, keyed per week start date. Item check state is derived from the sources, so the `checked_items` key older versions wrote is ignored and removed on save. Old weeks are pruned on save.
 
 #### Local files
 
@@ -310,6 +310,8 @@ External intents are turned into `AppIntentEvent`s (`ImportUrl`, `ImportFile`, `
 
 - Observes recipes plus in-progress/failed imports from `ImportMonitor`; Retry/Dismiss go to `ImportQueue`
 - Search, tag and favorite filters are held in `SavedStateHandle` (survive process death); tag chips on the detail screen filter the list (via `NavResult.FilterByTag` and `RecipeListViewModel.showOnlyTag`)
+- One subscription to the recipes feeds one `RecipeListUiState` (items, loaded, tags, selection). The multi-select selection is derived as the picked IDs that are currently shown, so the header count and bulk delete never include recipes hidden by search or deleted elsewhere
+- Favorite toggles pass the new value from the UI (`setFavorite(id, isFavorite)`), so a double tap can't flip it back
 - Swipe-to-dismiss for deletion
 
 #### RecipeDetailScreen
@@ -318,7 +320,9 @@ External intents are turned into `AppIntentEvent`s (`ImportUrl`, `ImportFile`, `
 - Hero image with Coil async loading (Firebase Storage fetcher)
 - Metadata card (times, servings)
 - Scale controls with +/- buttons
-- Sectioned ingredients and instructions; cooking state (scale, measurement preference, used ingredients, highlighted step) lives in `SavedStateHandle`
+- Sectioned ingredients and instructions; cooking state is one `@Serializable` `CookingProgress` (scale, measurement preference, used step ingredients, highlighted step, checked aggregate ingredients) stored as JSON under one `SavedStateHandle` key and read with `getStateFlow`, so it survives process death without being mirrored by hand. Updates read the saved value itself, so rapid taps aren't lost
+- One recipe subscription feeds the state, conversion support and ingredient usage
+- The notes draft is a `getMutableStateFlow` in the `SavedStateHandle` (the only copy), saved after typing pauses or on focus loss/leaving, and dropped once the recipe shows the saved text so later edits from another device aren't hidden behind it
 
 #### AddRecipeScreen
 
@@ -331,7 +335,8 @@ External intents are turned into `AppIntentEvent`s (`ImportUrl`, `ImportFile`, `
 
 - Image, title and URL changes are staged and applied on save without the AI; body edits or AI instructions enqueue `RecipeEditWorker`
 - The edit and regenerate work are followed with `WorkTracker`s and folded into one `editState` (`Loading(@StringRes progress)`, `Error(UserMessage)`; a missing API key shows `EditUiState.NoApiKey`). A successful save is the one-off `EditRecipeEvent.Saved(newRecipeId)`, sent once and the work then untracked
-- Save preserves metadata, Save as Copy creates a new recipe
+- The recipe is `RecipeLoadState` (`Loading | NotFound | Loaded`); unsaved changes are checked against the latest loaded version, and fields the user hasn't touched follow later versions (so saving never reverts a change made elsewhere). The model and thinking choices are stored in `SavedStateHandle` and fall back to the settings
+- Save preserves metadata, Save as Copy creates a new recipe. A picked image for the copy is copied (`ImageStore.copyLocalImage`) and handed to `RecipeEditWorker` in its input (`ImageChange`); `EditRecipeUseCase` stores it for the copy, and the worker deletes it once no run will create the copy (final failure, or cancelled by the user on API 31+). The screen keeps its own file, so the image is still there if the copy fails. An in-place save takes the picked file over before applying it, so leaving the screen never deletes a file in use
 
 #### ImportSelectionScreen
 
@@ -339,7 +344,9 @@ External intents are turned into `AppIntentEvent`s (`ImportUrl`, `ImportFile`, `
 
 #### MealPlanScreen / GroceryListScreen
 
-- Meal plans are persisted in Firestore; the grocery list aggregates the selected week's meals and persists checked state per week in `GroceryListStateStore`
+- Meal plans are persisted in Firestore; the grocery list aggregates the selected week's meals and persists the selection and checked sources per week in `GroceryListStateStore`
+- `GroceryListUiState` (`Loading | SelectRecipes | ViewList`) is derived: the list combines the week's meal plans, the selection and the recipes flow, so it follows recipe edits and meal plan changes. Sources are the only checked state (an item is checked when all its sources are); keys of sources no longer on the list are ignored at display time instead of being pruned. `GroceryListPresenter` holds the pure display logic (rows, totals, source keys, share text)
+- The add/edit meal dialog is one `MealDialog` state (`Add | Edit`), replaced on open so it never shows stale fields. `today` comes from `CurrentDate.dates` (util), so the planner moves to the new day after midnight. Load failures of the week or the recipe list are state, not events
 - A meal plan's `servings` is a scale multiplier, not a serving count. It and the recipe detail scale are displayed with `formatScaleMultiplier` (`ui/format`), e.g. "1½×", "0.33×"
 
 #### SettingsScreen
@@ -351,6 +358,7 @@ External intents are turned into `AppIntentEvent`s (`ImportUrl`, `ImportFile`, `
 - Account section: Google sign-in/out (with unsynced-changes warning), account deletion. One account operation runs at a time (`busyOp: AccountOp?` = `SIGNING_IN | SIGNING_OUT | DELETING_ACCOUNT`, claimed with `beginGoogleSignIn` / `beginDeleteAccount`). The screen requests the Google credential in its own scope (so the Activity context never reaches a ViewModel coroutine) and always hands back a `CredentialResult` (`Obtained | Cancelled | Failed`), `Cancelled` if its scope is cancelled
 - An invalid or unsaved API key is `apiKeyError: UserMessage?` state under the field; toasts (setting write failures, sign-in/out and deletion outcomes) are events
 - Backup/restore, unit and display preferences, import debugging
+- `SettingsUiState` is `Loading` until `AppSettings.settings` has emitted (including the API key), so the screen shows a progress indicator instead of flashing defaults
 
 ### ViewModels
 
@@ -498,13 +506,13 @@ Compose observes and recomposes
 Static checks and tests that catch whole classes of bugs. All run in `./ci-local.sh` and CI.
 
 - **Compiler and lint warnings are errors** (`allWarningsAsErrors` in both modules, lint `warningsAsErrors`; lint's dependency-freshness checks are disabled so new releases don't break the build). Fix the warning; suppress only with a comment saying why.
-- **Compose lint** (`com.slack.lint.compose:compose-lint-checks`): composables take a `modifier` parameter, follow the parameter order, and get ViewModels via default `hiltViewModel()` parameters. `GroceryListScreen` and `MealPlanScreen` still forward their ViewModel (suppressed until their state is hoisted).
+- **Compose lint** (`com.slack.lint.compose:compose-lint-checks`): composables take a `modifier` parameter, follow the parameter order, and get ViewModels via default `hiltViewModel()` parameters.
 - **detekt** (`./gradlew detektDebug`, with type resolution) runs a targeted rule set in `config/detekt/detekt.yml`: `SuspendFunSwallowedCancellation`, `InjectDispatcher`, `SwallowedException` (logging the exception counts as handling it; `catch (_: ...)` does not), `TooGenericExceptionThrown`, `UnsafeCallOnNullableType`. Existing findings are in `config/detekt/baseline-debug.xml`: `!!` in `Units.kt`/`IngredientAggregation.kt`, and catch blocks the cancellation rule flags although they are fine (cleanup then rethrow, or log-and-continue inside `NonCancellable`). Don't add to it; regenerate it with `./gradlew :app:detektBaselineDebug` only after fixing entries. Use `detektDebug`; the plain `detekt` task (part of `check`) runs without type resolution or this baseline. detekt excludes generated sources, so `detektDebug` gets the compiled `BuildConfig` on its classpath (`detektBuildConfigClasses` in `app/build.gradle.kts`); its analysis also doesn't run the kotlinx.serialization compiler plugin, so call the reified `json.decodeFromString<T>()`/`encodeToString(value)` rather than the plugin-generated `T.serializer()`, or detekt reports "compiler errors found during analysis" and loses type information there.
 - **Layer rules** (`LayerDependencyTest`): scans imports under `app/src/main/kotlin`. Domain may only use `kotlin`, `kotlinx`, `java`, `javax.inject`, `..domain..`, `..util..` and `org.ojalgo` (see Dependency Rule), and `util` only `kotlin`, `kotlinx`, `java`, `javax.inject` and itself; UI may not use WorkManager or `..data.local..`; data may not use `..ui..`, `..worker..` or `..imports..`; `imports` and `worker` may not use `..ui..` (and `worker` not `..imports..`). `KNOWN_VIOLATIONS` lists today's exceptions; the test fails on new violations and on entries that are no longer needed, so the list only shrinks.
 - **DTO drift** (`DtoFieldDriftTest`, `DomainFixturesTest`, `RecipeDtoRoundTripIntegrationTest`): every `Recipe` / `MealPlanEntry` field needs a DTO field, the `RecipeFields` / `MealPlanFields` constants must be keys Firestore actually writes, and the round-trip fixtures in `testutil/DomainFixtures.kt` must set every field (including nested ones) to a non-default value.
 - **AI schema** (`RecipeResponseSchemaTest`): property names and required fields in `RecipeOutputSchema.RECIPE_RESPONSE_SCHEMA` must match the serializers of `RecipeParseResponse` and the classes it contains.
 - **Edit/regenerate preservation** (`RecipeRegeneratedContentTest`): every non-AI field of `Recipe` survives `withRegeneratedContent`.
-- **Persisted work data** (`WorkContractTest`, `PendingImportStatusTest`): every worker Progress/Outcome variant round-trips through its contract, and data and statuses written by earlier versions (pinned as literal strings) still decode.
+- **Persisted work data** (`WorkContractTest`, `PendingImportStatusTest`): every worker Progress/Outcome variant round-trips through its contract, and data and statuses written by earlier versions (pinned as literal strings) still decode, including `RecipeEditWorker` input without the copy image keys.
 - **Room migrations** (`RecipeDatabaseMigrationTest`): `MigrationTestHelper` runs `RecipeDatabaseMigrations` against the exported schemas in `app/schemas`. Add a step for every new migration.
 
 ## Testing Strategy

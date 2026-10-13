@@ -1,9 +1,11 @@
 package com.lionotter.recipes.di
 
 import com.lionotter.recipes.util.AppJson
+import com.lionotter.recipes.util.CurrentDate
 import com.lionotter.recipes.util.DefaultDispatcher
 import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.util.IoDispatcher
+import com.lionotter.recipes.util.SystemCurrentDate
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -39,6 +41,9 @@ object AppModule {
     @Provides
     @DefaultDispatcher
     fun provideDefaultDispatcher(): CoroutineDispatcher = Dispatchers.Default
+
+    @Provides
+    fun provideCurrentDate(): CurrentDate = SystemCurrentDate()
 
     @Provides
     @Singleton

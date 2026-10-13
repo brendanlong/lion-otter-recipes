@@ -13,9 +13,12 @@ interface GroceryListStateStore {
     suspend fun save(weekStart: LocalDate, state: SavedGroceryListState)
 }
 
+/**
+ * @param checkedSources keys of the checked-off grocery sources (an item is checked when all of
+ *   its sources are). May include keys of sources no longer on the list; readers ignore them.
+ */
 data class SavedGroceryListState(
     val selectedEntryIds: Set<String>,
     val showingList: Boolean,
-    val checkedItems: Set<String>,
     val checkedSources: Set<String>
 )

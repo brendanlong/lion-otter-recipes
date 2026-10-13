@@ -62,21 +62,23 @@ subgraph app["Android App"]
             account_section["AccountSection"]
             scale_format["formatScaleMultiplier<br/>(ui.format)"]
             collect_events["CollectEvents / UserMessage.text()<br/>(lifecycle-aware one-off events)"]
+            grocery_presenter["GroceryListPresenter<br/>(pure: display items, totals, share text)"]
+            current_date["CurrentDate<br/>(util; today as a Flow)"]
         end
 
         screens --> components
 
         subgraph viewmodels["ViewModels"]
-            list_vm["RecipeListViewModel"]
-            detail_vm["RecipeDetailViewModel<br/>(cooking state in SavedStateHandle)"]
-            edit_vm["EditRecipeViewModel"]
+            list_vm["RecipeListViewModel<br/>(one RecipeListUiState; selection = picked ∩ visible)"]
+            detail_vm["RecipeDetailViewModel<br/>(CookingProgress under one SavedStateHandle key)"]
+            edit_vm["EditRecipeViewModel<br/>(RecipeLoadState; model/thinking choice in SavedStateHandle)"]
             add_vm["AddRecipeViewModel"]
-            settings_vm["SettingsViewModel"]
+            settings_vm["SettingsViewModel<br/>(SettingsUiState Loading | Loaded)"]
             zip_vm["ZipExportImportViewModel"]
             import_debug_list_vm["ImportDebugListViewModel"]
             import_debug_detail_vm["ImportDebugDetailViewModel"]
-            meal_plan_vm["MealPlanViewModel"]
-            grocery_list_vm["GroceryListViewModel"]
+            meal_plan_vm["MealPlanViewModel<br/>(MealDialog Add | Edit; today from CurrentDate)"]
+            grocery_list_vm["GroceryListViewModel<br/>(list derived from meal plans + selection + recipes)"]
             import_selection_vm["ImportSelectionViewModel"]
             shared_intent_vm["SharedIntentViewModel<br/>(AppIntentEvent Channel)"]
             vm_events["One-off events per ViewModel<br/>(Channel BUFFERED + receiveAsFlow,<br/>messages as UserMessage)"]
@@ -406,6 +408,7 @@ subgraph app["Android App"]
     edit_vm -->|delete remote images| image_sync
     edit_vm -->|prepare edit / regenerate| work_scheduler
     edit_vm -.->|image change applied on save| repo
+    edit_vm -->|"save as copy: copied image file (ImageChange)"| work_scheduler
     edit_vm -->|track edit / regenerate| work_tracker
     import_selection_vm -->|check duplicates| repo
     import_selection_vm -->|deserialize| serializer
@@ -419,10 +422,12 @@ subgraph app["Android App"]
     meal_plan_vm -->|recipe list| repo
     meal_plan_vm -->|start of week| port_app_settings
     meal_plan_vm -->|top tags| tags
+    meal_plan_vm -->|today, updated at midnight| current_date
     grocery_list_vm -->|meal plans| meal_plan_repo
     grocery_list_vm -->|recipes| repo
     grocery_list_vm -->|aggregate ingredients| aggregate_grocery
     grocery_list_vm -->|grocery unit prefs| port_app_settings
+    grocery_list_vm -->|display rows, totals, share text| grocery_presenter
     grocery_list_vm -->|checked state per week| port_grocery
     settings_vm -->|read / write settings| port_app_settings
     settings_vm -->|delete debug data| import_debug_repo
@@ -435,6 +440,7 @@ subgraph app["Android App"]
     import_worker -->|execute| uc_import
     regenerate_worker -->|execute| regenerate
     edit_worker -->|execute| edit_recipe
+    edit_recipe -->|store copy image| port_images
     paprika_import_worker -->|execute| import_paprika
     zip_export_worker -->|execute| export_zip
     zip_import_worker -->|execute| import_zip
@@ -545,7 +551,7 @@ subgraph legend["Data Flow"]
         e2["2. EditRecipeScreen shows image, title/URL, AI instructions, body"]
         e3["3. Image, title, URL changes saved directly without AI (image applied on save)"]
         e4["4. Body edits or AI instructions trigger RecipeEditWorker"]
-        e5["5. AI re-parses; Save applies only AI-owned fields (withRegeneratedContent), Save as Copy creates new"]
+        e5["5. AI re-parses; Save applies only AI-owned fields (withRegeneratedContent), Save as Copy creates new<br/>(a new image is copied, passed in the worker input and stored for the copy by EditRecipeUseCase)"]
         e1 --> e2 --> e3 --> e4 --> e5
     end
 
@@ -579,9 +585,9 @@ subgraph legend["Data Flow"]
         gl1["Shows meals for currently selected week"]
         gl1a["Select recipes from meal plan entries"]
         gl2["Aggregate ingredients: deduplicate, sum in base units"]
-        gl3["Check-off: top-level hides all, sub-item reduces count"]
+        gl3["Check-off: sources are the only checked state; an item is checked when all its sources are"]
         gl4["Share as Markdown via share sheet"]
-        gl5["Checked state persisted per week in GroceryListStateStore"]
+        gl5["Selection and checked sources persisted per week in GroceryListStateStore;<br/>the list follows meal plan and recipe changes, stale checks ignored at display time"]
         gl1 --> gl1a --> gl2 --> gl3 --> gl4 --> gl5
     end
 end
