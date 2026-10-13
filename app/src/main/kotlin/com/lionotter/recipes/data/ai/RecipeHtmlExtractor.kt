@@ -81,7 +81,7 @@ object RecipeHtmlExtractor : PageContentExtractor {
         return PageContent(text, imageUrl)
     }
 
-    fun extractImageUrl(html: String): String? = try {
+    override fun extractImageUrl(html: String): String? = try {
         extractImageUrl(Jsoup.parse(html))
     } catch (e: Exception) {
         Log.w(TAG, "Failed to extract image URL from HTML", e)

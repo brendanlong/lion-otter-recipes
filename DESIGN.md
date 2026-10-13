@@ -37,7 +37,7 @@ Where a use case needs something the data layer provides, the domain owns an int
 | `RecipeParser` | `AnthropicRecipeParser` | one AI parse: `ParseRequest` (content, key, model, thinking, density overrides, user instructions) → `Outcome<ParsedRecipeWithUsage>` |
 | `RecipeBatchParser` | `AnthropicRecipeParser` | Message Batches: `createBatch`, `getBatchStatus` (`BatchStatus`), `forEachResult` (`BatchItemOutcome.Parsed`/`Failed`), `cancelBatch` |
 | `PageFetcher` | `WebScraperService` | `fetchPage(url)` → `Outcome<FetchedPage>` (HTML + preview image) |
-| `PageContentExtractor` | `RecipeHtmlExtractor` | page HTML → `PageContent` for the AI, page title |
+| `PageContentExtractor` | `RecipeHtmlExtractor` | page HTML → `PageContent` for the AI, page title, preview image (for pages captured in the in-app browser) |
 | `AiSettings` | `SettingsDataStore` | read-only API key, import model, thinking, import debugging |
 | `AppSettings` | `SettingsDataStore` | all settings as flows (each one, and `settings: Flow<Settings>` with all of them once read) plus setters (extends `AiSettings`); what ViewModels use |
 | `ImageStore` | `RecipeImageStore` | recipe image lifecycle: `importFromUrl` (web, local or stored URLs only) / `importPickedImage` (`content://` from the picker) / `saveImage` / `copyLocalImage` bring an image onto the device, `attach` makes it a recipe's image (uploading it for Google users), `release` deletes an image no recipe uses any more, `discardLocalImage`, `localImageFile` (export); see Images |
@@ -74,7 +74,7 @@ Migrations live in `RecipeDatabaseMigrations` (10→11 drops the Firestore-era t
 #### Local files
 
 - Recipe images (`LocalImageFiles`, see Images below): `files/recipe_images/` holds images that only exist on the device (`file://` URLs) and cached copies of images in Firebase Storage.
-- `ImportInputStore`: staged import inputs under `files/imports/<importId>/` (copied source file, selection, `ImportKind`, and the Paprika import state, see `PaprikaImportStateStore`). Orphans are cleaned up at startup.
+- `ImportInputStore`: staged import inputs under `files/imports/<importId>/` (copied source file, selection, `ImportKind`, a URL import's `page.html` captured in the in-app browser, and the Paprika import state, see `PaprikaImportStateStore`), and one-off work inputs under `files/work-inputs/` (edited markdown, a captured page for a re-import). Orphans are cleaned up at startup.
 
 ### Images (`data/image`)
 
@@ -108,6 +108,7 @@ suspend fun fetchPage(url: String): Outcome<FetchedPage>
 - Uses mobile User-Agent to get mobile-friendly pages
 - Failures are `RecipeError.PageFetch` (bot check, blocked, not found, rate limited, …)
 - Only the preview image is read here; `RecipeHtmlExtractor` (`data/ai`, the `PageContentExtractor` port) prepares the page for the AI
+- Many big recipe sites answer non-browser fetches with a 403 bot check, so interactive imports normally don't use it: the page is captured in the in-app browser (see ImportBrowserScreen). It is still used for "Import without the browser", work enqueued by older versions, Paprika source images, and regenerating a recipe whose source isn't a web URL
 
 #### AI (`data/ai`)
 
@@ -249,14 +250,14 @@ Orchestrates the full import flow:
 
 ```
 1. Validate API key exists
-2. Fetch HTML from URL (PageFetcher)
+2. Use the page captured in the in-app browser, or fetch HTML from URL (PageFetcher)
 3. Extract JSON-LD + structured text (PageContentExtractor)
 4. Parse with AI (RecipeParser via ParseHtmlUseCase)
 5. Create Recipe domain object
 6. Save to Firestore (and download the image)
 ```
 
-Reports progress via callback for UI updates and returns `Outcome<Recipe>` (`Success(value)` or `Failure(RecipeError)`); `ParseHtmlUseCase`, `EditRecipeUseCase`, `RegenerateRecipeUseCase`, `ImportFromZipUseCase` and `ExportToZipUseCase` do the same. Other use cases: `PaprikaImportSteps` (batch Paprika import as a resumable state machine, see Background Work), `ImportFromZipUseCase` / `ExportToZipUseCase` / `ExportSingleRecipeUseCase` (`.lorecipes` files), `DeleteRecipeUseCase`, `RegenerateRecipeUseCase`, `EditRecipeUseCase`, `AggregateGroceryListUseCase`, `CalculateIngredientUsageUseCase`.
+`execute(url, pageHtml)`: with `pageHtml` (the rendered page from the in-app browser) nothing is downloaded and the preview image comes from `PageContentExtractor.extractImageUrl`, the same og:image logic `WebScraperService` uses; `RegenerateRecipeUseCase.execute(recipeId, pageHtml, …)` works the same way. Reports progress via callback for UI updates and returns `Outcome<Recipe>` (`Success(value)` or `Failure(RecipeError)`); `ParseHtmlUseCase`, `EditRecipeUseCase`, `RegenerateRecipeUseCase`, `ImportFromZipUseCase` and `ExportToZipUseCase` do the same. Other use cases: `PaprikaImportSteps` (batch Paprika import as a resumable state machine, see Background Work), `ImportFromZipUseCase` / `ExportToZipUseCase` / `ExportSingleRecipeUseCase` (`.lorecipes` files), `DeleteRecipeUseCase`, `RegenerateRecipeUseCase`, `EditRecipeUseCase`, `AggregateGroceryListUseCase`, `CalculateIngredientUsageUseCase`.
 
 #### Archive handling
 
@@ -300,6 +301,7 @@ ImportMonitor ── combine(pending rows, import WorkInfos) ──> inProgressR
 - `ImportQueue` starts, retries, cancels and dismisses imports. Starts run in `NonCancellable` and are serialized by `startMutex` (URL dedupe is check-then-insert). On startup it reconciles each in-progress row against WorkManager by request ID; rows whose work is missing (pruned, or never enqueued) are marked failed so they can be retried. URL dedupe only reuses an import whose work is still queued/running.
 - `ImportMonitor` derives each import's `ImportState` (`Running(ImportStage)`, `Failed(message, reason)`, `Succeeded(recipeId)`, `Cancelled`) from its row plus its WorkInfo (`ImportWorkDecoder`). Live stages come from WorkInfo progress instead of being written to Room on every tick; the row only gets what must outlive a worker run: the page title / recipe name and image once known, `WAITING_FOR_BATCH` between Paprika polls, and terminal failures. `importState(importId)` follows the import's unique work, so `AddRecipeViewModel` still sees `Succeeded(recipeId)` after the row is removed, and shows a running import again after process death.
 - `ImportSelectionViewModel` copies the picked/shared file into `ImportInputStore` when the screen opens (the import ID is kept in `SavedStateHandle`), so the screen and the workers never depend on a content URI grant surviving process death. The queue row is inserted only after all inputs are written.
+- **Captured pages**: `startUrlImport(url, pageHtmlPath)` takes over a page the in-app browser saved with `writeWorkText`: it is moved to `files/imports/<importId>/page.html` (kind `url`) before the row is inserted, so the 10 KB WorkManager `Data` limit never applies and the worker input stays `url` + `import_id` as before. `RecipeImportWorker` reads the page under the import lock (no page: it downloads the URL, as work from older versions does), deletes the files after a success, and keeps them after a failure so Retry uses the same page. A duplicate start of a running import deletes the new page. Re-imports pass the work input's path as `page_html_path` in `RecipeRegenerateWorker`'s input; the worker fails with `Interrupted` (rather than downloading) if the file is gone and deletes it once no run needs it (not after a retryable failure or a system stop; also after a cancel by the user on API 31+). A page captured but never handed to work (screen left mid-capture) is removed with the other stale work inputs.
 - Cancelling an import cancels its unique work, then waits (up to 30 s) for the worker to release the import's in-process lock before cancelling any Paprika batch and deleting files.
 - **Paprika import** (`domain/usecase/paprika`): `PaprikaImportSteps` is a state machine over `PaprikaImportState` — `Preparing` (read the export, store photos, check the recipe limit, submit) → `Submitted(batchId)` → `Polling(batch)` → `SavingResults(batch)` → `Done(summary)`, with `Failed(error, allowRetry)` from any step (a single recipe is parsed directly: `Preparing` → `Done`). `resume(store)` derives the state from the files alone (the `cancelled` marker → `Failed(Interrupted)`; an unreadable `batch.json` → `Failed(Unexpected)`, both without retries; no `batch.json` → `Preparing`; `batch.json` → `Polling`; a `processed.log` → `SavingResults`, since results only exist once the batch has ended), and `advance` runs one step. `PaprikaImportWorker` calls `run`, which advances until the import has to wait (`Submitted` / `Polling`: the worker schedules a delayed copy of itself and exits, so no foreground service is held for hours) or is finished, inside the import lock.
 - `PaprikaImportStateStore` owns the import's files: `batch.json` (`PaprikaBatch`: batch ID, model, custom_id → recipe mapping, recipes never submitted), `processed.log` (`customId` or `customId<TAB>error` per handled result), `poll_failures`, `photos/<index>.jpg` and a `cancelled` marker. `batch.json` and `poll_failures` are written to a temp file, synced and renamed; log lines are synced and only newline-terminated lines count. The layout and `PaprikaBatch` field names are what earlier versions wrote, so imports in flight across an update resume (`PaprikaImportStepsTest` loads an old `batch.json`).
@@ -314,15 +316,15 @@ ImportMonitor ── combine(pending rows, import WorkInfos) ──> inProgressR
 Single-Activity architecture with Compose Navigation. The start destination is always the recipe list:
 
 ```
-RecipeListScreen ──┬──> RecipeDetailScreen ──> EditRecipeScreen
-                   ├──> AddRecipeScreen ──> SettingsScreen / ImportSelectionScreen
+RecipeListScreen ──┬──> RecipeDetailScreen ──> EditRecipeScreen ──> ImportBrowserScreen
+                   ├──> AddRecipeScreen ──> ImportBrowserScreen / SettingsScreen / ImportSelectionScreen
                    ├──> MealPlanScreen ──> GroceryListScreen
                    └──> SettingsScreen ──> ImportDebugListScreen ──> ImportDebugDetailScreen
 ```
 
-Destinations are type-safe routes (Navigation 2.10): `@Serializable` objects/data classes in `ui/navigation/Routes.kt` under `sealed interface Route` (`RecipeList`, `RecipeDetail(recipeId)`, `EditRecipe(recipeId)`, `AddRecipe(url?)`, `Settings`, `MealPlan`, `GroceryList(weekStart)` as an ISO date string with a `weekStartDate` accessor, `ImportDebugList`, `ImportDebugDetail(debugEntryId)`, `ImportSelection(importType: ImportType, uri)`). `NavGraph` registers them with `composable<Route.X>` and navigates with `navigate(Route.X(...))`; ViewModels read their arguments with `savedStateHandle.toRoute<Route.X>()`, and route comparisons use `destination.hasRoute<Route.X>()`. Navigation encodes arguments itself, so shared URLs with `%`, `#`, `?`, `&` or spaces round-trip exactly, and the back stack with its arguments is restored after process death (`RouteTest`). Results handed to a screen lower in the back stack go through typed `NavResult` keys stored in that entry's SavedStateHandle (`NavResult.EditSaved` for the edit confirmation on recipe detail, `NavResult.FilterByTag` for a tag tapped on recipe detail). A back stack entry's own SavedStateHandle is not the one Hilt gives its ViewModels, so the destination reads the result, passes it to the screen, and the screen hands it to its ViewModel and consumes it. ViewModel tests build handles with navigation-testing's `SavedStateHandle(route = ...)`, which needs Robolectric.
+Destinations are type-safe routes (Navigation 2.10): `@Serializable` objects/data classes in `ui/navigation/Routes.kt` under `sealed interface Route` (`RecipeList`, `RecipeDetail(recipeId)`, `EditRecipe(recipeId)`, `AddRecipe(url?)`, `ImportBrowser(url, reimport)`, `Settings`, `MealPlan`, `GroceryList(weekStart)` as an ISO date string with a `weekStartDate` accessor, `ImportDebugList`, `ImportDebugDetail(debugEntryId)`, `ImportSelection(importType: ImportType, uri)`). `NavGraph` registers them with `composable<Route.X>` and navigates with `navigate(Route.X(...))`; ViewModels read their arguments with `savedStateHandle.toRoute<Route.X>()`, and route comparisons use `destination.hasRoute<Route.X>()`. Navigation encodes arguments itself, so shared URLs with `%`, `#`, `?`, `&` or spaces round-trip exactly, and the back stack with its arguments is restored after process death (`RouteTest`). Results handed to a screen lower in the back stack go through typed `NavResult` keys stored in that entry's SavedStateHandle (`NavResult.EditSaved` for the edit confirmation on recipe detail, `NavResult.FilterByTag` for a tag tapped on recipe detail, `NavResult.BrowsedPage` for the page chosen in the in-app browser: a small `java.io.Serializable` `BrowsedPage(url, htmlPath)`, never the HTML itself). A back stack entry's own SavedStateHandle is not the one Hilt gives its ViewModels, so the destination reads the result, passes it to the screen, and the screen hands it to its ViewModel and consumes it. ViewModel tests build handles with navigation-testing's `SavedStateHandle(route = ...)`, which needs Robolectric.
 
-External intents are turned into `AppIntentEvent`s (`ImportUrl`, `ImportFile`, `OpenRecipe`, `NoUrlInSharedText`) sent on a `Channel` in `SharedIntentViewModel` and collected by `NavGraph`, which navigates accordingly. Manifest filters: `text/plain` SEND (shared URLs), zip/octet-stream SEND and VIEW (`.lorecipes`, `.paprikarecipes`). Sharing HTML or Markdown files is not a supported import path.
+External intents are turned into `AppIntentEvent`s (`ImportUrl`, `ImportFile`, `OpenRecipe`, `NoUrlInSharedText`) sent on a `Channel` in `SharedIntentViewModel` and collected by `NavGraph`, which navigates accordingly (a shared URL opens Add Recipe with the URL filled in and the in-app browser on top, so the user confirms the page; backing out leaves the URL on Add Recipe). Manifest filters: `text/plain` SEND (shared URLs), zip/octet-stream SEND and VIEW (`.lorecipes`, `.paprikarecipes`). Sharing HTML or Markdown files is not a supported import path.
 
 ### Screens
 
@@ -346,14 +348,23 @@ External intents are turned into `AppIntentEvent`s (`ImportUrl`, `ImportFile`, `
 
 #### AddRecipeScreen
 
-- URL input with validation
+- URL input with validation; Import opens the URL in the in-app browser (`AddRecipeEvent.OpenBrowser`), and the page chosen there comes back as `NavResult.BrowsedPage` and is passed to `importPage`
 - Starts the import via `ImportQueue` and shows `ImportMonitor.importState(importId)` (the import ID is kept in `SavedStateHandle`); stages: Queued → Starting → Fetching → Analyzing → Saving
 - Success is the one-off `AddRecipeEvent.RecipeAdded(recipeId)` (also for an import that finished while the screen was gone); errors are shown as state and on the in-progress card (Retry/Dismiss)
 - Redirects to Settings if no API key
 
+#### ImportBrowserScreen
+
+- An Android `WebView` in Compose (`AndroidView`) showing a page before it is imported, so the user sees it, can dismiss cookie/consent banners or pass a bot check, and confirms with "Import this recipe" ("Re-import this recipe" for `reimport`). Toolbar: close, page title and host, reload; a progress bar while loading. System back goes through the WebView history before leaving the screen.
+- Capturing runs `evaluateJavascript("document.documentElement.outerHTML")`. The callback gets the value JSON-encoded (quoted, `<` as `\u003C`, …), so `decodeJavascriptString` parses it as a JSON string; anything else (e.g. `null`) shows "Couldn't read this page". `ImportBrowserViewModel` cuts it to `ResourceLimits.MAX_PAGE_HTML_CHARS` (as downloads are), saves it with `ImportInputStore.writeWorkText`, and sends `PageChosen(BrowsedPage(finalUrl, htmlPath))`; the final URL (after redirects) is the WebView's, falling back to the last http(s) URL shown.
+- Safety: JavaScript and DOM storage are on (most recipe sites need them), but no JavaScript interface is added, file and content access are off, mixed content and multiple windows are disabled. http(s) links stay in the WebView; `mailto`/`tel`/`sms`/`geo`/`market` links open in another app only when tapped; every other scheme (`intent:`, `file:`, `javascript:`, …) is blocked. SSL errors cancel the load.
+- Errors: a main-frame load failure, an invalid certificate, a crashed renderer (`onRenderProcessGone` is handled, so the app survives; the WebView is dropped and recreated on retry) or a device without a WebView show an error with Try again and "Import without the browser" (`BrowsedPage(url, htmlPath = null)`, the worker downloads the page). HTTP error statuses are not errors here: a 403 bot check is a page the user can get past.
+- The current URL is kept in `SavedStateHandle`, so a recreated screen reloads the page last shown (the WebView's history isn't restored).
+
 #### EditRecipeScreen
 
 - Image, title and URL changes are staged and applied on save without the AI; body edits or AI instructions enqueue `RecipeEditWorker`
+- Regenerate from original (after its confirmation dialog) opens the source URL in the in-app browser (`EditRecipeEvent.OpenBrowser`); the captured page comes back as `NavResult.BrowsedPage` and goes to `RecipeRegenerateWorker`. A source that isn't an http(s) URL is regenerated directly (downloaded by the worker)
 - The edit and regenerate work are followed with `WorkTracker`s and folded into one `editState` (`Loading(@StringRes progress)`, `Error(UserMessage)`; a missing API key shows `EditUiState.NoApiKey`). A successful save is the one-off `EditRecipeEvent.Saved(newRecipeId)`, sent once and the work then untracked
 - The recipe is `RecipeLoadState` (`Loading | NotFound | Loaded`); unsaved changes are checked against the latest loaded version, and fields the user hasn't touched follow later versions (so saving never reverts a change made elsewhere). The model and thinking choices are stored in `SavedStateHandle` and fall back to the settings
 - Save preserves metadata, Save as Copy creates a new recipe. A picked image for the copy is copied (`ImageStore.copyLocalImage`) and handed to `RecipeEditWorker` in its input (`ImageChange`); `EditRecipeUseCase` attaches it to the copy, and the worker deletes it once no run will create the copy (final failure, or cancelled by the user on API 31+). The screen keeps its own file, so the image is still there if the copy fails. An in-place save takes the picked file over before applying it, so leaving the screen never deletes a file in use
@@ -449,10 +460,14 @@ Hilt modules provide:
 ### Recipe Import Flow
 
 ```
-User enters URL
+User enters (or shares) URL
        │
        ▼
-AddRecipeViewModel ──> ImportQueue.startUrlImport()
+ImportBrowserScreen (WebView) ──> user taps "Import this recipe"
+       │   outerHTML + final URL; HTML saved by ImportInputStore.writeWorkText
+       ▼
+AddRecipeViewModel ──> ImportQueue.startUrlImport(url, pageHtmlPath)
+       │   page moved to files/imports/<importId>/page.html
        │
        ▼
 RecipeWorkScheduler.enqueueImport() ──> RecipeImportWorker
@@ -460,7 +475,7 @@ RecipeWorkScheduler.enqueueImport() ──> RecipeImportWorker
        ▼
 ImportRecipeUseCase.execute()
        │
-       ├──> PageFetcher.fetchPage() (WebScraperService: download page)
+       ├──> captured page.html, or PageFetcher.fetchPage() (WebScraperService: download page)
        │
        ├──> PageContentExtractor.extract() (RecipeHtmlExtractor: JSON-LD + structured text)
        │

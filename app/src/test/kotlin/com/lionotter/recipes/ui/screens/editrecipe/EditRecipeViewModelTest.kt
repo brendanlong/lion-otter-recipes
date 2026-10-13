@@ -12,6 +12,7 @@ import com.lionotter.recipes.testutil.FakeAppSettings
 import com.lionotter.recipes.testutil.FakeImageStore
 import com.lionotter.recipes.testutil.FakeRecipeRepository
 import com.lionotter.recipes.ui.navigation.Route
+import com.lionotter.recipes.ui.screens.importbrowser.BrowsedPage
 import com.lionotter.recipes.worker.PendingWork
 import com.lionotter.recipes.worker.RecipeEditWork
 import com.lionotter.recipes.worker.RecipeWorkScheduler
@@ -381,5 +382,42 @@ class EditRecipeViewModelTest {
 
         assertEquals(listOf("file:///old.jpg" to "r1"), imageStore.released)
         assertEquals(listOf("r1" to null), recipeRepository.imageUrlUpdates)
+    }
+
+    @Test
+    fun `regenerating opens the source page in the browser first`() = runTest {
+        val scheduler = mockk<RecipeWorkScheduler>(relaxed = true)
+        val viewModel = createViewModel(scheduler = scheduler)
+        advanceUntilIdle()
+
+        viewModel.requestRegenerate()
+
+        assertEquals(EditRecipeEvent.OpenBrowser("https://example.com"), viewModel.events.first())
+        verify(exactly = 0) { scheduler.prepareRegenerate(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `a recipe whose source isn't a web page regenerates without the browser`() = runTest {
+        recipeRepository.updateTitleAndUrl("r1", "Pasta", "Grandma's notebook")
+        val scheduler = mockk<RecipeWorkScheduler>(relaxed = true)
+        val viewModel = createViewModel(scheduler = scheduler)
+        advanceUntilIdle()
+
+        viewModel.requestRegenerate()
+        advanceUntilIdle()
+
+        verify { scheduler.prepareRegenerate("r1", "model", false, null) }
+    }
+
+    @Test
+    fun `the page captured in the browser is handed to the regeneration`() = runTest {
+        val scheduler = mockk<RecipeWorkScheduler>(relaxed = true)
+        val viewModel = createViewModel(scheduler = scheduler)
+        advanceUntilIdle()
+
+        viewModel.regenerateFromOriginal(BrowsedPage("https://example.com/final", "/work-inputs/page.txt"))
+        advanceUntilIdle()
+
+        verify { scheduler.prepareRegenerate("r1", "model", false, "/work-inputs/page.txt") }
     }
 }

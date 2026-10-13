@@ -17,6 +17,7 @@ class RecipeImportWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted workerParams: WorkerParameters,
     private val importRecipeUseCase: ImportRecipeUseCase,
+    private val inputStore: ImportInputStore,
     notificationHelper: RecipeNotificationHelper
 ) : BaseRecipeWorker(context, workerParams, notificationHelper) {
 
@@ -28,6 +29,11 @@ class RecipeImportWorker @AssistedInject constructor(
 
         private const val KEY_URL = "url"
 
+        /**
+         * A page captured in the in-app browser is not part of the input: it is stored in
+         * [ImportInputStore] under [importId] (see [ImportInputStore.adoptPageHtml]). Without
+         * one the worker downloads [url].
+         */
         fun createInputData(url: String, importId: String): Data = workDataOf(
             KEY_URL to url,
             KEY_IMPORT_ID to importId
@@ -41,8 +47,11 @@ class RecipeImportWorker @AssistedInject constructor(
 
         setForegroundProgress("Starting import...")
 
+        val pageHtml = inputStore.withImportLock(importId) { inputStore.readPageHtml(importId) }
+
         val result = importRecipeUseCase.execute(
             url = url,
+            pageHtml = pageHtml,
             onProgress = { progress ->
                 val (workProgress, message) = when (progress) {
                     is ImportRecipeUseCase.ImportProgress.FetchingPage ->
@@ -65,6 +74,7 @@ class RecipeImportWorker @AssistedInject constructor(
         return when (result) {
             is Outcome.Success -> {
                 val recipe = result.value
+                if (pageHtml != null) inputStore.deleteImport(importId)
                 notificationHelper.showSuccessNotification(
                     key = importId,
                     recipeName = recipe.name,

@@ -20,6 +20,9 @@ interface PageContentExtractor {
     fun extract(html: String, sourceUrl: String?): PageContent
 
     fun extractTitle(html: String): String?
+
+    /** The page's preview image (og:image and similar), as [PageFetcher] reports it. */
+    fun extractImageUrl(html: String): String?
 }
 
 data class PageContent(val text: String, val imageUrl: String?)

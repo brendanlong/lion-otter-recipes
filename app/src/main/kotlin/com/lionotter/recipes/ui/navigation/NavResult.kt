@@ -5,6 +5,7 @@ import androidx.compose.runtime.State
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
+import com.lionotter.recipes.ui.screens.importbrowser.BrowsedPage
 
 /**
  * A typed result a destination hands back to a screen below it, stored in that entry's
@@ -18,6 +19,9 @@ class NavResult<T : Any> private constructor(val key: String) {
 
         /** A tag was tapped on a recipe; the recipe list filters by it. */
         val FilterByTag = NavResult<String>("filter_by_tag")
+
+        /** The page the user chose to (re-)import in the in-app browser. */
+        val BrowsedPage = NavResult<BrowsedPage>("browsed_page")
     }
 }
 

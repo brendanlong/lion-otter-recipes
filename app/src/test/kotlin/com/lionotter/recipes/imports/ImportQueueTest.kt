@@ -137,6 +137,42 @@ class ImportQueueTest {
     }
 
     @Test
+    fun `a captured page is moved into the import before the row is inserted`() = runTest {
+        val queue = createQueue()
+
+        val started = queue.startUrlImport("https://example.com/r", pageHtmlPath = "/work-inputs/page.txt")
+
+        verify { inputStore.adoptPageHtml(started.importId, "/work-inputs/page.txt") }
+        verify { inputStore.writeKind(started.importId, ImportKind.URL) }
+        assertEquals("https://example.com/r", dao[started.importId]!!.url)
+    }
+
+    @Test
+    fun `a captured page for an import already running is deleted`() = runTest {
+        val queue = createQueue()
+        val first = queue.startUrlImport("https://example.com/r")
+
+        val second = queue.startUrlImport("https://example.com/r", pageHtmlPath = "/work-inputs/page.txt")
+
+        assertEquals(first, second)
+        verify { inputStore.deleteWorkText("/work-inputs/page.txt") }
+        verify(exactly = 0) { inputStore.adoptPageHtml(any(), any()) }
+    }
+
+    @Test
+    fun `a captured page that can't be staged leaves no row and no files`() = runTest {
+        every { inputStore.adoptPageHtml(any(), any()) } throws java.io.IOException("gone")
+        val queue = createQueue()
+
+        val failure = runCatching { queue.startUrlImport("https://example.com/r", pageHtmlPath = "/work-inputs/page.txt") }
+
+        assertTrue(failure.isFailure)
+        assertEquals(emptyList<Any>(), dao.rows.value)
+        verify { inputStore.deleteImport(any()) }
+        verify { inputStore.deleteWorkText("/work-inputs/page.txt") }
+    }
+
+    @Test
     fun `startUrlImport does not dedupe against pruned work`() = runTest {
         val queue = createQueue()
         val first = queue.startUrlImport("https://example.com/r")

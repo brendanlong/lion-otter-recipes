@@ -28,7 +28,10 @@ class ImportRecipeUseCaseTest {
     private val page = FetchedPage(html = "<html>bread</html>", imageUrl = "https://example.com/bread.jpg")
     private val blocked = Outcome.Failure(RecipeError.PageFetch(PageFetchFailure.BLOCKED, 403))
 
-    private fun useCase(vararg pages: Pair<String, Outcome<FetchedPage>>): ImportRecipeUseCase {
+    private fun useCase(
+        vararg pages: Pair<String, Outcome<FetchedPage>>,
+        extractor: FakePageContentExtractor = this.extractor
+    ): ImportRecipeUseCase {
         val parseHtml = ParseHtmlUseCase(parser, extractor, repository, FakeImportDebugLog(), settings, imageStore)
         return ImportRecipeUseCase(FakePageFetcher(pages.toMap()), extractor, parseHtml)
     }
@@ -103,5 +106,24 @@ class ImportRecipeUseCaseTest {
         val result = useCase("https://example.com/bread" to Outcome.Success(page)).execute("https://example.com/bread")
         assertEquals(Outcome.Failure(RecipeError.Ai(AiFailure.OVERLOADED, 529)), result)
         assertTrue(repository.saved.isEmpty())
+    }
+
+    @Test
+    fun `a page captured in the browser is imported without downloading it`() = runTest {
+        val progress = mutableListOf<ImportRecipeUseCase.ImportProgress>()
+        val capturedExtractor = FakePageContentExtractor(imageUrl = "https://example.com/og.jpg", title = "Bread")
+
+        // No pages: FakePageFetcher fails the test if anything is downloaded
+        val recipe = useCase(extractor = capturedExtractor)
+            .execute("https://example.com/bread?final", pageHtml = "<html>rendered</html>") { progress += it }
+            .value()
+
+        assertEquals("https://example.com/bread?final", recipe.sourceUrl)
+        assertEquals("extracted(<html>rendered</html>)", parser.requests.single().content)
+        assertEquals("gs://bucket/og.jpg", recipe.imageUrl)
+        assertEquals(
+            ImportRecipeUseCase.ImportProgress.PageMetadataAvailable("Bread", "https://example.com/og.jpg"),
+            progress.first()
+        )
     }
 }

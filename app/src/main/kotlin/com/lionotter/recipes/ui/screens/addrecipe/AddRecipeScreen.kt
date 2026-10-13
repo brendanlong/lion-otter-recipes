@@ -39,6 +39,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +57,7 @@ import com.lionotter.recipes.ui.components.ErrorCard
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.components.rememberNotificationPermissionRequester
 import com.lionotter.recipes.ui.components.text
+import com.lionotter.recipes.ui.screens.importbrowser.BrowsedPage
 import com.lionotter.recipes.ui.screens.importselection.ImportType
 
 @Composable
@@ -63,8 +65,11 @@ fun AddRecipeScreen(
     onBackClick: () -> Unit,
     onRecipeAdded: (recipeId: String?) -> Unit,
     onNavigateToSettings: () -> Unit,
+    onOpenBrowser: (url: String) -> Unit,
     modifier: Modifier = Modifier,
     onNavigateToImportSelection: (importType: ImportType, uri: Uri) -> Unit = { _, _ -> },
+    browsedPage: BrowsedPage? = null,
+    onBrowsedPageConsumed: () -> Unit = {},
     viewModel: AddRecipeViewModel = hiltViewModel()
 ) {
     val url by viewModel.url.collectAsStateWithLifecycle()
@@ -74,6 +79,15 @@ fun AddRecipeScreen(
     CollectEvents(viewModel.events) { event ->
         when (event) {
             is AddRecipeEvent.RecipeAdded -> onRecipeAdded(event.recipeId)
+            is AddRecipeEvent.OpenBrowser -> onOpenBrowser(event.url)
+        }
+    }
+
+    // The page confirmed in the in-app browser
+    LaunchedEffect(browsedPage) {
+        if (browsedPage != null) {
+            onBrowsedPageConsumed()
+            viewModel.importPage(browsedPage)
         }
     }
 
@@ -114,7 +128,7 @@ fun AddRecipeScreen(
                         onUrlChange = viewModel::onUrlChange,
                         onImportClick = {
                             requestNotificationPermission()
-                            viewModel.importRecipe()
+                            viewModel.onImportClick()
                         },
                         onImportFromFileClick = {
                             importFilePicker.launch(arrayOf("*/*"))

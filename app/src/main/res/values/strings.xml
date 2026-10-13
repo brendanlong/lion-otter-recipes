@@ -92,7 +92,7 @@
     <string name="edit_background_notice">You can leave this screen. You\'ll be notified when the update is complete.</string>
     <string name="cancel_edit">Cancel Edit</string>
     <string name="regenerate_from_original">Regenerate from original</string>
-    <string name="regenerate_from_original_description">Re-parse this recipe from the original page content using AI. This will discard any edits you\'ve made and replace the recipe with a fresh parse from the original source.</string>
+    <string name="regenerate_from_original_description">Re-parse this recipe from the original page using AI. The page opens first so you can check it. This will discard any edits you\'ve made and replace the recipe with a fresh parse from the original source.</string>
     <string name="recipe_image">Recipe image</string>
     <string name="change_image">Change Image</string>
     <string name="remove_image">Remove Image</string>
@@ -110,7 +110,22 @@
     <!-- Add Recipe Screen -->
     <string name="import_recipe">Import Recipe</string>
     <string name="import_recipe_title">Import a recipe from any website</string>
-    <string name="import_recipe_description">Paste the URL of a recipe page below. The AI will extract the recipe details automatically.</string>
+    <string name="import_recipe_description">Paste the URL of a recipe page below. The page opens so you can check it, then the AI extracts the recipe details automatically.</string>
+
+    <!-- In-app browser for imports -->
+    <string name="browser_import_this_recipe">Import this recipe</string>
+    <string name="browser_reimport_this_recipe">Re-import this recipe</string>
+    <string name="browser_import_hint">Close any pop-ups, then import once the recipe is showing.</string>
+    <string name="browser_close">Close browser</string>
+    <string name="browser_reload">Reload</string>
+    <string name="browser_try_again">Try again</string>
+    <string name="browser_error_network">Couldn\'t load this page. Check your connection and try again.</string>
+    <string name="browser_error_ssl">This page\'s security certificate isn\'t valid, so it wasn\'t loaded.</string>
+    <string name="browser_error_crashed">The page stopped working.</string>
+    <string name="browser_error_unavailable">The in-app browser isn\'t available on this device.</string>
+    <string name="browser_import_without_browser">Import without the browser</string>
+    <string name="browser_import_without_browser_description">The app downloads the page itself. Some sites block this.</string>
+    <string name="browser_capture_failed">Couldn\'t read this page. Wait for it to finish loading and try again.</string>
     <string name="recipe_url">Recipe URL</string>
     <string name="recipe_url_placeholder">https://example.com/recipe</string>
     <string name="api_key_required">API Key Required</string>

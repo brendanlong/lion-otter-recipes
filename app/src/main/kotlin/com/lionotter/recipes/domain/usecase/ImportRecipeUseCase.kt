@@ -2,6 +2,7 @@ package com.lionotter.recipes.domain.usecase
 
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.model.Recipe
+import com.lionotter.recipes.domain.port.FetchedPage
 import com.lionotter.recipes.domain.port.PageContentExtractor
 import com.lionotter.recipes.domain.port.PageFetcher
 import kotlinx.coroutines.ensureActive
@@ -21,28 +22,37 @@ class ImportRecipeUseCase @Inject constructor(
         object SavingRecipe : ImportProgress()
     }
 
+    /**
+     * @param url the page's address; for a page captured in the in-app browser, the address it
+     *   ended up at (after redirects)
+     * @param pageHtml the page as the in-app browser rendered it; null to download [url]
+     */
     suspend fun execute(
         url: String,
+        pageHtml: String? = null,
         onProgress: suspend (ImportProgress) -> Unit = {}
     ): Outcome<Recipe> {
-        // Fetch page content
-        onProgress(ImportProgress.FetchingPage)
         var effectiveUrl = url
-        var pageResult = pageFetcher.fetchPage(url)
+        val page = if (pageHtml != null) {
+            FetchedPage(html = pageHtml, imageUrl = pageContentExtractor.extractImageUrl(pageHtml))
+        } else {
+            onProgress(ImportProgress.FetchingPage)
+            var pageResult = pageFetcher.fetchPage(url)
 
-        // If HTTP fails, try HTTPS as a fallback
-        if (pageResult is Outcome.Failure && url.startsWith("http://")) {
-            val httpsUrl = url.replaceFirst("http://", "https://")
-            val httpsResult = pageFetcher.fetchPage(httpsUrl)
-            if (httpsResult is Outcome.Success) {
-                pageResult = httpsResult
-                effectiveUrl = httpsUrl
+            // If HTTP fails, try HTTPS as a fallback
+            if (pageResult is Outcome.Failure && url.startsWith("http://")) {
+                val httpsUrl = url.replaceFirst("http://", "https://")
+                val httpsResult = pageFetcher.fetchPage(httpsUrl)
+                if (httpsResult is Outcome.Success) {
+                    pageResult = httpsResult
+                    effectiveUrl = httpsUrl
+                }
             }
-        }
 
-        val page = when (pageResult) {
-            is Outcome.Success -> pageResult.value
-            is Outcome.Failure -> return pageResult
+            when (pageResult) {
+                is Outcome.Success -> pageResult.value
+                is Outcome.Failure -> return pageResult
+            }
         }
 
         // Check for cancellation before expensive AI parsing

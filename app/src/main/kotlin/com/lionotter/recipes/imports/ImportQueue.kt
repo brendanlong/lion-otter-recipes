@@ -81,8 +81,11 @@ class ImportQueue @Inject constructor(
     /**
      * Start importing a recipe from a URL. If the same URL is already being imported, returns
      * that import instead of starting a duplicate.
+     *
+     * @param pageHtmlPath the page captured in the in-app browser
+     *   ([ImportInputStore.writeWorkText]), which the import takes over; null to download [url]
      */
-    suspend fun startUrlImport(url: String): StartedImport = withContext(NonCancellable) {
+    suspend fun startUrlImport(url: String, pageHtmlPath: String? = null): StartedImport = withContext(NonCancellable) {
         startMutex.withLock {
             val candidates = pendingImportRepository.getAllPendingImports().first().filter {
                 it.url == url && it.status != PendingImportStatus.FAILED
@@ -91,18 +94,27 @@ class ImportQueue @Inject constructor(
                 val workId = existing.workManagerId?.let(::parseUuid)
                 if (workId != null && isWorkActive(existing, workId)) {
                     Log.i(TAG, "Import of $url already in progress (${existing.id})")
+                    pageHtmlPath?.let(inputStore::deleteWorkText)
                     return@withContext StartedImport(existing.id, workId)
                 }
             }
 
             val importId = UUID.randomUUID().toString()
             val request = scheduler.buildUrlImportRequest(url, importId)
-            insertPendingImport(importId, name = null, url = url, workManagerId = request.id.toString())
+            var inserted = false
             try {
+                if (pageHtmlPath != null) {
+                    inputStore.adoptPageHtml(importId, pageHtmlPath)
+                    inputStore.writeKind(importId, ImportKind.URL)
+                }
+                insertPendingImport(importId, name = null, url = url, workManagerId = request.id.toString())
+                inserted = true
                 scheduler.enqueueImport(importId, request)
             } catch (e: Exception) {
-                ErrorLog.e(TAG, "Failed to enqueue URL import $importId", e)
-                pendingImportRepository.deletePendingImport(importId)
+                ErrorLog.e(TAG, "Failed to start URL import $importId", e)
+                if (inserted) pendingImportRepository.deletePendingImport(importId)
+                inputStore.deleteImport(importId)
+                pageHtmlPath?.let(inputStore::deleteWorkText)
                 throw e
             }
             StartedImport(importId, request.id)

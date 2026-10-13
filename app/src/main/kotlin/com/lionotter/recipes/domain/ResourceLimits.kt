@@ -24,4 +24,7 @@ object ResourceLimits {
 
     /** Maximum size of a single image file in bytes (5 MB). */
     const val MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024L
+
+    /** Recipe page HTML longer than this (downloaded or captured in the browser) is cut off. */
+    const val MAX_PAGE_HTML_CHARS = 5 * 1024 * 1024
 }
