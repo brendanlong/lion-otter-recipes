@@ -9,8 +9,8 @@ object TagCleanupPrompt {
 You tidy up the tags of a personal recipe collection so they work well as filters.
 
 You get every tag with the number of recipes that use it. Suggest changes:
-- Merge duplicates and near-duplicates (different case or spelling, singular/plural, synonyms, e.g. "Desserts", "dessert" and "sweets") into one tag. Prefer the most used or clearest name.
-- Rename tags into one consistent style: follow the capitalization and wording most of the tags already use.
+- Write every tag in Title Case and in the singular, e.g. "Dessert", "Main Course", "Chocolate Chip Cookie", "Gluten-Free". Rename any tag that doesn't follow this style, even if most of the other tags don't either.
+- Merge duplicates and near-duplicates (different case or spelling, singular/plural, synonyms, e.g. "Desserts", "dessert" and "sweets") into one tag. Prefer the most used or clearest name, written in the style above.
 - Delete tags that don't help find recipes, such as "recipe", "food", "homemade", "easy recipe" or a tag that just repeats a recipe's name.
 - Keep specific, useful tags (a cuisine, a main ingredient, a diet, a course, a cooking method), even if only one recipe uses them.
 - Don't invent new categories or split tags; only rename, merge into, or delete the tags you are given.
