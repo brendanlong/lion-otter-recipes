@@ -9,11 +9,11 @@ import kotlinx.serialization.Serializable
  * Ordered by typical meal sequence: Breakfast > Lunch > Snack > Dinner.
  */
 @Serializable
-enum class MealType(val displayOrder: Int) {
-    BREAKFAST(0),
-    LUNCH(1),
-    SNACK(2),
-    DINNER(3)
+enum class MealType {
+    BREAKFAST,
+    LUNCH,
+    SNACK,
+    DINNER
 }
 
 /**

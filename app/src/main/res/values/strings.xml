@@ -401,6 +401,7 @@
     <string name="mark_current_step">Mark as current step</string>
     <string name="unmark_current_step">Unmark current step</string>
     <string name="or_alternate">or %1$s</string>
+    <string name="ingredient_amount_left">%1$s left</string>
     <string name="no_recipes_match">No recipes match</string>
     <string name="no_recipes_match_hint">Try a different search or tag.</string>
     <string name="clear_filters">Clear filters</string>

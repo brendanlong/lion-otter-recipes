@@ -51,8 +51,6 @@ class ZipImportWorker @AssistedInject constructor(
                 selectedRecipeIds = selectedRecipeIds,
                 onProgress = { progress ->
                     val (workProgress, message) = when (progress) {
-                        is ImportFromZipUseCase.ImportProgress.Starting ->
-                            ZipImportWork.Progress.Starting to "Starting import..."
                         is ImportFromZipUseCase.ImportProgress.ReadingZip ->
                             ZipImportWork.Progress.Reading to "Reading file..."
                         is ImportFromZipUseCase.ImportProgress.ImportingRecipe ->

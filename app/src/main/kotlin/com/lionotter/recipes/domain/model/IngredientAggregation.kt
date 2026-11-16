@@ -20,11 +20,7 @@ class AmountAccumulator {
     private val categoryOrder = mutableListOf<UnitCategory>()
     private val unitsSeen = mutableMapOf<UnitCategory, LinkedHashSet<String>>()
 
-    var density: Double? = null
-        private set
-
-    val isEmpty: Boolean
-        get() = grams == null && milliliters == null && count == null && otherUnits.isEmpty()
+    private var density: Double? = null
 
     fun add(amount: Amount?, density: Double? = null, multiplier: Double = 1.0) {
         if (this.density == null && density != null && density > 0) this.density = density
@@ -122,10 +118,6 @@ class AmountAccumulator {
         }
         return measured + nonMeasuredAmounts()
     }
-
-    /** Sum of all amounts in base units (grams, mL, counts) — only meaningful as "is anything here". */
-    fun rawTotal(): Double =
-        (grams ?: 0.0) + (milliliters ?: 0.0) + (count ?: 0.0) + otherUnits.values.sumOf { it.value ?: 0.0 }
 }
 
 /**
@@ -178,27 +170,9 @@ fun aggregateIngredientOccurrences(occurrences: List<Pair<Ingredient, Int>>): Li
 }
 
 /**
- * Sum scaled amounts of the same ingredient (e.g. from several recipes on a grocery list) and
- * convert them for display. Weight and volume are combined into weight when a density is known.
- *
- * @param items pairs of (ingredient, scale factor)
- * @return the total as one or more amounts, e.g. [2 cup] or [1 cup, 50 g] or [3 clove, 2]
- */
-fun sumIngredientAmounts(
-    items: List<Pair<Ingredient, Double>>,
-    volumeSystem: UnitSystem,
-    weightSystem: UnitSystem
-): List<Amount> {
-    val accumulator = AmountAccumulator()
-    for ((ingredient, scale) in items) {
-        accumulator.add(ingredient.amount, ingredient.density, scale)
-    }
-    return accumulator.toDisplayAmounts(volumeSystem, weightSystem, preferWeight = true)
-}
-
-/**
- * Display string for the combined amount of the same ingredient across several sources,
- * e.g. "2 1/2 cups", "1 cup + 50 g", "1 lb + 3 cloves", or "5" for count items.
+ * Display string for the combined amount of the same ingredient across several sources (e.g. from
+ * several recipes on a grocery list), e.g. "2 1/2 cups", "1 cup + 50 g", "1 lb + 3 cloves", or "5"
+ * for count items. Weight and volume are combined into weight when a density is known.
  * Returns null if none of the sources has a numeric amount.
  *
  * @param items pairs of (ingredient, scale factor)
@@ -207,4 +181,10 @@ fun formatIngredientTotal(
     items: List<Pair<Ingredient, Double>>,
     volumeSystem: UnitSystem,
     weightSystem: UnitSystem
-): String? = formatAmounts(sumIngredientAmounts(items, volumeSystem, weightSystem))
+): String? {
+    val accumulator = AmountAccumulator()
+    for ((ingredient, scale) in items) {
+        accumulator.add(ingredient.amount, ingredient.density, scale)
+    }
+    return formatAmounts(accumulator.toDisplayAmounts(volumeSystem, weightSystem, preferWeight = true))
+}

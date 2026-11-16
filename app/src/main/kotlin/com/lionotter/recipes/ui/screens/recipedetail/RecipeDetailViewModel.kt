@@ -448,11 +448,8 @@ class RecipeDetailViewModel @Inject constructor(
                     val fileName = "${recipeSerializer.sanitizeFolderName(currentRecipe.name)}.lorecipes"
                     val file = File(sharedDir, fileName)
 
-                    val result = file.outputStream().use { outputStream ->
+                    file.outputStream().use { outputStream ->
                         exportSingleRecipeUseCase.exportRecipe(currentRecipe, outputStream)
-                    }
-                    if (result is ExportSingleRecipeUseCase.ExportResult.Error) {
-                        throw IllegalStateException(result.message)
                     }
                     FileProvider.getUriForFile(
                         applicationContext,

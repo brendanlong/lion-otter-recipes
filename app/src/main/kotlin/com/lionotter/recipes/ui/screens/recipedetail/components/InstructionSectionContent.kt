@@ -46,8 +46,8 @@ internal fun InstructionSectionContent(
     onToggleIngredient: (Int, Int, Int) -> Unit,
     highlightedInstructionStep: HighlightedInstructionStep?,
     onToggleHighlightedInstruction: (Int, Int) -> Unit,
-    volumeUnitSystem: UnitSystem = UnitSystem.localeDefault(),
-    weightUnitSystem: UnitSystem = UnitSystem.localeDefault()
+    volumeUnitSystem: UnitSystem,
+    weightUnitSystem: UnitSystem
 ) {
     Column {
         section.name?.let { name ->

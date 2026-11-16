@@ -27,15 +27,7 @@ class ImportFromZipUseCase @Inject constructor(
         private const val TAG = "ImportFromZipUseCase"
     }
 
-    data class ImportSummary(
-        val importedCount: Int,
-        val failedCount: Int,
-        val skippedCount: Int,
-        val mealPlansImported: Int = 0
-    )
-
     sealed class ImportProgress {
-        object Starting : ImportProgress()
         object ReadingZip : ImportProgress()
         data class ImportingRecipe(
             val recipeName: String,
@@ -53,8 +45,7 @@ class ImportFromZipUseCase @Inject constructor(
         inputStream: InputStream,
         selectedRecipeIds: Set<String>? = null,
         onProgress: suspend (ImportProgress) -> Unit = {}
-    ): Outcome<ImportSummary> {
-        onProgress(ImportProgress.Starting)
+    ): Outcome<ZipImportHelper.ImportSummary> {
         onProgress(ImportProgress.ReadingZip)
 
         val summary = try {
@@ -75,13 +66,6 @@ class ImportFromZipUseCase @Inject constructor(
             return Outcome.Failure(RecipeError.Archive(ArchiveFailure.NO_RECIPES))
         }
 
-        return Outcome.Success(
-            ImportSummary(
-                importedCount = summary.importedCount,
-                failedCount = summary.failedCount,
-                skippedCount = summary.skippedCount,
-                mealPlansImported = summary.mealPlansImported
-            )
-        )
+        return Outcome.Success(summary)
     }
 }

@@ -14,7 +14,6 @@ import kotlin.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -51,6 +50,12 @@ class CalculateIngredientUsageUseCaseTest {
         return TO_ML[unit]?.let { value * it }
             ?: TO_GRAMS[unit]?.let { value * it }
             ?: error("Unknown unit: $unit")
+    }
+
+    /** The single remaining amount in base units (mL or grams). */
+    private fun IngredientUsageStatus.remainingBase(): Double {
+        val amount = remaining.single()
+        return toBase(amount.value!!, amount.unit!!)
     }
 
     /**
@@ -124,7 +129,7 @@ class CalculateIngredientUsageUseCaseTest {
         assertNotNull(flour)
         assertFalse(flour!!.isFullyUsed)
         // Remaining in base units should be ~14.787 mL (1 tbsp), regardless of display unit chosen
-        val remainingMl = toBase(flour.remainingAmount!!, flour.remainingUnit!!)
+        val remainingMl = flour.remainingBase()
         assertEquals(14.787, remainingMl, 1.0)
     }
 
@@ -150,7 +155,7 @@ class CalculateIngredientUsageUseCaseTest {
         assertNotNull(flour)
         assertFalse(flour!!.isFullyUsed)
         // 1 tbsp flour in weight: 14.787 mL * 0.51 g/mL ≈ 7.54g
-        val remainingGrams = toBase(flour.remainingAmount!!, flour.remainingUnit!!)
+        val remainingGrams = flour.remainingBase()
         assertEquals(7.54, remainingGrams, 1.0)
     }
 
@@ -200,7 +205,8 @@ class CalculateIngredientUsageUseCaseTest {
         val sugar = result.unnamed()["sugar"]
         assertNotNull(sugar)
         assertFalse(sugar!!.isFullyUsed)
-        assertEquals(0.0, sugar.usedAmount, 0.01)
+        assertFalse(sugar.anyUsed)
+        assertEquals(236.588, sugar.remainingBase(), 1.0)
     }
 
     @Test
@@ -248,9 +254,9 @@ class CalculateIngredientUsageUseCaseTest {
         val eggs = result.unnamed()["eggs"]
         assertNotNull(eggs)
         assertFalse(eggs!!.isFullyUsed)
-        // Count items have no unit category, so remaining display is null
-        // but the base math should still be correct: total 3, used 2, remaining 1
-        assertNull(eggs.unit)
+        assertTrue(eggs.anyUsed)
+        // Total 3, used 2, remaining 1
+        assertEquals(listOf(Amount(1.0, null)), eggs.remaining)
     }
 
     // --- Same unit across steps ---
@@ -277,7 +283,7 @@ class CalculateIngredientUsageUseCaseTest {
         assertNotNull(butter)
         assertFalse(butter!!.isFullyUsed)
         // Total: 5 tbsp (73.935 mL), used: 2 tbsp (29.574 mL), remaining: 3 tbsp (44.361 mL)
-        val remainingMl = toBase(butter.remainingAmount!!, butter.remainingUnit!!)
+        val remainingMl = butter.remainingBase()
         assertEquals(44.361, remainingMl, 1.0)
     }
 
@@ -300,9 +306,8 @@ class CalculateIngredientUsageUseCaseTest {
 
         val salt = result.unnamed()["salt"]
         assertNotNull(salt)
-        // 2 tsp total at scale 2 → 9.858 mL → bestUnit picks tsp: 2.0
-        val totalMl = toBase(salt!!.totalAmount!!, salt.unit!!)
-        assertEquals(9.858, totalMl, 0.1)
+        // 2 tsp total at scale 2 → 9.858 mL
+        assertEquals(9.858, salt!!.remainingBase(), 0.1)
     }
 
     // --- Yields multiplier ---
@@ -325,8 +330,7 @@ class CalculateIngredientUsageUseCaseTest {
         val flour = result.unnamed()["flour"]
         assertNotNull(flour)
         // 3 cups total → 709.764 mL
-        val totalMl = toBase(flour!!.totalAmount!!, flour.unit!!)
-        assertEquals(709.764, totalMl, 1.0)
+        assertEquals(709.764, flour!!.remainingBase(), 1.0)
     }
 
     // --- Weight ingredients with mixed units ---
@@ -353,7 +357,7 @@ class CalculateIngredientUsageUseCaseTest {
         assertNotNull(flour)
         assertFalse(flour!!.isFullyUsed)
         // Remaining should be 50g
-        val remainingGrams = toBase(flour.remainingAmount!!, flour.remainingUnit!!)
+        val remainingGrams = flour.remainingBase()
         assertEquals(50.0, remainingGrams, 1.0)
     }
 
@@ -381,7 +385,7 @@ class CalculateIngredientUsageUseCaseTest {
         assertNotNull(flour)
         assertFalse(flour!!.isFullyUsed)
         // Total: 3 cups (709.764 mL), used: 2 cups (473.176 mL), remaining: 1 cup (236.588 mL)
-        val remainingMl = toBase(flour.remainingAmount!!, flour.remainingUnit!!)
+        val remainingMl = flour.remainingBase()
         assertEquals(236.588, remainingMl, 1.0)
     }
 
@@ -406,8 +410,8 @@ class CalculateIngredientUsageUseCaseTest {
 
         val salt = result.unnamed()["salt"]
         assertNotNull(salt)
-        // Null amount means totalAmount is null; usedAmount is 0 since there's no numeric value
-        assertNull(salt!!.totalAmount)
+        assertTrue(salt!!.anyUsed)
+        assertEquals(emptyList<Amount>(), salt.remaining)
     }
 
     // --- Alternates ---
@@ -452,14 +456,14 @@ class CalculateIngredientUsageUseCaseTest {
         assertNotNull(kosherSalt)
         assertFalse(kosherSalt!!.isFullyUsed)
         // Total: 1.5 tsp (7.3935 mL), used: 1 tsp (4.929 mL), remaining: 0.5 tsp (2.4645 mL)
-        val remainingMl = toBase(kosherSalt.remainingAmount!!, kosherSalt.remainingUnit!!)
+        val remainingMl = kosherSalt.remainingBase()
         assertEquals(2.4645, remainingMl, 0.5)
 
         val tableSalt = result.unnamed()["table salt"]
         assertNotNull(tableSalt)
         assertFalse(tableSalt!!.isFullyUsed)
         // Total: 0.75 tsp (3.697 mL), used: 0.5 tsp (2.4645 mL), remaining: 0.25 tsp (1.232 mL)
-        val altRemainingMl = toBase(tableSalt.remainingAmount!!, tableSalt.remainingUnit!!)
+        val altRemainingMl = tableSalt.remainingBase()
         assertEquals(1.232, altRemainingMl, 0.5)
     }
 
@@ -502,10 +506,9 @@ class CalculateIngredientUsageUseCaseTest {
         val saltA = sectionA!!["salt"]
         assertNotNull("Salt should exist in Section A", saltA)
         assertFalse("Section A salt should NOT be fully used", saltA!!.isFullyUsed)
-        assertEquals("Section A salt should have 0 used", 0.0, saltA.usedAmount, 0.01)
-        // Total should be 1 tbsp (14.787 mL)
-        val totalMlA = toBase(saltA.totalAmount!!, saltA.unit!!)
-        assertEquals(14.787, totalMlA, 0.5)
+        assertFalse("Section A salt should have none used", saltA.anyUsed)
+        // Remaining should be the whole 1 tbsp (14.787 mL)
+        assertEquals(14.787, saltA.remainingBase(), 0.5)
 
         // Section B's salt should be fully used
         val sectionB = result["Section B"]
@@ -553,7 +556,7 @@ class CalculateIngredientUsageUseCaseTest {
         val flourDough = dough!!["flour"]
         assertNotNull(flourDough)
         assertFalse(flourDough!!.isFullyUsed)
-        val remainingDoughMl = toBase(flourDough.remainingAmount!!, flourDough.remainingUnit!!)
+        val remainingDoughMl = flourDough.remainingBase()
         assertEquals(236.588, remainingDoughMl, 1.0) // ~1 cup
 
         // Glaze section: total 1 tbsp, nothing used, remaining 1 tbsp
@@ -562,9 +565,8 @@ class CalculateIngredientUsageUseCaseTest {
         val flourGlaze = glaze!!["flour"]
         assertNotNull(flourGlaze)
         assertFalse(flourGlaze!!.isFullyUsed)
-        assertEquals(0.0, flourGlaze.usedAmount, 0.01)
-        val totalGlazeMl = toBase(flourGlaze.totalAmount!!, flourGlaze.unit!!)
-        assertEquals(14.787, totalGlazeMl, 0.5) // ~1 tbsp
+        assertFalse(flourGlaze.anyUsed)
+        assertEquals(14.787, flourGlaze.remainingBase(), 0.5) // ~1 tbsp
     }
 
     @Test
@@ -614,13 +616,11 @@ class CalculateIngredientUsageUseCaseTest {
 
         val butter = result.unnamed()["butter"]!!
         assertFalse(butter.isFullyUsed)
-        assertEquals(50.0, butter.remainingAmount!!, 0.01)
-        assertEquals("g", butter.remainingUnit)
-        assertEquals(listOf(Amount(50.0, "g")), butter.remainingAmounts)
+        assertEquals(listOf(Amount(50.0, "g")), butter.remaining)
     }
 
     @Test
-    fun `remainingAmounts lists every kind of amount left`() {
+    fun `remaining lists every kind of amount left`() {
         val recipe = recipe(listOf(section(listOf(
             step(1, listOf(Ingredient(name = "butter", amount = Amount(1.0, "cup")))),
             step(2, listOf(Ingredient(name = "butter", amount = Amount(50.0, "g")))),
@@ -637,7 +637,7 @@ class CalculateIngredientUsageUseCaseTest {
         )
 
         val butter = result.unnamed()["butter"]!!
-        assertEquals("50 g + 2 tbsp", formatAmounts(butter.remainingAmounts))
+        assertEquals("50 g + 2 tbsp", formatAmounts(butter.remaining))
     }
 
     @Test
@@ -674,8 +674,8 @@ class CalculateIngredientUsageUseCaseTest {
             weightSystem = UnitSystem.METRIC
         )
 
-        val salt = result.unnamed()["salt"]!!
-        assertEquals(1.0, salt.totalAmount!!, 0.001)
-        assertEquals("tsp", salt.unit)
+        val remaining = result.unnamed()["salt"]!!.remaining.single()
+        assertEquals(1.0, remaining.value!!, 0.001)
+        assertEquals("tsp", remaining.unit)
     }
 }

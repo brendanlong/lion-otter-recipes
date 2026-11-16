@@ -34,7 +34,6 @@ class ExportToZipUseCase @Inject constructor(
 ) {
     companion object {
         private const val TAG = "ExportToZipUseCase"
-        const val MEAL_PLANS_FOLDER = "meal-plans"
     }
 
     data class ExportSummary(val exportedCount: Int, val failedCount: Int)
@@ -78,35 +77,15 @@ class ExportToZipUseCase @Inject constructor(
                     )
 
                     try {
-                        val files = recipeSerializer.serializeRecipe(recipe)
-                        var prefix = files.folderName
+                        val baseFolder = recipeSerializer.exportFolderName(recipe)
+                        var folder = baseFolder
                         var suffix = 2
-                        while (!usedFolderNames.add(prefix)) {
-                            prefix = "${files.folderName} $suffix"
+                        while (!usedFolderNames.add(folder)) {
+                            folder = "$baseFolder $suffix"
                             suffix++
                         }
-
-                        // Write recipe.json
-                        zipOut.putNextEntry(ZipEntry("$prefix/${RecipeSerializer.RECIPE_JSON_FILENAME}"))
-                        zipOut.write(files.recipeJson.toByteArray(Charsets.UTF_8))
-                        zipOut.closeEntry()
-
-                        // Write recipe.md
-                        zipOut.putNextEntry(ZipEntry("$prefix/${RecipeSerializer.RECIPE_MARKDOWN_FILENAME}"))
-                        zipOut.write(files.recipeMarkdown.toByteArray(Charsets.UTF_8))
-                        zipOut.closeEntry()
-
-                        // Write image file (if available)
-                        if (recipe.imageUrl != null) {
-                            val imageFile = imageStore.localImageFile(recipe.imageUrl)
-                            if (imageFile != null) {
-                                val imageName = "${RecipeSerializer.IMAGE_FILENAME_PREFIX}${imageFile.extension.let { ".$it" }}"
-                                zipOut.putNextEntry(ZipEntry("$prefix/$imageName"))
-                                imageFile.inputStream().use { it.copyTo(zipOut) }
-                                zipOut.closeEntry()
-                            }
-                        }
-
+                        val imageFile = recipe.imageUrl?.let { imageStore.localImageFile(it) }
+                        recipeSerializer.writeRecipeFolder(zipOut, folder, recipe, imageFile)
                         exportedCount++
                     } catch (e: kotlinx.coroutines.CancellationException) {
                         throw e
@@ -123,7 +102,7 @@ class ExportToZipUseCase @Inject constructor(
                     for ((date, entries) in mealPlansByDate) {
                         try {
                             val mealPlanJson = json.encodeToString<List<MealPlanEntry>>(entries)
-                            zipOut.putNextEntry(ZipEntry("$MEAL_PLANS_FOLDER/$date.json"))
+                            zipOut.putNextEntry(ZipEntry("${RecipeSerializer.MEAL_PLANS_FOLDER}/$date.json"))
                             zipOut.write(mealPlanJson.toByteArray(Charsets.UTF_8))
                             zipOut.closeEntry()
                         } catch (e: Exception) {

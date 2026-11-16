@@ -233,7 +233,7 @@ class MealPlanViewModel @Inject constructor(
                         weekPlans.groupBy { it.date }
                             .mapValues { (_, entries) ->
                                 entries.sortedWith(
-                                    compareBy<MealPlanEntry> { it.mealType.displayOrder }
+                                    compareBy<MealPlanEntry> { it.mealType }
                                         .thenBy { it.recipeName }
                                 )
                             }

@@ -3,18 +3,13 @@ package com.lionotter.recipes.domain.usecase
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.port.ImageStore
 import com.lionotter.recipes.domain.util.RecipeSerializer
-import com.lionotter.recipes.util.ErrorLog
 import java.io.OutputStream
-import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import javax.inject.Inject
 
 /**
- * Use case for exporting a single recipe to a .lorecipes file.
- * The format is a ZIP file containing the same folder structure as the bulk export:
- * - recipe-name/recipe.json
- * - recipe-name/recipe.md
- * - recipe-name/image.* (recipe image, if available)
+ * Use case for exporting a single recipe to a .lorecipes file: a ZIP containing the same
+ * recipe folder as the bulk export (see [ExportToZipUseCase]).
  *
  * The .lorecipes extension allows the app to register as a handler for these files,
  * enabling recipe sharing between users.
@@ -23,55 +18,14 @@ class ExportSingleRecipeUseCase @Inject constructor(
     private val recipeSerializer: RecipeSerializer,
     private val imageStore: ImageStore
 ) {
-    companion object {
-        private const val TAG = "ExportSingleRecipe"
-    }
-    sealed class ExportResult {
-        data class Success(val fileName: String) : ExportResult()
-        data class Error(val message: String) : ExportResult()
-    }
-
     /**
      * Export a single recipe to a .lorecipes file written to the given output stream.
+     * Throws if writing fails.
      */
-    suspend fun exportRecipe(
-        recipe: Recipe,
-        outputStream: OutputStream
-    ): ExportResult {
-        return try {
-            val files = recipeSerializer.serializeRecipe(recipe)
-            val prefix = files.folderName
-
-            ZipOutputStream(outputStream).use { zipOut ->
-                // Write recipe.json
-                zipOut.putNextEntry(ZipEntry("$prefix/${RecipeSerializer.RECIPE_JSON_FILENAME}"))
-                zipOut.write(files.recipeJson.toByteArray(Charsets.UTF_8))
-                zipOut.closeEntry()
-
-                // Write recipe.md
-                zipOut.putNextEntry(ZipEntry("$prefix/${RecipeSerializer.RECIPE_MARKDOWN_FILENAME}"))
-                zipOut.write(files.recipeMarkdown.toByteArray(Charsets.UTF_8))
-                zipOut.closeEntry()
-
-                // Write image file (if available)
-                if (recipe.imageUrl != null) {
-                    val imageFile = imageStore.localImageFile(recipe.imageUrl)
-                    if (imageFile != null) {
-                        val imageName = "${RecipeSerializer.IMAGE_FILENAME_PREFIX}${imageFile.extension.let { ".$it" }}"
-                        zipOut.putNextEntry(ZipEntry("$prefix/$imageName"))
-                        imageFile.inputStream().use { it.copyTo(zipOut) }
-                        zipOut.closeEntry()
-                    }
-                }
-            }
-
-            val fileName = "${recipeSerializer.sanitizeFolderName(recipe.name)}.lorecipes"
-            ExportResult.Success(fileName)
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            ErrorLog.e(TAG, "Failed to export recipe: ${recipe.name}", e)
-            ExportResult.Error("Failed to export recipe: ${e.message}")
+    suspend fun exportRecipe(recipe: Recipe, outputStream: OutputStream) {
+        val imageFile = recipe.imageUrl?.let { imageStore.localImageFile(it) }
+        ZipOutputStream(outputStream).use { zipOut ->
+            recipeSerializer.writeRecipeFolder(zipOut, recipeSerializer.exportFolderName(recipe), recipe, imageFile)
         }
     }
 }

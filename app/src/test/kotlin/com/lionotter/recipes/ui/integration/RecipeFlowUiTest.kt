@@ -22,6 +22,7 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import com.lionotter.recipes.domain.model.Amount
@@ -629,19 +630,22 @@ class RecipeFlowUiTest {
             }
         }
 
+        // The aggregated ingredient list (also checkboxes) comes first; the step rows are last.
         // "brown sugar" is step index 1, ingredient index 1 (unchecked)
-        composeTestRule.onNode(
+        composeTestRule.onAllNodes(
             hasRole(Role.Checkbox) and hasText("brown sugar", substring = true)
         )
+            .onLast()
             .performScrollTo()
             .assertIsOff()
             .performClick()
         assertEquals(listOf(Triple(0, 1, 1)), toggled)
 
         // "butter" (step 1, ingredient 0) is marked used
-        composeTestRule.onNode(
+        composeTestRule.onAllNodes(
             hasRole(Role.Checkbox) and hasText("butter", substring = true)
         )
+            .onLast()
             .performScrollTo()
             .assertIsOn()
     }

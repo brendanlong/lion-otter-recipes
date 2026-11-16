@@ -85,7 +85,7 @@ fun RecipeContent(
     onTagClick: (String) -> Unit = {},
     onOpenLinkFailed: () -> Unit = {},
     checkedAggregateIngredients: Set<String> = emptySet(),
-    onToggleAggregateIngredient: ((String) -> Unit)? = null,
+    onToggleAggregateIngredient: (String) -> Unit = {},
     volumeUnitSystem: UnitSystem = UnitSystem.localeDefault(),
     weightUnitSystem: UnitSystem = UnitSystem.localeDefault()
 ) {

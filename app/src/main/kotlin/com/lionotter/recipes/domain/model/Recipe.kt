@@ -187,7 +187,7 @@ data class Ingredient(
             }
 
             if (currentType != null && wantType != null && currentType != wantType) {
-                return convertAmount(scaledValue, amt.unit, currentType, wantType, density, volumeSystem, weightSystem)
+                return convertAmount(scaledValue, amt.unit, wantType, density, volumeSystem, weightSystem)
             }
         }
 
