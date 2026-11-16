@@ -16,6 +16,7 @@ import kotlinx.datetime.LocalDate
 object MealPlanFields {
     const val RECIPE_ID = "recipeId"
     const val RECIPE_IMAGE_URL = "recipeImageUrl"
+    const val DATE = "date"
 }
 
 data class MealPlanDto(

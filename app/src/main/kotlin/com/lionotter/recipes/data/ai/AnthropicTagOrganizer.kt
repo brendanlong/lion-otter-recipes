@@ -6,7 +6,6 @@ import com.anthropic.helpers.MessageAccumulator
 import com.anthropic.models.messages.JsonOutputFormat
 import com.anthropic.models.messages.Message
 import com.anthropic.models.messages.MessageCreateParams
-import com.anthropic.models.messages.OutputConfig
 import com.anthropic.models.messages.StopReason
 import com.anthropic.models.messages.ThinkingConfigAdaptive
 import com.lionotter.recipes.domain.AiFailure
@@ -20,10 +19,6 @@ import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.util.IoDispatcher
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
@@ -43,26 +38,10 @@ class AnthropicTagOrganizer @Inject constructor(
                 // Tag cleanup is rare, so the client isn't kept around between requests.
                 val client = AnthropicOkHttpClient.builder().apiKey(request.apiKey).build()
                 try {
-                    client.messages().createStreaming(buildParams(request, model)).use { stream ->
-                        // The read below blocks, so a sibling closes the stream to unblock it on cancel
-                        val closeOnCancel = launch {
-                            try {
-                                awaitCancellation()
-                            } finally {
-                                stream.close()
-                            }
-                        }
-                        try {
-                            val accumulator = MessageAccumulator.create()
-                            stream.stream().forEach { event ->
-                                ensureActive()
-                                accumulator.accumulate(event)
-                            }
-                            accumulator.message()
-                        } finally {
-                            closeOnCancel.cancel()
-                        }
-                    }
+                    val accumulator = MessageAccumulator.create()
+                    client.messages().createStreaming(buildParams(request, model))
+                        .forEachCancellable { accumulator.accumulate(it) }
+                    accumulator.message()
                 } finally {
                     client.close()
                 }
@@ -71,8 +50,6 @@ class AnthropicTagOrganizer @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            // Closing the stream on cancellation surfaces as an I/O error; that's not a failure
-            currentCoroutineContext().ensureActive()
             ErrorLog.e(TAG, "Tag cleanup request failed (model=$model)", e)
             Outcome.Failure(AnthropicErrorMapper.toRecipeError(e))
         }
@@ -85,17 +62,7 @@ class AnthropicTagOrganizer @Inject constructor(
             .maxTokens(MAX_OUTPUT_TOKENS)
             .system(TagCleanupPrompt.systemPrompt)
             .addUserMessage(TagCleanupPrompt.buildUserMessage(request.tags))
-            .outputConfig(
-                OutputConfig.builder()
-                    .format(outputFormat)
-                    .effort(
-                        when (config.effort) {
-                            Effort.LOW -> OutputConfig.Effort.LOW
-                            Effort.MEDIUM -> OutputConfig.Effort.MEDIUM
-                        }
-                    )
-                    .build()
-            )
+            .outputConfig(config.toOutputConfig(outputFormat))
         if (config.adaptiveThinking) builder.thinking(ThinkingConfigAdaptive.builder().build())
         return builder.build()
     }
@@ -107,21 +74,10 @@ class AnthropicTagOrganizer @Inject constructor(
             else -> {}
         }
         val text = message.content().filter { it.isText() }.joinToString("") { it.asText().text() }
-        return parseResponseText(text)
+        return TagCleanupPrompt.parseResponse(json, text, AiProviders.ANTHROPIC_ID)
     }
 
-    internal fun parseResponseText(text: String): Outcome<List<TagMapping>> {
-        if (text.isBlank()) return unusable(AiFailure.EMPTY_RESPONSE)
-        return try {
-            val response = json.decodeFromString<TagCleanupResponse>(text.trim())
-            Outcome.Success(response.changes.map { TagMapping(it.from, it.to) })
-        } catch (e: Exception) {
-            ErrorLog.e(TAG, "Failed to parse the tag cleanup response", e)
-            unusable(AiFailure.UNREADABLE_RESPONSE)
-        }
-    }
-
-    private fun unusable(failure: AiFailure) = Outcome.Failure(RecipeError.Ai(failure))
+    private fun unusable(failure: AiFailure) = Outcome.Failure(RecipeError.Ai(failure, provider = AiProviders.ANTHROPIC_ID))
 
     private val outputFormat: JsonOutputFormat by lazy {
         JsonOutputFormat.builder()

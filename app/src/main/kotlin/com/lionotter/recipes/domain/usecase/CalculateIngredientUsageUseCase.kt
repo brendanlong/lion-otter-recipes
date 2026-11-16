@@ -26,9 +26,7 @@ import javax.inject.Inject
 class CalculateIngredientUsageUseCase @Inject constructor() {
 
     private class UsageTally {
-        val total = AmountAccumulator()
         val remaining = AmountAccumulator()
-        val used = AmountAccumulator()
         var occurrences = 0
         var usedOccurrences = 0
     }
@@ -79,28 +77,14 @@ class CalculateIngredientUsageUseCase @Inject constructor() {
             weightSystem = weightSystem
         )
         tally.occurrences++
-        tally.total.add(displayAmount, ingredient.density, multiplier)
-        if (isUsed) {
-            tally.usedOccurrences++
-            tally.used.add(displayAmount, ingredient.density, multiplier)
-        } else {
-            tally.remaining.add(displayAmount, ingredient.density, multiplier)
-        }
+        if (isUsed) tally.usedOccurrences++
+        // Used occurrences still contribute their density, so remaining amounts can be combined
+        tally.remaining.add(if (isUsed) null else displayAmount, ingredient.density, multiplier)
     }
 
-    private fun UsageTally.toStatus(volumeSystem: UnitSystem, weightSystem: UnitSystem): IngredientUsageStatus {
-        val totalAmounts = total.toDisplayAmounts(volumeSystem, weightSystem)
-        val remainingAmounts = remaining.toDisplayAmounts(volumeSystem, weightSystem)
-        val firstTotal = totalAmounts.firstOrNull()
-        val firstRemaining = remainingAmounts.firstOrNull()
-        return IngredientUsageStatus(
-            totalAmount = firstTotal?.value,
-            usedAmount = used.rawTotal(),
-            unit = firstTotal?.unit,
-            isFullyUsed = occurrences > 0 && usedOccurrences == occurrences,
-            remainingAmount = firstRemaining?.value,
-            remainingUnit = firstRemaining?.unit ?: firstTotal?.unit,
-            remainingAmounts = remainingAmounts
-        )
-    }
+    private fun UsageTally.toStatus(volumeSystem: UnitSystem, weightSystem: UnitSystem) = IngredientUsageStatus(
+        isFullyUsed = occurrences > 0 && usedOccurrences == occurrences,
+        anyUsed = usedOccurrences > 0,
+        remaining = remaining.toDisplayAmounts(volumeSystem, weightSystem)
+    )
 }

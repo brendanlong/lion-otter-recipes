@@ -18,8 +18,8 @@ internal data class RequestConfig(
     val adaptiveThinking: Boolean,
     val effort: Effort
 ) {
-    fun toOutputConfig(): OutputConfig {
-        val builder = OutputConfig.builder().format(RecipeRequests.outputFormat)
+    fun toOutputConfig(format: JsonOutputFormat): OutputConfig {
+        val builder = OutputConfig.builder().format(format)
         when (effort) {
             Effort.LOW -> builder.effort(OutputConfig.Effort.LOW)
             Effort.MEDIUM -> builder.effort(OutputConfig.Effort.MEDIUM)
@@ -52,8 +52,6 @@ internal object RecipeRequests {
             adaptiveThinking = thinkingEnabled && model != AiProviders.CLAUDE_FABLE,
             effort = if (thinkingEnabled) Effort.MEDIUM else Effort.LOW
         )
-
-    fun supportsServerSideFallback(model: String): Boolean = AiProviders.ANTHROPIC.models.any { it.id == model }
 
     val outputFormat: JsonOutputFormat by lazy {
         JsonOutputFormat.builder()

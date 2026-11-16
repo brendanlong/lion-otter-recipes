@@ -2,7 +2,6 @@ package com.lionotter.recipes.ui.screens.settings.components
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -14,14 +13,13 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
@@ -83,9 +81,11 @@ fun ModelSelectionSection(
             onModelChange = onEditModelChange
         )
 
-        ThinkingToggle(
-            enabled = thinkingEnabled,
-            onEnabledChange = onThinkingChange
+        SwitchRow(
+            title = stringResource(R.string.thinking),
+            description = stringResource(R.string.thinking_description),
+            checked = thinkingEnabled,
+            onCheckedChange = onThinkingChange
         )
     }
 }
@@ -114,14 +114,17 @@ fun SingleModelSelectionSection(
             onModelChange = onModelChange
         )
 
-        ThinkingToggle(
-            enabled = thinkingEnabled,
-            onEnabledChange = onThinkingChange
+        SwitchRow(
+            title = stringResource(R.string.thinking),
+            description = stringResource(R.string.thinking_description),
+            checked = thinkingEnabled,
+            onCheckedChange = onThinkingChange
         )
     }
 }
 
 @Composable
+@ReadOnlyComposable
 private fun ModelTier.label(): String = stringResource(
     when (this) {
         ModelTier.MOST_CAPABLE -> R.string.model_tier_most_capable
@@ -132,6 +135,7 @@ private fun ModelTier.label(): String = stringResource(
 )
 
 @Composable
+@ReadOnlyComposable
 private fun AiModel.label(): String = stringResource(R.string.model_name_with_tier, name, tier.label())
 
 private fun AiModel.providerName(): String = AiProviders.provider(providerId)?.name ?: providerId
@@ -240,33 +244,5 @@ internal fun ModelDropdown(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun ThinkingToggle(
-    enabled: Boolean,
-    onEnabledChange: (Boolean) -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = stringResource(R.string.thinking),
-                style = MaterialTheme.typography.bodyLarge
-            )
-            Text(
-                text = stringResource(R.string.thinking_description),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        Switch(
-            checked = enabled,
-            onCheckedChange = onEnabledChange
-        )
     }
 }

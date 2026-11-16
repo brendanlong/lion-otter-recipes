@@ -74,13 +74,11 @@ class RegenerateRecipeUseCase @Inject constructor(
             thinkingEnabled = thinkingEnabled,
             onProgress = { progress ->
                 when (progress) {
-                    is ParseHtmlUseCase.ParseProgress.ExtractingContent -> {}
-                    is ParseHtmlUseCase.ParseProgress.ParsingRecipe ->
-                        onProgress(RegenerateProgress.ParsingRecipe)
+                    ParseHtmlUseCase.ParseProgress.ParsingRecipe -> onProgress(RegenerateProgress.ParsingRecipe)
                     is ParseHtmlUseCase.ParseProgress.RecipeNameAvailable ->
                         onProgress(RegenerateProgress.RecipeNameAvailable(progress.name))
-                    is ParseHtmlUseCase.ParseProgress.SavingRecipe ->
-                        onProgress(RegenerateProgress.SavingRecipe)
+                    // Only sent when parseHtml saves the recipe
+                    ParseHtmlUseCase.ParseProgress.SavingRecipe -> Unit
                 }
             }
         )

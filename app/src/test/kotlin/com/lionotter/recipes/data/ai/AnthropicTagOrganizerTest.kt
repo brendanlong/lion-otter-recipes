@@ -37,19 +37,24 @@ class AnthropicTagOrganizerTest {
         assertTrue(thinking.thinking().isPresent)
     }
 
+    private fun parse(text: String) = TagCleanupPrompt.parseResponse(AppJson, text, AiProviders.ANTHROPIC_ID)
+
     @Test
     fun `parses the suggested mappings`() {
         val text = """{"changes":[{"from":"desserts","to":"Dessert"},{"from":"recipe","to":null}]}"""
         assertEquals(
             Outcome.Success(listOf(TagMapping("desserts", "Dessert"), TagMapping("recipe", null))),
-            organizer.parseResponseText(text)
+            parse(text)
         )
-        assertEquals(Outcome.Success(emptyList<TagMapping>()), organizer.parseResponseText("""{"changes":[]}"""))
+        assertEquals(Outcome.Success(emptyList<TagMapping>()), parse("""{"changes":[]}"""))
     }
 
     @Test
     fun `unusable responses are AI failures`() {
-        assertEquals(Outcome.Failure(RecipeError.Ai(AiFailure.EMPTY_RESPONSE)), organizer.parseResponseText(" "))
-        assertEquals(Outcome.Failure(RecipeError.Ai(AiFailure.UNREADABLE_RESPONSE)), organizer.parseResponseText("not json"))
+        assertEquals(Outcome.Failure(RecipeError.Ai(AiFailure.EMPTY_RESPONSE, provider = AiProviders.ANTHROPIC_ID)), parse(" "))
+        assertEquals(
+            Outcome.Failure(RecipeError.Ai(AiFailure.UNREADABLE_RESPONSE, provider = AiProviders.ANTHROPIC_ID)),
+            parse("not json")
+        )
     }
 }

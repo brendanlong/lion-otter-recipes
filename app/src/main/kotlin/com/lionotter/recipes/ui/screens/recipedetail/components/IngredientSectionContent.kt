@@ -26,15 +26,15 @@ import com.lionotter.recipes.domain.model.IngredientSection
 import com.lionotter.recipes.domain.model.IngredientUsageStatus
 import com.lionotter.recipes.domain.model.MeasurementPreference
 import com.lionotter.recipes.domain.model.UnitSystem
-import com.lionotter.recipes.domain.model.formatAmount
+import com.lionotter.recipes.domain.model.formatAmounts
 
 /** Key for an ingredient checked off in the aggregated ingredient list. */
 internal fun aggregateIngredientKey(sectionName: String?, ingredient: Ingredient): String =
     "${sectionName.orEmpty()}|${ingredient.aggregationKey}"
 
 /**
- * An aggregated ingredient section. When [onToggleChecked] is provided, each ingredient is a
- * full-width checkbox row so the user can tick off ingredients as they gather them.
+ * An aggregated ingredient section. Each ingredient is a full-width checkbox row so the user can
+ * tick off ingredients as they gather them.
  */
 @Composable
 internal fun IngredientSectionContent(
@@ -42,10 +42,10 @@ internal fun IngredientSectionContent(
     scale: Double,
     measurementPreference: MeasurementPreference,
     ingredientUsage: Map<String, IngredientUsageStatus>,
-    checkedIngredients: Set<String> = emptySet(),
-    onToggleChecked: ((String) -> Unit)? = null,
-    volumeUnitSystem: UnitSystem = UnitSystem.localeDefault(),
-    weightUnitSystem: UnitSystem = UnitSystem.localeDefault()
+    checkedIngredients: Set<String>,
+    onToggleChecked: (String) -> Unit,
+    volumeUnitSystem: UnitSystem,
+    weightUnitSystem: UnitSystem
 ) {
     Column {
         section.name?.let { name ->
@@ -61,8 +61,8 @@ internal fun IngredientSectionContent(
         section.ingredients.forEach { ingredient ->
             val key = aggregateIngredientKey(section.name, ingredient)
             val isChecked = key in checkedIngredients
-            val rowModifier = if (onToggleChecked != null) {
-                Modifier
+            Row(
+                modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 48.dp)
                     .clip(MaterialTheme.shapes.small)
@@ -70,31 +70,14 @@ internal fun IngredientSectionContent(
                         value = isChecked,
                         role = Role.Checkbox,
                         onValueChange = { onToggleChecked(key) }
-                    )
-            } else {
-                Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-            }
-
-            Row(
-                modifier = rowModifier,
-                verticalAlignment = if (onToggleChecked != null) Alignment.CenterVertically else Alignment.Top
+                    ),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                if (onToggleChecked != null) {
-                    Checkbox(
-                        checked = isChecked,
-                        onCheckedChange = null,
-                        modifier = Modifier.padding(end = 12.dp)
-                    )
-                } else {
-                    Text(
-                        text = "•",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(end = 8.dp)
-                    )
-                }
+                Checkbox(
+                    checked = isChecked,
+                    onCheckedChange = null,
+                    modifier = Modifier.padding(end = 12.dp)
+                )
                 Column(modifier = Modifier.padding(vertical = 4.dp)) {
                     IngredientLine(
                         ingredient = ingredient,
@@ -154,21 +137,14 @@ private fun IngredientLine(
         },
         modifier = if (isAlternate) Modifier.padding(start = 16.dp) else Modifier
     )
-    // Show remaining amount if partially used by checked-off steps
-    val remaining = usage?.remainingAmount
-    if (!isStruck && usage != null && usage.usedAmount > 0 && remaining != null && remaining > 0) {
+    // Show remaining amounts if partially used by checked-off steps
+    val remaining = usage?.takeIf { !isStruck && it.anyUsed }?.let { formatAmounts(it.remaining) }
+    if (remaining != null) {
         Text(
-            text = formatRemainingAmount(remaining, usage.remainingUnit),
+            text = stringResource(R.string.ingredient_amount_left, remaining),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.secondary,
             modifier = if (isAlternate) Modifier.padding(start = 16.dp) else Modifier
         )
     }
-}
-
-/**
- * Formats the remaining amount for display (e.g., "1/2 cup left").
- */
-internal fun formatRemainingAmount(amount: Double, unit: String?): String {
-    return "${formatAmount(amount, unit)} left"
 }

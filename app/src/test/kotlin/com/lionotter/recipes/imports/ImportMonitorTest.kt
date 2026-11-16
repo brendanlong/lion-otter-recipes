@@ -4,7 +4,6 @@ import android.util.Log
 import androidx.work.WorkInfo
 import app.cash.turbine.test
 import com.lionotter.recipes.data.local.PendingImportStatus
-import com.lionotter.recipes.data.repository.PendingImportRepository
 import com.lionotter.recipes.domain.PageFetchFailure
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.worker.PaprikaImportWork
@@ -48,7 +47,7 @@ class ImportMonitorTest {
         unmockkStatic(Log::class)
     }
 
-    private fun TestScope.createMonitor() = ImportMonitor(work.workManager, PendingImportRepository(dao), testAppScope())
+    private fun TestScope.createMonitor() = ImportMonitor(work.workManager, dao, testAppScope())
 
     /** Adds a URL import row with work in [state] and returns the work ID. */
     private fun addImport(
@@ -162,7 +161,7 @@ class ImportMonitorTest {
 
         // The step finishes and the next poll is queued under a new request ID
         val next = UUID.randomUUID()
-        PendingImportRepository(dao).updateWorkManagerId("pap-1", next.toString())
+        dao.updateWorkManagerId("pap-1", next.toString())
         work.put(workInfo(next, WorkInfo.State.ENQUEUED, tag = PaprikaImportWorker.TAG_PAPRIKA_IMPORT))
         work.put(
             workInfo(
@@ -202,9 +201,8 @@ class ImportMonitorTest {
         val oldWork = addImport("import-1", WorkInfo.State.FAILED, status = PendingImportStatus.FAILED)
         advanceUntilIdle()
 
-        val repository = PendingImportRepository(dao)
-        repository.updateWorkManagerId("import-1", UUID.randomUUID().toString())
-        repository.updateStatusWithError("import-1", PendingImportStatus.PENDING, null)
+        dao.updateWorkManagerId("import-1", UUID.randomUUID().toString())
+        dao.updateStatusWithError("import-1", PendingImportStatus.PENDING, null)
 
         assertEquals(ImportState.Running(ImportStage.QUEUED), monitor.importState("import-1").first())
         assertEquals(WorkInfo.State.FAILED, work[oldWork]?.state)

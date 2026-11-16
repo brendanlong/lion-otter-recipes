@@ -96,16 +96,8 @@ class OpenAiRecipeParser @Inject constructor(
         is ParseAttachment.Pdf -> OpenAiResponses.inputFile(attachment.bytes, attachment.mediaType, PDF_FILENAME)
     }
 
-    private fun parseResponse(response: JsonObject): Outcome<ParsedRecipeWithUsage> {
-        val output = OpenAiResponses.outputOf(response)
-        return responseParser.parseOutput(
-            output.text,
-            output.refused,
-            output.truncated,
-            output.inputTokens,
-            output.outputTokens
-        )
-    }
+    private fun parseResponse(response: JsonObject): Outcome<ParsedRecipeWithUsage> =
+        responseParser.parseOutput(OpenAiResponses.outputOf(response))
 
     /** Batches cost half as much as single requests. The requests are uploaded as a JSONL file. */
     override suspend fun createBatch(
@@ -200,8 +192,7 @@ class OpenAiRecipeParser @Inject constructor(
         return Outcome.Success(
             BatchStatus(
                 ended = batch.status in ENDED_STATUSES,
-                succeeded = counts.completed,
-                processing = (counts.total - counts.completed - counts.failed).coerceAtLeast(0)
+                succeeded = counts.completed
             )
         )
     }

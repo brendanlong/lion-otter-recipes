@@ -37,7 +37,7 @@ import java.util.UUID
 class ZipExportImportViewModelTest {
 
     private val workId = UUID.randomUUID()
-    private val status = MutableStateFlow<WorkStatus<ZipExportWork.Progress, ZipExportWork.Outcome>>(WorkStatus.Missing)
+    private val status = MutableStateFlow<WorkStatus<Nothing, ZipExportWork.Outcome>>(WorkStatus.Missing)
     private val fileUri = mockk<Uri>()
     private val scheduler: RecipeWorkScheduler = mockk {
         every { prepareExport(fileUri) } returns PendingWork(workId) { status.value = WorkStatus.Queued }
@@ -100,7 +100,7 @@ class ZipExportImportViewModelTest {
 
     @Test
     fun `a running export is shown again after process death`() = runTest {
-        status.value = WorkStatus.Running(ZipExportWork.Progress.Exporting("Soup", 1, 3))
+        status.value = WorkStatus.Running(null)
 
         val viewModel = ZipExportImportViewModel(SavedStateHandle(mapOf("export_work_id" to workId.toString())), scheduler)
         advanceUntilIdle()

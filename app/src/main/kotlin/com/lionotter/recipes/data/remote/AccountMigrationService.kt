@@ -7,6 +7,8 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.app
 import com.google.firebase.auth.AuthCredential
 import com.google.firebase.auth.auth
+import com.google.firebase.firestore.CollectionReference
+import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.firestore
 import com.lionotter.recipes.util.ErrorLog
@@ -35,17 +37,12 @@ import javax.inject.Singleton
  */
 @Singleton
 class AccountMigrationService @Inject constructor(
-    @param:ApplicationContext private val context: Context,
-    private val firestoreService: FirestoreService
+    @param:ApplicationContext private val context: Context
 ) {
     companion object {
         private const val TAG = "AccountMigrationService"
-        /**
-         * Each migration app gets a unique name to avoid a Firebase SDK bug
-         * where [FirebaseApp.delete] does not cancel the internal heartbeat
-         * DataStore's coroutine scope. Reusing the same name would trigger
-         * "multiple DataStores active for the same file".
-         */
+
+        /** Numbers the migration apps; see [createMigrationApp]. */
         private val migrationCounter = AtomicInteger(0)
         private const val SERVER_TIMEOUT_MS = 30_000L
 
@@ -116,19 +113,13 @@ class AccountMigrationService @Inject constructor(
                     return Result.failure(IllegalStateException("No user after sign-in on migration app"))
                 }
 
-            val migrationFirestore = com.google.firebase.firestore.FirebaseFirestore.getInstance(migrationApp)
+            val migrationFirestore = FirebaseFirestore.getInstance(migrationApp)
 
             // 2. Read guest data from default Firestore cache
             val defaultFirestore = Firebase.firestore
 
-            val guestRecipes = readDocuments(
-                defaultFirestore.collection(FirestoreService.USERS_COLLECTION)
-                    .document(guestUid).collection(FirestoreService.RECIPES_COLLECTION)
-            )
-            val guestMealPlans = readDocuments(
-                defaultFirestore.collection(FirestoreService.USERS_COLLECTION)
-                    .document(guestUid).collection(FirestoreService.MEAL_PLANS_COLLECTION)
-            )
+            val guestRecipes = readDocuments(defaultFirestore.userCollection(guestUid, FirestoreService.RECIPES_COLLECTION))
+            val guestMealPlans = readDocuments(defaultFirestore.userCollection(guestUid, FirestoreService.MEAL_PLANS_COLLECTION))
 
             Log.d(TAG, "Read ${guestRecipes.size} recipes and ${guestMealPlans.size} meal plans from guest account")
 
@@ -139,14 +130,8 @@ class AccountMigrationService @Inject constructor(
             }
 
             // 3. Read existing IDs in Google account to avoid overwriting
-            val existingRecipeIds = readDocumentIds(
-                migrationFirestore.collection(FirestoreService.USERS_COLLECTION)
-                    .document(googleUid).collection(FirestoreService.RECIPES_COLLECTION)
-            )
-            val existingMealPlanIds = readDocumentIds(
-                migrationFirestore.collection(FirestoreService.USERS_COLLECTION)
-                    .document(googleUid).collection(FirestoreService.MEAL_PLANS_COLLECTION)
-            )
+            val existingRecipeIds = readDocumentIds(migrationFirestore.userCollection(googleUid, FirestoreService.RECIPES_COLLECTION))
+            val existingMealPlanIds = readDocumentIds(migrationFirestore.userCollection(googleUid, FirestoreService.MEAL_PLANS_COLLECTION))
 
             // 4. Write guest data to Google account, skipping existing IDs
             val recipesToMigrate = guestRecipes.filter { it.first !in existingRecipeIds }
@@ -156,13 +141,11 @@ class AccountMigrationService @Inject constructor(
             Log.d(TAG, "Migrating ${mealPlansToMigrate.size} meal plans (${guestMealPlans.size - mealPlansToMigrate.size} skipped)")
 
             writeDocuments(
-                migrationFirestore.collection(FirestoreService.USERS_COLLECTION)
-                    .document(googleUid).collection(FirestoreService.RECIPES_COLLECTION),
+                migrationFirestore.userCollection(googleUid, FirestoreService.RECIPES_COLLECTION),
                 recipesToMigrate
             )
             writeDocuments(
-                migrationFirestore.collection(FirestoreService.USERS_COLLECTION)
-                    .document(googleUid).collection(FirestoreService.MEAL_PLANS_COLLECTION),
+                migrationFirestore.userCollection(googleUid, FirestoreService.MEAL_PLANS_COLLECTION),
                 mealPlansToMigrate
             )
 
@@ -237,7 +220,7 @@ class AccountMigrationService @Inject constructor(
 
     private suspend fun cleanupMigrationApp(app: FirebaseApp) {
         try {
-            val firestore = com.google.firebase.firestore.FirebaseFirestore.getInstance(app)
+            val firestore = FirebaseFirestore.getInstance(app)
             firestore.terminate().await()
             firestore.clearPersistence().await()
         } catch (e: Exception) {
@@ -252,13 +235,16 @@ class AccountMigrationService @Inject constructor(
         }
     }
 
+    private fun FirebaseFirestore.userCollection(uid: String, collection: String): CollectionReference =
+        collection(FirestoreService.USERS_COLLECTION).document(uid).collection(collection)
+
     /**
      * Reads all documents from a collection's local cache,
      * returning pairs of (documentId, data).
      * Uses [Source.CACHE] since guest data is strictly offline.
      */
     private suspend fun readDocuments(
-        collection: com.google.firebase.firestore.CollectionReference
+        collection: CollectionReference
     ): List<Pair<String, Map<String, Any?>>> {
         val snapshot = collection.get(Source.CACHE).await()
         return snapshot.documents.mapNotNull { doc ->
@@ -272,7 +258,7 @@ class AccountMigrationService @Inject constructor(
      * cache is empty, so a cache fallback would wrongly report no existing documents).
      */
     private suspend fun readDocumentIds(
-        collection: com.google.firebase.firestore.CollectionReference
+        collection: CollectionReference
     ): Set<String> {
         val snapshot = serverCall { collection.get(Source.SERVER).await() }
         return snapshot.documents.map { it.id }.toSet()
@@ -283,7 +269,7 @@ class AccountMigrationService @Inject constructor(
      * under Firestore's 10 MiB request limit (recipe documents can be large).
      */
     private suspend fun writeDocuments(
-        collection: com.google.firebase.firestore.CollectionReference,
+        collection: CollectionReference,
         documents: List<Pair<String, Map<String, Any?>>>
     ) {
         if (documents.isEmpty()) return

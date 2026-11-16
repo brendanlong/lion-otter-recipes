@@ -12,7 +12,6 @@ import com.lionotter.recipes.domain.ResourceLimits
 import com.lionotter.recipes.domain.model.AiProviders
 import com.lionotter.recipes.domain.model.RecipeFileFormat
 import com.lionotter.recipes.data.local.PendingImportStatus
-import com.lionotter.recipes.data.repository.PendingImportRepository
 import com.lionotter.recipes.domain.usecase.ParseHtmlUseCase
 import com.lionotter.recipes.domain.usecase.paprika.PaprikaBatch
 import com.lionotter.recipes.domain.usecase.paprika.PaprikaImportSteps
@@ -95,7 +94,7 @@ class ImportQueueTest {
         }
     }
     private val scheduler: RecipeWorkScheduler = mockk {
-        every { buildUrlImportRequest(any(), any()) } answers { OneTimeWorkRequestBuilder<RecipeImportWorker>().build() }
+        every { buildRecipeImportRequest(any(), any()) } answers { OneTimeWorkRequestBuilder<RecipeImportWorker>().build() }
         coEvery { enqueueImport(any(), any()) } answers {
             val request = secondArg<OneTimeWorkRequest>()
             work.assignUniqueName(RecipeWorkScheduler.importWorkName(firstArg()), request.id)
@@ -119,15 +118,14 @@ class ImportQueueTest {
     }
 
     private fun TestScope.createQueue(scope: CoroutineScope = testAppScope()): ImportQueue {
-        val repository = PendingImportRepository(dao)
         return ImportQueue(
             workManager = work.workManager,
-            pendingImportRepository = repository,
+            pendingImportDao = dao,
             appScope = scope,
             scheduler = scheduler,
             inputStore = inputStore,
             paprikaImportSteps = paprikaSteps,
-            monitor = ImportMonitor(work.workManager, repository, scope),
+            monitor = ImportMonitor(work.workManager, dao, scope),
             fileChecker = fileChecker
         )
     }
@@ -415,7 +413,7 @@ class ImportQueueTest {
     private fun stubCopiedFile(content: String) {
         val copy = tempFolder.newFile().apply { writeText(content) }
         coEvery { inputStore.copySource(any(), pickedUri, any(), any()) } returns copy
-        every { scheduler.buildRecipeFileImportRequest(any()) } answers
+        every { scheduler.buildRecipeImportRequest(any(), any()) } answers
             { OneTimeWorkRequestBuilder<RecipeImportWorker>().build() }
     }
 
@@ -475,21 +473,21 @@ class ImportQueueTest {
         )
         every { inputStore.hasImport("file-1") } returns true
         every { inputStore.readKind("file-1") } returns ImportKind.HTML_FILE
-        every { scheduler.buildRecipeFileImportRequest("file-1") } returns
+        every { scheduler.buildRecipeImportRequest("file-1", null) } returns
             OneTimeWorkRequestBuilder<RecipeImportWorker>().build()
         val queue = createQueue()
 
         queue.retryImport("file-1")
         advanceUntilIdle()
 
-        verify { scheduler.buildRecipeFileImportRequest("file-1") }
+        verify { scheduler.buildRecipeImportRequest("file-1", null) }
         assertEquals(PendingImportStatus.PENDING, dao["file-1"]!!.status)
     }
 
     private fun stubCopiedPdf(): File {
         val copy = tempFolder.newFile().apply { writeText("%PDF-1.4") }
         coEvery { inputStore.copySource(any(), pickedUri, any(), any()) } returns copy
-        every { scheduler.buildRecipeFileImportRequest(any()) } answers
+        every { scheduler.buildRecipeImportRequest(any(), any()) } answers
             { OneTimeWorkRequestBuilder<RecipeImportWorker>().build() }
         return copy
     }
@@ -526,7 +524,7 @@ class ImportQueueTest {
         val photos = (1..3).map { RecipeFile(mockk(), "page$it.jpg", RecipeFileFormat.IMAGE) }
         coEvery { inputStore.copySource(any(), any(), any(), any()) } answers
             { tempFolder.newFile().apply { writeBytes(byteArrayOf(1)) } }
-        every { scheduler.buildRecipeFileImportRequest(any()) } answers
+        every { scheduler.buildRecipeImportRequest(any(), any()) } answers
             { OneTimeWorkRequestBuilder<RecipeImportWorker>().build() }
         val queue = createQueue()
 
@@ -563,7 +561,7 @@ class ImportQueueTest {
         )
         every { inputStore.hasImport("photos-1") } returns true
         every { inputStore.readKind("photos-1") } returns ImportKind.IMAGE_FILE
-        every { scheduler.buildRecipeFileImportRequest("photos-1") } returns
+        every { scheduler.buildRecipeImportRequest("photos-1", null) } returns
             OneTimeWorkRequestBuilder<RecipeImportWorker>().build()
         val queue = createQueue()
 

@@ -70,14 +70,6 @@ private const val DISMISSED_RESET_DELAY_MS = 3000L
 class SwipeActionBoxState internal constructor(
     internal val anchoredState: AnchoredDraggableState<SwipeActionAnchor>
 ) {
-    /** The direction the card is currently peeked at, or null if settled/animating. */
-    val peekDirection: SwipeActionDirection
-        get() = when (anchoredState.settledValue) {
-            SwipeActionAnchor.PeekStartToEnd -> SwipeActionDirection.StartToEnd
-            SwipeActionAnchor.PeekEndToStart -> SwipeActionDirection.EndToStart
-            else -> SwipeActionDirection.Settled
-        }
-
     /**
      * Confirm the swipe action: animate the card fully off-screen in the peeked direction.
      */

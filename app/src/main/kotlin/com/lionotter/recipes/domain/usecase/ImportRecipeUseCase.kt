@@ -131,8 +131,6 @@ class ImportRecipeUseCase @Inject constructor(
         onProgress: suspend (ImportProgress) -> Unit
     ) {
         when (progress) {
-            // Content is extracted right before parsing; there's nothing to show for it
-            ParseHtmlUseCase.ParseProgress.ExtractingContent -> Unit
             ParseHtmlUseCase.ParseProgress.ParsingRecipe -> onProgress(ImportProgress.ParsingRecipe)
             is ParseHtmlUseCase.ParseProgress.RecipeNameAvailable ->
                 onProgress(ImportProgress.RecipeNameAvailable(progress.name))

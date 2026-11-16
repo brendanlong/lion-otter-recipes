@@ -41,9 +41,7 @@ import kotlinx.datetime.LocalDate
 import kotlinx.datetime.plus
 import javax.inject.Inject
 
-/**
- * A meal plan entry grouped by date and meal type for the recipe selector.
- */
+/** A meal plan entry in the recipe selector, and whether it goes on the grocery list. */
 data class SelectableMealPlanEntry(
     val entry: MealPlanEntry,
     val isSelected: Boolean
@@ -103,7 +101,7 @@ class GroceryListViewModel @Inject constructor(
             MealPlans.Loaded(
                 entries.sortedWith(
                     compareBy<MealPlanEntry> { it.date }
-                        .thenBy { it.mealType.displayOrder }
+                        .thenBy { it.mealType }
                         .thenBy { it.recipeName }
                 )
             )
@@ -269,19 +267,13 @@ class GroceryListViewModel @Inject constructor(
         )
     }
 
+    /** [entries] are already sorted by [mealPlans]. */
     private fun selectableEntries(
         entries: List<MealPlanEntry>,
         selectedIds: Set<String>
     ): Map<LocalDate, List<SelectableMealPlanEntry>> = entries
         .map { SelectableMealPlanEntry(entry = it, isSelected = it.id in selectedIds) }
         .groupBy { it.entry.date }
-        .mapValues { (_, day) ->
-            day.sortedWith(
-                compareBy<SelectableMealPlanEntry> { it.entry.mealType.displayOrder }
-                    .thenBy { it.entry.recipeName }
-            )
-        }
-        .toSortedMap()
 
     companion object {
         private const val TAG = "GroceryListViewModel"

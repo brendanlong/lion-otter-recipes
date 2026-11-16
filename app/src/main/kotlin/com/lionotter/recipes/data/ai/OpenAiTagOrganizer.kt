@@ -9,8 +9,6 @@ import com.lionotter.recipes.domain.model.ModelKind
 import com.lionotter.recipes.domain.model.TagMapping
 import com.lionotter.recipes.domain.port.TagCleanupRequest
 import com.lionotter.recipes.domain.port.TagOrganizer
-import com.lionotter.recipes.util.ErrorLog
-import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -50,18 +48,7 @@ class OpenAiTagOrganizer @Inject constructor(
     internal fun parseOutput(output: ResponseOutput): Outcome<List<TagMapping>> = when {
         output.refused -> unusable(AiFailure.REFUSED)
         output.truncated -> unusable(AiFailure.TRUNCATED)
-        else -> parseResponseText(output.text)
-    }
-
-    internal fun parseResponseText(text: String): Outcome<List<TagMapping>> {
-        if (text.isBlank()) return unusable(AiFailure.EMPTY_RESPONSE)
-        return try {
-            val response = json.decodeFromString<TagCleanupResponse>(text.trim())
-            Outcome.Success(response.changes.map { TagMapping(it.from, it.to) })
-        } catch (e: SerializationException) {
-            ErrorLog.e(TAG, "Failed to parse the tag cleanup response", e)
-            unusable(AiFailure.UNREADABLE_RESPONSE)
-        }
+        else -> TagCleanupPrompt.parseResponse(json, output.text, AiProviders.OPENAI_ID)
     }
 
     private fun unusable(failure: AiFailure) = Outcome.Failure(OpenAiErrors.error(failure))

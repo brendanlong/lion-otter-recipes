@@ -4,12 +4,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -46,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -198,7 +196,7 @@ fun AddMealPlanDialog(
                                 icon = {}
                             ) {
                                 Text(
-                                    text = mealTypeLabel(mealType),
+                                    text = mealType.label(),
                                     style = MaterialTheme.typography.labelSmall,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
@@ -380,7 +378,7 @@ private fun RecipeSelectionCard(
                 )
                 if (recipe.totalTime != null || recipe.servings != null) {
                     val servingsText = recipe.servings?.let {
-                        stringResource(R.string.servings_count, it)
+                        pluralStringResource(R.plurals.servings_count, it, it)
                     }
                     val info = buildString {
                         recipe.totalTime?.let { append(it) }
@@ -395,15 +393,5 @@ private fun RecipeSelectionCard(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun mealTypeLabel(mealType: MealType): String {
-    return when (mealType) {
-        MealType.BREAKFAST -> stringResource(R.string.breakfast)
-        MealType.LUNCH -> stringResource(R.string.lunch)
-        MealType.DINNER -> stringResource(R.string.dinner)
-        MealType.SNACK -> stringResource(R.string.snack)
     }
 }

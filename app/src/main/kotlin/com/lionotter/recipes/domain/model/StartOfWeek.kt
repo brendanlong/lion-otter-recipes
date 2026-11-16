@@ -21,29 +21,8 @@ enum class StartOfWeek {
      * Resolves to an actual DayOfWeek. For LOCALE_DEFAULT, uses the device locale.
      */
     fun resolve(): DayOfWeek = when (this) {
-        LOCALE_DEFAULT -> {
-            val calendarDay = Calendar.getInstance().firstDayOfWeek
-            calendarDayToDayOfWeek(calendarDay)
-        }
-        MONDAY -> DayOfWeek.MONDAY
-        TUESDAY -> DayOfWeek.TUESDAY
-        WEDNESDAY -> DayOfWeek.WEDNESDAY
-        THURSDAY -> DayOfWeek.THURSDAY
-        FRIDAY -> DayOfWeek.FRIDAY
-        SATURDAY -> DayOfWeek.SATURDAY
-        SUNDAY -> DayOfWeek.SUNDAY
-    }
-
-    companion object {
-        private fun calendarDayToDayOfWeek(calendarDay: Int): DayOfWeek = when (calendarDay) {
-            Calendar.MONDAY -> DayOfWeek.MONDAY
-            Calendar.TUESDAY -> DayOfWeek.TUESDAY
-            Calendar.WEDNESDAY -> DayOfWeek.WEDNESDAY
-            Calendar.THURSDAY -> DayOfWeek.THURSDAY
-            Calendar.FRIDAY -> DayOfWeek.FRIDAY
-            Calendar.SATURDAY -> DayOfWeek.SATURDAY
-            Calendar.SUNDAY -> DayOfWeek.SUNDAY
-            else -> DayOfWeek.SUNDAY
-        }
+        // Calendar numbers days from SUNDAY = 1; ISO from MONDAY = 1
+        LOCALE_DEFAULT -> DayOfWeek((Calendar.getInstance().firstDayOfWeek + 5) % 7 + 1)
+        else -> DayOfWeek.valueOf(name)
     }
 }

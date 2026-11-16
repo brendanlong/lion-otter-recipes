@@ -81,6 +81,8 @@ class ImportSelectionViewModel @Inject constructor(
      *
      * The type argument is only a hint: the actual type is detected from the ZIP contents,
      * since content URIs often have opaque paths that don't reflect the file extension.
+     *
+     * A .lorecipes file with a single new recipe is imported right away, without asking.
      */
     private fun loadFile() {
         val route = savedStateHandle.toRoute<Route.ImportSelection>()
@@ -114,6 +116,10 @@ class ImportSelectionViewModel @Inject constructor(
                 }
             }
             applySavedSelection()
+            val items = (_uiState.value as? ImportSelectionUiState.Ready)?.items
+            if (actualType == ImportType.LORECIPES && items?.singleOrNull()?.alreadyExists == false) {
+                importSelected()
+            }
         }
     }
 
@@ -143,18 +149,11 @@ class ImportSelectionViewModel @Inject constructor(
         if (!importStarted) stagedImportId?.let(inputStore::deleteImport)
     }
 
-    /**
-     * Dedupes parsed items by id (a malformed export could repeat ids, which would crash the
-     * LazyColumn) and restores the user's selection after process death.
-     */
+    /** Restores the user's selection after process death. */
     private fun applySavedSelection() {
         val state = _uiState.value as? ImportSelectionUiState.Ready ?: return
         val savedIds = savedStateHandle.get<ArrayList<String>>(KEY_SELECTED_IDS)?.toSet()
-        val items = state.items
-            .distinctBy { it.id }
-            .map { item ->
-                if (savedIds != null) item.copy(isSelected = item.id in savedIds) else item
-            }
+        val items = if (savedIds == null) state.items else state.items.map { it.copy(isSelected = it.id in savedIds) }
         updateItems(items)
     }
 
@@ -201,6 +200,7 @@ class ImportSelectionViewModel @Inject constructor(
             archiveError(ArchiveFailure.NO_RECIPES)
         } else {
             val existingNames = recipeRepository.getAllRecipeIdsAndNames().map { it.name.lowercase() }.toSet()
+            // A malformed export could repeat ids, which would crash the LazyColumn
             val items = recipes.distinctBy { it.uid }.map { recipe ->
                 val exists = recipe.name.lowercase() in existingNames
                 ImportSelectionItem(
@@ -227,7 +227,7 @@ class ImportSelectionViewModel @Inject constructor(
         val existingNames = existingRecipes.map { it.name.lowercase() }.toSet()
 
         val items = index
-            .distinctBy { it.id }
+            .distinctBy { it.id } // see parsePaprikaFile
             .map { recipe ->
                 val exists = recipe.id in existingIds || recipe.name.lowercase() in existingNames
                 ImportSelectionItem(
@@ -245,17 +245,6 @@ class ImportSelectionViewModel @Inject constructor(
     } catch (e: Exception) {
         ErrorLog.e(TAG, "Failed to read ZIP contents", e)
         archiveError(ArchiveFailure.UNREADABLE)
-    }
-
-    /**
-     * Check if this is a single-recipe .lorecipes file with a new recipe.
-     * Returns true if auto-import should be used (skip the selection screen).
-     */
-    fun shouldAutoImport(): Boolean {
-        val state = _uiState.value
-        if (state !is ImportSelectionUiState.Ready) return false
-        if (currentImportType != ImportType.LORECIPES) return false
-        return state.items.size == 1 && !state.items[0].alreadyExists
     }
 
     fun toggleItem(itemId: String) {
@@ -281,8 +270,8 @@ class ImportSelectionViewModel @Inject constructor(
     }
 
     /**
-     * Enqueue the import as a WorkManager job; the outcome is delivered through [results].
-     * Repeated calls (double taps, auto-import re-running after recreation) are ignored.
+     * Enqueue the import as a WorkManager job, then emit [ImportSelectionEvent.ImportStarted].
+     * Repeated calls (e.g. double taps) are ignored.
      */
     fun importSelected() {
         if (importStarted) return

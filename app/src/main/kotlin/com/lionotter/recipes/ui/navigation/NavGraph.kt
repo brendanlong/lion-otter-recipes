@@ -150,9 +150,6 @@ fun NavGraph(
                 onEditClick = {
                     navController.navigateFrom(backStackEntry, Route.EditRecipe(recipeId))
                 },
-                onNavigateToSettings = {
-                    navController.navigateFrom(backStackEntry, Route.Settings)
-                },
                 onTagClick = { tag ->
                     if (backStackEntry.isResumed()) {
                         try {

@@ -1,7 +1,6 @@
 package com.lionotter.recipes.ui.screens.importselection
 
 import android.widget.Toast
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
@@ -12,7 +11,6 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.selection.triStateToggleable
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.TriStateCheckbox
-import androidx.compose.runtime.remember
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.foundation.layout.Box
@@ -71,15 +69,7 @@ fun ImportSelectionRoute(
         }
     }
 
-    // Auto-import single new .lorecipes recipes without showing selection screen
-    LaunchedEffect(selectionState) {
-        if (viewModel.shouldAutoImport()) {
-            viewModel.importSelected()
-        }
-    }
-
     ImportSelectionScreen(
-        title = stringResource(R.string.select_recipes_to_import),
         state = selectionState,
         onToggleItem = viewModel::toggleItem,
         onSelectAll = viewModel::selectAll,
@@ -91,11 +81,8 @@ fun ImportSelectionRoute(
 }
 
 /**
- * Shared import selection screen that displays a checklist of recipes
- * found in an import file. Used by Paprika import, .lorecipes file import,
- * and ZIP backup import.
+ * A checklist of the recipes in a recipe export (.lorecipes or Paprika) to choose which to import.
  *
- * @param title The title to display in the top bar
  * @param state The current UI state
  * @param onToggleItem Called when a recipe checkbox is toggled
  * @param onSelectAll Called when "Select All" is tapped
@@ -105,7 +92,6 @@ fun ImportSelectionRoute(
  */
 @Composable
 fun ImportSelectionScreen(
-    title: String,
     state: ImportSelectionUiState,
     onToggleItem: (String) -> Unit,
     onSelectAll: () -> Unit,
@@ -118,7 +104,7 @@ fun ImportSelectionScreen(
         modifier = modifier,
         topBar = {
             RecipeTopAppBar(
-                title = title,
+                title = stringResource(R.string.select_recipes_to_import),
                 onBackClick = onCancelClick
             )
         }
@@ -180,10 +166,9 @@ private fun SelectionContent(
     onImportClick: () -> Unit,
     onCancelClick: () -> Unit
 ) {
-    val uniqueItems = remember(items) { items.distinctBy { it.id } }
-    val selectedCount = uniqueItems.count { it.isSelected }
+    val selectedCount = items.count { it.isSelected }
     val hasSelection = selectedCount > 0
-    val allSelected = selectedCount == uniqueItems.size
+    val allSelected = selectedCount == items.size
     val selectAllState = when {
         allSelected -> ToggleableState.On
         hasSelection -> ToggleableState.Indeterminate
@@ -216,7 +201,7 @@ private fun SelectionContent(
                     .weight(1f)
             )
             Text(
-                text = stringResource(R.string.import_selection_count, selectedCount, uniqueItems.size),
+                text = stringResource(R.string.import_selection_count, selectedCount, items.size),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -230,7 +215,7 @@ private fun SelectionContent(
                 .fillMaxWidth()
                 .testTag(TestTags.IMPORT_SELECTION_LIST)
         ) {
-            items(uniqueItems, key = { it.id }) { item ->
+            items(items, key = { it.id }) { item ->
                 RecipeChecklistItem(
                     item = item,
                     onToggle = { onToggleItem(item.id) }
@@ -284,9 +269,7 @@ private fun RecipeChecklistItem(
         Checkbox(
             checked = item.isSelected,
             onCheckedChange = null,
-            modifier = Modifier
-                .padding(12.dp)
-                .testTag(TestTags.importCheckbox(item.id))
+            modifier = Modifier.padding(12.dp)
         )
         Column(modifier = Modifier.padding(start = 8.dp)) {
             Text(

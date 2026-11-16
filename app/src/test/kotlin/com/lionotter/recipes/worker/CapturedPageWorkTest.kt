@@ -102,7 +102,7 @@ class CapturedPageWorkTest {
 
     private fun regenerateWorker(pageHtmlPath: String?, runAttemptCount: Int = 0) =
         TestListenableWorkerBuilder<RecipeRegenerateWorker>(context)
-            .setInputData(RecipeRegenerateWorker.createInputData("r1", model = null, thinkingEnabled = null, pageHtmlPath))
+            .setInputData(RecipeRegenerateWorker.createInputData("r1", model = null, thinkingEnabled = false, pageHtmlPath))
             .setRunAttemptCount(runAttemptCount)
             .setWorkerFactory(factory)
             .build()

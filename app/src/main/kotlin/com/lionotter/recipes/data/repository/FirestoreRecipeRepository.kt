@@ -83,11 +83,13 @@ class FirestoreRecipeRepository @Inject constructor(
             .flowOn(defaultDispatcher)
             .conflate()
 
-    private fun write(op: DataOp, id: String, block: (uid: String) -> Unit) =
-        authService.writeForCurrentUser(appScope, firestoreService, DataFailure(op, id), block)
-
-    private fun <T> Task<T>.reportFailure(op: DataOp, id: String) =
-        reportFailureTo(firestoreService, DataFailure(op, id))
+    /** Runs [block]'s write for the current user, reporting a failure to start it or of its task as [op]. */
+    private fun write(op: DataOp, id: String, block: (uid: String) -> Task<*>) {
+        val failure = DataFailure(op, id)
+        authService.writeForCurrentUser(appScope, firestoreService, failure) { uid ->
+            block(uid).reportFailureTo(firestoreService, failure)
+        }
+    }
 
     override fun getAllRecipes(): Flow<List<Recipe>> = allRecipesShared
 
@@ -117,32 +119,26 @@ class FirestoreRecipeRepository @Inject constructor(
 
     override fun saveRecipe(recipe: Recipe) = write(DataOp.SAVE_RECIPE, recipe.id) { uid ->
         firestoreService.recipesCollection(uid).document(recipe.id).set(recipe.toDto())
-            .reportFailure(DataOp.SAVE_RECIPE, recipe.id)
     }
 
     /** Only the document: the recipe's image is released by `DeleteRecipeUseCase`. */
     override fun deleteRecipe(id: String) = write(DataOp.DELETE_RECIPE, id) { uid ->
         firestoreService.recipesCollection(uid).document(id).delete()
-            .reportFailure(DataOp.DELETE_RECIPE, id)
     }
 
     override fun setFavorite(id: String, isFavorite: Boolean) = write(DataOp.UPDATE_FAVORITE, id) { uid ->
         firestoreService.recipesCollection(uid).document(id)
             .update(RecipeFields.IS_FAVORITE, isFavorite)
-            .reportFailure(DataOp.UPDATE_FAVORITE, id)
     }
 
     override fun setUserNotes(id: String, userNotes: String?) = write(DataOp.UPDATE_NOTES, id) { uid ->
         firestoreService.recipesCollection(uid).document(id)
             .update(RecipeFields.USER_NOTES, userNotes)
-            .reportFailure(DataOp.UPDATE_NOTES, id)
     }
 
     /** Also points the recipe's meal plans (which keep a copy of the image URL) at the new image. */
     override fun setImageUrl(id: String, imageUrl: String?) = write(DataOp.UPDATE_IMAGE, id) { uid ->
-        firestoreService.recipesCollection(uid).document(id)
-            .update(RecipeFields.IMAGE_URL, imageUrl)
-            .reportFailure(DataOp.UPDATE_IMAGE, id)
+        val update = firestoreService.recipesCollection(uid).document(id).update(RecipeFields.IMAGE_URL, imageUrl)
         firestoreService.mealPlansCollection(uid)
             .whereEqualTo(MealPlanFields.RECIPE_ID, id)
             .get()
@@ -153,12 +149,12 @@ class FirestoreRecipeRepository @Inject constructor(
                 }
             }
             .addOnFailureListener { e -> Log.w(TAG, "Failed to update meal plan images for recipe $id", e) }
+        update
     }
 
     override fun setImagePrompt(id: String, imagePrompt: String?) = write(DataOp.UPDATE_RECIPE, id) { uid ->
         firestoreService.recipesCollection(uid).document(id)
             .update(RecipeFields.IMAGE_PROMPT, imagePrompt)
-            .reportFailure(DataOp.UPDATE_RECIPE, id)
     }
 
     override fun updateTitleAndUrl(id: String, name: String, sourceUrl: String?) = write(DataOp.UPDATE_RECIPE, id) { uid ->
@@ -168,13 +164,11 @@ class FirestoreRecipeRepository @Inject constructor(
         )
         firestoreService.recipesCollection(uid).document(id)
             .update(updates)
-            .reportFailure(DataOp.UPDATE_RECIPE, id)
     }
 
     override fun setTags(id: String, tags: List<String>) = write(DataOp.UPDATE_TAGS, id) { uid ->
         firestoreService.recipesCollection(uid).document(id)
             .update(RecipeFields.TAGS, tags)
-            .reportFailure(DataOp.UPDATE_TAGS, id)
     }
 
     /** @throws Exception if recipes could not be read */

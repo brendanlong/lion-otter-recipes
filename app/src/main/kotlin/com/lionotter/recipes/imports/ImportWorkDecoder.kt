@@ -4,6 +4,7 @@ import androidx.work.WorkInfo
 import com.lionotter.recipes.data.local.PendingImportEntity
 import com.lionotter.recipes.data.local.PendingImportStatus
 import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.worker.FailureOutcome
 import com.lionotter.recipes.worker.PaprikaImportWork
 import com.lionotter.recipes.worker.PaprikaImportWorker
 import com.lionotter.recipes.worker.RecipeImportWork
@@ -27,38 +28,13 @@ internal object ImportWorkDecoder {
         val durableStatus: PendingImportStatus? = null
     )
 
-    private sealed interface Decoded {
-        data class Url(val progress: RecipeImportWork.Progress?, val outcome: RecipeImportWork.Outcome?) : Decoded
-        data class Paprika(val progress: PaprikaImportWork.Progress?, val outcome: PaprikaImportWork.Outcome?) :
-            Decoded
-        data class Zip(val progress: ZipImportWork.Progress?, val outcome: ZipImportWork.Outcome?) : Decoded
-    }
-
-    private fun decode(info: WorkInfo): Decoded? {
-        val finished = info.state == WorkInfo.State.SUCCEEDED || info.state == WorkInfo.State.FAILED
-        val succeeded = info.state == WorkInfo.State.SUCCEEDED
-        return when {
-            RecipeImportWorker.TAG_RECIPE_IMPORT in info.tags -> Decoded.Url(
-                RecipeImportWork.decodeProgress(info.progress),
-                if (finished) RecipeImportWork.decodeOutcome(succeeded, info.outputData) else null
-            )
-            PaprikaImportWorker.TAG_PAPRIKA_IMPORT in info.tags -> Decoded.Paprika(
-                PaprikaImportWork.decodeProgress(info.progress),
-                if (finished) PaprikaImportWork.decodeOutcome(succeeded, info.outputData) else null
-            )
-            ZipImportWorker.TAG_ZIP_IMPORT in info.tags -> Decoded.Zip(
-                ZipImportWork.decodeProgress(info.progress),
-                if (finished) ZipImportWork.decodeOutcome(succeeded, info.outputData) else null
-            )
-            else -> null
-        }
-    }
-
-    fun progress(info: WorkInfo): Progress? = when (val decoded = decode(info)) {
-        is Decoded.Url -> decoded.progress?.let(::urlProgress)
-        is Decoded.Paprika -> decoded.progress?.let(::paprikaProgress)
-        is Decoded.Zip -> decoded.progress?.let(::zipProgress)
-        null -> null
+    fun progress(info: WorkInfo): Progress? = when {
+        RecipeImportWorker.TAG_RECIPE_IMPORT in info.tags ->
+            RecipeImportWork.decodeProgress(info.progress)?.let(::urlProgress)
+        PaprikaImportWorker.TAG_PAPRIKA_IMPORT in info.tags ->
+            PaprikaImportWork.decodeProgress(info.progress)?.let(::paprikaProgress)
+        ZipImportWorker.TAG_ZIP_IMPORT in info.tags -> ZipImportWork.decodeProgress(info.progress)?.let(::zipProgress)
+        else -> null
     }
 
     private fun urlProgress(progress: RecipeImportWork.Progress) = when (progress) {
@@ -113,30 +89,27 @@ internal object ImportWorkDecoder {
 
     /** The state of finished work, or null if [info] isn't finished (or a Paprika step continued). */
     fun finishedState(info: WorkInfo): ImportState? {
-        if (info.state == WorkInfo.State.CANCELLED) return ImportState.Cancelled
-        return when (val decoded = decode(info)) {
-            is Decoded.Url -> when (val outcome = decoded.outcome) {
-                is RecipeImportWork.Outcome.Success -> ImportState.Succeeded(outcome.recipeId)
-                is RecipeImportWork.Outcome.Failed -> ImportState.Failed(outcome.error)
-                null -> null
-            }
-            is Decoded.Paprika -> when (val outcome = decoded.outcome) {
-                is PaprikaImportWork.Outcome.Success -> ImportState.Succeeded(recipeId = null)
-                is PaprikaImportWork.Outcome.Continued -> null
-                is PaprikaImportWork.Outcome.Failed -> ImportState.Failed(outcome.error)
-                null -> null
-            }
-            is Decoded.Zip -> when (val outcome = decoded.outcome) {
-                is ZipImportWork.Outcome.Success -> ImportState.Succeeded(recipeId = null)
-                is ZipImportWork.Outcome.Failed -> ImportState.Failed(outcome.error)
-                null -> null
-            }
+        val succeeded = when (info.state) {
+            WorkInfo.State.CANCELLED -> return ImportState.Cancelled
+            WorkInfo.State.SUCCEEDED -> true
+            WorkInfo.State.FAILED -> false
+            else -> return null
+        }
+        val outcome = when {
+            RecipeImportWorker.TAG_RECIPE_IMPORT in info.tags ->
+                RecipeImportWork.decodeOutcome(succeeded, info.outputData)
+            PaprikaImportWorker.TAG_PAPRIKA_IMPORT in info.tags ->
+                PaprikaImportWork.decodeOutcome(succeeded, info.outputData)
+            ZipImportWorker.TAG_ZIP_IMPORT in info.tags -> ZipImportWork.decodeOutcome(succeeded, info.outputData)
+            else -> null
+        }
+        return when (outcome) {
+            is FailureOutcome -> ImportState.Failed(outcome.error)
+            is RecipeImportWork.Outcome.Success -> ImportState.Succeeded(outcome.recipeId)
+            is PaprikaImportWork.Outcome.Continued -> null
+            is PaprikaImportWork.Outcome.Success, is ZipImportWork.Outcome.Success -> ImportState.Succeeded(recipeId = null)
             // Untagged work (shouldn't happen): still report how it finished.
-            null -> when (info.state) {
-                WorkInfo.State.SUCCEEDED -> ImportState.Succeeded(recipeId = null)
-                WorkInfo.State.FAILED -> ImportState.Failed(RecipeError.Unexpected)
-                else -> null
-            }
+            else -> if (succeeded) ImportState.Succeeded(recipeId = null) else ImportState.Failed(RecipeError.Unexpected)
         }
     }
 

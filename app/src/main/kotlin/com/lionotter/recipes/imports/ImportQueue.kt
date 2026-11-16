@@ -4,10 +4,10 @@ import android.util.Log
 import androidx.work.OneTimeWorkRequest
 import androidx.work.WorkManager
 import com.lionotter.recipes.data.local.LocalDataScope
+import com.lionotter.recipes.data.local.PendingImportDao
 import com.lionotter.recipes.data.local.PendingImportEntity
 import com.lionotter.recipes.data.local.PendingImportStatus
 import com.lionotter.recipes.data.local.PerUserLocalData
-import com.lionotter.recipes.data.repository.PendingImportRepository
 import com.lionotter.recipes.di.ApplicationScope
 import com.lionotter.recipes.domain.ArchiveFailure
 import com.lionotter.recipes.domain.ImportFileFailure
@@ -53,7 +53,7 @@ import kotlin.time.Clock
 @Singleton
 class ImportQueue @Inject constructor(
     private val workManager: WorkManager,
-    private val pendingImportRepository: PendingImportRepository,
+    private val pendingImportDao: PendingImportDao,
     @param:ApplicationScope private val appScope: CoroutineScope,
     private val scheduler: RecipeWorkScheduler,
     private val inputStore: ImportInputStore,
@@ -77,7 +77,7 @@ class ImportQueue @Inject constructor(
     }
 
     private suspend fun insertPendingImport(id: String, name: String?, url: String, workManagerId: String) {
-        pendingImportRepository.insertPendingImport(
+        pendingImportDao.insertPendingImport(
             PendingImportEntity(
                 id = id,
                 url = url,
@@ -100,7 +100,7 @@ class ImportQueue @Inject constructor(
      */
     suspend fun startUrlImport(url: String, pageHtmlPath: String? = null): StartedImport = withContext(NonCancellable) {
         startMutex.withLock {
-            val candidates = pendingImportRepository.getAllPendingImports().first().filter {
+            val candidates = pendingImportDao.getAllPendingImports().first().filter {
                 it.url == url && it.status != PendingImportStatus.FAILED
             }
             for (existing in candidates) {
@@ -113,7 +113,7 @@ class ImportQueue @Inject constructor(
             }
 
             val importId = UUID.randomUUID().toString()
-            val request = scheduler.buildUrlImportRequest(url, importId)
+            val request = scheduler.buildRecipeImportRequest(importId, url)
             var inserted = false
             try {
                 if (pageHtmlPath != null) {
@@ -125,7 +125,7 @@ class ImportQueue @Inject constructor(
                 scheduler.enqueueImport(importId, request)
             } catch (e: Exception) {
                 ErrorLog.e(TAG, "Failed to start URL import $importId", e)
-                if (inserted) pendingImportRepository.deletePendingImport(importId)
+                if (inserted) pendingImportDao.deletePendingImport(importId)
                 inputStore.deleteImport(importId)
                 pageHtmlPath?.let(inputStore::deleteWorkText)
                 throw e
@@ -180,7 +180,7 @@ class ImportQueue @Inject constructor(
                 scheduler.enqueueImport(importId, request)
             } catch (e: Exception) {
                 ErrorLog.e(TAG, "Failed to enqueue ${kind.value} import $importId", e)
-                pendingImportRepository.deletePendingImport(importId)
+                pendingImportDao.deletePendingImport(importId)
                 throw e
             }
             StartedImport(importId, request.id)
@@ -188,10 +188,10 @@ class ImportQueue @Inject constructor(
     }
 
     private fun buildRequest(importId: String, kind: ImportKind, url: String): OneTimeWorkRequest = when (kind) {
-        ImportKind.URL -> scheduler.buildUrlImportRequest(url, importId)
+        ImportKind.URL -> scheduler.buildRecipeImportRequest(importId, url)
         ImportKind.PAPRIKA -> scheduler.buildPaprikaImportRequest(importId)
         ImportKind.ZIP -> scheduler.buildZipImportRequest(importId)
-        ImportKind.TEXT_FILE, ImportKind.HTML_FILE, ImportKind.IMAGE_FILE, ImportKind.PDF_FILE -> scheduler.buildRecipeFileImportRequest(importId)
+        ImportKind.TEXT_FILE, ImportKind.HTML_FILE, ImportKind.IMAGE_FILE, ImportKind.PDF_FILE -> scheduler.buildRecipeImportRequest(importId)
     }
 
     /**
@@ -232,7 +232,7 @@ class ImportQueue @Inject constructor(
             throw RecipeErrorException(RecipeError.ImportFile(ImportFileFailure.UNREADABLE), e)
         }
         startMutex.withLock {
-            val request = scheduler.buildRecipeFileImportRequest(importId)
+            val request = scheduler.buildRecipeImportRequest(importId)
             var inserted = false
             try {
                 insertPendingImport(importId, first.displayName, url = "", workManagerId = request.id.toString())
@@ -240,7 +240,7 @@ class ImportQueue @Inject constructor(
                 scheduler.enqueueImport(importId, request)
             } catch (e: Exception) {
                 ErrorLog.e(TAG, "Failed to start recipe file import $importId", e)
-                if (inserted) pendingImportRepository.deletePendingImport(importId)
+                if (inserted) pendingImportDao.deletePendingImport(importId)
                 inputStore.deleteImport(importId)
                 throw e
             }
@@ -253,24 +253,24 @@ class ImportQueue @Inject constructor(
         launchSafely("retry import $id") {
             withContext(NonCancellable) {
                 try {
-                    val entity = pendingImportRepository.getPendingImportById(id) ?: return@withContext
+                    val entity = pendingImportDao.getPendingImportById(id) ?: return@withContext
                     // URL imports have no staged files
                     val kind = (if (inputStore.hasImport(id)) inputStore.readKind(id) else null)
                         ?: ImportKind.URL.takeIf { entity.url.isNotBlank() }
                     if (kind == null) {
                         Log.w(TAG, "Import $id has no inputs to retry with")
-                        pendingImportRepository.updateStatusWithError(id, PendingImportStatus.FAILED, RecipeError.CannotRetry)
+                        pendingImportDao.updateStatusWithError(id, PendingImportStatus.FAILED, RecipeError.CannotRetry)
                         return@withContext
                     }
                     val request = buildRequest(id, kind, entity.url)
-                    pendingImportRepository.updateWorkManagerId(id, request.id.toString())
-                    pendingImportRepository.updateStatusWithError(id, PendingImportStatus.PENDING, null)
+                    pendingImportDao.updateWorkManagerId(id, request.id.toString())
+                    pendingImportDao.updateStatusWithError(id, PendingImportStatus.PENDING, null)
                     scheduler.enqueueImport(id, request)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
                     ErrorLog.e(TAG, "Failed to retry import $id", e)
-                    pendingImportRepository.updateStatusWithError(id, PendingImportStatus.FAILED, RecipeError.Unexpected)
+                    pendingImportDao.updateStatusWithError(id, PendingImportStatus.FAILED, RecipeError.Unexpected)
                 }
             }
         }
@@ -287,7 +287,7 @@ class ImportQueue @Inject constructor(
 
     /** Cancels the work of every import, so none saves recipes into the next account. */
     override suspend fun stopBackgroundWork() {
-        pendingImportRepository.getAllPendingImports().first().forEach { cancelWork(it) }
+        pendingImportDao.getAllPendingImports().first().forEach { cancelWork(it) }
     }
 
     /**
@@ -299,12 +299,12 @@ class ImportQueue @Inject constructor(
      */
     override suspend fun clearUserData() {
         startMutex.withLock {
-            val rows = pendingImportRepository.getAllPendingImports().first()
+            val rows = pendingImportDao.getAllPendingImports().first()
             val failures = coroutineScope {
                 rows.map { row -> async { runCleanupStep("cancel import ${row.id}") { cancelAndCleanUp(row.id) } } }
                     .awaitAll()
             }.toMutableList()
-            failures += runCleanupStep("delete the import queue") { pendingImportRepository.deleteAll() }
+            failures += runCleanupStep("delete the import queue") { pendingImportDao.deleteAll() }
             failures += runCleanupStep("delete the import files") { inputStore.deleteAllImports() }
             failures.firstOrNull { it != null }?.let { throw it }
         }
@@ -328,7 +328,7 @@ class ImportQueue @Inject constructor(
     }
 
     private suspend fun cancelAndCleanUp(id: String) {
-        val entity = pendingImportRepository.getPendingImportById(id)
+        val entity = pendingImportDao.getPendingImportById(id)
         if (entity != null) {
             cancelWork(entity)
         } else {
@@ -351,7 +351,7 @@ class ImportQueue @Inject constructor(
             }
             inputStore.deleteImport(id)
         }
-        pendingImportRepository.deletePendingImport(id)
+        pendingImportDao.deletePendingImport(id)
     }
 
     private fun parseUuid(value: String): UUID? = try {
@@ -376,7 +376,7 @@ class ImportQueue @Inject constructor(
 
     private fun cleanupOrphanedFiles() {
         launchSafely("clean up orphaned import files") {
-            val activeIds = pendingImportRepository.getAllPendingImports().first().map { it.id }.toSet()
+            val activeIds = pendingImportDao.getAllPendingImports().first().map { it.id }.toSet()
             inputStore.cleanupOrphans(activeIds)
         }
     }
@@ -389,7 +389,7 @@ class ImportQueue @Inject constructor(
     private fun reconcileWithWorkManager() {
         launchSafely("reconcile imports with WorkManager") {
             startMutex.withLock {
-                pendingImportRepository.getAllPendingImports().first()
+                pendingImportDao.getAllPendingImports().first()
                     .filter { it.status != PendingImportStatus.FAILED }
                     .forEach { entity ->
                         try {

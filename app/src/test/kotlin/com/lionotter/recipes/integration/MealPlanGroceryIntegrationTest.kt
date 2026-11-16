@@ -107,7 +107,7 @@ class MealPlanGroceryIntegrationTest : FirestoreIntegrationTest() {
     // -----------------------------------------------------------------------
 
     @Test
-    fun `update meal plan persists changes`() = runTest {
+    fun `saving an existing meal plan persists changes`() = runTest {
         val entry = createMealPlanEntry(
             id = "mp-1",
             recipeId = "r1",
@@ -118,7 +118,7 @@ class MealPlanGroceryIntegrationTest : FirestoreIntegrationTest() {
         pumpLooper()
 
         val updated = entry.copy(servings = 4.0, updatedAt = Instant.fromEpochMilliseconds(1700000001000))
-        mealPlanRepository.updateMealPlan(updated)
+        mealPlanRepository.saveMealPlan(updated)
         pumpLooper()
 
         // Verify via date range flow
@@ -149,14 +149,14 @@ class MealPlanGroceryIntegrationTest : FirestoreIntegrationTest() {
         )
         pumpLooper()
 
-        assertEquals(2, runSuspending { mealPlanRepository.countMealPlansByRecipeId("r1") })
+        assertEquals(2, runSuspending { mealPlanRepository.countMealPlansByRecipeIds(listOf("r1")) })
 
         runSuspending { mealPlanRepository.deleteMealPlansByRecipeId("r1") }
         pumpLooper()
 
-        assertEquals(0, runSuspending { mealPlanRepository.countMealPlansByRecipeId("r1") })
+        assertEquals(0, runSuspending { mealPlanRepository.countMealPlansByRecipeIds(listOf("r1")) })
         // Other recipe's meal plans should still exist
-        assertEquals(1, runSuspending { mealPlanRepository.countMealPlansByRecipeId("r2") })
+        assertEquals(1, runSuspending { mealPlanRepository.countMealPlansByRecipeIds(listOf("r2")) })
     }
 
     // -----------------------------------------------------------------------

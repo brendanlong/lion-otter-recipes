@@ -25,13 +25,10 @@ object Pluralizer {
      *
      * @param word The word to pluralize
      * @param count How many of the word exist
-     * @param inclusive Whether to prefix with the number (e.g. "3 ducks")
      * @return The pluralized or singularized word
      */
-    fun pluralize(word: String, count: Int = 2, inclusive: Boolean = false): String {
-        val result = if (count == 1) singular(word) else plural(word)
-        return if (inclusive) "$count $result" else result
-    }
+    fun pluralize(word: String, count: Int = 2): String =
+        if (count == 1) singular(word) else plural(word)
 
     /**
      * Pluralize a word.
@@ -45,26 +42,6 @@ object Pluralizer {
      */
     fun singular(word: String): String {
         return replaceWord(word, irregularPlurals, irregularSingles, singularRules)
-    }
-
-    /**
-     * Check if a word is plural.
-     */
-    fun isPlural(word: String): Boolean {
-        val token = word.lowercase()
-        if (irregularPlurals.containsKey(token)) return true
-        if (irregularSingles.containsKey(token)) return false
-        return checkWord(token, pluralRules)
-    }
-
-    /**
-     * Check if a word is singular.
-     */
-    fun isSingular(word: String): Boolean {
-        val token = word.lowercase()
-        if (irregularSingles.containsKey(token)) return true
-        if (irregularPlurals.containsKey(token)) return false
-        return checkWord(token, singularRules)
     }
 
     private fun replaceWord(
@@ -90,11 +67,6 @@ object Pluralizer {
 
         // Run all the rules against the word
         return sanitizeWord(token, word, rules)
-    }
-
-    private fun checkWord(token: String, rules: List<Pair<Regex, String>>): Boolean {
-        if (uncountables.contains(token)) return true
-        return sanitizeWord(token, token, rules) == token
     }
 
     private fun sanitizeWord(
@@ -339,8 +311,8 @@ object Pluralizer {
 /**
  * Extension function to pluralize a string.
  */
-fun String.pluralize(count: Int = 2, inclusive: Boolean = false): String {
-    return Pluralizer.pluralize(this, count, inclusive)
+fun String.pluralize(count: Int = 2): String {
+    return Pluralizer.pluralize(this, count)
 }
 
 /**

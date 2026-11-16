@@ -1,6 +1,5 @@
 package com.lionotter.recipes.data.ai
 
-import android.util.Log
 import com.lionotter.recipes.domain.AiFailure
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.port.RecipeImageGenerator
@@ -14,12 +13,9 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
-import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
-import java.io.IOException
 import java.util.Base64
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -31,39 +27,27 @@ import javax.inject.Singleton
 @Singleton
 class OpenAiImageGenerator @Inject constructor(
     private val httpClient: HttpClient,
-    private val json: Json
+    private val json: Json,
+    private val responses: OpenAiResponses
 ) : RecipeImageGenerator {
 
-    override suspend fun generate(prompt: String, model: String, apiKey: String): Outcome<ByteArray> = try {
-        val response = httpClient.post(ENDPOINT) {
-            bearerAuth(apiKey)
-            contentType(ContentType.Application.Json)
-            setBody(json.encodeToString(ImageRequest(prompt, model, SIZE, QUALITY, FORMAT, COMPRESSION, n = 1)))
-            timeout { requestTimeoutMillis = TIMEOUT_MILLIS; socketTimeoutMillis = TIMEOUT_MILLIS }
-        }
-        val body = response.bodyAsText()
-        if (response.status.isSuccess()) {
-            val image = json.decodeFromString<ImageResponse>(body).data.firstOrNull()?.b64Json
+    override suspend fun generate(prompt: String, model: String, apiKey: String): Outcome<ByteArray> =
+        responses.call("Image generation") {
+            val response = httpClient.post(ENDPOINT) {
+                bearerAuth(apiKey)
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(ImageRequest(prompt, model, SIZE, QUALITY, FORMAT, COMPRESSION, n = 1)))
+                timeout { requestTimeoutMillis = TIMEOUT_MILLIS; socketTimeoutMillis = TIMEOUT_MILLIS }
+            }
+            if (!response.status.isSuccess()) return@call responses.errorOf(response)
+            val image = json.decodeFromString<ImageResponse>(response.bodyAsText()).data.firstOrNull()?.b64Json
             if (image.isNullOrEmpty()) {
                 ErrorLog.w(TAG, "The image response has no image")
                 Outcome.Failure(OpenAiErrors.error(AiFailure.EMPTY_RESPONSE))
             } else {
                 decode(image)
             }
-        } else {
-            val error = OpenAiErrors.forResponse(json, response.status, body)
-            Log.w(TAG, "Image generation failed: HTTP ${response.status.value} (${error.reason})")
-            Outcome.Failure(error)
         }
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: IOException) {
-        Log.w(TAG, "Image generation request failed", e)
-        Outcome.Failure(OpenAiErrors.error(AiFailure.NETWORK))
-    } catch (e: SerializationException) {
-        ErrorLog.e(TAG, "Couldn't read the image response", e)
-        Outcome.Failure(OpenAiErrors.error(AiFailure.UNREADABLE_RESPONSE))
-    }
 
     private fun decode(base64: String): Outcome<ByteArray> = try {
         Outcome.Success(Base64.getDecoder().decode(base64))

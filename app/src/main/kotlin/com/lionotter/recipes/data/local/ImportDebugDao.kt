@@ -31,12 +31,6 @@ data class ImportDebugSummary(
 
 @Dao
 interface ImportDebugDao {
-    @Query("SELECT * FROM import_debug ORDER BY createdAt DESC")
-    fun getAllDebugEntries(): Flow<List<ImportDebugEntity>>
-
-    @Query("SELECT * FROM import_debug WHERE id = :id")
-    suspend fun getDebugEntryById(id: String): ImportDebugEntity?
-
     @Query(
         "SELECT id, sourceUrl, originalLength, cleanedLength, inputTokens, outputTokens, aiModel, " +
             "thinkingEnabled, recipeId, recipeName, errorMessage, isError, durationMs, createdAt, " +

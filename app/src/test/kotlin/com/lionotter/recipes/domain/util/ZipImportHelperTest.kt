@@ -65,7 +65,7 @@ class ZipImportHelperTest {
         return out.toByteArray()
     }
 
-    private fun recipeJson(recipe: Recipe) = serializer.serializeRecipe(recipe).recipeJson.toByteArray()
+    private fun recipeJson(recipe: Recipe) = serializer.serializeRecipe(recipe).toByteArray()
 
     private fun sampleZip(): ByteArray {
         val a = recipe("id-a", "Pancakes")

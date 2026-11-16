@@ -3,12 +3,9 @@ package com.lionotter.recipes.worker
 import android.content.Context
 import android.util.Log
 import androidx.hilt.work.HiltWorker
-import androidx.work.BackoffPolicy
-import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
-import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -27,7 +24,6 @@ import com.lionotter.recipes.worker.ImageGenerationFailures.error
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.CancellationException
-import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Provider
 
@@ -67,8 +63,7 @@ class RecipeImageWorker @AssistedInject constructor(
             val request = OneTimeWorkRequestBuilder<RecipeImageWorker>()
                 .setInputData(createInputData(recipeId, prompt, replaceImage))
                 .addTag(TAG_RECIPE_IMAGE)
-                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                .withNetworkAndBackoff()
                 .build()
             // A chain whose last work failed or was cancelled is replaced by a new one
             workManager.enqueueUniqueWork(QUEUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request).await()
@@ -113,10 +108,10 @@ class RecipeImageWorker @AssistedInject constructor(
         ErrorLog.w(TAG, "Image generation failed: ${error.logDescription()}")
         val accountProblem = ImageGenerationFailures.isAccountProblem(error)
         val resources = applicationContext.resources
-        notificationHelper.showErrorNotification(
+        notificationHelper.showResultNotification(
             key = if (accountProblem) ImageGenerationFailures.ACCOUNT_PROBLEM_NOTIFICATION_KEY else "recipe-image-$recipeId",
             title = resources.getString(R.string.image_generation_failed_title),
-            errorMessage = ImageGenerationFailures.message(resources, error)
+            message = ImageGenerationFailures.message(resources, error)
         )
         return if (accountProblem) Result.failure() else Result.success()
     }

@@ -4,9 +4,9 @@ import android.util.Log
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkQuery
+import com.lionotter.recipes.data.local.PendingImportDao
 import com.lionotter.recipes.data.local.PendingImportEntity
 import com.lionotter.recipes.data.local.PendingImportStatus
-import com.lionotter.recipes.data.repository.PendingImportRepository
 import com.lionotter.recipes.di.ApplicationScope
 import com.lionotter.recipes.domain.RecipeError
 import com.lionotter.recipes.util.ErrorLog
@@ -41,7 +41,7 @@ import javax.inject.Singleton
 @Singleton
 class ImportMonitor @Inject constructor(
     private val workManager: WorkManager,
-    private val pendingImportRepository: PendingImportRepository,
+    private val pendingImportDao: PendingImportDao,
     @param:ApplicationScope private val appScope: CoroutineScope
 ) {
     companion object {
@@ -59,7 +59,7 @@ class ImportMonitor @Inject constructor(
 
     /** Running and failed imports, keyed by import ID, in queue order. */
     val inProgressRecipes: StateFlow<Map<String, InProgressRecipe>> =
-        combine(pendingImportRepository.getAllPendingImports(), importWorkInfos) { rows, infos ->
+        combine(pendingImportDao.getAllPendingImports(), importWorkInfos) { rows, infos ->
             val infosById = infos.associateBy { it.id.toString() }
             rows.mapNotNull { row -> ImportWorkDecoder.inProgressRecipe(row, infosById[row.workManagerId]) }
                 .associateBy { it.id }
@@ -81,7 +81,7 @@ class ImportMonitor @Inject constructor(
      * after the row has been removed (e.g. [ImportState.Succeeded] with the new recipe's ID).
      */
     fun importState(importId: String): Flow<ImportState> {
-        val row = pendingImportRepository.getAllPendingImports()
+        val row = pendingImportDao.getAllPendingImports()
             .map { rows -> rows.firstOrNull { it.id == importId } }
         val work = workManager.getWorkInfosForUniqueWorkFlow(RecipeWorkScheduler.importWorkName(importId))
         return combine(row, work) { row, infos ->
@@ -100,7 +100,7 @@ class ImportMonitor @Inject constructor(
     internal suspend fun reconcile(row: PendingImportEntity, workInfo: WorkInfo?) {
         if (workInfo == null) {
             Log.w(TAG, "Work for import ${row.id} no longer exists; marking it failed")
-            pendingImportRepository.updateStatusWithError(row.id, PendingImportStatus.FAILED, RecipeError.Interrupted)
+            pendingImportDao.updateStatusWithError(row.id, PendingImportStatus.FAILED, RecipeError.Interrupted)
         } else if (workInfo.state.isFinished) {
             sync(row, workInfo)
         }
@@ -109,7 +109,7 @@ class ImportMonitor @Inject constructor(
     private fun mirrorWorkIntoRows() {
         appScope.launch {
             try {
-                combine(pendingImportRepository.getAllPendingImports(), importWorkInfos) { rows, infos ->
+                combine(pendingImportDao.getAllPendingImports(), importWorkInfos) { rows, infos ->
                     val infosById = infos.associateBy { it.id.toString() }
                     rows.mapNotNull { row -> infosById[row.workManagerId]?.let { row to it } }
                 }.collect { pairs ->
@@ -139,7 +139,7 @@ class ImportMonitor @Inject constructor(
      * re-read and left alone once it points at other work (a Paprika continuation, or a retry).
      */
     private suspend fun sync(snapshot: PendingImportEntity, info: WorkInfo) {
-        val row = pendingImportRepository.getPendingImportById(snapshot.id) ?: return
+        val row = pendingImportDao.getPendingImportById(snapshot.id) ?: return
         if (row.workManagerId != info.id.toString()) return
         when (info.state) {
             WorkInfo.State.RUNNING -> {
@@ -148,7 +148,7 @@ class ImportMonitor @Inject constructor(
                 val imageUrl = progress.durableImageUrl ?: row.imageUrl
                 val status = progress.durableStatus ?: row.status
                 if (name != row.name || imageUrl != row.imageUrl || status != row.status) {
-                    pendingImportRepository.updateMetadata(row.id, name, imageUrl, status)
+                    pendingImportDao.updateMetadata(row.id, name, imageUrl, status)
                 }
             }
             // Waiting to retry after a transient failure; clear any stage left by an older app version.
@@ -157,14 +157,14 @@ class ImportMonitor @Inject constructor(
                 row.status != PendingImportStatus.WAITING_FOR_BATCH &&
                 row.status != PendingImportStatus.FAILED
             ) {
-                pendingImportRepository.updateStatus(row.id, PendingImportStatus.PENDING)
+                pendingImportDao.updateStatus(row.id, PendingImportStatus.PENDING)
             }
             WorkInfo.State.SUCCEEDED, WorkInfo.State.CANCELLED ->
                 // A Paprika step that continued (finishedState == null) isn't the end of the import.
-                if (ImportWorkDecoder.finishedState(info) != null) pendingImportRepository.deletePendingImport(row.id)
+                if (ImportWorkDecoder.finishedState(info) != null) pendingImportDao.deletePendingImport(row.id)
             WorkInfo.State.FAILED -> if (row.status != PendingImportStatus.FAILED) {
                 val failure = ImportWorkDecoder.finishedState(info) as? ImportState.Failed
-                pendingImportRepository.updateStatusWithError(
+                pendingImportDao.updateStatusWithError(
                     row.id,
                     PendingImportStatus.FAILED,
                     failure?.error ?: RecipeError.Unexpected

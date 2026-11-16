@@ -5,10 +5,10 @@ import kotlinx.serialization.Serializable
 
 /**
  * Where a Paprika import is. [PaprikaImportSteps.resume] derives the state from the import's
- * files ([PaprikaImportStateStore]) and [PaprikaImportSteps.advance] moves it one step:
+ * files ([PaprikaImportStateStore]) and [PaprikaImportSteps.run] moves it forward:
  *
  * ```
- * Preparing ──> Submitted ──> Polling ⟲ ──> SavingResults ──> Done
+ * Preparing ──> Polling ⟲ ──> SavingResults ──> Done
  *     │                          │      <──(results not readable yet)
  *     └──> Done (one recipe, parsed directly)    any step ──> Failed
  * ```
@@ -16,9 +16,6 @@ import kotlinx.serialization.Serializable
 sealed interface PaprikaImportState {
     /** Nothing submitted yet: read the export, then parse one recipe directly or submit a batch. */
     data object Preparing : PaprikaImportState
-
-    /** The batch was just created and its state saved; poll it later. */
-    data class Submitted(val batchId: String) : PaprikaImportState
 
     /** Waiting for the batch to end; poll it later. */
     data class Polling(val batch: PaprikaBatch) : PaprikaImportState
@@ -32,27 +29,15 @@ sealed interface PaprikaImportState {
     data class Failed(val error: RecipeError, val allowRetry: Boolean = true) : PaprikaImportState
 }
 
-data class PaprikaImportSummary(
-    val importedCount: Int,
-    val failedCount: Int,
-    val failedRecipes: List<String> = emptyList()
-)
+data class PaprikaImportSummary(val importedCount: Int, val failedRecipes: List<String> = emptyList()) {
+    val failedCount: Int get() = failedRecipes.size
+}
 
 sealed interface PaprikaImportProgress {
     data object Parsing : PaprikaImportProgress
     data class SubmittingBatch(val total: Int) : PaprikaImportProgress
-    data class WaitingForBatch(
-        val total: Int,
-        val succeeded: Int = 0,
-        val processing: Int = 0
-    ) : PaprikaImportProgress
-    data class ImportingRecipe(
-        val recipeName: String,
-        val current: Int,
-        val total: Int,
-        val importedSoFar: Int = 0,
-        val failedSoFar: Int = 0
-    ) : PaprikaImportProgress
+    data class WaitingForBatch(val total: Int, val succeeded: Int = 0) : PaprikaImportProgress
+    data class ImportingRecipe(val recipeName: String, val current: Int, val total: Int) : PaprikaImportProgress
 }
 
 /**

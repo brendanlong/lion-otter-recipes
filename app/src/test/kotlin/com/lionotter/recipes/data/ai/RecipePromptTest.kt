@@ -67,12 +67,11 @@ class RecipePromptTest {
         AiProviders.ANTHROPIC.models.map { it.id }.forEach { model ->
             listOf(true, false).forEach { enabled ->
                 val config = RecipeRequests.requestConfigFor(model, enabled)
-                assertTrue(config.toOutputConfig().effort().isPresent)
-                assertTrue(config.toOutputConfig().format().isPresent)
+                assertTrue(config.toOutputConfig(RecipeRequests.outputFormat).effort().isPresent)
+                assertTrue(config.toOutputConfig(RecipeRequests.outputFormat).format().isPresent)
                 assertTrue(config.toBetaOutputConfig().effort().isPresent)
                 assertTrue(config.toBetaOutputConfig().format().isPresent)
             }
-            assertTrue(RecipeRequests.supportsServerSideFallback(model))
         }
     }
 

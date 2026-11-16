@@ -63,8 +63,8 @@ class PaprikaImportStepsTest {
 
     private companion object {
         const val IMPORT_ID = "import-1"
-        val RUNNING = Outcome.Success(BatchStatus(ended = false, succeeded = 0, processing = 3))
-        val ENDED = Outcome.Success(BatchStatus(ended = true, succeeded = 3, processing = 0))
+        val RUNNING = Outcome.Success(BatchStatus(ended = false, succeeded = 0))
+        val ENDED = Outcome.Success(BatchStatus(ended = true, succeeded = 3))
     }
 
     private fun exportRecipe(index: Int, photo: ByteArray? = null) = PaprikaExportRecipe(
@@ -141,7 +141,7 @@ class PaprikaImportStepsTest {
 
     @Test
     fun `an import resumes from disk at every step and submits only once`() = runTest {
-        assertEquals(PaprikaImportState.Submitted("batch-1"), submit())
+        assertEquals("batch-1", (submit() as PaprikaImportState.Polling).batch.batchId)
         assertEquals(listOf("recipe-0", "recipe-1", "recipe-2"), batchParser.created.single().map { it.customId })
 
         assertTrue(run() is PaprikaImportState.Polling)
@@ -152,7 +152,7 @@ class PaprikaImportStepsTest {
         batchParser.results = (0..2).map { parsed(it) }
         val done = run()
 
-        assertEquals(PaprikaImportSummary(importedCount = 3, failedCount = 0), summary(done))
+        assertEquals(PaprikaImportSummary(importedCount = 3), summary(done))
         assertEquals(1, batchParser.created.size)
         assertEquals((0..2).map { recipeId("recipe-$it") }.toSet(), repository.recipes.value.keys)
     }
@@ -170,10 +170,10 @@ class PaprikaImportStepsTest {
     @Test
     fun `a batch still processing reports progress and is polled again`() = runTest {
         submit()
-        batchParser.status = Outcome.Success(BatchStatus(ended = false, succeeded = 1, processing = 2))
+        batchParser.status = Outcome.Success(BatchStatus(ended = false, succeeded = 1))
         val progress = mutableListOf<PaprikaImportProgress>()
         assertTrue(run(progress = progress) is PaprikaImportState.Polling)
-        assertEquals(listOf(PaprikaImportProgress.WaitingForBatch(3, 1, 2)), progress)
+        assertEquals(listOf(PaprikaImportProgress.WaitingForBatch(3, 1)), progress)
     }
 
     @Test
@@ -463,7 +463,7 @@ class PaprikaImportStepsTest {
     fun `a single recipe is parsed directly without a batch`() = runTest {
         exportRecipes = listOf(exportRecipe(0))
         val done = run()
-        assertEquals(PaprikaImportSummary(importedCount = 1, failedCount = 0), summary(done))
+        assertEquals(PaprikaImportSummary(importedCount = 1), summary(done))
         assertTrue(batchParser.created.isEmpty())
         assertEquals("content 0", recipeParser.requests.single().content)
     }
@@ -516,7 +516,7 @@ class PaprikaImportStepsTest {
 
         val summary = summary(run())
 
-        assertEquals(PaprikaImportSummary(importedCount = 1, failedCount = 1, failedRecipes = listOf("Lost")), summary)
+        assertEquals(PaprikaImportSummary(importedCount = 1, failedRecipes = listOf("Lost")), summary)
         assertTrue(batchParser.created.isEmpty())
     }
 

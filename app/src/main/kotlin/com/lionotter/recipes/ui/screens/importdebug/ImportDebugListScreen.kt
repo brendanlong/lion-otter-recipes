@@ -25,14 +25,11 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
-import androidx.compose.material3.CircularProgressIndicator
 import com.lionotter.recipes.data.local.ImportDebugSummary
 import com.lionotter.recipes.ui.components.ErrorCard
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
-import kotlin.time.Instant
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.number
-import kotlinx.datetime.toLocalDateTime
+import com.lionotter.recipes.ui.theme.einkBorder
+import com.lionotter.recipes.ui.components.FullScreenLoading
 
 @Composable
 fun ImportDebugListScreen(
@@ -55,14 +52,7 @@ fun ImportDebugListScreen(
     ) { paddingValues ->
         val entries = loadedEntries
         if (entries == null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
+            FullScreenLoading(Modifier.padding(paddingValues))
         } else if (loadFailed) {
             Box(
                 modifier = Modifier
@@ -124,6 +114,7 @@ private fun DebugEntryCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
+        border = einkBorder(),
         colors = if (entry.isError) {
             CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.errorContainer
@@ -180,10 +171,4 @@ private fun DebugEntryCard(
             }
         }
     }
-}
-
-private fun formatTimestamp(epochMillis: Long): String {
-    val instant = Instant.fromEpochMilliseconds(epochMillis)
-    val localDateTime = instant.toLocalDateTime(TimeZone.currentSystemDefault())
-    return "${localDateTime.year}-${localDateTime.month.number.toString().padStart(2, '0')}-${localDateTime.day.toString().padStart(2, '0')} ${localDateTime.hour.toString().padStart(2, '0')}:${localDateTime.minute.toString().padStart(2, '0')}"
 }

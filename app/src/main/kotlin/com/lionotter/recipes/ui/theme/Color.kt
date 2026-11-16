@@ -3,10 +3,8 @@ package com.lionotter.recipes.ui.theme
 import androidx.compose.ui.graphics.Color
 
 // Lion colors (warm oranges/yellows)
-val LionGold = Color(0xFFD4A03C)
-val LionOrange = Color(0xFFE07B2B)
 val LionLight = Color(0xFFFFF3E0)
-// Gold and orange are too light for text/icons on white (WCAG AA needs 4.5:1), so the light
+// The brand gold and orange are too light for text/icons on white (WCAG AA needs 4.5:1), so the light
 // theme uses darker tones of the same hues.
 val LionAmber = Color(0xFF8A5A00) // ~5.9:1 with white
 val LionBurntOrange = Color(0xFF8C4A00) // ~6.2:1 on LionLight

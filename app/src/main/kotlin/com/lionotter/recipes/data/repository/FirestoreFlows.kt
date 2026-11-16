@@ -59,7 +59,24 @@ internal fun <T : Any> Flow<QuerySnapshot>.decodeIncrementally(
     decode: (DocumentSnapshot) -> T?
 ): Flow<List<T>> = flow {
     val cache = HashMap<String, T?>()
-    fun decodeSafely(doc: DocumentSnapshot): T? = try {
+    collect { snapshot ->
+        for (change in snapshot.documentChanges) {
+            val doc = change.document
+            if (change.type == DocumentChange.Type.REMOVED) {
+                cache.remove(doc.id)
+            } else {
+                cache[doc.id] = decodeSafely(tag, doc, decode)
+            }
+        }
+        emit(snapshot.documents.mapNotNull { doc ->
+            if (cache.containsKey(doc.id)) cache[doc.id] else decodeSafely(tag, doc, decode).also { cache[doc.id] = it }
+        })
+    }
+}
+
+/** [decode]s [doc], or logs the failure and returns null. */
+internal inline fun <T : Any> decodeSafely(tag: String, doc: DocumentSnapshot, decode: (DocumentSnapshot) -> T?): T? =
+    try {
         decode(doc)
     } catch (e: CancellationException) {
         throw e
@@ -67,21 +84,6 @@ internal fun <T : Any> Flow<QuerySnapshot>.decodeIncrementally(
         ErrorLog.e(tag, "Error deserializing document ${doc.id}", e)
         null
     }
-
-    collect { snapshot ->
-        for (change in snapshot.documentChanges) {
-            val doc = change.document
-            if (change.type == DocumentChange.Type.REMOVED) {
-                cache.remove(doc.id)
-            } else {
-                cache[doc.id] = decodeSafely(doc)
-            }
-        }
-        emit(snapshot.documents.mapNotNull { doc ->
-            if (cache.containsKey(doc.id)) cache[doc.id] else decodeSafely(doc).also { cache[doc.id] = it }
-        })
-    }
-}
 
 /**
  * Runs [block], logging any failure before rethrowing it. Cancellation isn't logged, and an

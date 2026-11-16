@@ -3,7 +3,6 @@ package com.lionotter.recipes.ui.screens.tags
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -14,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
@@ -37,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,6 +63,7 @@ import com.lionotter.recipes.domain.model.TagUsage
 import com.lionotter.recipes.messages.resolve
 import com.lionotter.recipes.ui.components.CollectEvents
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
+import com.lionotter.recipes.ui.components.FullScreenLoading
 
 /**
  * Lists the user's tags for starring as favorites, renaming, merging and deleting, and reviews AI
@@ -97,14 +99,7 @@ fun ManageTagsScreen(
     ) { paddingValues ->
         val state = uiState as? ManageTagsUiState.Loaded
         if (state == null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
+            FullScreenLoading(Modifier.padding(paddingValues))
             return@Scaffold
         }
         val contentModifier = Modifier
@@ -307,12 +302,14 @@ private fun SuggestionReview(
 }
 
 @Composable
+@ReadOnlyComposable
 private fun changeTitle(change: TagChange): String = when (change.to) {
     null -> stringResource(R.string.tag_change_delete_title, change.from)
     else -> stringResource(R.string.tag_change_rename_title, change.from, change.to)
 }
 
 @Composable
+@ReadOnlyComposable
 private fun changeDescription(change: TagChange): String {
     val recipes = pluralStringResource(R.plurals.tag_recipe_count, change.recipeCount, change.recipeCount)
     val kind = when (change.kind) {
@@ -366,6 +363,7 @@ private fun EditTagDialog(
                     label = { Text(stringResource(R.string.tag_name)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { if (canRename) onRename(newName) }),
                     modifier = Modifier
                         .fillMaxWidth()
                         .focusRequester(focusRequester)

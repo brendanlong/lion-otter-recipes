@@ -131,7 +131,7 @@ class WorkContractTest {
             PaprikaImportWork.Progress.Parsing,
             PaprikaImportWork.Progress.SubmittingBatch(12),
             PaprikaImportWork.Progress.WaitingForBatch(total = 12, succeeded = 5),
-            PaprikaImportWork.Progress.ImportingRecipe("Soup", current = 3, total = 12, importedSoFar = 2, failedSoFar = 1)
+            PaprikaImportWork.Progress.ImportingRecipe("Soup", current = 3, total = 12)
         ).forEach { assertProgressRoundTrip(PaprikaImportWork, it, it.toData()) }
     }
 
@@ -197,10 +197,6 @@ class WorkContractTest {
 
     @Test
     fun `zip export round trips`() {
-        listOf(
-            ZipExportWork.Progress.Starting,
-            ZipExportWork.Progress.Exporting("Soup", 1, 5)
-        ).forEach { assertProgressRoundTrip(ZipExportWork, it, it.toData()) }
         assertOutcomeRoundTrip(ZipExportWork, ZipExportWork.Outcome.Success(5, 1), true, ZipExportWork.Outcome.Success(5, 1).toData())
         val failed = ZipExportWork.Outcome.Failed(RecipeError.Archive(ArchiveFailure.WRITE_FAILED))
         assertOutcomeRoundTrip(ZipExportWork, failed, false, failed.toData())
@@ -213,10 +209,13 @@ class WorkContractTest {
     @Test
     fun `recipe edit round trips`() {
         listOf(
-            RecipeEditWork.Progress.Parsing("Pasta"),
-            RecipeEditWork.Progress.Parsing(null),
+            RecipeEditWork.Progress.Parsing,
             RecipeEditWork.Progress.Saving
         ).forEach { assertProgressRoundTrip(RecipeEditWork, it, it.toData()) }
+        assertEquals(
+            RecipeEditWork.Progress.Parsing,
+            RecipeEditWork.decodeProgress(workDataOf("progress" to "parsing", "recipe_name" to "Pasta"))
+        )
         listOf(
             RecipeEditWork.Outcome.Success("r1", "Pasta", newRecipeId = "copy") to true,
             RecipeEditWork.Outcome.Success("r1", "Pasta", newRecipeId = null) to true,
@@ -246,7 +245,7 @@ class WorkContractTest {
     fun `recipe regenerate round trips`() {
         listOf(
             RecipeRegenerateWork.Progress.FetchingPage,
-            RecipeRegenerateWork.Progress.Parsing("Pasta"),
+            RecipeRegenerateWork.Progress.Parsing,
             RecipeRegenerateWork.Progress.Saving
         ).forEach { assertProgressRoundTrip(RecipeRegenerateWork, it, it.toData()) }
         listOf(

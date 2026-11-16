@@ -98,13 +98,13 @@ internal fun toBaseUnitValue(value: Double, unit: String): Double? {
 internal fun convertAmount(
     value: Double,
     fromUnit: String,
-    fromType: UnitCategory,
     toType: UnitCategory,
     density: Double,
-    volumeSystem: UnitSystem = UnitSystem.localeDefault(),
-    weightSystem: UnitSystem = UnitSystem.localeDefault()
+    volumeSystem: UnitSystem,
+    weightSystem: UnitSystem
 ): Amount {
     val base = toBaseUnitValue(value, fromUnit) ?: return Amount(value, fromUnit)
+    val fromType = unitType(fromUnit)
     return when {
         fromType == UnitCategory.VOLUME && toType == UnitCategory.WEIGHT ->
             fromBaseUnit(base * density, UnitCategory.WEIGHT, volumeSystem, weightSystem)

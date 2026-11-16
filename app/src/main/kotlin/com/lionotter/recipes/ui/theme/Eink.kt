@@ -91,6 +91,7 @@ fun einkBorder(width: Dp = 1.dp): BorderStroke? =
  * page with nothing else to set them apart; nothing otherwise.
  */
 @Composable
+@ReadOnlyComposable
 fun Modifier.einkEdge(atTop: Boolean): Modifier {
     if (!LocalEinkTheme.current) return this
     val color = MaterialTheme.colorScheme.outline

@@ -14,12 +14,12 @@ sealed interface ApiKeyProblem {
 
 object ApiKeyValidator {
     /** Checks the format of an API key for [provider]. Returns null if it looks valid. */
-    fun validate(apiKey: String, provider: AiProvider, providers: List<AiProvider> = AiProviders.ALL): ApiKeyProblem? {
+    fun validate(apiKey: String, provider: AiProvider): ApiKeyProblem? {
         val trimmed = apiKey.trim()
         if (trimmed.isBlank()) return ApiKeyProblem.Empty
         if (!trimmed.startsWith(provider.keyPrefix)) return ApiKeyProblem.BadPrefix
         // OpenAI's prefix is a prefix of Anthropic's
-        val moreSpecific = providers.firstOrNull {
+        val moreSpecific = AiProviders.ALL.firstOrNull {
             it.id != provider.id && it.keyPrefix.length > provider.keyPrefix.length && trimmed.startsWith(it.keyPrefix)
         }
         return moreSpecific?.let { ApiKeyProblem.OtherProvider(it) }

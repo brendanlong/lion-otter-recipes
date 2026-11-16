@@ -26,7 +26,6 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
@@ -53,7 +52,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalResources
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
@@ -64,7 +62,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
 import com.lionotter.recipes.messages.resolve
 import com.lionotter.recipes.ui.components.CollectEvents
-import com.lionotter.recipes.ui.TestTags
 import com.lionotter.recipes.ui.components.BulkDeleteConfirmationDialog
 import com.lionotter.recipes.ui.components.CancelImportConfirmationDialog
 import com.lionotter.recipes.ui.components.DeleteConfirmationDialog
@@ -79,6 +76,7 @@ import com.lionotter.recipes.ui.screens.recipelist.components.InProgressRecipeCa
 import com.lionotter.recipes.ui.screens.recipelist.components.SwipeableRecipeCard
 import com.lionotter.recipes.ui.state.RecipeListItem
 import kotlinx.coroutines.launch
+import com.lionotter.recipes.ui.components.FullScreenLoading
 
 /** Leaves room below the last card so the FAB doesn't cover it. */
 private val FabClearance = 88.dp
@@ -134,13 +132,13 @@ fun RecipeListScreen(
     // Load affected meal plan count when a recipe is selected for deletion
     LaunchedEffect(recipeToDeleteId) {
         val id = recipeToDeleteId
-        affectedMealPlanCount = if (id != null) viewModel.getAffectedMealPlanCount(id) else 0
+        affectedMealPlanCount = if (id != null) viewModel.getAffectedMealPlanCount(listOf(id)) else 0
     }
 
     // Load affected meal plan count for bulk delete
     LaunchedEffect(showBulkDeleteDialog) {
         bulkAffectedMealPlanCount = if (showBulkDeleteDialog) {
-            viewModel.getAffectedMealPlanCountForRecipes(selectedRecipeIds.toList())
+            viewModel.getAffectedMealPlanCount(selectedRecipeIds.toList())
         } else {
             0
         }
@@ -347,12 +345,7 @@ fun RecipeListScreen(
             val hasFilters = searchQuery.isNotBlank() || selectedTag != null
             when {
                 recipes.isEmpty() && !hasLoaded -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator()
-                    }
+                    FullScreenLoading()
                 }
                 recipes.isEmpty() && hasFilters -> {
                     EmptyState(
@@ -372,9 +365,7 @@ fun RecipeListScreen(
                     val listState = rememberLazyListState()
                     LazyColumn(
                         state = listState,
-                        modifier = Modifier
-                            .testTag(TestTags.RECIPE_LIST)
-                            .scrollAids(rememberScrollAids(listState)),
+                        modifier = Modifier.scrollAids(rememberScrollAids(listState)),
                         contentPadding = PaddingValues(
                             start = 16.dp,
                             top = 16.dp,
@@ -408,9 +399,7 @@ fun RecipeListScreen(
                                         swipeState = swipeState,
                                         isSelected = item.id in selectedRecipeIds,
                                         isMultiSelectActive = isMultiSelectActive,
-                                        onLongClick = {
-                                            viewModel.startSelection(item.id)
-                                        },
+                                        onLongClick = { viewModel.setRecipeSelected(item.id, true) },
                                         modifier = Modifier.animateItem()
                                     )
                                 }
@@ -444,8 +433,7 @@ private fun EmptyState(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp)
-            .testTag(TestTags.EMPTY_STATE),
+            .padding(24.dp),
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {

@@ -55,7 +55,10 @@
     <string name="remove_from_favorites">Remove from favorites</string>
     <string name="import_failed">Import failed</string>
     <string name="cancel_import_confirmation">Cancel this import?</string>
-    <string name="servings_count">%1$s servings</string>
+    <plurals name="servings_count">
+        <item quantity="one">%1$d serving</item>
+        <item quantity="other">%1$d servings</item>
+    </plurals>
     <plurals name="selected_count">
         <item quantity="one">%1$d selected</item>
         <item quantity="other">%1$d selected</item>
@@ -145,8 +148,6 @@
     <string name="may_take_a_moment">This may take a moment\u2026</string>
     <string name="import_background_notice">You can leave this screen. You\'ll be notified when the import is complete.</string>
     <string name="cancel_import">Cancel Import</string>
-    <string name="warning">Warning</string>
-    <string name="api_key_setup_message">Please add an AI provider\'s API key in settings to import recipes.</string>
 
     <!-- Settings Screen -->
     <string name="ai_providers">AI Providers</string>
@@ -401,6 +402,7 @@
     <string name="mark_current_step">Mark as current step</string>
     <string name="unmark_current_step">Unmark current step</string>
     <string name="or_alternate">or %1$s</string>
+    <string name="ingredient_amount_left">%1$s left</string>
     <string name="no_recipes_match">No recipes match</string>
     <string name="no_recipes_match_hint">Try a different search or tag.</string>
     <string name="clear_filters">Clear filters</string>

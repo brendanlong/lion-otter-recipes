@@ -17,7 +17,8 @@ data class ImportDebugRecord(
     val recipeId: String?,
     val recipeName: String?,
     val errorMessage: String?,
-    val isError: Boolean,
     val durationMs: Long?,
     val batchMode: Boolean = false
-)
+) {
+    val isError: Boolean get() = errorMessage != null
+}

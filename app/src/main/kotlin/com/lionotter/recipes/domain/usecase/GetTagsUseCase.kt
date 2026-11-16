@@ -4,6 +4,7 @@ import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.TagBarSize
 import com.lionotter.recipes.domain.model.tagKey
 import com.lionotter.recipes.domain.model.tagKeys
+import com.lionotter.recipes.domain.model.tagUsage
 import com.lionotter.recipes.util.ErrorLog
 import org.ojalgo.optimisation.ExpressionsBasedModel
 import org.ojalgo.optimisation.Optimisation
@@ -88,33 +89,18 @@ class GetTagsUseCase @Inject constructor() {
     }
 
     /**
-     * Map each tag (by its display name) to the IDs of recipes carrying it. Tags are grouped
-     * case-insensitively and whitespace-trimmed; the display name is the most frequently used
-     * spelling, preferring a capitalized one on ties.
+     * Map each tag (by its display name from [tagUsage]) to the IDs of recipes carrying it, in
+     * first-seen order. Tags are grouped by [tagKey].
      */
     internal fun buildTagMap(recipes: List<Recipe>): Map<String, Set<String>> {
         val recipesByKey = linkedMapOf<String, MutableSet<String>>()
-        val spellingsByKey = mutableMapOf<String, MutableMap<String, Int>>()
         for (recipe in recipes) {
-            for (rawTag in recipe.tags) {
-                val tag = rawTag.trim()
-                if (tag.isEmpty()) continue
-                val key = tagKey(tag)
-                recipesByKey.getOrPut(key) { mutableSetOf() }.add(recipe.id)
-                val spellings = spellingsByKey.getOrPut(key) { mutableMapOf() }
-                spellings[tag] = (spellings[tag] ?: 0) + 1
+            for (tag in recipe.tags) {
+                if (tag.isNotBlank()) recipesByKey.getOrPut(tagKey(tag)) { mutableSetOf() }.add(recipe.id)
             }
         }
-        return recipesByKey.entries.associate { (key, recipeIds) ->
-            val displayName = spellingsByKey.getValue(key).entries
-                .sortedWith(
-                    compareByDescending<Map.Entry<String, Int>> { it.value }
-                        .thenByDescending { it.key.first().isUpperCase() }
-                        .thenBy { it.key }
-                )
-                .first().key
-            displayName to recipeIds
-        }
+        val names = tagUsage(recipes.map { it.tags }).associate { tagKey(it.name) to it.name }
+        return recipesByKey.entries.associate { (key, recipeIds) -> names.getValue(key) to recipeIds }
     }
 
     /** Selects [maxTags] tags, including all of [fixed]. */

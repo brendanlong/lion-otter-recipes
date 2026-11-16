@@ -2,21 +2,18 @@ package com.lionotter.recipes.domain.model
 
 
 /**
- * Represents the usage status of a global ingredient based on instruction step usage.
+ * Usage of an aggregated ingredient by checked-off instruction steps.
  *
- * [totalAmount]/[unit] and [remainingAmount]/[remainingUnit] describe the first kind of amount.
- * When an ingredient's amounts can't be combined (e.g. "1 cup" in one step and "50 g" in another
- * with no density), [remainingAmounts] lists every remaining amount; format it with
- * [formatAmounts] to show e.g. "1/2 cup + 50 g".
+ * @property isFullyUsed every step using the ingredient is checked off
+ * @property anyUsed at least one step using the ingredient is checked off
+ * @property remaining the amounts in steps not yet checked off. Amounts that can't be combined
+ * (e.g. "1 cup" and "50 g" with no density) are listed separately; format with [formatAmounts]
+ * to show e.g. "1/2 cup + 50 g".
  */
 data class IngredientUsageStatus(
-    val totalAmount: Double?,
-    val usedAmount: Double,
-    val unit: String?,
     val isFullyUsed: Boolean,
-    val remainingAmount: Double?,
-    val remainingUnit: String? = unit,
-    val remainingAmounts: List<Amount> = listOfNotNull(remainingAmount?.let { Amount(it, remainingUnit) })
+    val anyUsed: Boolean,
+    val remaining: List<Amount>
 )
 
 /**

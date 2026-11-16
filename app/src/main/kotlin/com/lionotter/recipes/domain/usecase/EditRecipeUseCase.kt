@@ -84,13 +84,11 @@ class EditRecipeUseCase @Inject constructor(
             aiInstructions = aiInstructions,
             onProgress = { progress ->
                 when (progress) {
-                    is ParseHtmlUseCase.ParseProgress.ExtractingContent -> {}
-                    is ParseHtmlUseCase.ParseProgress.ParsingRecipe ->
-                        onProgress(EditProgress.ParsingRecipe)
+                    ParseHtmlUseCase.ParseProgress.ParsingRecipe -> onProgress(EditProgress.ParsingRecipe)
                     is ParseHtmlUseCase.ParseProgress.RecipeNameAvailable ->
                         onProgress(EditProgress.RecipeNameAvailable(progress.name))
-                    is ParseHtmlUseCase.ParseProgress.SavingRecipe ->
-                        onProgress(EditProgress.SavingRecipe)
+                    // Only sent when parseText saves the recipe
+                    ParseHtmlUseCase.ParseProgress.SavingRecipe -> Unit
                 }
             }
         )

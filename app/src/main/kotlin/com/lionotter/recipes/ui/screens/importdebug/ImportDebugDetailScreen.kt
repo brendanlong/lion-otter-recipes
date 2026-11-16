@@ -24,7 +24,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -73,6 +72,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import com.lionotter.recipes.ui.components.FullScreenLoading
 
 private const val TAG = "ImportDebugDetail"
 
@@ -103,14 +103,7 @@ fun ImportDebugDetailScreen(
     ) { paddingValues ->
         when (val currentState = state) {
             ImportDebugDetailState.Loading -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator()
-                }
+                FullScreenLoading(Modifier.padding(paddingValues))
             }
             ImportDebugDetailState.NotFound -> {
                 CenteredMessage(
@@ -272,7 +265,7 @@ private fun SummaryTab(
         if (entry.inputTokens != null && entry.outputTokens != null && entry.aiModel != null) {
             SummaryRow(
                 label = stringResource(R.string.ai_cost_label),
-                value = estimateCost(entry.aiModel, entry.inputTokens, entry.outputTokens, entry.thinkingEnabled, entry.batchMode)
+                value = estimateCost(entry.aiModel, entry.inputTokens, entry.outputTokens, entry.batchMode)
             )
         }
 
@@ -651,21 +644,16 @@ private fun JsonTreeView(
     }
 }
 
-private fun formatNumber(value: Long): String {
-    return String.format(Locale.getDefault(), "%,d", value)
-}
+/** [value] (an Int or Long) with thousands separators. */
+private fun formatNumber(value: Number): String = String.format(Locale.getDefault(), "%,d", value)
 
-private fun formatNumber(value: Int): String {
-    return String.format(Locale.getDefault(), "%,d", value)
-}
-
-private fun formatTimestamp(epochMillis: Long): String {
+internal fun formatTimestamp(epochMillis: Long): String {
     val instant = Instant.fromEpochMilliseconds(epochMillis)
     val localDateTime = instant.toLocalDateTime(TimeZone.currentSystemDefault())
     return "${localDateTime.year}-${localDateTime.month.number.toString().padStart(2, '0')}-${localDateTime.day.toString().padStart(2, '0')} ${localDateTime.hour.toString().padStart(2, '0')}:${localDateTime.minute.toString().padStart(2, '0')}:${localDateTime.second.toString().padStart(2, '0')}"
 }
 
-private fun estimateCost(model: String, inputTokens: Long, outputTokens: Long, thinkingEnabled: Boolean, batchMode: Boolean = false): String {
+private fun estimateCost(model: String, inputTokens: Long, outputTokens: Long, batchMode: Boolean): String {
     // Pricing per million tokens from https://platform.claude.com/docs/en/about-claude/pricing
     // and https://developers.openai.com/api/docs/models
     // Batch mode is 50% cheaper than standard API calls

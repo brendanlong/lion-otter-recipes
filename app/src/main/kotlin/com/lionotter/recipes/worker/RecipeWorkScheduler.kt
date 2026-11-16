@@ -1,10 +1,7 @@
 package com.lionotter.recipes.worker
 
 import android.net.Uri
-import androidx.work.BackoffPolicy
-import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
-import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
@@ -32,32 +29,20 @@ class RecipeWorkScheduler @Inject constructor(
     private val inputStore: ImportInputStore
 ) {
     companion object {
-        private const val BACKOFF_SECONDS = 30L
         const val PAPRIKA_POLL_INTERVAL_SECONDS = 60L
 
         fun importWorkName(importId: String) = "import-$importId"
-
-        private val NETWORK_CONSTRAINTS = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
-            .build()
     }
 
-    fun buildUrlImportRequest(url: String, importId: String): OneTimeWorkRequest =
+    /**
+     * Import of the recipe at [url], or (without one) of a recipe file already copied into
+     * [ImportInputStore] under [importId].
+     */
+    fun buildRecipeImportRequest(importId: String, url: String? = null): OneTimeWorkRequest =
         OneTimeWorkRequestBuilder<RecipeImportWorker>()
             .setInputData(RecipeImportWorker.createInputData(url, importId))
             .addTag(RecipeImportWorker.TAG_RECIPE_IMPORT)
-            .setConstraints(NETWORK_CONSTRAINTS)
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, BACKOFF_SECONDS, TimeUnit.SECONDS)
-            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-            .build()
-
-    /** Import of a recipe file already copied into [ImportInputStore] under [importId]. */
-    fun buildRecipeFileImportRequest(importId: String): OneTimeWorkRequest =
-        OneTimeWorkRequestBuilder<RecipeImportWorker>()
-            .setInputData(RecipeImportWorker.createInputData(url = null, importId = importId))
-            .addTag(RecipeImportWorker.TAG_RECIPE_IMPORT)
-            .setConstraints(NETWORK_CONSTRAINTS)
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, BACKOFF_SECONDS, TimeUnit.SECONDS)
+            .withNetworkAndBackoff()
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build()
 
@@ -65,8 +50,7 @@ class RecipeWorkScheduler @Inject constructor(
         OneTimeWorkRequestBuilder<PaprikaImportWorker>()
             .setInputData(PaprikaImportWorker.createInputData(importId))
             .addTag(PaprikaImportWorker.TAG_PAPRIKA_IMPORT)
-            .setConstraints(NETWORK_CONSTRAINTS)
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, BACKOFF_SECONDS, TimeUnit.SECONDS)
+            .withNetworkAndBackoff()
             .setInitialDelay(initialDelaySeconds, TimeUnit.SECONDS)
             .build()
 
@@ -74,7 +58,7 @@ class RecipeWorkScheduler @Inject constructor(
         OneTimeWorkRequestBuilder<ZipImportWorker>()
             .setInputData(ZipImportWorker.createInputData(importId))
             .addTag(ZipImportWorker.TAG_ZIP_IMPORT)
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, BACKOFF_SECONDS, TimeUnit.SECONDS)
+            .withRetryBackoff()
             .build()
 
     /** Enqueue an import request, replacing any earlier (e.g. failed) run of the same import. */
@@ -98,7 +82,7 @@ class RecipeWorkScheduler @Inject constructor(
         recipeId: String,
         markdownText: String,
         model: String?,
-        thinkingEnabled: Boolean?,
+        thinkingEnabled: Boolean,
         saveAsCopy: Boolean = false,
         aiInstructions: String? = null,
         copyImage: ImageChange? = null,
@@ -121,19 +105,10 @@ class RecipeWorkScheduler @Inject constructor(
                 )
             )
             .addTag(RecipeEditWorker.TAG_RECIPE_EDIT)
-            .setConstraints(NETWORK_CONSTRAINTS)
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, BACKOFF_SECONDS, TimeUnit.SECONDS)
+            .withNetworkAndBackoff()
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build()
-        return PendingWork(request.id) {
-            var enqueued = false
-            try {
-                workManager.enqueue(request).await()
-                enqueued = true
-            } finally {
-                if (!enqueued) inputStore.deleteWorkText(markdownPath)
-            }
-        }
+        return pendingWorkOwning(request, markdownPath)
     }
 
     /**
@@ -143,24 +118,26 @@ class RecipeWorkScheduler @Inject constructor(
     fun prepareRegenerate(
         recipeId: String,
         model: String?,
-        thinkingEnabled: Boolean?,
+        thinkingEnabled: Boolean,
         pageHtmlPath: String? = null
     ): PendingWork {
         val request = OneTimeWorkRequestBuilder<RecipeRegenerateWorker>()
             .setInputData(RecipeRegenerateWorker.createInputData(recipeId, model, thinkingEnabled, pageHtmlPath))
             .addTag(RecipeRegenerateWorker.TAG_RECIPE_REGENERATE)
-            .setConstraints(NETWORK_CONSTRAINTS)
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, BACKOFF_SECONDS, TimeUnit.SECONDS)
+            .withNetworkAndBackoff()
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build()
-        return PendingWork(request.id) {
-            var enqueued = false
-            try {
-                workManager.enqueue(request).await()
-                enqueued = true
-            } finally {
-                if (!enqueued && pageHtmlPath != null) inputStore.deleteWorkText(pageHtmlPath)
-            }
+        return pendingWorkOwning(request, pageHtmlPath)
+    }
+
+    /** Work that takes over the work input at [inputPath], which is deleted if enqueuing fails. */
+    private fun pendingWorkOwning(request: OneTimeWorkRequest, inputPath: String?) = PendingWork(request.id) {
+        var enqueued = false
+        try {
+            workManager.enqueue(request).await()
+            enqueued = true
+        } finally {
+            if (!enqueued && inputPath != null) inputStore.deleteWorkText(inputPath)
         }
     }
 
@@ -189,7 +166,7 @@ class RecipeWorkScheduler @Inject constructor(
     ): Flow<WorkStatus<RecipeRegenerateWork.Progress, RecipeRegenerateWork.Outcome>> =
         observe(workId, RecipeRegenerateWork)
 
-    fun observeExport(workId: UUID): Flow<WorkStatus<ZipExportWork.Progress, ZipExportWork.Outcome>> =
+    fun observeExport(workId: UUID): Flow<WorkStatus<Nothing, ZipExportWork.Outcome>> =
         observe(workId, ZipExportWork)
 
     private fun <P : Any, O : Any> observe(workId: UUID, contract: WorkContract<P, O>): Flow<WorkStatus<P, O>> =

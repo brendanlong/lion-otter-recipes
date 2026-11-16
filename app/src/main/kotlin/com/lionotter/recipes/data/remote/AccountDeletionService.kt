@@ -183,17 +183,7 @@ class AccountDeletionService @Inject constructor(
      * the `list` permission.
      */
     private suspend fun deleteStorageImages(imageUrls: List<String>) {
-        var deletedCount = 0
-        for (url in imageUrls) {
-            try {
-                remoteImageStorage.delete(url)
-                deletedCount++
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to delete storage image: $url", e)
-            }
-        }
-        Log.d(TAG, "Deleted $deletedCount/${imageUrls.size} images from Firebase Storage")
+        // Best effort: delete logs its own failures
+        for (url in imageUrls) remoteImageStorage.delete(url)
     }
 }

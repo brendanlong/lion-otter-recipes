@@ -11,7 +11,6 @@ import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import com.lionotter.recipes.R
-import com.lionotter.recipes.data.repository.PendingImportRepository
 import com.lionotter.recipes.domain.ImportFileFailure
 import com.lionotter.recipes.domain.PageFetchFailure
 import com.lionotter.recipes.domain.RecipeError
@@ -91,8 +90,7 @@ class AddRecipeViewModelTest {
     private val cameraPhotos = CameraPhotoFiles(ApplicationProvider.getApplicationContext(), Dispatchers.Unconfined)
     private val inputStore: ImportInputStore = mockk(relaxed = true)
     private val scheduler: RecipeWorkScheduler = mockk {
-        every { buildUrlImportRequest(any(), any()) } answers { OneTimeWorkRequestBuilder<RecipeImportWorker>().build() }
-        every { buildRecipeFileImportRequest(any()) } answers { OneTimeWorkRequestBuilder<RecipeImportWorker>().build() }
+        every { buildRecipeImportRequest(any(), any()) } answers { OneTimeWorkRequestBuilder<RecipeImportWorker>().build() }
         coEvery { enqueueImport(any(), any()) } answers {
             val request = secondArg<OneTimeWorkRequest>()
             work.assignUniqueName(RecipeWorkScheduler.importWorkName(firstArg()), request.id)
@@ -119,11 +117,10 @@ class AddRecipeViewModelTest {
     }
 
     private fun createViewModel(scope: CoroutineScope, handle: SavedStateHandle = SavedStateHandle()): AddRecipeViewModel {
-        val repository = PendingImportRepository(dao)
-        val monitor = ImportMonitor(work.workManager, repository, scope)
+        val monitor = ImportMonitor(work.workManager, dao, scope)
         val queue = ImportQueue(
             workManager = work.workManager,
-            pendingImportRepository = repository,
+            pendingImportDao = dao,
             appScope = scope,
             scheduler = scheduler,
             inputStore = inputStore,
@@ -203,7 +200,8 @@ class AddRecipeViewModelTest {
         )
         advanceUntilIdle()
 
-        assertEquals(AddRecipeUiState.NoApiKey, viewModel.uiState.value)
+        // The idle screen shows the error along with its card for adding a key
+        assertEquals(AddRecipeUiState.Error(UserMessage(R.string.error_no_api_key)), viewModel.uiState.value)
     }
 
     @Test

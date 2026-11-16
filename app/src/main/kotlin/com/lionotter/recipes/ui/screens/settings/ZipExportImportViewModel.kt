@@ -76,7 +76,7 @@ class ZipExportImportViewModel @Inject constructor(
     }
 
     /** The message for finished (or cancelled) export work, or null while it is still running. */
-    private fun resultMessage(status: WorkStatus<ZipExportWork.Progress, ZipExportWork.Outcome>): UserMessage? =
+    private fun resultMessage(status: WorkStatus<Nothing, ZipExportWork.Outcome>): UserMessage? =
         when (status) {
             WorkStatus.Missing, WorkStatus.Queued, is WorkStatus.Running -> null
             is WorkStatus.Finished -> when (val outcome = status.outcome) {

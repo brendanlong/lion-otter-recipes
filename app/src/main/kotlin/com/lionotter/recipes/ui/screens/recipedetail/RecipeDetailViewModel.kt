@@ -11,12 +11,10 @@ import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.IngredientUsageStatus
 import com.lionotter.recipes.domain.model.InstructionIngredientKey
 import com.lionotter.recipes.domain.model.MeasurementPreference
-import com.lionotter.recipes.domain.model.ModelRole
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.model.UnitSystem
 import com.lionotter.recipes.domain.model.createInstructionIngredientKey
 import com.lionotter.recipes.domain.port.AppSettings
-import com.lionotter.recipes.domain.port.model
 import com.lionotter.recipes.domain.repository.MealPlanRepository
 import com.lionotter.recipes.domain.repository.RecipeRepository
 import com.lionotter.recipes.domain.usecase.CalculateIngredientUsageUseCase
@@ -120,8 +118,6 @@ class RecipeDetailViewModel @Inject constructor(
         internal const val KEY_COOKING_PROGRESS = "cooking_progress"
         internal const val KEY_NOTES_DRAFT = "notes_draft"
         internal const val NOTES_SAVE_DEBOUNCE_MS = 1000L
-        private const val MIN_SCALE = 0.25
-        private const val MAX_SCALE = 10.0
         private const val MAX_SERVINGS_MULTIPLIER = 10
         /** Multipliers offered by +/- when the recipe doesn't say how many servings it makes. */
         internal val SCALE_PRESETS = listOf(0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0)
@@ -185,14 +181,6 @@ class RecipeDetailViewModel @Inject constructor(
             initialValue = UnitSystem.localeDefault()
         )
 
-    val hasApiKey: StateFlow<Boolean> = settings.model(ModelRole.EDIT)
-        .map { it != null }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = false
-        )
-
     /** [CookingProgress] as JSON: the saved state is its only copy. */
     private val cookingProgressJson: StateFlow<String?> = savedStateHandle.getStateFlow(KEY_COOKING_PROGRESS, null)
 
@@ -225,10 +213,6 @@ class RecipeDetailViewModel @Inject constructor(
             started = SharingStarted.Eagerly,
             initialValue = false
         )
-
-    fun setScale(scale: Double) {
-        updateProgress { it.copy(scale = scale.coerceIn(MIN_SCALE, MAX_SCALE)) }
-    }
 
     /**
      * Adds one serving if the recipe's serving count is known, otherwise steps to the
@@ -312,13 +296,6 @@ class RecipeDetailViewModel @Inject constructor(
     )
 
     /**
-     * Resets all ingredient usage tracking.
-     */
-    fun resetIngredientUsage() {
-        updateProgress { it.copy(usedInstructionIngredients = emptySet()) }
-    }
-
-    /**
      * Clears checked ingredients and the highlighted step, e.g. to cook the recipe again.
      * Scale and units are left alone since they are display preferences.
      */
@@ -351,7 +328,7 @@ class RecipeDetailViewModel @Inject constructor(
      */
     suspend fun getAffectedMealPlanCount(): Int {
         return try {
-            mealPlanRepository.countMealPlansByRecipeId(recipeId)
+            mealPlanRepository.countMealPlansByRecipeIds(listOf(recipeId))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -448,11 +425,8 @@ class RecipeDetailViewModel @Inject constructor(
                     val fileName = "${recipeSerializer.sanitizeFolderName(currentRecipe.name)}.lorecipes"
                     val file = File(sharedDir, fileName)
 
-                    val result = file.outputStream().use { outputStream ->
+                    file.outputStream().use { outputStream ->
                         exportSingleRecipeUseCase.exportRecipe(currentRecipe, outputStream)
-                    }
-                    if (result is ExportSingleRecipeUseCase.ExportResult.Error) {
-                        throw IllegalStateException(result.message)
                     }
                     FileProvider.getUriForFile(
                         applicationContext,

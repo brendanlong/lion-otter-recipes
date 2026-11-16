@@ -15,33 +15,12 @@ fun DeleteConfirmationDialog(
     onDismiss: () -> Unit,
     affectedMealPlanCount: Int = 0
 ) {
-    val message = buildString {
-        append(stringResource(R.string.delete_recipe_confirmation, recipeName))
-        if (affectedMealPlanCount > 0) {
-            append("\n\n")
-            append(
-                pluralStringResource(
-                    R.plurals.delete_recipe_meal_plan_warning,
-                    affectedMealPlanCount,
-                    affectedMealPlanCount
-                )
-            )
-        }
-    }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.delete_recipe)) },
-        text = { Text(message) },
-        confirmButton = {
-            TextButton(onClick = onConfirm) {
-                Text(stringResource(R.string.delete))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.cancel))
-            }
-        }
+    DeleteDialog(
+        title = stringResource(R.string.delete_recipe),
+        message = stringResource(R.string.delete_recipe_confirmation, recipeName),
+        affectedMealPlanCount = affectedMealPlanCount,
+        onConfirm = onConfirm,
+        onDismiss = onDismiss
     )
 }
 
@@ -52,37 +31,33 @@ fun BulkDeleteConfirmationDialog(
     onDismiss: () -> Unit,
     affectedMealPlanCount: Int = 0
 ) {
-    val message = buildString {
-        append(
-            pluralStringResource(
-                R.plurals.delete_recipes_confirmation,
-                recipeCount,
-                recipeCount
-            )
-        )
-        if (affectedMealPlanCount > 0) {
-            append("\n\n")
-            append(
-                pluralStringResource(
-                    R.plurals.delete_recipe_meal_plan_warning,
-                    affectedMealPlanCount,
-                    affectedMealPlanCount
-                )
-            )
-        }
+    DeleteDialog(
+        title = pluralStringResource(R.plurals.delete_recipes, recipeCount, recipeCount),
+        message = pluralStringResource(R.plurals.delete_recipes_confirmation, recipeCount, recipeCount),
+        affectedMealPlanCount = affectedMealPlanCount,
+        onConfirm = onConfirm,
+        onDismiss = onDismiss
+    )
+}
+
+/** Asks to confirm deleting recipes: [message], plus a warning if meal plans use them. */
+@Composable
+private fun DeleteDialog(
+    title: String,
+    message: String,
+    affectedMealPlanCount: Int,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val mealPlanWarning = if (affectedMealPlanCount > 0) {
+        pluralStringResource(R.plurals.delete_recipe_meal_plan_warning, affectedMealPlanCount, affectedMealPlanCount)
+    } else {
+        null
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = {
-            Text(
-                pluralStringResource(
-                    R.plurals.delete_recipes,
-                    recipeCount,
-                    recipeCount
-                )
-            )
-        },
-        text = { Text(message) },
+        title = { Text(title) },
+        text = { Text(listOfNotNull(message, mealPlanWarning).joinToString("\n\n")) },
         confirmButton = {
             TextButton(onClick = onConfirm) {
                 Text(stringResource(R.string.delete))

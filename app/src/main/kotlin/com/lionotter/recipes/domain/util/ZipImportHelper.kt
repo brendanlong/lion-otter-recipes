@@ -39,21 +39,12 @@ class ZipImportHelper @Inject constructor(
 ) {
     companion object {
         private const val TAG = "ZipImportHelper"
-        const val MEAL_PLANS_FOLDER = "meal-plans"
         private const val MAX_TEXT_ENTRY_BYTES = 2L * 1024 * 1024
         private const val MAX_TOTAL_BYTES = 1024L * 1024 * 1024
         private const val MAX_ENTRIES = 50_000
     }
 
-    /**
-     * Result of importing a single recipe from a ZIP folder.
-     */
-    sealed class SingleRecipeResult {
-        data class Imported(val recipeId: String) : SingleRecipeResult()
-        data class Skipped(val recipeId: String) : SingleRecipeResult()
-        object LimitReached : SingleRecipeResult()
-        data class Failed(val error: Exception) : SingleRecipeResult()
-    }
+    private enum class SingleRecipeResult { IMPORTED, SKIPPED, FAILED }
 
     data class ImportSummary(
         val importedCount: Int,
@@ -70,7 +61,7 @@ class ZipImportHelper @Inject constructor(
         val results = mutableListOf<ZipRecipeIndexEntry>()
         val budget = ArchiveBudget(MAX_TOTAL_BYTES)
         forEachEntry(inputStream) { zipIn, folder, fileName ->
-            if (folder != MEAL_PLANS_FOLDER && fileName == RecipeSerializer.RECIPE_JSON_FILENAME) {
+            if (folder != RecipeSerializer.MEAL_PLANS_FOLDER && fileName == RecipeSerializer.RECIPE_JSON_FILENAME) {
                 try {
                     val recipe = recipeSerializer.deserializeRecipe(readText(zipIn, budget))
                     results.add(ZipRecipeIndexEntry(recipe.id, recipe.name))
@@ -115,18 +106,17 @@ class ZipImportHelper @Inject constructor(
             ) {
                 index++
                 onRecipe(recipe.name, index)
-                when (val result = importRecipe(recipe, folderImage)) {
-                    is SingleRecipeResult.Imported -> {
+                when (importRecipe(recipe, folderImage)) {
+                    SingleRecipeResult.IMPORTED -> {
                         imported++
                         presentRecipeIds.add(recipe.id)
                         folderImage = null // now owned by the recipe
                     }
-                    is SingleRecipeResult.Skipped -> {
+                    SingleRecipeResult.SKIPPED -> {
                         skipped++
                         presentRecipeIds.add(recipe.id)
                     }
-                    SingleRecipeResult.LimitReached -> failed++
-                    is SingleRecipeResult.Failed -> failed++
+                    SingleRecipeResult.FAILED -> failed++
                 }
             } else if (recipe == null && folderHadBadJson && selectedRecipeIds == null) {
                 failed++
@@ -137,9 +127,9 @@ class ZipImportHelper @Inject constructor(
             folderHadBadJson = false
         }
 
-        forEachEntrySuspend(inputStream) { zipIn, folder, fileName ->
+        forEachEntry(inputStream) { zipIn, folder, fileName ->
             coroutineContext.ensureActive()
-            if (folder == MEAL_PLANS_FOLDER) {
+            if (folder == RecipeSerializer.MEAL_PLANS_FOLDER) {
                 if (fileName.endsWith(".json")) {
                     try {
                         mealPlanEntries += json.decodeFromString<List<MealPlanEntry>>(readText(zipIn, budget))
@@ -149,7 +139,7 @@ class ZipImportHelper @Inject constructor(
                         ErrorLog.w(TAG, "Failed to read meal plan file $fileName", e)
                     }
                 }
-                return@forEachEntrySuspend
+                return@forEachEntry
             }
             if (folder != currentFolder) {
                 flushFolder()
@@ -188,16 +178,16 @@ class ZipImportHelper @Inject constructor(
      *
      * @param bundledImageUri local file:// URI of the image bundled in the ZIP, if any
      */
-    suspend fun importRecipe(recipe: Recipe, bundledImageUri: String?): SingleRecipeResult {
+    private suspend fun importRecipe(recipe: Recipe, bundledImageUri: String?): SingleRecipeResult {
         return try {
             if (recipeRepository.getRecipeByIdOnce(recipe.id) != null) {
-                return SingleRecipeResult.Skipped(recipe.id)
+                return SingleRecipeResult.SKIPPED
             }
 
             val count = recipeRepository.getRecipeCount()
             if (count >= ResourceLimits.MAX_RECIPES) {
                 ErrorLog.w(TAG, "Recipe limit reached ($count/${ResourceLimits.MAX_RECIPES})")
-                return SingleRecipeResult.LimitReached
+                return SingleRecipeResult.FAILED
             }
 
             // The bundled image, else the original web image, else the exported recipe's own image
@@ -212,12 +202,12 @@ class ZipImportHelper @Inject constructor(
                     recipe.copy(updatedAt = Clock.System.now(), imageUrl = storedImageUrl)
                 )
             }
-            SingleRecipeResult.Imported(recipe.id)
+            SingleRecipeResult.IMPORTED
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             ErrorLog.e(TAG, "Failed to import recipe ${recipe.id} (${recipe.name})", e)
-            SingleRecipeResult.Failed(e)
+            SingleRecipeResult.FAILED
         }
     }
 
@@ -242,25 +232,6 @@ class ZipImportHelper @Inject constructor(
     private inline fun forEachEntry(
         inputStream: InputStream,
         block: (ZipInputStream, folder: String, fileName: String) -> Unit
-    ) {
-        ZipInputStream(inputStream).use { zipIn ->
-            var entryCount = 0
-            var entry = zipIn.nextEntry
-            while (entry != null) {
-                if (++entryCount > MAX_ENTRIES) throw ArchiveTooLargeException("Archive has too many entries")
-                if (!entry.isDirectory) {
-                    val parts = entry.name.split("/", limit = 2)
-                    if (parts.size == 2 && parts[1].isNotEmpty()) block(zipIn, parts[0], parts[1])
-                }
-                zipIn.closeEntry()
-                entry = zipIn.nextEntry
-            }
-        }
-    }
-
-    private suspend inline fun forEachEntrySuspend(
-        inputStream: InputStream,
-        crossinline block: suspend (ZipInputStream, folder: String, fileName: String) -> Unit
     ) {
         ZipInputStream(inputStream).use { zipIn ->
             var entryCount = 0

@@ -94,20 +94,7 @@ class PaprikaParser @Inject constructor(
         return results
     }
 
-    /**
-     * Parse a whole export into memory. Only suitable for small exports (tests, previews);
-     * imports use [forEachRecipe].
-     */
-    fun parseExport(inputStream: InputStream): List<PaprikaRecipe> {
-        val recipes = mutableListOf<PaprikaRecipe>()
-        forEachRecipe(
-            inputStream,
-            onError = { name, e -> ErrorLog.w(TAG, "Skipping unreadable Paprika entry $name", e) }
-        ) { recipes.add(it) }
-        return recipes
-    }
-
-    fun decodeRecipe(jsonString: String): PaprikaRecipe = json.decodeFromString<PaprikaRecipe>(jsonString)
+    private fun decodeRecipe(jsonString: String): PaprikaRecipe = json.decodeFromString<PaprikaRecipe>(jsonString)
 
     private fun forEachRecipeJson(
         inputStream: InputStream,
@@ -144,16 +131,6 @@ class PaprikaParser @Inject constructor(
         return GZIPInputStream(ByteArrayInputStream(compressed)).use { gzip ->
             BoundedInputStream(gzip, MAX_RECIPE_JSON_BYTES, budget).bufferedReader().readText()
         }
-    }
-
-    /**
-     * Parse a single .paprikarecipe file (gzip-compressed JSON) from raw bytes.
-     */
-    fun parseRecipeEntry(compressedBytes: ByteArray): PaprikaRecipe {
-        val jsonString = GZIPInputStream(ByteArrayInputStream(compressedBytes)).use { gzipStream ->
-            gzipStream.bufferedReader().readText()
-        }
-        return decodeRecipe(jsonString)
     }
 
     /**

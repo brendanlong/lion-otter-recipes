@@ -432,6 +432,37 @@ class EditRecipeViewModelTest {
     }
 
     @Test
+    fun `without an API key the direct changes save and the AI edit isn't started`() = runTest {
+        settings.apiKeyFlow.value = null
+        val scheduler = mockk<RecipeWorkScheduler>(relaxed = true)
+        val viewModel = createViewModel(scheduler = scheduler)
+        advanceUntilIdle()
+
+        viewModel.setTitle("Better Pasta")
+        viewModel.setMarkdownText("changed")
+        viewModel.saveEdits()
+        advanceUntilIdle()
+
+        assertEquals(EditUiState.NoApiKey, viewModel.editState.value)
+        assertEquals("Better Pasta", recipeRepository.getRecipeByIdOnce("r1")?.name)
+        verify(exactly = 0) { scheduler.prepareEdit(any(), any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `save as copy without an API key says so without starting work`() = runTest {
+        settings.apiKeyFlow.value = null
+        val scheduler = mockk<RecipeWorkScheduler>(relaxed = true)
+        val viewModel = createViewModel(scheduler = scheduler)
+        advanceUntilIdle()
+
+        viewModel.saveAsCopy()
+        advanceUntilIdle()
+
+        assertEquals(EditUiState.NoApiKey, viewModel.editState.value)
+        verify(exactly = 0) { scheduler.prepareEdit(any(), any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
     fun `edit that fails for a missing API key says so`() = runTest {
         val workId = UUID.randomUUID()
         val scheduler = mockk<RecipeWorkScheduler>()

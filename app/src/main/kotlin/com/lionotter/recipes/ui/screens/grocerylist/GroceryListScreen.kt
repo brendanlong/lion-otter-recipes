@@ -27,7 +27,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,14 +50,14 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
 import com.lionotter.recipes.ui.format.formatScaleMultiplier
-import com.lionotter.recipes.domain.model.MealType
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.theme.einkBorder
 import com.lionotter.recipes.ui.theme.einkEdge
 import com.lionotter.recipes.ui.components.rememberScrollAids
 import com.lionotter.recipes.ui.components.scrollAids
-import com.lionotter.recipes.ui.screens.mealplan.MealPlanDateFormat
-import kotlinx.datetime.LocalDate
+import com.lionotter.recipes.ui.screens.mealplan.DayHeader
+import com.lionotter.recipes.ui.screens.mealplan.label
+import com.lionotter.recipes.ui.components.FullScreenLoading
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,16 +79,8 @@ fun GroceryListScreen(
             onItemCheckedChange = viewModel::setItemChecked,
             onSourceCheckedChange = viewModel::setSourceChecked
         )
-        GroceryListUiState.Loading -> RecipeSelectionScreen(
-            state = null,
-            onBackClick = onBackClick,
-            onEntrySelectedChange = viewModel::setEntrySelected,
-            onSelectAll = viewModel::selectAll,
-            onDeselectAll = viewModel::deselectAll,
-            onGenerate = viewModel::generateGroceryList
-        )
-        is GroceryListUiState.SelectRecipes -> RecipeSelectionScreen(
-            state = state,
+        GroceryListUiState.Loading, is GroceryListUiState.SelectRecipes -> RecipeSelectionScreen(
+            state = state as? GroceryListUiState.SelectRecipes,
             onBackClick = onBackClick,
             onEntrySelectedChange = viewModel::setEntrySelected,
             onSelectAll = viewModel::selectAll,
@@ -141,14 +132,7 @@ private fun RecipeSelectionScreen(
         }
     ) { paddingValues ->
         if (selectableEntries == null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
+            FullScreenLoading(Modifier.padding(paddingValues))
         } else if (selectableEntries.isEmpty()) {
             Column(
                 modifier = Modifier
@@ -213,7 +197,7 @@ private fun RecipeSelectionScreen(
 
                 for ((date, entries) in selectableEntries) {
                     item(key = "date_header_$date") {
-                        DateHeader(date = date)
+                        DayHeader(date = date)
                     }
                     items(
                         items = entries,
@@ -234,28 +218,10 @@ private fun RecipeSelectionScreen(
 }
 
 @Composable
-private fun DateHeader(date: LocalDate) {
-    Text(
-        text = MealPlanDateFormat.dayHeader(date),
-        style = MaterialTheme.typography.titleSmall,
-        fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(vertical = 4.dp)
-    )
-}
-
-@Composable
 private fun MealPlanCheckboxRow(
     entry: SelectableMealPlanEntry,
     onToggle: () -> Unit
 ) {
-    val mealTypeLabel = when (entry.entry.mealType) {
-        MealType.BREAKFAST -> stringResource(R.string.breakfast)
-        MealType.LUNCH -> stringResource(R.string.lunch)
-        MealType.DINNER -> stringResource(R.string.dinner)
-        MealType.SNACK -> stringResource(R.string.snack)
-    }
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -281,7 +247,7 @@ private fun MealPlanCheckboxRow(
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = mealTypeLabel + if (entry.entry.servings != 1.0) {
+                text = entry.entry.mealType.label() + if (entry.entry.servings != 1.0) {
                     " • ${formatScaleMultiplier(entry.entry.servings)}"
                 } else "",
                 style = MaterialTheme.typography.bodySmall,
@@ -331,14 +297,7 @@ private fun GroceryListDisplayScreen(
         }
     ) { paddingValues ->
         if (items == null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
+            FullScreenLoading(Modifier.padding(paddingValues))
         } else if (items.isEmpty()) {
             Column(
                 modifier = Modifier

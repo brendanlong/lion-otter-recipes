@@ -3,6 +3,9 @@ package com.lionotter.recipes.domain.util
 import com.lionotter.recipes.domain.model.Recipe
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.io.File
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import javax.inject.Inject
 
 /**
@@ -22,26 +25,31 @@ class RecipeSerializer @Inject constructor(
         const val RECIPE_MARKDOWN_FILENAME = "recipe.md"
         const val IMAGE_FILENAME_PREFIX = "image"
         val IMAGE_EXTENSIONS = setOf(".jpg", ".jpeg", ".png", ".webp", ".gif")
+        const val MEAL_PLANS_FOLDER = "meal-plans"
     }
 
-    /**
-     * Files that represent a single recipe in the export folder structure.
-     */
-    data class RecipeFiles(
-        val folderName: String,
-        val recipeJson: String,
-        val recipeMarkdown: String
-    )
+    /** Serialize a recipe to its recipe.json content. */
+    fun serializeRecipe(recipe: Recipe): String = json.encodeToString(recipe)
 
     /**
-     * Serialize a recipe into the standard export files.
+     * Write [recipe] into [zipOut] as `<folder>/recipe.json`, `<folder>/recipe.md` and, if
+     * [imageFile] is given, `<folder>/image.<ext>`.
      */
-    fun serializeRecipe(recipe: Recipe): RecipeFiles {
-        return RecipeFiles(
-            folderName = exportFolderName(recipe),
-            recipeJson = json.encodeToString(recipe),
-            recipeMarkdown = RecipeMarkdownFormatter.format(recipe)
-        )
+    fun writeRecipeFolder(zipOut: ZipOutputStream, folder: String, recipe: Recipe, imageFile: File?) {
+        fun writeEntry(name: String, write: () -> Unit) {
+            zipOut.putNextEntry(ZipEntry("$folder/$name"))
+            write()
+            zipOut.closeEntry()
+        }
+        writeEntry(RECIPE_JSON_FILENAME) { zipOut.write(serializeRecipe(recipe).toByteArray(Charsets.UTF_8)) }
+        writeEntry(RECIPE_MARKDOWN_FILENAME) {
+            zipOut.write(RecipeMarkdownFormatter.format(recipe).toByteArray(Charsets.UTF_8))
+        }
+        if (imageFile != null) {
+            writeEntry("$IMAGE_FILENAME_PREFIX.${imageFile.extension}") {
+                imageFile.inputStream().use { it.copyTo(zipOut) }
+            }
+        }
     }
 
     /**

@@ -36,7 +36,6 @@ import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.runningFold
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -214,23 +213,9 @@ class RecipeListViewModel @Inject constructor(
     }
 
     /**
-     * Returns the number of meal plan entries that reference the given recipe.
-     */
-    suspend fun getAffectedMealPlanCount(recipeId: String): Int {
-        return try {
-            mealPlanRepository.countMealPlansByRecipeId(recipeId)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            ErrorLog.w(TAG, "Failed to count meal plans for $recipeId", e)
-            0
-        }
-    }
-
-    /**
      * Returns the total number of meal plan entries that reference any of the given recipes.
      */
-    suspend fun getAffectedMealPlanCountForRecipes(recipeIds: List<String>): Int {
+    suspend fun getAffectedMealPlanCount(recipeIds: List<String>): Int {
         return try {
             mealPlanRepository.countMealPlansByRecipeIds(recipeIds)
         } catch (e: CancellationException) {
@@ -284,12 +269,10 @@ class RecipeListViewModel @Inject constructor(
 
     // Multi-select operations
 
+    /** Starts from the shown selection, so picks hidden by a search or filter don't come back later. */
     fun setRecipeSelected(recipeId: String, selected: Boolean) {
-        pickedRecipeIds.update { if (selected) it + recipeId else it - recipeId }
-    }
-
-    fun startSelection(recipeId: String) {
-        pickedRecipeIds.value = setOf(recipeId)
+        val shown = uiState.value.selectedRecipeIds
+        pickedRecipeIds.value = if (selected) shown + recipeId else shown - recipeId
     }
 
     fun clearSelection() {

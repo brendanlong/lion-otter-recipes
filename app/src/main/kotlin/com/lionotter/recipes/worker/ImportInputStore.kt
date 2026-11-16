@@ -123,8 +123,8 @@ class ImportInputStore @Inject constructor(
     fun hasSource(importId: String): Boolean = sourceFile(importId).exists()
 
     /**
-     * The recipe file staged for a [ImportKind.isRecipeFile] import, or null if [importId] isn't
-     * one. Doesn't create the import's directory.
+     * The recipe file staged for an import whose kind has a [ImportKind.recipeFileFormat], or null
+     * if [importId] isn't one. Doesn't create the import's directory.
      */
     fun readRecipeFile(importId: String): StagedRecipeFile? {
         if (!hasImport(importId)) return null
@@ -264,8 +264,6 @@ enum class ImportKind(val value: String, val recipeFileFormat: RecipeFileFormat?
     IMAGE_FILE("image_file", RecipeFileFormat.IMAGE),
     /** A PDF with one recipe. */
     PDF_FILE("pdf_file", RecipeFileFormat.PDF);
-
-    val isRecipeFile: Boolean get() = recipeFileFormat != null
 
     companion object {
         fun forRecipeFile(format: RecipeFileFormat): ImportKind = entries.first { it.recipeFileFormat == format }

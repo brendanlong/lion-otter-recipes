@@ -46,7 +46,7 @@ class OpenAiImageGeneratorTest {
             }
         }
     }
-    private val generator = OpenAiImageGenerator(client, AppJson)
+    private val generator = OpenAiImageGenerator(client, AppJson, OpenAiResponses(client, AppJson))
 
     @Before
     fun setUp() {

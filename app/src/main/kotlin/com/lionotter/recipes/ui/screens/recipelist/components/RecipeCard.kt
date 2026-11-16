@@ -26,7 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
@@ -36,7 +36,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.model.Recipe
-import com.lionotter.recipes.ui.TestTags
 import com.lionotter.recipes.ui.components.RecipeThumbnail
 import com.lionotter.recipes.ui.theme.cardElevation
 import com.lionotter.recipes.ui.theme.einkBorder
@@ -60,7 +59,6 @@ internal fun RecipeCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag(TestTags.recipeCard(recipe.id))
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
@@ -127,7 +125,7 @@ internal fun RecipeCard(
                         }
                         recipe.servings?.let {
                             Text(
-                                text = stringResource(R.string.servings_count, it.toString()),
+                                text = pluralStringResource(R.plurals.servings_count, it, it),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -168,9 +166,7 @@ internal fun RecipeCard(
                 // Favorite button
                 IconButton(
                     onClick = onFavoriteClick,
-                    modifier = Modifier
-                        .align(Alignment.Top)
-                        .testTag(TestTags.favoriteButton(recipe.id))
+                    modifier = Modifier.align(Alignment.Top)
                 ) {
                     Icon(
                         imageVector = if (recipe.isFavorite) Icons.Filled.Star else Icons.Outlined.StarOutline,

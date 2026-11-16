@@ -1,15 +1,12 @@
 package com.lionotter.recipes.worker
 
 import android.content.Context
-import android.os.Build
 import androidx.hilt.work.HiltWorker
 import androidx.work.Data
-import androidx.work.WorkInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
-import com.lionotter.recipes.domain.model.AiProviders
 import com.lionotter.recipes.domain.model.ImageChange
 import com.lionotter.recipes.domain.port.ImageStore
 import com.lionotter.recipes.domain.toRecipeError
@@ -61,7 +58,7 @@ class RecipeEditWorker @AssistedInject constructor(
             recipeId: String,
             markdownPath: String,
             model: String?,
-            thinkingEnabled: Boolean?,
+            thinkingEnabled: Boolean,
             saveAsCopy: Boolean = false,
             aiInstructions: String? = null,
             copyRecipeId: String? = null,
@@ -108,10 +105,6 @@ class RecipeEditWorker @AssistedInject constructor(
             releaseCopyImage = !willRetry(e.toRecipeError().retryable)
             throw e
         } finally {
-            // Stopped by the system, the work runs again; cancelled by the user, it doesn't. Below
-            // API 31 the reason is unknown and the file is kept.
-            val cancelledByUser = isStopped && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                stopReason == WorkInfo.STOP_REASON_CANCELLED_BY_APP
             if ((releaseCopyImage || cancelledByUser) && copyImage is ImageChange.Replace) {
                 withContext(NonCancellable) { imageStore.discardLocalImage(copyImage.localUri) }
             }
@@ -129,11 +122,7 @@ class RecipeEditWorker @AssistedInject constructor(
         val markdownText = inputStore.readWorkText(markdownPath)
             ?: return errorResult(RecipeError.Interrupted, "the edited recipe text was lost")
         val model = inputData.getString(KEY_MODEL)
-        val thinkingEnabled = if (inputData.keyValueMap.containsKey(KEY_EXTENDED_THINKING)) {
-            inputData.getBoolean(KEY_EXTENDED_THINKING, AiProviders.DEFAULT_THINKING_ENABLED)
-        } else {
-            null
-        }
+        val thinkingEnabled = inputData.keyValueMap[KEY_EXTENDED_THINKING] as? Boolean
         val saveAsCopy = inputData.getBoolean(KEY_SAVE_AS_COPY, false)
         val aiInstructions = inputData.getString(KEY_AI_INSTRUCTIONS)
 
@@ -151,10 +140,9 @@ class RecipeEditWorker @AssistedInject constructor(
             tags = tags(inputData),
             onProgress = { progress ->
                 val (workProgress, message) = when (progress) {
-                    is EditRecipeUseCase.EditProgress.ParsingRecipe ->
-                        RecipeEditWork.Progress.Parsing(recipeName = null) to "AI is processing your changes..."
+                    is EditRecipeUseCase.EditProgress.ParsingRecipe,
                     is EditRecipeUseCase.EditProgress.RecipeNameAvailable ->
-                        RecipeEditWork.Progress.Parsing(progress.name) to "AI is processing your changes..."
+                        RecipeEditWork.Progress.Parsing to "AI is processing your changes..."
                     is EditRecipeUseCase.EditProgress.SavingRecipe ->
                         RecipeEditWork.Progress.Saving to "Saving recipe..."
                 }
@@ -203,11 +191,8 @@ object RecipeEditWork : WorkContract<RecipeEditWork.Progress, RecipeEditWork.Out
     sealed interface Progress {
         fun toData(): Data
 
-        data class Parsing(val recipeName: String?) : Progress {
-            override fun toData() = workDataOf(
-                WorkResult.KEY_PROGRESS to PROGRESS_PARSING,
-                WorkResult.KEY_RECIPE_NAME to recipeName
-            )
+        data object Parsing : Progress {
+            override fun toData() = workDataOf(WorkResult.KEY_PROGRESS to PROGRESS_PARSING)
         }
 
         data object Saving : Progress {
@@ -233,7 +218,7 @@ object RecipeEditWork : WorkContract<RecipeEditWork.Progress, RecipeEditWork.Out
     }
 
     override fun decodeProgress(data: Data): Progress? = when (WorkResult.progress(data)) {
-        PROGRESS_PARSING -> Progress.Parsing(data.getString(WorkResult.KEY_RECIPE_NAME))
+        PROGRESS_PARSING -> Progress.Parsing
         PROGRESS_SAVING -> Progress.Saving
         else -> null
     }

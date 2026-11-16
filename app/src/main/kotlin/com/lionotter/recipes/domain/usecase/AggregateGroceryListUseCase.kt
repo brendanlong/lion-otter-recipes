@@ -20,14 +20,13 @@ data class GroceryIngredientSource(
     val recipeName: String,
     val ingredient: Ingredient,
     val scale: Double,
-    val recipeId: String = recipeName,
-    val key: String = sourceKey(recipeId, ingredient)
-)
-
-private fun sourceKey(recipeId: String, ingredient: Ingredient): String {
-    val base = "$recipeId\u0000${ingredient.name.lowercase()}\u0000${ingredient.amount?.unit.orEmpty()}"
-    val modifier = ingredient.modifier?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return base
-    return "$base\u0000$modifier"
+    val recipeId: String
+) {
+    val key: String = run {
+        val base = "$recipeId\u0000${ingredient.name.lowercase()}\u0000${ingredient.amount?.unit.orEmpty()}"
+        val modifier = ingredient.modifier?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        if (modifier == null) base else "$base\u0000$modifier"
+    }
 }
 
 /**

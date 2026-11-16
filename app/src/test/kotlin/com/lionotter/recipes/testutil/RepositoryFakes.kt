@@ -159,10 +159,6 @@ class FakeMealPlanRepository(vararg initial: MealPlanEntry) : MealPlanRepository
         entries.value += entry.id to entry
     }
 
-    override fun updateMealPlan(entry: MealPlanEntry) {
-        entries.value += entry.id to entry
-    }
-
     override fun deleteMealPlan(id: String) {
         entries.value -= id
     }
@@ -174,9 +170,6 @@ class FakeMealPlanRepository(vararg initial: MealPlanEntry) : MealPlanRepository
         deletedForRecipes += recipeId
         entries.value = entries.value.filterValues { it.recipeId != recipeId }
     }
-
-    override suspend fun countMealPlansByRecipeId(recipeId: String): Int =
-        entries.value.values.count { it.recipeId == recipeId }
 
     override suspend fun countMealPlansByRecipeIds(recipeIds: List<String>): Int =
         entries.value.values.count { it.recipeId in recipeIds }

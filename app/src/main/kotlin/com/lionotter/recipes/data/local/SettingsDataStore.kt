@@ -237,6 +237,10 @@ class SettingsDataStore @Inject constructor(
         )
     }.distinctUntilChanged()
 
+    private suspend fun <T> set(key: Preferences.Key<T>, value: T) {
+        context.dataStore.edit { it[key] = value }
+    }
+
     override suspend fun setApiKey(providerId: String, apiKey: String) {
         withContext(ioDispatcher) {
             apiKeyMutex.withLock {
@@ -273,77 +277,19 @@ class SettingsDataStore @Inject constructor(
         }
     }
 
-    override suspend fun setImageGenerationEnabled(enabled: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[Keys.IMAGE_GENERATION_ENABLED] = enabled
-        }
-    }
-
-    override suspend fun setSelectedModel(role: ModelRole, modelId: String) {
-        context.dataStore.edit { preferences ->
-            preferences[Keys.model(role)] = modelId
-        }
-    }
-
-    override suspend fun setThinkingEnabled(enabled: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[Keys.EXTENDED_THINKING_ENABLED] = enabled
-        }
-    }
-
-    override suspend fun setKeepScreenOn(enabled: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[Keys.KEEP_SCREEN_ON] = enabled
-        }
-    }
-
-    override suspend fun setVolumeKeysScroll(enabled: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[Keys.VOLUME_KEYS_SCROLL] = enabled
-        }
-    }
-
-    override suspend fun setThemeMode(mode: ThemeMode) {
-        context.dataStore.edit { preferences ->
-            preferences[Keys.THEME_MODE] = mode.name
-        }
-    }
-
-    override suspend fun setVolumeUnitSystem(system: UnitSystem) {
-        context.dataStore.edit { preferences ->
-            preferences[Keys.VOLUME_UNIT_SYSTEM] = system.name
-        }
-    }
-
-    override suspend fun setWeightUnitSystem(system: UnitSystem) {
-        context.dataStore.edit { preferences ->
-            preferences[Keys.WEIGHT_UNIT_SYSTEM] = system.name
-        }
-    }
-
-    override suspend fun setGroceryVolumeUnitSystem(system: UnitSystem) {
-        context.dataStore.edit { preferences ->
-            preferences[Keys.GROCERY_VOLUME_UNIT_SYSTEM] = system.name
-        }
-    }
-
-    override suspend fun setGroceryWeightUnitSystem(system: UnitSystem) {
-        context.dataStore.edit { preferences ->
-            preferences[Keys.GROCERY_WEIGHT_UNIT_SYSTEM] = system.name
-        }
-    }
-
-    override suspend fun setStartOfWeek(startOfWeek: StartOfWeek) {
-        context.dataStore.edit { preferences ->
-            preferences[Keys.START_OF_WEEK] = startOfWeek.name
-        }
-    }
-
-    override suspend fun setImportDebuggingEnabled(enabled: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[Keys.IMPORT_DEBUGGING_ENABLED] = enabled
-        }
-    }
+    override suspend fun setImageGenerationEnabled(enabled: Boolean) = set(Keys.IMAGE_GENERATION_ENABLED, enabled)
+    override suspend fun setSelectedModel(role: ModelRole, modelId: String) = set(Keys.model(role), modelId)
+    override suspend fun setThinkingEnabled(enabled: Boolean) = set(Keys.EXTENDED_THINKING_ENABLED, enabled)
+    override suspend fun setKeepScreenOn(enabled: Boolean) = set(Keys.KEEP_SCREEN_ON, enabled)
+    override suspend fun setVolumeKeysScroll(enabled: Boolean) = set(Keys.VOLUME_KEYS_SCROLL, enabled)
+    override suspend fun setThemeMode(mode: ThemeMode) = set(Keys.THEME_MODE, mode.name)
+    override suspend fun setVolumeUnitSystem(system: UnitSystem) = set(Keys.VOLUME_UNIT_SYSTEM, system.name)
+    override suspend fun setWeightUnitSystem(system: UnitSystem) = set(Keys.WEIGHT_UNIT_SYSTEM, system.name)
+    override suspend fun setGroceryVolumeUnitSystem(system: UnitSystem) = set(Keys.GROCERY_VOLUME_UNIT_SYSTEM, system.name)
+    override suspend fun setGroceryWeightUnitSystem(system: UnitSystem) = set(Keys.GROCERY_WEIGHT_UNIT_SYSTEM, system.name)
+    override suspend fun setStartOfWeek(startOfWeek: StartOfWeek) = set(Keys.START_OF_WEEK, startOfWeek.name)
+    override suspend fun setImportDebuggingEnabled(enabled: Boolean) = set(Keys.IMPORT_DEBUGGING_ENABLED, enabled)
+    override suspend fun setTagBarSize(size: Int) = set(Keys.TAG_BAR_SIZE, TagBarSize.coerce(size))
 
     override suspend fun updateFavoriteTags(transform: (Set<String>) -> Set<String>) {
         context.dataStore.edit { preferences ->
@@ -353,12 +299,6 @@ class SettingsDataStore @Inject constructor(
             } else {
                 preferences[Keys.FAVORITE_TAGS] = favorites
             }
-        }
-    }
-
-    override suspend fun setTagBarSize(size: Int) {
-        context.dataStore.edit { preferences ->
-            preferences[Keys.TAG_BAR_SIZE] = TagBarSize.coerce(size)
         }
     }
 
