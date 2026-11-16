@@ -288,10 +288,6 @@ class RecipeListViewModel @Inject constructor(
         pickedRecipeIds.update { if (selected) it + recipeId else it - recipeId }
     }
 
-    fun startSelection(recipeId: String) {
-        pickedRecipeIds.value = setOf(recipeId)
-    }
-
     fun clearSelection() {
         pickedRecipeIds.value = emptySet()
     }

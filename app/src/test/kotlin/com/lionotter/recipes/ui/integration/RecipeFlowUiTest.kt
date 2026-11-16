@@ -172,7 +172,6 @@ class RecipeFlowUiTest {
         composeTestRule.setContent {
             MaterialTheme {
                 ImportSelectionScreen(
-                    title = "Select Recipes to Import",
                     state = state,
                     onToggleItem = onToggleItem,
                     onSelectAll = onSelectAll,
@@ -487,8 +486,7 @@ class RecipeFlowUiTest {
             MaterialTheme {
                 when (currentScreen) {
                     "import" -> ImportSelectionScreen(
-                        title = "Select Recipes to Import",
-                        state = ImportSelectionUiState.Ready(importItems),
+                            state = ImportSelectionUiState.Ready(importItems),
                         onToggleItem = {},
                         onSelectAll = {},
                         onDeselectAll = {},

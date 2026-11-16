@@ -8,6 +8,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.layout.Arrangement
@@ -48,9 +49,6 @@ import androidx.compose.material3.InputChip
 import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -89,7 +87,9 @@ import com.lionotter.recipes.R
 import com.lionotter.recipes.data.image.imageModel
 import com.lionotter.recipes.domain.model.AiModel
 import com.lionotter.recipes.messages.resolve
+import com.lionotter.recipes.ui.components.BackgroundWorkProgress
 import com.lionotter.recipes.ui.components.CollectEvents
+import com.lionotter.recipes.ui.components.FullScreenLoading
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.components.text
 import com.lionotter.recipes.ui.screens.importbrowser.BrowsedPage
@@ -129,7 +129,7 @@ fun EditRecipeScreen(
     val hasUnsavedChanges by viewModel.hasUnsavedChanges.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
-    var showRegenerateConfirmDialog by remember { mutableStateOf(false) }
+    var showRegenerateConfirmDialog by rememberSaveable { mutableStateOf(false) }
     var showDiscardDialog by rememberSaveable { mutableStateOf(false) }
 
     val isLoading = editState is EditUiState.Loading
@@ -283,18 +283,15 @@ fun EditRecipeScreen(
                 }
             }
             loadState == RecipeLoadState.Loading -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator()
-                }
+                FullScreenLoading(Modifier.padding(paddingValues))
             }
             isLoading -> {
-                EditLoadingContent(
-                    progress = stringResource((editState as EditUiState.Loading).progress),
+                BackgroundWorkProgress(
+                    icon = Icons.Default.Psychology,
+                    message = stringResource((editState as EditUiState.Loading).progress),
+                    mayTakeAMoment = true,
+                    backgroundNotice = stringResource(R.string.edit_background_notice),
+                    cancelLabel = stringResource(R.string.cancel_edit),
                     onCancelClick = viewModel::cancelProcessing,
                     modifier = Modifier.padding(paddingValues)
                 )
@@ -343,70 +340,6 @@ fun EditRecipeScreen(
                     paddingValues = paddingValues
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun EditLoadingContent(
-    progress: String,
-    onCancelClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Icon(
-            imageVector = Icons.Default.Psychology,
-            contentDescription = progress,
-            modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.primary
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        CircularProgressIndicator()
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Text(
-            text = progress,
-            style = MaterialTheme.typography.titleMedium,
-            textAlign = TextAlign.Center
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = stringResource(R.string.may_take_a_moment),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Card(
-            border = einkBorder(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant
-            )
-        ) {
-            Text(
-                text = stringResource(R.string.edit_background_notice),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(16.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        TextButton(onClick = onCancelClick) {
-            Text(stringResource(R.string.cancel_edit))
         }
     }
 }
@@ -809,7 +742,8 @@ private fun ImagePlaceholder(
             .fillMaxWidth()
             .aspectRatio(16f / 9f)
             .clip(MaterialTheme.shapes.medium)
-            .background(MaterialTheme.colorScheme.surfaceVariant),
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .then(einkBorder()?.let { Modifier.border(it, MaterialTheme.shapes.medium) } ?: Modifier),
         contentAlignment = Alignment.Center
     ) {
         Column(

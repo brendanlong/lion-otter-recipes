@@ -46,15 +46,17 @@ fun DisplaySection(
     }
 }
 
+/** A setting that is on or off: the whole row toggles it. */
 @Composable
-private fun SwitchRow(
+internal fun SwitchRow(
     title: String,
     description: String,
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .toggleable(
                 value = checked,

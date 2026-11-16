@@ -17,9 +17,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarOutline
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -29,7 +27,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -45,7 +42,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -55,12 +51,12 @@ import com.lionotter.recipes.messages.resolve
 import com.lionotter.recipes.ui.components.CollectEvents
 import com.lionotter.recipes.domain.model.Recipe
 import com.lionotter.recipes.domain.util.RecipeMarkdownFormatter
-import com.lionotter.recipes.ui.TestTags
 import com.lionotter.recipes.ui.components.DeleteConfirmationDialog
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.screens.recipedetail.components.RecipeContent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import com.lionotter.recipes.ui.components.FullScreenLoading
 
 private const val TAG = "RecipeDetailScreen"
 
@@ -79,7 +75,6 @@ private fun Context.startShareChooser(intent: Intent): Boolean {
 fun RecipeDetailScreen(
     onBackClick: () -> Unit,
     onEditClick: () -> Unit,
-    onNavigateToSettings: () -> Unit,
     modifier: Modifier = Modifier,
     onTagClick: (String) -> Unit = {},
     editSuccess: Boolean = false,
@@ -95,7 +90,6 @@ fun RecipeDetailScreen(
     val keepScreenOn by viewModel.keepScreenOn.collectAsStateWithLifecycle()
     val volumeUnitSystem by viewModel.volumeUnitSystem.collectAsStateWithLifecycle()
     val weightUnitSystem by viewModel.weightUnitSystem.collectAsStateWithLifecycle()
-    val hasApiKey by viewModel.hasApiKey.collectAsStateWithLifecycle()
 
     val recipe: Recipe? = (uiState as? RecipeDetailState.Loaded)?.recipe
 
@@ -116,7 +110,6 @@ fun RecipeDetailScreen(
     var showDeleteDialog by rememberSaveable { mutableStateOf(false) }
     var affectedMealPlanCount by remember { mutableIntStateOf(0) }
     var showOverflowMenu by remember { mutableStateOf(false) }
-    var showApiKeyDialog by rememberSaveable { mutableStateOf(false) }
 
     // Load affected meal plan count when delete dialog is shown
     LaunchedEffect(showDeleteDialog) {
@@ -160,30 +153,6 @@ fun RecipeDetailScreen(
         }
     }
 
-    // API key required dialog
-    if (showApiKeyDialog) {
-        AlertDialog(
-            onDismissRequest = { showApiKeyDialog = false },
-            title = { Text(stringResource(R.string.api_key_required)) },
-            text = { Text(stringResource(R.string.api_key_required_for_editing)) },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showApiKeyDialog = false
-                        onNavigateToSettings()
-                    }
-                ) {
-                    Text(stringResource(R.string.go_to_settings))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showApiKeyDialog = false }) {
-                    Text(stringResource(R.string.cancel))
-                }
-            }
-        )
-    }
-
     // Delete confirmation dialog
     if (showDeleteDialog && recipe != null) {
         DeleteConfirmationDialog(
@@ -205,22 +174,13 @@ fun RecipeDetailScreen(
                 onBackClick = onBackClick,
                 actions = {
                     if (recipe != null) {
-                        IconButton(onClick = {
-                            if (hasApiKey) {
-                                onEditClick()
-                            } else {
-                                showApiKeyDialog = true
-                            }
-                        }) {
+                        IconButton(onClick = onEditClick) {
                             Icon(
                                 imageVector = Icons.Default.Edit,
                                 contentDescription = stringResource(R.string.edit_recipe_action)
                             )
                         }
-                        IconButton(
-                            onClick = { viewModel.setFavorite(!recipe.isFavorite) },
-                            modifier = Modifier.testTag(TestTags.RECIPE_DETAIL_FAVORITE)
-                        ) {
+                        IconButton(onClick = { viewModel.setFavorite(!recipe.isFavorite) }) {
                             Icon(
                                 imageVector = if (recipe.isFavorite) Icons.Filled.Star else Icons.Outlined.StarOutline,
                                 contentDescription = if (recipe.isFavorite) stringResource(R.string.remove_from_favorites) else stringResource(R.string.add_to_favorites),
@@ -285,14 +245,7 @@ fun RecipeDetailScreen(
     ) { paddingValues ->
         when (val state = uiState) {
             RecipeDetailState.Loading -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator()
-                }
+                FullScreenLoading(Modifier.padding(paddingValues))
             }
             RecipeDetailState.NotFound -> {
                 Column(

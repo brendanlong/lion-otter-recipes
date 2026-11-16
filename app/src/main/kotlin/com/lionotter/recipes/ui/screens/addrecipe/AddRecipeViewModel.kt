@@ -29,6 +29,7 @@ import com.lionotter.recipes.messages.UserMessage
 import com.lionotter.recipes.messages.toUserMessage
 import com.lionotter.recipes.ui.navigation.Route
 import com.lionotter.recipes.ui.screens.importbrowser.BrowsedPage
+import com.lionotter.recipes.ui.screens.importbrowser.isWebUrl
 import com.lionotter.recipes.ui.screens.importselection.ImportType
 import com.lionotter.recipes.util.ErrorLog
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -118,10 +119,7 @@ class AddRecipeViewModel @Inject constructor(
             is ImportState.Running -> AddRecipeUiState.Loading(import.stage)
             // Shown until the RecipeAdded event has moved on (see init)
             is ImportState.Succeeded -> AddRecipeUiState.Loading(ImportStage.SAVING)
-            is ImportState.Failed -> when (import.error) {
-                RecipeError.NoApiKey -> AddRecipeUiState.NoApiKey
-                else -> AddRecipeUiState.Error(import.error.toUserMessage())
-            }
+            is ImportState.Failed -> AddRecipeUiState.Error(import.error.toUserMessage())
             ImportState.Cancelled -> AddRecipeUiState.Idle
         }
     }.stateIn(
@@ -177,7 +175,7 @@ class AddRecipeViewModel @Inject constructor(
 
         // Accept pasted text like "Recipe title https://example.com/recipe"
         val currentUrl = extractFirstUrl(input) ?: input
-        if (!currentUrl.startsWith("http://", ignoreCase = true) && !currentUrl.startsWith("https://", ignoreCase = true)) {
+        if (!currentUrl.isWebUrl()) {
             localState.value = AddRecipeUiState.Error(UserMessage(R.string.error_url_scheme), isUrlError = true)
             return
         }
@@ -349,10 +347,6 @@ class AddRecipeViewModel @Inject constructor(
         // If the import is still being started, cancel it as soon as its ID is known.
         pendingStart?.cancelled = true
         importId.value?.let { importQueue.cancelImport(it) }
-        resetState()
-    }
-
-    fun resetState() {
         savedStateHandle[KEY_IMPORT_ID] = null
         localState.value = AddRecipeUiState.Idle
     }
@@ -363,7 +357,6 @@ sealed class AddRecipeUiState {
     data class Loading(val stage: ImportStage) : AddRecipeUiState()
     /** [isUrlError]: the message is about the URL field (marked as invalid). */
     data class Error(val message: UserMessage, val isUrlError: Boolean = false) : AddRecipeUiState()
-    object NoApiKey : AddRecipeUiState()
 }
 
 sealed interface AddRecipeEvent {

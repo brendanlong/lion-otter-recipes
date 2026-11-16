@@ -100,7 +100,7 @@ class RecipeListViewModelTest {
     @Test
     fun `selection only includes recipes that are shown`() {
         val viewModel = createViewModel()
-        viewModel.startSelection("cake")
+        viewModel.setRecipeSelected("cake", selected = true)
         viewModel.setRecipeSelected("soup", selected = true)
         assertEquals(setOf("cake", "soup"), viewModel.uiState.value.selectedRecipeIds)
 
@@ -112,7 +112,7 @@ class RecipeListViewModelTest {
     @Test
     fun `a selected recipe deleted elsewhere leaves the selection`() {
         val viewModel = createViewModel()
-        viewModel.startSelection("cake")
+        viewModel.setRecipeSelected("cake", selected = true)
         viewModel.setRecipeSelected("pie", selected = true)
 
         recipeRepository.recipes.value -= "pie"
@@ -123,7 +123,7 @@ class RecipeListViewModelTest {
     @Test
     fun `bulk delete only deletes selected recipes that are shown`() {
         val viewModel = createViewModel()
-        viewModel.startSelection("cake")
+        viewModel.setRecipeSelected("cake", selected = true)
         viewModel.setRecipeSelected("soup", selected = true)
         viewModel.onSearchQueryChange("chocolate")
 
@@ -137,7 +137,7 @@ class RecipeListViewModelTest {
     @Test
     fun `deselecting the last recipe ends multi-select`() {
         val viewModel = createViewModel()
-        viewModel.startSelection("cake")
+        viewModel.setRecipeSelected("cake", selected = true)
         assertTrue(viewModel.uiState.value.isMultiSelectActive)
 
         viewModel.setRecipeSelected("cake", selected = false)

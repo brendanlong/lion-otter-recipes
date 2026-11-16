@@ -203,7 +203,8 @@ class AddRecipeViewModelTest {
         )
         advanceUntilIdle()
 
-        assertEquals(AddRecipeUiState.NoApiKey, viewModel.uiState.value)
+        // The idle screen shows the error along with its card for adding a key
+        assertEquals(AddRecipeUiState.Error(UserMessage(R.string.error_no_api_key)), viewModel.uiState.value)
     }
 
     @Test

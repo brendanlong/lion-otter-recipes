@@ -26,6 +26,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.lionotter.recipes.R
@@ -51,6 +54,7 @@ fun InProgressRecipeCard(
     onDismiss: (() -> Unit)? = null
 ) {
     val isFailed = inProgressRecipe.isFailed
+    val cancelLabel = stringResource(R.string.cancel_import)
 
     SwipeActionBox(
         modifier = modifier,
@@ -67,7 +71,7 @@ fun InProgressRecipeCard(
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
-                    contentDescription = stringResource(R.string.cancel_import),
+                    contentDescription = cancelLabel,
                     tint = MaterialTheme.colorScheme.error
                 )
             }
@@ -78,7 +82,11 @@ fun InProgressRecipeCard(
             modifier = Modifier
                 .fillMaxWidth()
                 // Translucency dithers on e-ink.
-                .alpha(if (isFailed || LocalEinkTheme.current) 1f else 0.8f),
+                .alpha(if (isFailed || LocalEinkTheme.current) 1f else 0.8f)
+                // Swiping isn't available to accessibility services
+                .semantics {
+                    customActions = listOf(CustomAccessibilityAction(cancelLabel) { onCancelRequest(); true })
+                },
             elevation = cardElevation(2.dp),
             colors = CardDefaults.cardColors(
                 containerColor = if (isFailed) {

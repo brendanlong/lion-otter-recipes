@@ -3,7 +3,6 @@ package com.lionotter.recipes.ui.screens.tags
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -14,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
@@ -62,6 +62,7 @@ import com.lionotter.recipes.domain.model.TagUsage
 import com.lionotter.recipes.messages.resolve
 import com.lionotter.recipes.ui.components.CollectEvents
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
+import com.lionotter.recipes.ui.components.FullScreenLoading
 
 /**
  * Lists the user's tags for starring as favorites, renaming, merging and deleting, and reviews AI
@@ -97,14 +98,7 @@ fun ManageTagsScreen(
     ) { paddingValues ->
         val state = uiState as? ManageTagsUiState.Loaded
         if (state == null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
+            FullScreenLoading(Modifier.padding(paddingValues))
             return@Scaffold
         }
         val contentModifier = Modifier
@@ -366,6 +360,7 @@ private fun EditTagDialog(
                     label = { Text(stringResource(R.string.tag_name)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { if (canRename) onRename(newName) }),
                     modifier = Modifier
                         .fillMaxWidth()
                         .focusRequester(focusRequester)

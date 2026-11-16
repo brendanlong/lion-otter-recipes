@@ -16,7 +16,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -34,9 +34,9 @@ fun AccountSection(
     modifier: Modifier = Modifier,
     busyOp: AccountOp? = null
 ) {
-    var showSignOutDialog by remember { mutableStateOf(false) }
-    var showDeleteDialog by remember { mutableStateOf(false) }
-    var deleteConfirmationText by remember { mutableStateOf("") }
+    var showSignOutDialog by rememberSaveable { mutableStateOf(false) }
+    var showDeleteDialog by rememberSaveable { mutableStateOf(false) }
+    var deleteConfirmationText by rememberSaveable { mutableStateOf("") }
 
     Column(
         modifier = modifier

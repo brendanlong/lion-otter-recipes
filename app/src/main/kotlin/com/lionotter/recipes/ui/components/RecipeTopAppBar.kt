@@ -14,7 +14,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -22,7 +21,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.lionotter.recipes.R
-import com.lionotter.recipes.ui.TestTags
 import com.lionotter.recipes.ui.theme.einkEdge
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -42,9 +40,7 @@ fun RecipeTopAppBar(
                 maxLines = 3,
                 autoSize = TextAutoSize.StepBased(minFontSize = 14.sp, maxFontSize = LocalTextStyle.current.fontSize),
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .testTag(TestTags.RECIPE_DETAIL_NAME)
-                    .semantics { heading() }
+                modifier = Modifier.semantics { heading() }
             )
         },
         navigationIcon = {

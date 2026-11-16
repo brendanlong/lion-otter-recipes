@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -31,11 +30,9 @@ import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.UploadFile
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -47,19 +44,18 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lionotter.recipes.R
 import com.lionotter.recipes.domain.ResourceLimits
 import com.lionotter.recipes.imports.ImportStage
+import com.lionotter.recipes.ui.components.BackgroundWorkProgress
 import com.lionotter.recipes.ui.components.CollectEvents
 import com.lionotter.recipes.ui.components.ErrorCard
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
@@ -193,9 +189,6 @@ fun AddRecipeScreen(
                         stage = state.stage,
                         onCancelClick = viewModel::cancelImport
                     )
-                }
-                is AddRecipeUiState.NoApiKey -> {
-                    NoApiKeyContent(onNavigateToSettings = onNavigateToSettings)
                 }
             }
         }
@@ -410,121 +403,29 @@ private fun LoadingContent(
     stage: ImportStage,
     onCancelClick: () -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        val (icon, message) = when (stage) {
-            ImportStage.QUEUED ->
-                Icons.Default.HourglassEmpty to stringResource(R.string.preparing_import)
-            ImportStage.STARTING ->
-                Icons.Default.Cloud to stringResource(R.string.starting)
-            ImportStage.FETCHING_PAGE ->
-                Icons.Default.CloudDownload to stringResource(R.string.fetching_recipe_page)
-            ImportStage.ANALYZING ->
-                Icons.Default.Psychology to stringResource(R.string.analyzing_recipe)
-            ImportStage.SUBMITTING_BATCH ->
-                Icons.Default.Psychology to stringResource(R.string.submitting_batch)
-            ImportStage.WAITING_FOR_BATCH ->
-                Icons.Default.Psychology to stringResource(R.string.waiting_for_batch)
-            ImportStage.SAVING ->
-                Icons.Default.Save to stringResource(R.string.saving_recipe)
-        }
-
-        Icon(
-            imageVector = icon,
-            contentDescription = message,
-            modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.primary
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        CircularProgressIndicator()
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Text(
-            text = message,
-            style = MaterialTheme.typography.titleMedium,
-            textAlign = TextAlign.Center
-        )
-
-        if (stage == ImportStage.ANALYZING) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = stringResource(R.string.may_take_a_moment),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Card(
-            border = einkBorder(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant
-            )
-        ) {
-            Text(
-                text = stringResource(R.string.import_background_notice),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(16.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        TextButton(onClick = onCancelClick) {
-            Text(stringResource(R.string.cancel_import))
-        }
+    val (icon, message) = when (stage) {
+        ImportStage.QUEUED ->
+            Icons.Default.HourglassEmpty to stringResource(R.string.preparing_import)
+        ImportStage.STARTING ->
+            Icons.Default.Cloud to stringResource(R.string.starting)
+        ImportStage.FETCHING_PAGE ->
+            Icons.Default.CloudDownload to stringResource(R.string.fetching_recipe_page)
+        ImportStage.ANALYZING ->
+            Icons.Default.Psychology to stringResource(R.string.analyzing_recipe)
+        ImportStage.SUBMITTING_BATCH ->
+            Icons.Default.Psychology to stringResource(R.string.submitting_batch)
+        ImportStage.WAITING_FOR_BATCH ->
+            Icons.Default.Psychology to stringResource(R.string.waiting_for_batch)
+        ImportStage.SAVING ->
+            Icons.Default.Save to stringResource(R.string.saving_recipe)
     }
-}
-
-@Composable
-private fun NoApiKeyContent(onNavigateToSettings: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Icon(
-            imageVector = Icons.Default.Warning,
-            contentDescription = stringResource(R.string.warning),
-            modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.error
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text(
-            text = stringResource(R.string.api_key_required),
-            style = MaterialTheme.typography.titleLarge,
-            textAlign = TextAlign.Center
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = stringResource(R.string.api_key_setup_message),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Button(onClick = onNavigateToSettings) {
-            Text(stringResource(R.string.go_to_settings))
-        }
-    }
+    BackgroundWorkProgress(
+        icon = icon,
+        message = message,
+        mayTakeAMoment = stage == ImportStage.ANALYZING,
+        backgroundNotice = stringResource(R.string.import_background_notice),
+        cancelLabel = stringResource(R.string.cancel_import),
+        onCancelClick = onCancelClick,
+        modifier = Modifier.padding(16.dp)
+    )
 }

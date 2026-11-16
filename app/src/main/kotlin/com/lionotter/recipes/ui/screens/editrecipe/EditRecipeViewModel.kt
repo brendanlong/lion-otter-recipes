@@ -354,8 +354,7 @@ class EditRecipeViewModel @Inject constructor(
                 }
                 if (localUri != null) {
                     discardPendingImageFile()
-                    savedStateHandle[KEY_PENDING_IMAGE_URI] = localUri
-                    savedStateHandle[KEY_PENDING_IMAGE_CHANGED] = true
+                    setPendingImageChange(ImageChange.Replace(localUri))
                 } else {
                     ErrorLog.w(TAG, "Failed to save selected image")
                     showLocalState(EditUiState.Error(UserMessage(R.string.error_image_unusable)))
@@ -372,8 +371,7 @@ class EditRecipeViewModel @Inject constructor(
     /** Remove the recipe image (applied when the user saves). */
     fun removeImage() {
         discardPendingImageFile()
-        savedStateHandle[KEY_PENDING_IMAGE_URI] = null
-        savedStateHandle[KEY_PENDING_IMAGE_CHANGED] = true
+        setPendingImageChange(ImageChange.Remove)
     }
 
     /** Drops a picked or removed image that hasn't been saved, e.g. because an image is being generated instead. */

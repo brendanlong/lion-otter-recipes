@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -60,7 +59,6 @@ import com.lionotter.recipes.ui.components.SwipeActionBox
 import com.lionotter.recipes.ui.components.SwipeActionBoxState
 import com.lionotter.recipes.ui.components.SwipeActionDirection
 import com.lionotter.recipes.ui.components.rememberSwipeActionBoxState
-import com.lionotter.recipes.domain.model.MealType
 import com.lionotter.recipes.ui.components.RecipeTopAppBar
 import com.lionotter.recipes.ui.theme.fabElevation
 import com.lionotter.recipes.ui.components.rememberScrollAids
@@ -74,7 +72,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import kotlinx.coroutines.Job
@@ -296,20 +293,6 @@ private fun WeekNavigationHeader(
     }
 }
 
-@Composable
-private fun DayHeader(date: LocalDate, isToday: Boolean) {
-    val dayText = MealPlanDateFormat.dayHeader(date)
-    Text(
-        text = if (isToday) stringResource(R.string.day_header_today, dayText) else dayText,
-        style = MaterialTheme.typography.titleSmall,
-        fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier
-            .padding(vertical = 4.dp)
-            .semantics { heading() }
-    )
-}
-
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SwipeableMealPlanCard(
@@ -376,12 +359,7 @@ private fun MealPlanCard(
     onEditRequest: () -> Unit,
     onDeleteRequest: () -> Unit
 ) {
-    val mealTypeLabel = when (entry.mealType) {
-        MealType.BREAKFAST -> stringResource(R.string.breakfast)
-        MealType.LUNCH -> stringResource(R.string.lunch)
-        MealType.DINNER -> stringResource(R.string.dinner)
-        MealType.SNACK -> stringResource(R.string.snack)
-    }
+    val mealTypeLabel = entry.mealType.label()
 
     val editLabel = stringResource(R.string.edit)
     val removeLabel = stringResource(R.string.remove)

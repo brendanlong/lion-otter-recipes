@@ -6,14 +6,12 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -31,7 +29,6 @@ import kotlinx.coroutines.launch
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.todayIn
 import kotlin.time.Clock
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
@@ -62,6 +59,7 @@ import com.lionotter.recipes.ui.screens.settings.components.ModelSelectionSectio
 import com.lionotter.recipes.ui.screens.settings.components.TagsSection
 import com.lionotter.recipes.ui.screens.settings.components.ThemeSection
 import com.lionotter.recipes.ui.screens.settings.components.UnitPreferencesSection
+import com.lionotter.recipes.ui.components.FullScreenLoading
 
 @Composable
 fun SettingsScreen(
@@ -187,14 +185,7 @@ fun SettingsScreen(
     ) { paddingValues ->
         val settings = (uiState as? SettingsUiState.Loaded)?.settings
         if (settings == null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
+            FullScreenLoading(Modifier.padding(paddingValues))
             return@Scaffold
         }
         val scrollState = rememberScrollState()

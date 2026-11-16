@@ -127,14 +127,11 @@ class RecipeDetailViewModelTest {
     }
 
     @Test
-    fun `setScale clamps to 0_25 to 10`() = runTest {
+    fun `incrementScale stops at the largest preset`() = runTest {
         viewModel = createViewModel()
 
-        viewModel.setScale(2.5)
-        assertEquals(2.5, viewModel.progress.scale, 0.001)
-        viewModel.setScale(0.1)
-        assertEquals(0.25, viewModel.progress.scale, 0.001)
-        viewModel.setScale(15.0)
+        repeat(20) { viewModel.incrementScale() }
+
         assertEquals(10.0, viewModel.progress.scale, 0.001)
     }
 
@@ -173,16 +170,6 @@ class RecipeDetailViewModelTest {
         assertEquals(setOf("0-0-0", "0-0-1", "0-0-2"), progress.usedInstructionIngredients)
         assertEquals(setOf("|flour"), progress.checkedAggregateIngredients)
         assertEquals(1.5, progress.scale, 0.001)
-    }
-
-    @Test
-    fun `resetIngredientUsage clears all used ingredients`() = runTest {
-        viewModel = createViewModel()
-        viewModel.toggleInstructionIngredientUsed(0, 0, 0)
-
-        viewModel.resetIngredientUsage()
-
-        assertTrue(viewModel.progress.usedInstructionIngredients.isEmpty())
     }
 
     @Test
@@ -315,7 +302,7 @@ class RecipeDetailViewModelTest {
     @Test
     fun `cooking progress is restored from SavedStateHandle`() = runTest {
         viewModel = createViewModel()
-        viewModel.setScale(2.0)
+        repeat(2) { viewModel.incrementScale() } // 1 -> 1.5 -> 2
         viewModel.setMeasurementPreference(MeasurementPreference.WEIGHT)
         viewModel.toggleInstructionIngredientUsed(0, 1, 2)
         viewModel.toggleHighlightedInstructionStep(0, 3)
@@ -339,7 +326,7 @@ class RecipeDetailViewModelTest {
     @Test
     fun `resetCookingProgress clears checked ingredients and highlighted step but keeps scale`() = runTest {
         viewModel = createViewModel()
-        viewModel.setScale(2.0)
+        repeat(2) { viewModel.incrementScale() } // 1 -> 1.5 -> 2
         viewModel.toggleInstructionIngredientUsed(0, 0, 0)
         viewModel.toggleHighlightedInstructionStep(0, 0)
         viewModel.toggleAggregateIngredientChecked("|flour")
