@@ -435,6 +435,8 @@ class EditRecipeViewModel @Inject constructor(
         val newUrl = sourceUrl.value
         val newTags = changedTags()
         val editRequest = buildEditRequest(saveAsCopy = false)
+        // The direct changes are still saved; the AI edit stays on screen until a key is added
+        val missingKey = needsAiEdit && editRequest.model == null
         // The save takes over the picked file: it now belongs to the recipe, not this screen
         val imageChange = pendingImageChange()
         setPendingImageChange(null)
@@ -452,7 +454,7 @@ class EditRecipeViewModel @Inject constructor(
                         recipeRepository.updateTitleAndUrl(recipeId, newTitle, newUrl)
                     }
                     newTags?.let { recipeRepository.setTags(recipeId, it) }
-                    if (needsAiEdit) startEditWork(editRequest)
+                    if (needsAiEdit && !missingKey) startEditWork(editRequest)
                     needsAiEdit
                 }
             } catch (e: CancellationException) {
@@ -472,6 +474,10 @@ class EditRecipeViewModel @Inject constructor(
                 return@launch
             }
 
+            if (missingKey) {
+                localEditState.value = EditUiState.NoApiKey
+                return@launch
+            }
             // Otherwise the tracked edit work's state is shown from here on
             localEditState.value = EditUiState.Idle
             if (!startedAiEdit) _events.send(EditRecipeEvent.Saved(newRecipeId = null))
@@ -486,9 +492,13 @@ class EditRecipeViewModel @Inject constructor(
      */
     fun saveAsCopy() {
         if (isSaveInProgress()) return
+        val editRequest = buildEditRequest(saveAsCopy = true)
+        if (editRequest.model == null) {
+            showLocalState(EditUiState.NoApiKey)
+            return
+        }
         showLocalState(EditUiState.Loading(R.string.edit_progress_saving))
         val imageChange = pendingImageChange()
-        val editRequest = buildEditRequest(saveAsCopy = true)
         viewModelScope.launch {
             try {
                 withContext(NonCancellable) {

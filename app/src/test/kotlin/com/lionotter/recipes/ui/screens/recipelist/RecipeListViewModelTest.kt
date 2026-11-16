@@ -110,6 +110,18 @@ class RecipeListViewModelTest {
     }
 
     @Test
+    fun `selecting while a search hides picks drops the hidden picks`() {
+        val viewModel = createViewModel()
+        viewModel.setRecipeSelected("soup", selected = true)
+        viewModel.onSearchQueryChange("cake")
+
+        viewModel.setRecipeSelected("cake", selected = true)
+        viewModel.onSearchQueryChange("")
+
+        assertEquals(setOf("cake"), viewModel.uiState.value.selectedRecipeIds)
+    }
+
+    @Test
     fun `a selected recipe deleted elsewhere leaves the selection`() {
         val viewModel = createViewModel()
         viewModel.setRecipeSelected("cake", selected = true)

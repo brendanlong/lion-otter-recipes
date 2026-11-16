@@ -36,7 +36,6 @@ import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.runningFold
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -270,8 +269,10 @@ class RecipeListViewModel @Inject constructor(
 
     // Multi-select operations
 
+    /** Starts from the shown selection, so picks hidden by a search or filter don't come back later. */
     fun setRecipeSelected(recipeId: String, selected: Boolean) {
-        pickedRecipeIds.update { if (selected) it + recipeId else it - recipeId }
+        val shown = uiState.value.selectedRecipeIds
+        pickedRecipeIds.value = if (selected) shown + recipeId else shown - recipeId
     }
 
     fun clearSelection() {

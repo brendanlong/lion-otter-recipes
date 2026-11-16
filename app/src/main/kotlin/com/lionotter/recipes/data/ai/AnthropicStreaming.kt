@@ -1,6 +1,7 @@
 package com.lionotter.recipes.data.ai
 
 import com.anthropic.core.http.StreamResponse
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
@@ -13,7 +14,8 @@ import kotlinx.coroutines.launch
  */
 internal suspend fun <E> StreamResponse<E>.forEachCancellable(onEvent: (E) -> Unit) = coroutineScope {
     use { stream ->
-        val closeOnCancel = launch {
+        // Undispatched, so the close is armed before the first read even if the pool is busy
+        val closeOnCancel = launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 awaitCancellation()
             } finally {
@@ -31,5 +33,7 @@ internal suspend fun <E> StreamResponse<E>.forEachCancellable(onEvent: (E) -> Un
         } finally {
             closeOnCancel.cancel()
         }
+        // Closing the stream may end it early instead of throwing
+        ensureActive()
     }
 }
