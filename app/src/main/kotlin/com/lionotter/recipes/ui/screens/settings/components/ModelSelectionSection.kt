@@ -15,6 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -123,6 +124,7 @@ fun SingleModelSelectionSection(
 }
 
 @Composable
+@ReadOnlyComposable
 private fun ModelTier.label(): String = stringResource(
     when (this) {
         ModelTier.MOST_CAPABLE -> R.string.model_tier_most_capable
@@ -133,6 +135,7 @@ private fun ModelTier.label(): String = stringResource(
 )
 
 @Composable
+@ReadOnlyComposable
 private fun AiModel.label(): String = stringResource(R.string.model_name_with_tier, name, tier.label())
 
 private fun AiModel.providerName(): String = AiProviders.provider(providerId)?.name ?: providerId

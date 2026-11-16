@@ -22,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -195,6 +196,7 @@ fun InProgressRecipeCard(
 }
 
 @Composable
+@ReadOnlyComposable
 private fun statusText(stage: ImportStage): String = when (stage) {
     ImportStage.QUEUED, ImportStage.STARTING -> stringResource(R.string.preparing_import)
     ImportStage.FETCHING_PAGE -> stringResource(R.string.fetching_recipe_page)

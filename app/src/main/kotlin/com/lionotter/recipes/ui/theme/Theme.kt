@@ -9,6 +9,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.ReadOnlyComposable
 import com.lionotter.recipes.domain.model.ThemeMode
 
 private val LightColorScheme = lightColorScheme(
@@ -66,6 +67,7 @@ private val DarkColorScheme = darkColorScheme(
 )
 
 @Composable
+@ReadOnlyComposable
 fun ThemeMode.isDarkTheme(): Boolean = when (this) {
     ThemeMode.LIGHT, ThemeMode.EINK -> false
     ThemeMode.DARK -> true

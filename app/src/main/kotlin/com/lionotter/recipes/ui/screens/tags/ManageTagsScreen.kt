@@ -37,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -301,12 +302,14 @@ private fun SuggestionReview(
 }
 
 @Composable
+@ReadOnlyComposable
 private fun changeTitle(change: TagChange): String = when (change.to) {
     null -> stringResource(R.string.tag_change_delete_title, change.from)
     else -> stringResource(R.string.tag_change_rename_title, change.from, change.to)
 }
 
 @Composable
+@ReadOnlyComposable
 private fun changeDescription(change: TagChange): String {
     val recipes = pluralStringResource(R.plurals.tag_recipe_count, change.recipeCount, change.recipeCount)
     val kind = when (change.kind) {
