@@ -59,8 +59,7 @@ object RecipeHtmlExtractor : PageContentExtractor {
             ?.joinToString("\n") { cleanJsonLd(it).toString() }
             ?.let { truncate(it, MAX_JSON_LD_CHARS) }
 
-        val title = doc.selectFirst("meta[property=og:title]")?.attr("content")?.takeIf { it.isNotBlank() }
-            ?: doc.title().takeIf { it.isNotBlank() }
+        val title = title(doc)
 
         val text = buildString {
             if (!title.isNullOrBlank()) {
@@ -88,7 +87,7 @@ object RecipeHtmlExtractor : PageContentExtractor {
         null
     }
 
-    fun extractImageUrl(doc: Document): String? =
+    private fun extractImageUrl(doc: Document): String? =
         listOf("meta[property=og:image]", "meta[name=og:image]", "meta[name=twitter:image]", "meta[name=image]")
             .firstNotNullOfOrNull { selector ->
                 doc.selectFirst(selector)?.attr("content")?.takeIf { it.isNotBlank() }
@@ -108,13 +107,15 @@ object RecipeHtmlExtractor : PageContentExtractor {
     }
 
     override fun extractTitle(html: String): String? = try {
-        val doc = Jsoup.parse(html)
-        doc.selectFirst("meta[property=og:title]")?.attr("content")?.takeIf { it.isNotBlank() }
-            ?: doc.title().takeIf { it.isNotBlank() }
+        title(Jsoup.parse(html))
     } catch (e: Exception) {
         Log.w(TAG, "Failed to extract page title from HTML", e)
         null
     }
+
+    private fun title(doc: Document): String? =
+        doc.selectFirst("meta[property=og:title]")?.attr("content")?.takeIf { it.isNotBlank() }
+            ?: doc.title().takeIf { it.isNotBlank() }
 
     internal fun findJsonLdRecipes(doc: Document): List<JsonObject> {
         val results = mutableListOf<JsonObject>()

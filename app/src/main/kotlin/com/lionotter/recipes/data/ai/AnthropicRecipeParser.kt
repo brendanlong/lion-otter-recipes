@@ -30,9 +30,7 @@ import com.lionotter.recipes.util.ErrorLog
 import com.lionotter.recipes.util.IoDispatcher
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.util.Base64
@@ -59,29 +57,11 @@ class AnthropicRecipeParser @Inject constructor(
             val client = clientFor(request.apiKey)
             val params = buildParams(request, model)
 
-            // Stream so large max_tokens values don't hit HTTP timeouts. The SDK is blocking,
-            // so run on IO and close the stream if the coroutine is cancelled.
+            // Stream so large max_tokens values don't hit HTTP timeouts
             val message = withContext(ioDispatcher) {
-                client.beta().messages().createStreaming(params).use { stream ->
-                    // The read below blocks, so a sibling closes the stream to unblock it on cancel
-                    val closeOnCancel = launch {
-                        try {
-                            awaitCancellation()
-                        } finally {
-                            stream.close()
-                        }
-                    }
-                    try {
-                        val accumulator = BetaMessageAccumulator.create()
-                        stream.stream().forEach { event ->
-                            ensureActive()
-                            accumulator.accumulate(event)
-                        }
-                        accumulator.message()
-                    } finally {
-                        closeOnCancel.cancel()
-                    }
-                }
+                val accumulator = BetaMessageAccumulator.create()
+                client.beta().messages().createStreaming(params).forEachCancellable { accumulator.accumulate(it) }
+                accumulator.message()
             }
 
             responseParser.parseBetaMessage(message)
@@ -127,10 +107,7 @@ class AnthropicRecipeParser @Inject constructor(
         if (requestConfig.adaptiveThinking) {
             paramsBuilder.thinking(BetaThinkingConfigAdaptive.builder().build())
         }
-        if (RecipeRequests.supportsServerSideFallback(model)) {
-            paramsBuilder.addBeta(RecipeRequests.SERVER_SIDE_FALLBACK_BETA).fallbacksDefault()
-        }
-        return paramsBuilder.build()
+        return paramsBuilder.addBeta(RecipeRequests.SERVER_SIDE_FALLBACK_BETA).fallbacksDefault().build()
     }
 
     private fun attachmentBlock(attachment: ParseAttachment): BetaContentBlockParam {
@@ -179,7 +156,7 @@ class AnthropicRecipeParser @Inject constructor(
                             existingTags = request.existingTags
                         )
                     )
-                    .outputConfig(requestConfig.toOutputConfig())
+                    .outputConfig(requestConfig.toOutputConfig(RecipeRequests.outputFormat))
                 if (requestConfig.adaptiveThinking) {
                     paramsBuilder.thinking(ThinkingConfigAdaptive.builder().build())
                 }

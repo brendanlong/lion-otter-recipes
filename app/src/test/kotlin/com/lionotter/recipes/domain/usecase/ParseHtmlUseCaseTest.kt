@@ -11,6 +11,7 @@ import com.lionotter.recipes.testutil.FakeImageStore
 import com.lionotter.recipes.testutil.FakeImportDebugLog
 import com.lionotter.recipes.testutil.FakePageContentExtractor
 import com.lionotter.recipes.domain.port.ParseAttachment
+import com.lionotter.recipes.domain.port.ParsedRecipeWithUsage
 import com.lionotter.recipes.testutil.FakeRecipeImageScheduler
 import com.lionotter.recipes.testutil.FakeRecipeParser
 import com.lionotter.recipes.testutil.FakeRecipeRepository
@@ -208,28 +209,29 @@ class ParseHtmlUseCaseTest {
     @Test
     fun `batch results are saved under the given ID, overwriting at the limit`() = runTest {
         settings.debuggingFlow.value = true
-        val saved = useCase().saveBatchResult(
-            parsedWithUsage = parsedWithUsage(parsedRecipe("Scones")),
-            recipeId = "batch-recipe",
-            imageUrl = "https://example.com/scones.jpg",
-            model = AiProviders.CLAUDE_SONNET,
-            thinkingEnabled = false
-        ).value()
+        suspend fun saveBatchResult(parsed: ParsedRecipeWithUsage, recipeId: String, imageUrl: String? = null) =
+            useCase().saveBatchResult(
+                parsedWithUsage = parsed,
+                recipeId = recipeId,
+                sourceUrl = null,
+                imageUrl = imageUrl,
+                cleanedContent = "text",
+                model = AiProviders.CLAUDE_SONNET,
+                thinkingEnabled = false,
+                durationMs = 0
+            )
+        val saved = saveBatchResult(parsedWithUsage(parsedRecipe("Scones")), "batch-recipe", "https://example.com/scones.jpg")
+            .value()
         assertEquals("batch-recipe", saved.id)
         assertEquals("Scones", saved.name)
         assertEquals("gs://bucket/scones.jpg", saved.imageUrl)
         assertTrue(debugLog.entries.single().batchMode)
 
         repository.countOverride = ResourceLimits.MAX_RECIPES
-        val again = useCase().saveBatchResult(
-            parsedWithUsage(parsedRecipe("Scones")), "batch-recipe", model = AiProviders.CLAUDE_SONNET, thinkingEnabled = false
-        )
-        assertTrue(again is Outcome.Success)
+        assertTrue(saveBatchResult(parsedWithUsage(parsedRecipe("Scones")), "batch-recipe") is Outcome.Success)
         assertEquals(
             Outcome.Failure(RecipeError.LimitReached(ResourceLimits.MAX_RECIPES, ResourceLimits.MAX_RECIPES)),
-            useCase().saveBatchResult(
-                parsedWithUsage(), "new-recipe", model = AiProviders.CLAUDE_SONNET, thinkingEnabled = false
-            )
+            saveBatchResult(parsedWithUsage(), "new-recipe")
         )
     }
 

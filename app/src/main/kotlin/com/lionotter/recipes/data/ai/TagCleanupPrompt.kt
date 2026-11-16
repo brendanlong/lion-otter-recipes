@@ -1,10 +1,18 @@
 package com.lionotter.recipes.data.ai
 
+import com.lionotter.recipes.domain.AiFailure
+import com.lionotter.recipes.domain.Outcome
+import com.lionotter.recipes.domain.RecipeError
+import com.lionotter.recipes.domain.model.TagMapping
 import com.lionotter.recipes.domain.model.TagUsage
+import com.lionotter.recipes.util.ErrorLog
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 
 /** The prompt and structured-output schema for suggesting tag cleanups. */
 object TagCleanupPrompt {
+    private const val TAG = "TagCleanupPrompt"
+
     val systemPrompt = """
 You tidy up the tags of a personal recipe collection so they work well as filters.
 
@@ -22,6 +30,18 @@ Return only the tags that should change, each with "from" set to the tag exactly
         append("Recipes\tTag\n")
         for (tag in tags) {
             append(tag.recipeCount).append('\t').append(tag.name).append('\n')
+        }
+    }
+
+    /** The changes in a response's [text]; failures are attributed to [provider]. */
+    fun parseResponse(json: Json, text: String, provider: String): Outcome<List<TagMapping>> {
+        if (text.isBlank()) return Outcome.Failure(RecipeError.Ai(AiFailure.EMPTY_RESPONSE, provider = provider))
+        return try {
+            val response = json.decodeFromString<TagCleanupResponse>(text.trim())
+            Outcome.Success(response.changes.map { TagMapping(it.from, it.to) })
+        } catch (e: IllegalArgumentException) {
+            ErrorLog.e(TAG, "Failed to parse the tag cleanup response", e)
+            Outcome.Failure(RecipeError.Ai(AiFailure.UNREADABLE_RESPONSE, provider = provider))
         }
     }
 

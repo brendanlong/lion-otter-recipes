@@ -28,8 +28,7 @@ data class RecipeParseResult(
     val totalTime: String? = null,
     val instructionSections: List<InstructionSection>,
     val equipment: List<String> = emptyList(),
-    val tags: List<String>,
-    val imageUrl: String? = null
+    val tags: List<String>
 ) {
     fun toParsedRecipe() = ParsedRecipe(
         name = name,
