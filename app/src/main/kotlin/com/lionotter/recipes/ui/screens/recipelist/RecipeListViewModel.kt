@@ -214,23 +214,9 @@ class RecipeListViewModel @Inject constructor(
     }
 
     /**
-     * Returns the number of meal plan entries that reference the given recipe.
-     */
-    suspend fun getAffectedMealPlanCount(recipeId: String): Int {
-        return try {
-            mealPlanRepository.countMealPlansByRecipeId(recipeId)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            ErrorLog.w(TAG, "Failed to count meal plans for $recipeId", e)
-            0
-        }
-    }
-
-    /**
      * Returns the total number of meal plan entries that reference any of the given recipes.
      */
-    suspend fun getAffectedMealPlanCountForRecipes(recipeIds: List<String>): Int {
+    suspend fun getAffectedMealPlanCount(recipeIds: List<String>): Int {
         return try {
             mealPlanRepository.countMealPlansByRecipeIds(recipeIds)
         } catch (e: CancellationException) {

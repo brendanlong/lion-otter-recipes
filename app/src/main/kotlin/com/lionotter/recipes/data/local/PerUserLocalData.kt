@@ -2,11 +2,8 @@ package com.lionotter.recipes.data.local
 
 /**
  * Data kept on the device that belongs to whoever uses the app, so it must not outlive their
- * account here. Every store of such data implements this and is bound into the
- * `Set<PerUserLocalData>` in `LocalUserDataModule`;
- * [com.lionotter.recipes.data.account.AccountLifecycle] clears the set on sign-out and account
- * deletion (see DESIGN.md "Authentication and Account Lifecycle"). `LocalUserDataRegistryTest`
- * fails when a new store isn't registered.
+ * account here. Every store of such data implements this and is bound in `LocalUserDataModule`
+ * (see DESIGN.md "Accounts").
  */
 interface PerUserLocalData {
     /** When the data is cleared. */

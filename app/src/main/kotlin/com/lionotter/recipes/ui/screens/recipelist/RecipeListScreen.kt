@@ -132,13 +132,13 @@ fun RecipeListScreen(
     // Load affected meal plan count when a recipe is selected for deletion
     LaunchedEffect(recipeToDeleteId) {
         val id = recipeToDeleteId
-        affectedMealPlanCount = if (id != null) viewModel.getAffectedMealPlanCount(id) else 0
+        affectedMealPlanCount = if (id != null) viewModel.getAffectedMealPlanCount(listOf(id)) else 0
     }
 
     // Load affected meal plan count for bulk delete
     LaunchedEffect(showBulkDeleteDialog) {
         bulkAffectedMealPlanCount = if (showBulkDeleteDialog) {
-            viewModel.getAffectedMealPlanCountForRecipes(selectedRecipeIds.toList())
+            viewModel.getAffectedMealPlanCount(selectedRecipeIds.toList())
         } else {
             0
         }

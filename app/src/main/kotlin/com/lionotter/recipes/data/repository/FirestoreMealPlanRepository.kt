@@ -1,6 +1,7 @@
 package com.lionotter.recipes.data.repository
 
 import android.util.Log
+import com.google.android.gms.tasks.Task
 import com.google.firebase.firestore.DocumentSnapshot
 import com.lionotter.recipes.data.remote.AuthService
 import com.lionotter.recipes.data.remote.DataFailure
@@ -14,7 +15,6 @@ import com.lionotter.recipes.di.ApplicationScope
 import com.lionotter.recipes.domain.model.MealPlanEntry
 import com.lionotter.recipes.domain.repository.MealPlanRepository
 import com.lionotter.recipes.util.DefaultDispatcher
-import com.lionotter.recipes.util.ErrorLog
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -43,8 +43,13 @@ class FirestoreMealPlanRepository @Inject constructor(
         private const val TAG = "MealPlanRepository"
     }
 
-    private fun write(op: DataOp, id: String, block: (uid: String) -> Unit) =
-        authService.writeForCurrentUser(appScope, firestoreService, DataFailure(op, id), block)
+    /** Runs [block]'s write for the current user, reporting a failure to start it or of its task as [op]. */
+    private fun write(op: DataOp, id: String, block: (uid: String) -> Task<*>) {
+        val failure = DataFailure(op, id)
+        authService.writeForCurrentUser(appScope, firestoreService, failure) { uid ->
+            block(uid).reportFailureTo(firestoreService, failure)
+        }
+    }
 
     private fun decodeMealPlan(doc: DocumentSnapshot): MealPlanEntry? =
         doc.toObject(MealPlanDto::class.java)?.toDomain()
@@ -61,8 +66,8 @@ class FirestoreMealPlanRepository @Inject constructor(
                     flowOf(emptyList())
                 } else {
                     firestoreService.mealPlansCollection(uid)
-                        .whereGreaterThanOrEqualTo("date", startDate.toString())
-                        .whereLessThanOrEqualTo("date", endDate.toString())
+                        .whereGreaterThanOrEqualTo(MealPlanFields.DATE, startDate.toString())
+                        .whereLessThanOrEqualTo(MealPlanFields.DATE, endDate.toString())
                         .snapshots(firestoreService, DataOp.LOAD_MEAL_PLANS)
                         .decodeIncrementally(TAG, ::decodeMealPlan)
                         .flowOn(defaultDispatcher)
@@ -72,17 +77,10 @@ class FirestoreMealPlanRepository @Inject constructor(
 
     override fun saveMealPlan(entry: MealPlanEntry) = write(DataOp.SAVE_MEAL_PLAN, entry.id) { uid ->
         firestoreService.mealPlansCollection(uid).document(entry.id).set(entry.toDto())
-            .reportFailureTo(firestoreService, DataFailure(DataOp.SAVE_MEAL_PLAN, entry.id))
-    }
-
-    override fun updateMealPlan(entry: MealPlanEntry) = write(DataOp.UPDATE_MEAL_PLAN, entry.id) { uid ->
-        firestoreService.mealPlansCollection(uid).document(entry.id).set(entry.toDto())
-            .reportFailureTo(firestoreService, DataFailure(DataOp.UPDATE_MEAL_PLAN, entry.id))
     }
 
     override fun deleteMealPlan(id: String) = write(DataOp.DELETE_MEAL_PLAN, id) { uid ->
         firestoreService.mealPlansCollection(uid).document(id).delete()
-            .reportFailureTo(firestoreService, DataFailure(DataOp.DELETE_MEAL_PLAN, id))
     }
 
     /**
@@ -111,16 +109,6 @@ class FirestoreMealPlanRepository @Inject constructor(
             Unit
         }
     }
-
-    /** @throws Exception if meal plans could not be read */
-    override suspend fun countMealPlansByRecipeId(recipeId: String): Int =
-        logFailure(TAG, "Error counting meal plans for recipe $recipeId") {
-            firestoreService.mealPlansCollection(authService.awaitUid())
-                .whereEqualTo(MealPlanFields.RECIPE_ID, recipeId)
-                .get()
-                .await()
-                .size()
-        }
 
     /** @throws Exception if meal plans could not be read */
     override suspend fun countMealPlansByRecipeIds(recipeIds: List<String>): Int {
@@ -152,14 +140,7 @@ class FirestoreMealPlanRepository @Inject constructor(
         logFailure(TAG, "Error fetching all meal plans") {
             val snapshot = firestoreService.mealPlansCollection(authService.awaitUid()).get().await()
             withContext(defaultDispatcher) {
-                snapshot.documents.mapNotNull { doc ->
-                    try {
-                        decodeMealPlan(doc)
-                    } catch (e: Exception) {
-                        ErrorLog.e(TAG, "Error deserializing meal plan ${doc.id}", e)
-                        null
-                    }
-                }
+                snapshot.documents.mapNotNull { decodeSafely(TAG, it, ::decodeMealPlan) }
             }
         }
 

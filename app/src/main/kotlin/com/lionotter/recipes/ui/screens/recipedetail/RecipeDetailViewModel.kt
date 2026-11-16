@@ -328,7 +328,7 @@ class RecipeDetailViewModel @Inject constructor(
      */
     suspend fun getAffectedMealPlanCount(): Int {
         return try {
-            mealPlanRepository.countMealPlansByRecipeId(recipeId)
+            mealPlanRepository.countMealPlansByRecipeIds(listOf(recipeId))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

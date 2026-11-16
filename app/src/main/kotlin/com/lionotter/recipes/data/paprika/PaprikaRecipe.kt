@@ -10,8 +10,6 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class PaprikaRecipe(
     val uid: String,
-    val created: String? = null,
-    val hash: String? = null,
     val name: String,
     val description: String? = null,
     val ingredients: String? = null,
@@ -27,27 +25,13 @@ data class PaprikaRecipe(
     val totalTime: String? = null,
     val difficulty: String? = null,
     val servings: String? = null,
-    val rating: Int = 0,
     val source: String? = null,
     @SerialName("source_url")
     val sourceUrl: String? = null,
     @SerialName("image_url")
     val imageUrl: String? = null,
-    val photo: String? = null,
-    @SerialName("photo_large")
-    val photoLarge: String? = null,
-    @SerialName("photo_hash")
-    val photoHash: String? = null,
     @SerialName("photo_data")
     val photoData: String? = null,
-    val categories: List<String> = emptyList(),
-    val photos: List<PaprikaPhoto> = emptyList()
+    val categories: List<String> = emptyList()
 )
 
-@Serializable
-data class PaprikaPhoto(
-    val name: String = "",
-    val filename: String = "",
-    val hash: String = "",
-    val data: String = ""
-)

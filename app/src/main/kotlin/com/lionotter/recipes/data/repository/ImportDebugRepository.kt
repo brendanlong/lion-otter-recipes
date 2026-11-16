@@ -6,7 +6,6 @@ import com.lionotter.recipes.data.local.LocalDataScope
 import com.lionotter.recipes.data.local.PerUserLocalData
 import com.lionotter.recipes.domain.port.ImportDebugLog
 import com.lionotter.recipes.domain.port.ImportDebugRecord
-import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -23,14 +22,6 @@ class ImportDebugRepository @Inject constructor(
     override val scope = LocalDataScope.DEVICE
 
     override suspend fun clearUserData() = deleteAllDebugEntries()
-
-    fun getAllDebugEntries(): Flow<List<ImportDebugEntity>> {
-        return importDebugDao.getAllDebugEntries()
-    }
-
-    suspend fun getDebugEntryById(id: String): ImportDebugEntity? {
-        return importDebugDao.getDebugEntryById(id)
-    }
 
     override suspend fun record(entry: ImportDebugRecord) {
         importDebugDao.insertDebugEntry(

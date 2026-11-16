@@ -1,7 +1,8 @@
 package com.lionotter.recipes.data.paprika
 
-import kotlinx.serialization.json.Json
+import com.lionotter.recipes.util.AppJson
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -15,14 +16,10 @@ import java.util.zip.ZipOutputStream
 class PaprikaParserTest {
 
     private lateinit var parser: PaprikaParser
-    private val json = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-    }
 
     @Before
     fun setUp() {
-        parser = PaprikaParser(json)
+        parser = PaprikaParser(AppJson)
     }
 
     private val sampleRecipeJson = """
@@ -104,15 +101,27 @@ class PaprikaParserTest {
         return baos.toByteArray()
     }
 
+    /** Every recipe [forEachRecipe][PaprikaParser.forEachRecipe] reads from [export]; fails on an unreadable entry. */
+    private fun readAll(export: ByteArray): List<PaprikaRecipe> {
+        val recipes = mutableListOf<PaprikaRecipe>()
+        parser.forEachRecipe(
+            ByteArrayInputStream(export),
+            onError = { name, e -> throw AssertionError("Unexpected error reading $name", e) }
+        ) { recipes.add(it) }
+        return recipes
+    }
+
+    /** Reads [recipeJson] as the only recipe of an export. */
+    private fun readOne(recipeJson: String): PaprikaRecipe =
+        readAll(createPaprikaExport(mapOf("Recipe" to recipeJson))).single()
+
     @Test
-    fun `parseRecipeEntry parses gzip-compressed JSON`() {
-        val compressed = gzipCompress(sampleRecipeJson)
-        val recipe = parser.parseRecipeEntry(compressed)
+    fun `forEachRecipe reads every field of a recipe`() {
+        val recipe = readOne(sampleRecipeJson)
 
         assertEquals("Classic Waffles", recipe.name)
         assertEquals("7bf2762d-d6dc-4d56-bdbe-0de4d92df745", recipe.uid)
         assertEquals("Light and crispy waffles perfect for weekend breakfast", recipe.description)
-        assertEquals(5, recipe.rating)
         assertEquals("about 8", recipe.servings)
         assertEquals("10 minutes", recipe.prepTime)
         assertEquals("20 minutes", recipe.cookTime)
@@ -128,7 +137,7 @@ class PaprikaParserTest {
     }
 
     @Test
-    fun `parseExport parses ZIP containing multiple gzip-compressed recipes`() {
+    fun `forEachRecipe reads every recipe in the export`() {
         val exportData = createPaprikaExport(
             mapOf(
                 "Classic Waffles" to sampleRecipeJson,
@@ -136,7 +145,7 @@ class PaprikaParserTest {
             )
         )
 
-        val recipes = parser.parseExport(ByteArrayInputStream(exportData))
+        val recipes = readAll(exportData)
 
         assertEquals(2, recipes.size)
         val recipeNames = recipes.map { it.name }.toSet()
@@ -145,14 +154,12 @@ class PaprikaParserTest {
     }
 
     @Test
-    fun `parseExport handles empty export`() {
-        val exportData = createPaprikaExport(emptyMap())
-        val recipes = parser.parseExport(ByteArrayInputStream(exportData))
-        assertTrue(recipes.isEmpty())
+    fun `forEachRecipe handles an empty export`() {
+        assertTrue(readAll(createPaprikaExport(emptyMap())).isEmpty())
     }
 
     @Test
-    fun `parseExport skips non-paprikarecipe files`() {
+    fun `forEachRecipe skips non-paprikarecipe files`() {
         val baos = ByteArrayOutputStream()
         ZipOutputStream(baos).use { zip ->
             // Add a valid recipe
@@ -167,20 +174,18 @@ class PaprikaParserTest {
             zip.closeEntry()
         }
 
-        val recipes = parser.parseExport(ByteArrayInputStream(baos.toByteArray()))
+        val recipes = readAll(baos.toByteArray())
         assertEquals(1, recipes.size)
         assertEquals("Classic Waffles", recipes[0].name)
     }
 
     @Test
-    fun `parseRecipeEntry handles minimal recipe`() {
-        val compressed = gzipCompress(minimalRecipeJson)
-        val recipe = parser.parseRecipeEntry(compressed)
+    fun `forEachRecipe reads a minimal recipe`() {
+        val recipe = readOne(minimalRecipeJson)
 
         assertEquals("Simple Toast", recipe.name)
         assertEquals("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", recipe.uid)
         assertEquals("", recipe.description)
-        assertEquals(0, recipe.rating)
         assertEquals("", recipe.servings)
         assertEquals("", recipe.prepTime)
         assertEquals("", recipe.cookTime)
@@ -188,13 +193,11 @@ class PaprikaParserTest {
         assertEquals("", recipe.sourceUrl)
         assertEquals("", recipe.imageUrl)
         assertTrue(recipe.categories.isEmpty())
-        assertTrue(recipe.photos.isEmpty())
     }
 
     @Test
     fun `formatForAi includes all relevant fields`() {
-        val compressed = gzipCompress(sampleRecipeJson)
-        val recipe = parser.parseRecipeEntry(compressed)
+        val recipe = readOne(sampleRecipeJson)
         val formatted = parser.formatForAi(recipe)
 
         assertTrue(formatted.contains("Recipe: Classic Waffles"))
@@ -216,27 +219,26 @@ class PaprikaParserTest {
 
     @Test
     fun `formatForAi omits empty fields`() {
-        val compressed = gzipCompress(minimalRecipeJson)
-        val recipe = parser.parseRecipeEntry(compressed)
+        val recipe = readOne(minimalRecipeJson)
         val formatted = parser.formatForAi(recipe)
 
         assertTrue(formatted.contains("Recipe: Simple Toast"))
         assertTrue(formatted.contains("Ingredients:"))
         assertTrue(formatted.contains("Directions:"))
         // Empty fields should not appear
-        assertTrue(!formatted.contains("Description:"))
-        assertTrue(!formatted.contains("Servings:"))
-        assertTrue(!formatted.contains("Prep Time:"))
-        assertTrue(!formatted.contains("Cook Time:"))
-        assertTrue(!formatted.contains("Total Time:"))
-        assertTrue(!formatted.contains("Difficulty:"))
-        assertTrue(!formatted.contains("Notes:"))
-        assertTrue(!formatted.contains("Categories:"))
-        assertTrue(!formatted.contains("Source:"))
+        assertFalse(formatted.contains("Description:"))
+        assertFalse(formatted.contains("Servings:"))
+        assertFalse(formatted.contains("Prep Time:"))
+        assertFalse(formatted.contains("Cook Time:"))
+        assertFalse(formatted.contains("Total Time:"))
+        assertFalse(formatted.contains("Difficulty:"))
+        assertFalse(formatted.contains("Notes:"))
+        assertFalse(formatted.contains("Categories:"))
+        assertFalse(formatted.contains("Source:"))
     }
 
     @Test
-    fun `parseRecipeEntry handles recipe with photos array`() {
+    fun `forEachRecipe reads the photo data and ignores fields it does not use`() {
         val recipeWithPhotos = """
         {
             "uid": "test-uid",
@@ -273,20 +275,15 @@ class PaprikaParserTest {
         }
         """.trimIndent()
 
-        val compressed = gzipCompress(recipeWithPhotos)
-        val recipe = parser.parseRecipeEntry(compressed)
+        val recipe = readOne(recipeWithPhotos)
 
         assertEquals("Recipe With Photos", recipe.name)
         assertEquals("base64encodeddata", recipe.photoData)
-        assertEquals(1, recipe.photos.size)
-        assertEquals("FB95FEDD-test.jpg", recipe.photos[0].filename)
-        assertEquals("base64photodata", recipe.photos[0].data)
     }
 
     @Test
     fun `formatForAi handles ingredients with newlines correctly`() {
-        val compressed = gzipCompress(sampleRecipeJson)
-        val recipe = parser.parseRecipeEntry(compressed)
+        val recipe = readOne(sampleRecipeJson)
         val formatted = parser.formatForAi(recipe)
 
         // Each ingredient should be on its own line, prefixed with "-"
@@ -298,7 +295,7 @@ class PaprikaParserTest {
     }
 
     @Test
-    fun `parseRecipeEntry handles null string fields`() {
+    fun `forEachRecipe reads null string fields`() {
         val recipeWithNulls = """
         {
             "uid": "null-fields-test",
@@ -328,13 +325,11 @@ class PaprikaParserTest {
         }
         """.trimIndent()
 
-        val compressed = gzipCompress(recipeWithNulls)
-        val recipe = parser.parseRecipeEntry(compressed)
+        val recipe = readOne(recipeWithNulls)
 
         assertEquals("Null Fields Recipe", recipe.name)
         assertEquals("null-fields-test", recipe.uid)
         assertEquals(null, recipe.description)
-        assertEquals(null, recipe.photoHash)
         assertEquals(null, recipe.source)
         assertEquals(null, recipe.sourceUrl)
         assertEquals(null, recipe.imageUrl)
@@ -374,8 +369,7 @@ class PaprikaParserTest {
         }
         """.trimIndent()
 
-        val compressed = gzipCompress(recipeWithNulls)
-        val recipe = parser.parseRecipeEntry(compressed)
+        val recipe = readOne(recipeWithNulls)
         val formatted = parser.formatForAi(recipe)
 
         assertTrue(formatted.contains("Recipe: Null Fields Recipe"))
@@ -385,21 +379,20 @@ class PaprikaParserTest {
         assertTrue(formatted.contains("Directions:"))
         assertTrue(formatted.contains("Mix together."))
         // Null fields should not appear
-        assertTrue(!formatted.contains("Description:"))
-        assertTrue(!formatted.contains("Servings:"))
-        assertTrue(!formatted.contains("Prep Time:"))
-        assertTrue(!formatted.contains("Cook Time:"))
-        assertTrue(!formatted.contains("Notes:"))
-        assertTrue(!formatted.contains("Source:"))
+        assertFalse(formatted.contains("Description:"))
+        assertFalse(formatted.contains("Servings:"))
+        assertFalse(formatted.contains("Prep Time:"))
+        assertFalse(formatted.contains("Cook Time:"))
+        assertFalse(formatted.contains("Notes:"))
+        assertFalse(formatted.contains("Source:"))
     }
 
     @Test
-    fun `parseExport reads example export from resources`() {
-        // Load the example export from test resources
+    fun `forEachRecipe reads example export from resources`() {
         val inputStream = javaClass.classLoader!!.getResourceAsStream("example_export.paprikarecipes")
         assertNotNull("Example export file should exist in test resources", inputStream)
 
-        val recipes = parser.parseExport(inputStream!!)
+        val recipes = readAll(inputStream!!.use { it.readBytes() })
         assertTrue("Should parse at least one recipe", recipes.isNotEmpty())
 
         val recipe = recipes[0]

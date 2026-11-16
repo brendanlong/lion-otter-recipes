@@ -326,7 +326,7 @@ class MealPlanViewModel @Inject constructor(
         val now = clock.now()
         when (dialog) {
             is MealDialog.Edit -> {
-                mealPlanRepository.updateMealPlan(
+                mealPlanRepository.saveMealPlan(
                     dialog.entry.copy(
                         recipeId = recipe.id,
                         recipeName = recipe.name,
@@ -371,7 +371,7 @@ class MealPlanViewModel @Inject constructor(
      */
     fun saveEditedMealPlan() = launchSave { dialog ->
         if (dialog !is MealDialog.Edit) return@launchSave false
-        mealPlanRepository.updateMealPlan(
+        mealPlanRepository.saveMealPlan(
             dialog.entry.copy(
                 date = dialog.date,
                 mealType = dialog.mealType,

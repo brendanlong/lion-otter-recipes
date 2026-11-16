@@ -65,9 +65,6 @@ open class FirestoreService @Inject constructor() : FirestoreCache {
      */
     val failures: Flow<DataFailure> = _failures.receiveAsFlow()
 
-    private val _isNetworkEnabled = MutableStateFlow(true)
-    val isNetworkEnabled: StateFlow<Boolean> = _isNetworkEnabled.asStateFlow()
-
     /**
      * Incremented each time the Firestore instance is recycled (terminate + clearPersistence).
      * Repositories combine this with [AuthState] so that their snapshot listeners
@@ -106,24 +103,10 @@ open class FirestoreService @Inject constructor() : FirestoreCache {
         _failures.trySend(failure)
     }
 
-    /** Disable Firestore network access (offline-only mode for guest users). */
-    suspend fun disableNetwork() {
-        try {
-            Firebase.firestore.disableNetwork().await()
-            _isNetworkEnabled.value = false
-            Log.d(TAG, "Firestore network disabled")
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to disable Firestore network", e)
-        }
-    }
-
     /** Enable Firestore network access (when user signs in with Google). */
     override suspend fun enableNetwork() {
         try {
             Firebase.firestore.enableNetwork().await()
-            _isNetworkEnabled.value = true
             Log.d(TAG, "Firestore network enabled")
         } catch (e: CancellationException) {
             throw e
@@ -218,7 +201,6 @@ open class FirestoreService @Inject constructor() : FirestoreCache {
 
     /** Enqueues disableNetwork synchronously so it is ordered before any later Firestore call. */
     private fun startDisablingNetwork() {
-        _isNetworkEnabled.value = false
         try {
             Firebase.firestore.disableNetwork()
                 .addOnSuccessListener { Log.d(TAG, "Firestore network disabled") }

@@ -16,7 +16,6 @@ enum class DataOp {
     UPDATE_RECIPE,
     UPDATE_TAGS,
     SAVE_MEAL_PLAN,
-    UPDATE_MEAL_PLAN,
     DELETE_MEAL_PLAN,
     /** Removing the meal plans of a deleted recipe. */
     DELETE_RECIPE_MEAL_PLANS,
