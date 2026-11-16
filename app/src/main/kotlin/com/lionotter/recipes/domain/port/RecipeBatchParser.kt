@@ -46,8 +46,7 @@ data class BatchParseRequest(
 data class BatchStatus(
     /** No request is still processing; results can be read. */
     val ended: Boolean,
-    val succeeded: Int,
-    val processing: Int
+    val succeeded: Int
 )
 
 sealed interface BatchItemOutcome {

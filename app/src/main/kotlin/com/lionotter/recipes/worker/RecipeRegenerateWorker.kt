@@ -1,15 +1,12 @@
 package com.lionotter.recipes.worker
 
 import android.content.Context
-import android.os.Build
 import androidx.hilt.work.HiltWorker
-import androidx.work.WorkInfo
 import androidx.work.Data
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
-import com.lionotter.recipes.domain.model.AiProviders
 import com.lionotter.recipes.domain.usecase.RegenerateRecipeUseCase
 import com.lionotter.recipes.notification.RecipeNotificationHelper
 import dagger.assisted.Assisted
@@ -45,7 +42,7 @@ class RecipeRegenerateWorker @AssistedInject constructor(
         fun createInputData(
             recipeId: String,
             model: String?,
-            thinkingEnabled: Boolean?,
+            thinkingEnabled: Boolean,
             pageHtmlPath: String? = null
         ): Data {
             return workDataOf(
@@ -61,11 +58,7 @@ class RecipeRegenerateWorker @AssistedInject constructor(
         val recipeId = inputData.getString(KEY_RECIPE_ID)
             ?: return errorResult(RecipeError.Unexpected, "no recipe ID provided")
         val model = inputData.getString(KEY_MODEL)
-        val thinkingEnabled = if (inputData.keyValueMap.containsKey(KEY_EXTENDED_THINKING)) {
-            inputData.getBoolean(KEY_EXTENDED_THINKING, AiProviders.DEFAULT_THINKING_ENABLED)
-        } else {
-            null
-        }
+        val thinkingEnabled = inputData.keyValueMap[KEY_EXTENDED_THINKING] as? Boolean
 
         setForegroundProgress("Starting regeneration...")
 
@@ -77,11 +70,8 @@ class RecipeRegenerateWorker @AssistedInject constructor(
         } finally {
             val keepPage = when {
                 result != null -> result == Result.retry()
-                // Stopped by the system, the work runs again; cancelled by the user, it doesn't.
-                // Below API 31 the reason is unknown and the page is kept (stale work inputs are
-                // cleaned up later).
-                isStopped -> Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-                    stopReason != WorkInfo.STOP_REASON_CANCELLED_BY_APP
+                // Kept unless the user cancelled (stale work inputs are cleaned up later)
+                isStopped -> !cancelledByUser
                 // An unexpected exception fails the work for good
                 else -> false
             }
@@ -109,10 +99,9 @@ class RecipeRegenerateWorker @AssistedInject constructor(
                 val (workProgress, message) = when (progress) {
                     is RegenerateRecipeUseCase.RegenerateProgress.FetchingFromUrl ->
                         RecipeRegenerateWork.Progress.FetchingPage to "Fetching recipe page..."
-                    is RegenerateRecipeUseCase.RegenerateProgress.ParsingRecipe ->
-                        RecipeRegenerateWork.Progress.Parsing(recipeName = null) to "AI is re-analyzing the recipe..."
+                    is RegenerateRecipeUseCase.RegenerateProgress.ParsingRecipe,
                     is RegenerateRecipeUseCase.RegenerateProgress.RecipeNameAvailable ->
-                        RecipeRegenerateWork.Progress.Parsing(progress.name) to "AI is re-analyzing the recipe..."
+                        RecipeRegenerateWork.Progress.Parsing to "AI is re-analyzing the recipe..."
                     is RegenerateRecipeUseCase.RegenerateProgress.SavingRecipe ->
                         RecipeRegenerateWork.Progress.Saving to "Saving recipe..."
                 }
@@ -152,11 +141,8 @@ object RecipeRegenerateWork : WorkContract<RecipeRegenerateWork.Progress, Recipe
             override fun toData() = workDataOf(WorkResult.KEY_PROGRESS to PROGRESS_FETCHING)
         }
 
-        data class Parsing(val recipeName: String?) : Progress {
-            override fun toData() = workDataOf(
-                WorkResult.KEY_PROGRESS to PROGRESS_PARSING,
-                WorkResult.KEY_RECIPE_NAME to recipeName
-            )
+        data object Parsing : Progress {
+            override fun toData() = workDataOf(WorkResult.KEY_PROGRESS to PROGRESS_PARSING)
         }
 
         data object Saving : Progress {
@@ -180,7 +166,7 @@ object RecipeRegenerateWork : WorkContract<RecipeRegenerateWork.Progress, Recipe
 
     override fun decodeProgress(data: Data): Progress? = when (WorkResult.progress(data)) {
         PROGRESS_FETCHING -> Progress.FetchingPage
-        PROGRESS_PARSING -> Progress.Parsing(data.getString(WorkResult.KEY_RECIPE_NAME))
+        PROGRESS_PARSING -> Progress.Parsing
         PROGRESS_SAVING -> Progress.Saving
         else -> null
     }

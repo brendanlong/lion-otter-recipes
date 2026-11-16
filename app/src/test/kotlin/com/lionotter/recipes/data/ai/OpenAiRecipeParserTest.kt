@@ -301,14 +301,14 @@ class OpenAiRecipeParserTest {
     fun `batch status maps the request counts`() = runTest {
         routes["GET /v1/batches/batch_1"] = HttpStatusCode.OK to batchJson("in_progress", completed = 1, failed = 1)
         assertEquals(
-            Outcome.Success(BatchStatus(ended = false, succeeded = 1, processing = 1)),
+            Outcome.Success(BatchStatus(ended = false, succeeded = 1)),
             parser.getBatchStatus("batch_1", AiProviders.GPT_SOL, "sk-openai")
         )
 
         for (status in listOf("completed", "expired", "cancelled")) {
             routes["GET /v1/batches/batch_1"] = HttpStatusCode.OK to batchJson(status, completed = 3)
             assertEquals(
-                Outcome.Success(BatchStatus(ended = true, succeeded = 3, processing = 0)),
+                Outcome.Success(BatchStatus(ended = true, succeeded = 3)),
                 parser.getBatchStatus("batch_1", AiProviders.GPT_SOL, "sk-openai")
             )
         }

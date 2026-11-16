@@ -1,15 +1,13 @@
 package com.lionotter.recipes.worker
 
 import android.content.Context
-import android.os.Build
 import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.Data
-import androidx.work.WorkInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.lionotter.recipes.data.local.PendingImportDao
 import com.lionotter.recipes.data.local.PendingImportStatus
-import com.lionotter.recipes.data.repository.PendingImportRepository
 import com.lionotter.recipes.domain.ArchiveFailure
 import com.lionotter.recipes.domain.Outcome
 import com.lionotter.recipes.domain.RecipeError
@@ -35,7 +33,7 @@ class PaprikaImportWorker @AssistedInject constructor(
     private val importSteps: PaprikaImportSteps,
     private val inputStore: ImportInputStore,
     private val scheduler: RecipeWorkScheduler,
-    private val pendingImportRepository: PendingImportRepository,
+    private val pendingImportDao: PendingImportDao,
     notificationHelper: RecipeNotificationHelper,
     runningWork: RunningAccountWork
 ) : BaseRecipeWorker(context, workerParams, notificationHelper, runningWork) {
@@ -79,20 +77,18 @@ class PaprikaImportWorker @AssistedInject constructor(
         } finally {
             // Below API 31 the stop reason is unavailable; ImportQueue.cancelImport
             // cancels the batch for user cancellations in that case.
-            if (isStopped && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                stopReason == WorkInfo.STOP_REASON_CANCELLED_BY_APP
-            ) {
+            if (cancelledByUser) {
                 // The user cancelled: stop paying for a batch nobody will collect.
                 withContext(NonCancellable) { importSteps.cancel(store) }
             }
         }
 
         return when (state) {
-            is PaprikaImportState.Submitted, is PaprikaImportState.Polling -> scheduleNextPoll(importId)
+            is PaprikaImportState.Polling -> scheduleNextPoll(importId)
             is PaprikaImportState.Done -> {
                 val summary = state.summary
                 inputStore.deleteImport(importId)
-                notificationHelper.showSummaryNotification(
+                notificationHelper.showResultNotification(
                     key = importId,
                     title = "Paprika Import Complete",
                     message = notificationHelper.paprikaImportMessage(summary.importedCount, summary.failedCount)
@@ -113,18 +109,18 @@ class PaprikaImportWorker @AssistedInject constructor(
     private suspend fun scheduleNextPoll(importId: String): Result {
         val next = scheduler.buildPaprikaImportRequest(importId, RecipeWorkScheduler.PAPRIKA_POLL_INTERVAL_SECONDS)
         withContext(NonCancellable) {
-            if (isStopped || pendingImportRepository.getPendingImportById(importId) == null) {
+            if (isStopped || pendingImportDao.getPendingImportById(importId) == null) {
                 // Cancelled between this step and scheduling the next one; don't revive it
                 Log.d(TAG, "Import $importId was cancelled; not scheduling another poll")
                 return@withContext
             }
             // Point the pending import at the new request before this one finishes, so the UI
             // keeps tracking the import rather than treating this run's success as completion.
-            pendingImportRepository.updateWorkManagerId(importId, next.id.toString())
+            pendingImportDao.updateWorkManagerId(importId, next.id.toString())
             // Recorded here rather than left to ImportMonitor: this run's "waiting" progress is
             // usually never observed before the row is pointed at the next request. Written after
             // repointing, so ImportMonitor no longer mirrors this run's progress over it.
-            pendingImportRepository.updateStatus(importId, PendingImportStatus.WAITING_FOR_BATCH)
+            pendingImportDao.updateStatus(importId, PendingImportStatus.WAITING_FOR_BATCH)
             scheduler.enqueueImportContinuation(importId, next)
         }
         Log.d(TAG, "Batch for import $importId still processing; next poll scheduled")
@@ -147,13 +143,8 @@ class PaprikaImportWorker @AssistedInject constructor(
             }
             is PaprikaImportProgress.ImportingRecipe -> {
                 setProgress(
-                    PaprikaImportWork.Progress.ImportingRecipe(
-                        recipeName = progress.recipeName,
-                        current = progress.current,
-                        total = progress.total,
-                        importedSoFar = progress.importedSoFar,
-                        failedSoFar = progress.failedSoFar
-                    ).toData()
+                    PaprikaImportWork.Progress.ImportingRecipe(progress.recipeName, progress.current, progress.total)
+                        .toData()
                 )
                 setForegroundProgress("Saving ${progress.current}/${progress.total}: ${progress.recipeName}")
             }
@@ -166,8 +157,6 @@ object PaprikaImportWork : WorkContract<PaprikaImportWork.Progress, PaprikaImpor
     private const val KEY_FAILED_COUNT = "failed_count"
     private const val KEY_CURRENT = "current"
     private const val KEY_TOTAL = "total"
-    private const val KEY_PROGRESS_IMPORTED_COUNT = "progress_imported_count"
-    private const val KEY_PROGRESS_FAILED_COUNT = "progress_failed_count"
     /** Set on success output when the import continues in a newly scheduled worker. */
     private const val KEY_CONTINUED = "continued"
 
@@ -192,25 +181,16 @@ object PaprikaImportWork : WorkContract<PaprikaImportWork.Progress, PaprikaImpor
             override fun toData() = workDataOf(
                 WorkResult.KEY_PROGRESS to PROGRESS_WAITING_FOR_BATCH,
                 KEY_TOTAL to total,
-                KEY_CURRENT to succeeded,
-                KEY_PROGRESS_IMPORTED_COUNT to succeeded
+                KEY_CURRENT to succeeded
             )
         }
 
-        data class ImportingRecipe(
-            val recipeName: String?,
-            val current: Int,
-            val total: Int,
-            val importedSoFar: Int,
-            val failedSoFar: Int
-        ) : Progress {
+        data class ImportingRecipe(val recipeName: String?, val current: Int, val total: Int) : Progress {
             override fun toData() = workDataOf(
                 WorkResult.KEY_PROGRESS to PROGRESS_IMPORTING,
                 WorkResult.KEY_RECIPE_NAME to recipeName,
                 KEY_CURRENT to current,
-                KEY_TOTAL to total,
-                KEY_PROGRESS_IMPORTED_COUNT to importedSoFar,
-                KEY_PROGRESS_FAILED_COUNT to failedSoFar
+                KEY_TOTAL to total
             )
         }
     }
@@ -245,9 +225,7 @@ object PaprikaImportWork : WorkContract<PaprikaImportWork.Progress, PaprikaImpor
             PROGRESS_IMPORTING -> Progress.ImportingRecipe(
                 recipeName = data.getString(WorkResult.KEY_RECIPE_NAME),
                 current = data.getInt(KEY_CURRENT, 0),
-                total = total,
-                importedSoFar = data.getInt(KEY_PROGRESS_IMPORTED_COUNT, 0),
-                failedSoFar = data.getInt(KEY_PROGRESS_FAILED_COUNT, 0)
+                total = total
             )
             else -> null
         }

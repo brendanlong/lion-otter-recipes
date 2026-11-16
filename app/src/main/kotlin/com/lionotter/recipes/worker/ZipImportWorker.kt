@@ -71,7 +71,7 @@ class ZipImportWorker @AssistedInject constructor(
             is Outcome.Success -> {
                 val summary = result.value
                 inputStore.deleteImport(importId)
-                notificationHelper.showSummaryNotification(
+                notificationHelper.showResultNotification(
                     key = importId,
                     title = "Import Complete",
                     message = notificationHelper.zipImportMessage(

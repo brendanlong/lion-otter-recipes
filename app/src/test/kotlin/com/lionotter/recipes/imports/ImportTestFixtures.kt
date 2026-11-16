@@ -49,9 +49,6 @@ class FakePendingImportDao : PendingImportDao {
     override suspend fun updateWorkManagerId(id: String, workManagerId: String) =
         update(id) { it.copy(workManagerId = workManagerId) }
 
-    override suspend fun getPendingImportByWorkManagerId(workManagerId: String) =
-        rows.value.firstOrNull { it.workManagerId == workManagerId }
-
     override suspend fun deletePendingImport(id: String) {
         rows.value = rows.value.filter { it.id != id }
     }

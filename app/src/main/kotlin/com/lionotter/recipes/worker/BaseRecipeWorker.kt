@@ -2,9 +2,11 @@ package com.lionotter.recipes.worker
 
 import com.lionotter.recipes.domain.toRecipeError
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
+import androidx.work.WorkInfo
 import androidx.work.WorkerParameters
 import com.lionotter.recipes.data.remote.AccountLeftException
 import com.lionotter.recipes.domain.RecipeError
@@ -89,6 +91,14 @@ abstract class BaseRecipeWorker(
         notificationHelper.showProgressNotification(progressNotificationId, notificationTitle, message)
     }
 
+    /**
+     * Whether this run was stopped because the user cancelled it (it won't run again), rather
+     * than by the system (it will). False below API 31, where the stop reason is unknown.
+     */
+    protected val cancelledByUser: Boolean
+        get() = isStopped && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            stopReason == WorkInfo.STOP_REASON_CANCELLED_BY_APP
+
     protected fun willRetry(retryable: Boolean): Boolean = retryable && runAttemptCount + 1 < MAX_ATTEMPTS
 
     protected fun cancelProgressNotification() {
@@ -116,7 +126,7 @@ abstract class BaseRecipeWorker(
         }
         if (notify) {
             val message = failure.error.toUserMessage().resolve(applicationContext.resources)
-            notificationHelper.showErrorNotification(operationKey, errorTitle, message)
+            notificationHelper.showResultNotification(operationKey, errorTitle, message)
         }
         return Result.failure(failure.toData())
     }

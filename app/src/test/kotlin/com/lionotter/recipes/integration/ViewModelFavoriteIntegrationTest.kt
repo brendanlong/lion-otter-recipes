@@ -25,7 +25,7 @@ import kotlin.time.Instant
  *
  * This tests whether the favorite toggle works through the same flow transformation
  * chain that the ViewModel uses, without needing to construct the full ViewModel
- * (which requires WorkManager, PendingImportRepository, etc.).
+ * (which requires WorkManager, PendingImportDao, etc.).
  */
 class ViewModelFavoriteIntegrationTest : FirestoreIntegrationTest() {
 

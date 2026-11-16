@@ -66,7 +66,7 @@ class RecipeEditWorkerTest {
                     recipeId = "r1",
                     markdownPath = inputStore.writeWorkText("# Pasta"),
                     model = null,
-                    thinkingEnabled = null,
+                    thinkingEnabled = false,
                     saveAsCopy = true,
                     copyRecipeId = "copy1",
                     copyImage = copyImage

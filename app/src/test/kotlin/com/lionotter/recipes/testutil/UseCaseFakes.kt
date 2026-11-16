@@ -67,7 +67,7 @@ class FakeRecipeBatchParser : RecipeBatchParser {
 
     /** Runs while the batch is being created, e.g. to cancel the caller. */
     var onCreate: suspend () -> Unit = {}
-    var status: Outcome<BatchStatus> = Outcome.Success(BatchStatus(ended = true, succeeded = 0, processing = 0))
+    var status: Outcome<BatchStatus> = Outcome.Success(BatchStatus(ended = true, succeeded = 0))
     var results: List<BatchItemOutcome> = emptyList()
     var resultsError: Outcome.Failure? = null
 

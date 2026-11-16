@@ -128,19 +128,9 @@ class RecipeNotificationHelper @Inject constructor(
         notificationManager.notify(notificationId, notification)
     }
 
+    /** A result notification (a failure or a summary) for the operation identified by [key]. */
     @SuppressLint("MissingPermission")
-    fun showErrorNotification(key: String, title: String, errorMessage: String) {
-        if (!notificationManager.areNotificationsEnabled()) return
-        val notification = resultNotification()
-            .setContentTitle(title)
-            .setContentText(errorMessage)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(errorMessage))
-            .build()
-        notificationManager.notify(resultNotificationId(key), notification)
-    }
-
-    @SuppressLint("MissingPermission")
-    fun showSummaryNotification(key: String, title: String, message: String) {
+    fun showResultNotification(key: String, title: String, message: String) {
         if (!notificationManager.areNotificationsEnabled()) return
         val notification = resultNotification()
             .setContentTitle(title)

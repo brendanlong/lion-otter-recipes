@@ -194,8 +194,7 @@ class AnthropicRecipeParser @Inject constructor(
             Outcome.Success(
                 BatchStatus(
                     ended = batch.processingStatus() == MessageBatch.ProcessingStatus.ENDED,
-                    succeeded = counts.succeeded().toInt(),
-                    processing = counts.processing().toInt()
+                    succeeded = counts.succeeded().toInt()
                 )
             )
         } catch (e: CancellationException) {

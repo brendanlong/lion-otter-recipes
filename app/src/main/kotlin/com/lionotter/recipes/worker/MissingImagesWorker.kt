@@ -3,10 +3,7 @@ package com.lionotter.recipes.worker
 import android.content.Context
 import android.util.Log
 import androidx.hilt.work.HiltWorker
-import androidx.work.BackoffPolicy
-import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
-import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -21,7 +18,6 @@ import com.lionotter.recipes.worker.ImageGenerationFailures.error
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.delay
-import java.util.concurrent.TimeUnit
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -54,8 +50,7 @@ class MissingImagesWorker @AssistedInject constructor(
         internal suspend fun enqueue(workManager: WorkManager) {
             val request = OneTimeWorkRequestBuilder<MissingImagesWorker>()
                 .addTag(TAG_MISSING_IMAGES)
-                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                .withNetworkAndBackoff()
                 .build()
             workManager.enqueueUniqueWork(UNIQUE_WORK_NAME, ExistingWorkPolicy.KEEP, request).await()
         }
@@ -74,10 +69,10 @@ class MissingImagesWorker @AssistedInject constructor(
             if (ImageGenerationFailures.isAccountProblem(error)) {
                 cancelProgressNotification()
                 val resources = applicationContext.resources
-                notificationHelper.showErrorNotification(
+                notificationHelper.showResultNotification(
                     key = ImageGenerationFailures.ACCOUNT_PROBLEM_NOTIFICATION_KEY,
                     title = errorTitle,
-                    errorMessage = ImageGenerationFailures.message(resources, error)
+                    message = ImageGenerationFailures.message(resources, error)
                 )
                 return Result.success()
             }
@@ -85,10 +80,10 @@ class MissingImagesWorker @AssistedInject constructor(
         }
         cancelProgressNotification()
         if (failedCount > 0) {
-            notificationHelper.showErrorNotification(
+            notificationHelper.showResultNotification(
                 key = operationKey,
                 title = errorTitle,
-                errorMessage = applicationContext.resources.getQuantityString(
+                message = applicationContext.resources.getQuantityString(
                     R.plurals.missing_images_failed,
                     failedCount,
                     failedCount

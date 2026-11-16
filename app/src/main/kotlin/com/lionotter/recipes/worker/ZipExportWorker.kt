@@ -56,15 +56,13 @@ class ZipExportWorker @AssistedInject constructor(
             exportToZipUseCase.exportAllRecipes(
                 outputStream = stream,
                 onProgress = { progress ->
-                    val (workProgress, message) = when (progress) {
-                        is ExportToZipUseCase.ExportProgress.Starting ->
-                            ZipExportWork.Progress.Starting to "Starting export..."
-                        is ExportToZipUseCase.ExportProgress.ExportingRecipe ->
-                            ZipExportWork.Progress.Exporting(progress.recipeName, progress.current, progress.total) to
+                    setForegroundProgress(
+                        when (progress) {
+                            is ExportToZipUseCase.ExportProgress.Starting -> "Starting export..."
+                            is ExportToZipUseCase.ExportProgress.ExportingRecipe ->
                                 "Exporting ${progress.current}/${progress.total}: ${progress.recipeName}"
-                    }
-                    setProgress(workProgress.toData())
-                    setForegroundProgress(message)
+                        }
+                    )
                 }
             )
         }
@@ -72,7 +70,7 @@ class ZipExportWorker @AssistedInject constructor(
         return when (result) {
             is Outcome.Success -> {
                 val summary = result.value
-                notificationHelper.showSummaryNotification(
+                notificationHelper.showResultNotification(
                     key = operationKey,
                     title = "Export Complete",
                     message = notificationHelper.zipExportMessage(summary.exportedCount, summary.failedCount)
@@ -84,31 +82,10 @@ class ZipExportWorker @AssistedInject constructor(
     }
 }
 
-object ZipExportWork : WorkContract<ZipExportWork.Progress, ZipExportWork.Outcome> {
+/** Reports no progress: the export's progress is only shown in its notification. */
+object ZipExportWork : WorkContract<Nothing, ZipExportWork.Outcome> {
     private const val KEY_EXPORTED_COUNT = "exported_count"
     private const val KEY_FAILED_COUNT = "failed_count"
-    private const val KEY_CURRENT = "current"
-    private const val KEY_TOTAL = "total"
-
-    private const val PROGRESS_STARTING = "starting"
-    private const val PROGRESS_EXPORTING = "exporting"
-
-    sealed interface Progress {
-        fun toData(): Data
-
-        data object Starting : Progress {
-            override fun toData() = workDataOf(WorkResult.KEY_PROGRESS to PROGRESS_STARTING)
-        }
-
-        data class Exporting(val recipeName: String?, val current: Int, val total: Int) : Progress {
-            override fun toData() = workDataOf(
-                WorkResult.KEY_PROGRESS to PROGRESS_EXPORTING,
-                WorkResult.KEY_RECIPE_NAME to recipeName,
-                KEY_CURRENT to current,
-                KEY_TOTAL to total
-            )
-        }
-    }
 
     sealed interface Outcome {
         data class Success(val exportedCount: Int, val failedCount: Int) : Outcome, SuccessOutcome {
@@ -124,15 +101,7 @@ object ZipExportWork : WorkContract<ZipExportWork.Progress, ZipExportWork.Outcom
         }
     }
 
-    override fun decodeProgress(data: Data): Progress? = when (WorkResult.progress(data)) {
-        PROGRESS_STARTING -> Progress.Starting
-        PROGRESS_EXPORTING -> Progress.Exporting(
-            recipeName = data.getString(WorkResult.KEY_RECIPE_NAME),
-            current = data.getInt(KEY_CURRENT, 0),
-            total = data.getInt(KEY_TOTAL, 0)
-        )
-        else -> null
-    }
+    override fun decodeProgress(data: Data): Nothing? = null
 
     override fun decodeOutcome(succeeded: Boolean, data: Data): Outcome = if (succeeded) {
         Outcome.Success(data.getInt(KEY_EXPORTED_COUNT, 0), data.getInt(KEY_FAILED_COUNT, 0))

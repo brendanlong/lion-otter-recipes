@@ -15,7 +15,7 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** A picked or shared Markdown, text or HTML file to import one recipe from. */
+/** A picked or shared Markdown, text, HTML or PDF file, or photo, to import one recipe from. */
 data class RecipeFile(
     val uri: Uri,
     /** The file's name, shown in the import list until the recipe's name is known. */

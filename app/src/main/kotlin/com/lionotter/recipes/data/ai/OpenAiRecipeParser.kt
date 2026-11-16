@@ -192,8 +192,7 @@ class OpenAiRecipeParser @Inject constructor(
         return Outcome.Success(
             BatchStatus(
                 ended = batch.status in ENDED_STATUSES,
-                succeeded = counts.completed,
-                processing = (counts.total - counts.completed - counts.failed).coerceAtLeast(0)
+                succeeded = counts.completed
             )
         )
     }
